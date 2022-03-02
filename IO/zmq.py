@@ -1,7 +1,7 @@
 import zmq
 from PyQt6 import QtCore
 
-class ZmqReceiver(QtCore.QObject):
+class ZmqStreamReceiver(QtCore.QObject):
     message = QtCore.pyqtSignal(object)
 
     def __init__(self, endpoint: str) -> None:
@@ -25,7 +25,7 @@ class ZmqReceiver(QtCore.QObject):
             self._is_getting_messages = True
 
 if __name__ == "__main__":
-    zmq_receiver = ZmqReceiver("tcp://localhost:5556")
+    zmq_receiver = ZmqStreamReceiver("tcp://localhost:5556")
     
     while True:
         string = zmq_receiver.socket.recv_json()
