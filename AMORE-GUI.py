@@ -12,7 +12,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self,
         zmq_endpoint: str = None,
         filename_import_metadata: str = None,
-        filename_export_metadata: str = None,
+        filename_export_metadata: str = "AMORE.csv",
     ):
         super().__init__()
 
@@ -133,14 +133,13 @@ da-dev@xfel.eu"""
         fileMenu = menu_bar.addMenu("&View")
         # fileMenu.addAction(action_set_columns)
 
-    def _zmq_signal_received(self, message):
+    def _zmq_get_data_and_update(self, message):
 
         if not self._is_zmq_receiving_data:
             self._is_zmq_receiving_data = True
             self._status_bar_connection_status.setText(self.zmq_endpoint)
 
             # ingest data
-            # or model._data?
             self.data = pd.DataFrame({**message, **{"Comment": ''}}, index=[0])
 
             # build the table
@@ -163,11 +162,12 @@ da-dev@xfel.eu"""
             
             # update plots
             # autoscale should be optional!
-            self.plot.update(self._table._data)
+            self.plot.update(self.data)
 
             print(self._table._data)
         
-        print(message)
+        # (over)write down metadata
+        self.data.to_csv(self.filename_export_metadata)
 
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
@@ -175,7 +175,7 @@ da-dev@xfel.eu"""
         self.zeromq_listener.moveToThread(self._zmq_thread)
 
         self._zmq_thread.started.connect(self.zeromq_listener.loop)
-        self.zeromq_listener.message.connect(self._zmq_signal_received)
+        self.zeromq_listener.message.connect(self._zmq_get_data_and_update)
         QtCore.QTimer.singleShot(0, self._zmq_thread.start)
 
     def _create_view(self) -> None:
