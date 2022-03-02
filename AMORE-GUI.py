@@ -1,0 +1,217 @@
+import sys
+import pandas as pd
+import numpy as np
+from PyQt6 import QtCore, QtGui, QtWidgets
+
+from IO.zmq import ZmqStreamReceiver
+from GUI.table import TableView, Table
+from GUI.plot import Plot
+
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(
+        self,
+        zmq_endpoint: str = None,
+        filename_import_metadata: str = None,
+        filename_export_metadata: str = None,
+    ):
+        super().__init__()
+
+        self.data = None
+        self.zmq_endpoint = zmq_endpoint
+        self.filename_import_metadata = filename_import_metadata
+        self.filename_export_metadata = filename_export_metadata
+        self._is_zmq_receiving_data = False
+
+        self.setWindowTitle("~ AMORE ~")
+        self.resize(600, 800)
+        self._create_status_bar()
+        self._create_menu_bar()
+
+        if self.zmq_endpoint is not None:
+            self._zmq_thread_launcher()
+
+        self._view_widget = QtWidgets.QWidget(self)
+        self.setCentralWidget(self._view_widget)
+
+    def _create_status_bar(self) -> None:
+        self._status_bar = QtWidgets.QStatusBar()
+
+        self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
+        self._status_bar.showMessage(
+            "Connect to AMORE backend or import existing metadata."
+        )
+        self.setStatusBar(self._status_bar)
+
+        self._status_bar_connection_status = QtWidgets.QLabel()
+        self._status_bar_connection_status.setStyleSheet("color:green;font-weight:bold;")
+        self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+    def _menu_bar_import_file(self):
+
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "QFileDialog.getOpenFileName()",
+            "",
+            "All files (*);;JSON files (*.json)",
+        )
+
+        if filename:
+            self.filename_import_metadata = filename
+
+    def _menu_bar_export_file(self):
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "QFileDialog.getSaveFileName()",
+            "",
+            "All files (*);;JSON files (*.json)",
+        )
+
+        if filename:
+            self.filename_export_metadata = filename
+
+    def _menu_bar_help(self) -> None:
+        dialog = QtWidgets.QMessageBox(self)
+
+        font = QtGui.QFont()
+        font.setBold(False)
+        dialog.setFont(font)
+
+        dialog.setWindowTitle("Getting help!")
+        dialog.setText(
+            """To start inspecting experimental results,
+connect to the AMORE backend or import existing metadata.
+    
+If you experience any issue, please contact us at:
+da-dev@xfel.eu"""
+        )
+        dialog.exec()
+
+    def _menu_bar_connect(self) -> None:
+        text, status_ok = QtWidgets.QInputDialog.getText(
+            self, "Connect to AMORE backend", "Endpoint (e.g. tcp://localhost:5555):"
+        )
+        if status_ok:
+            self.zmq_endpoint = str(text)
+            self._zmq_thread_launcher()
+
+    def _create_menu_bar(self) -> None:
+        menu_bar = self.menuBar()
+        menu_bar.setNativeMenuBar(False)
+
+        action_connect = QtGui.QAction(QtGui.QIcon("connect.png"), "&Connect", self)
+        action_connect.setShortcut("Shift+C")
+        action_connect.setStatusTip("Connect to AMORE server.")
+        action_connect.triggered.connect(self._menu_bar_connect)
+
+        action_import = QtGui.QAction(QtGui.QIcon("import.png"), "&Import", self)
+        action_import.setShortcut("Shift+I")
+        action_import.setStatusTip("Import metadata.")
+        action_import.triggered.connect(self._menu_bar_import_file)
+
+        action_export = QtGui.QAction(QtGui.QIcon("export.png"), "&Export", self)
+        action_export.setShortcut("Shift+E")
+        action_export.setStatusTip("Export metadata.")
+        action_export.triggered.connect(self._menu_bar_export_file)
+
+        action_help = QtGui.QAction(QtGui.QIcon("help.png"), "&Help", self)
+        action_help.setShortcut("Shift+H")
+        action_help.setStatusTip("Get help.")
+        action_help.triggered.connect(self._menu_bar_help)
+
+        action_exit = QtGui.QAction(QtGui.QIcon("exit.png"), "&Exit", self)
+        action_exit.setShortcut("Ctrl+Q")
+        action_exit.setStatusTip("Exit AMORE GUI.")
+        action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
+
+        fileMenu = menu_bar.addMenu("&AMORE")
+        fileMenu.addAction(action_connect)
+        fileMenu.addAction(action_import)
+        fileMenu.addAction(action_export)
+        fileMenu.addAction(action_help)
+        fileMenu.addAction(action_exit)
+
+        fileMenu = menu_bar.addMenu("&View")
+        # fileMenu.addAction(action_set_columns)
+
+    def _zmq_signal_received(self, message):
+
+        if not self._is_zmq_receiving_data:
+            self._is_zmq_receiving_data = True
+            self._status_bar_connection_status.setText(self.zmq_endpoint)
+
+            # ingest data
+            # or model._data?
+            self.data = pd.DataFrame({**message, **{"Comment": ''}}, index=[0])
+
+            # build the table
+            self._create_view()
+        
+        else:
+            self.data = pd.concat([self.data, pd.DataFrame(message, index=[0])])
+            self._table._data = self.data[::-1]
+            self._table.insertRows(self._table.rowCount())
+
+            # questo deve usare solo gli elementi nel dizionario!!
+            # controlla che ci sia 'Run' e cercalo nei dati, per fare un update parziale
+            for ki, vi in message.items():
+                
+                
+                ci = np.argwhere(self._table._data.columns == ki)[0][0]
+                #print(self._table._data.columns, self._table.rowCount(), ci, vi, ki, self._table.index(self._table.rowCount(), ci).row(), self._table.index(self._table.rowCount(), ci).column())
+                #print(self._table.index(0, 1).column(), self._table.index(0, 1).row(), self._table.index(1, 0).column(), self._table.index(1, 0).row())
+                #self._table.setData(self._table.index(self._table.rowCount(), ci), vi)
+            
+            # update plots
+            # autoscale should be optional!
+            self.plot.update(self._table._data)
+
+            print(self._table._data)
+        
+        print(message)
+
+    def _zmq_thread_launcher(self) -> None:
+        self._zmq_thread = QtCore.QThread()
+        self.zeromq_listener = ZmqStreamReceiver(self.zmq_endpoint)
+        self.zeromq_listener.moveToThread(self._zmq_thread)
+
+        self._zmq_thread.started.connect(self.zeromq_listener.loop)
+        self.zeromq_listener.message.connect(self._zmq_signal_received)
+        QtCore.QTimer.singleShot(0, self._zmq_thread.start)
+
+    def _create_view(self) -> None:
+        vertical_layout = QtWidgets.QVBoxLayout()
+        horizontal_layout = QtWidgets.QHBoxLayout()
+
+        # the table
+        self._table_view = TableView()
+        self._table = Table(self.data)
+        self._table_view.setModel(self._table)
+
+        vertical_layout.addWidget(self._table_view)
+
+        # comments
+        #self.
+
+        # plotting control
+        self.plot = Plot(self.data)
+
+        horizontal_layout.addWidget(self.plot._button_plot)
+        horizontal_layout.addStretch()
+
+        horizontal_layout.addWidget(self.plot._combo_box_x_axis)
+        horizontal_layout.addWidget(self.plot._combo_box_y_axis)
+
+        vertical_layout.addLayout(horizontal_layout)
+
+        self._view_widget.setLayout(vertical_layout)
+
+if __name__ == "__main__":
+    QtWidgets.QApplication.setAttribute(
+        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
+    )
+    application = QtWidgets.QApplication(sys.argv)
+
+    window = MainWindow()
+    window.show()
+
+    sys.exit(application.exec())
