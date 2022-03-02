@@ -1,3 +1,4 @@
+import time
 from PyQt6 import QtCore, QtWidgets
 
 class TableView(QtWidgets.QTableView):
@@ -29,7 +30,7 @@ class Table(QtCore.QAbstractTableModel):
     def insertRows(self, row, rows=1, index=QtCore.QModelIndex()):
         self.beginInsertRows(QtCore.QModelIndex(), row, row + rows - 1)
         self.endInsertRows()
-        
+
         return True
 
     def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole) -> None:
@@ -39,7 +40,8 @@ class Table(QtCore.QAbstractTableModel):
                 or role == QtCore.Qt.ItemDataRole.EditRole
             ):
                 value = self._data.iloc[index.row(), index.column()]
-                return str(value)
+
+                return str(value) if index.column() != self._data.columns.get_loc('Timestamp') else time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
     def setData(self, index, value, role=None) -> None:
         if not index.isValid():
@@ -58,10 +60,8 @@ class Table(QtCore.QAbstractTableModel):
             return self._data.columns[col]
 
     def flags(self, index) -> None:
-        #print("flags")
-        # assume only the last column is editable
-        # meglio: cerca la tag Comment
-        if index.column() == self.columnCount() - 1:
+
+        if index.column() == self._data.columns.get_loc('Comment'):
             return (
                 QtCore.Qt.ItemFlag.ItemIsSelectable
                 | QtCore.Qt.ItemFlag.ItemIsEnabled
