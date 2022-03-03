@@ -2,6 +2,7 @@ import time
 import pandas as pd
 from PyQt6 import QtCore, QtWidgets
 
+
 class TableView(QtWidgets.QTableView):
     def __init__(self) -> None:
         super().__init__()
@@ -12,7 +13,9 @@ class TableView(QtWidgets.QTableView):
         self.setDragDropOverwriteMode(True)
         self.setDragEnabled(True)
         self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.InternalMove)
-        self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
+        )
 
 
 class Table(QtCore.QAbstractTableModel):
@@ -31,7 +34,7 @@ class Table(QtCore.QAbstractTableModel):
         self.endInsertRows()
 
         return True
-    
+
     def insertColumns(self, column, columns=1, index=QtCore.QModelIndex()):
         self.beginInsertColumns(QtCore.QModelIndex(), column, column + columns - 1)
         self.endInsertColumns()
@@ -47,9 +50,9 @@ class Table(QtCore.QAbstractTableModel):
                 value = self.data.iloc[index.row(), index.column()]
 
                 if pd.isna(value):
-                    return ''
+                    return ""
 
-                elif index.column() == self.data.columns.get_loc('Timestamp'):
+                elif index.column() == self.data.columns.get_loc("Timestamp"):
                     return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
                 else:
@@ -58,7 +61,7 @@ class Table(QtCore.QAbstractTableModel):
     def setData(self, index, value, role=None) -> None:
         if not index.isValid():
             return False
-  
+
         self.data.iloc[index.row(), index.column()] = value
         self.dataChanged.emit(index, index)
 
@@ -73,7 +76,7 @@ class Table(QtCore.QAbstractTableModel):
 
     def flags(self, index) -> None:
 
-        if index.column() == self.data.columns.get_loc('Comment'):
+        if index.column() == self.data.columns.get_loc("Comment"):
             return (
                 QtCore.Qt.ItemFlag.ItemIsSelectable
                 | QtCore.Qt.ItemFlag.ItemIsEnabled
