@@ -27,16 +27,18 @@ class Canvas(QtWidgets.QDialog):
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
         self._navigation_toolbar.layout().setSpacing(1)
 
+        # aggiungi qui autoscale
+
         layout.addWidget(self._canvas)
         layout.addWidget(self._navigation_toolbar)
 
     def update_canvas(self, x, y):
         self._line.set_data(x, y)
         self._line.figure.canvas.draw()
-        #self._axis.autoscale(enable=True, axis='both', tight=None)
+        self._axis.autoscale(enable=True, axis='both', tight=None)
 
-        self._axis.set_xlim((x.min(), x.max()))
-        self._axis.set_ylim((y.min(), y.max()))
+        #self._axis.set_xlim((x.min(), x.max()))
+        #self._axis.set_ylim((y.min(), y.max()))
 
 class Plot:
     def __init__(self, data) -> None:
@@ -45,7 +47,12 @@ class Plot:
         self._button_plot.setText("Plot")
         self._button_plot.clicked.connect(self._button_plot_clicked)
 
-        # set method?
+        self.create_combo_box(data)
+        
+        self._canvas = {"key.x": [], "key.y": [], "canvas": []}
+
+    def create_combo_box(self, data):
+        print("Combo box!")
         self._combo_box_x_axis = QtWidgets.QComboBox()
         for ki in data.columns[:-1]:
             self._combo_box_x_axis.addItem(ki)
@@ -53,8 +60,6 @@ class Plot:
         self._combo_box_y_axis = QtWidgets.QComboBox()
         for ki in data.columns[:-1]:
             self._combo_box_y_axis.addItem(ki)
-
-        self._canvas = {"key.x": [], "key.y": [], "canvas": []}
 
     def _button_plot_clicked(self):
         xlabel = self._combo_box_x_axis.currentText()

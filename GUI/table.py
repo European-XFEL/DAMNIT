@@ -32,6 +32,12 @@ class Table(QtCore.QAbstractTableModel):
         self.endInsertRows()
 
         return True
+    
+    def insertColumns(self, column, columns=1, index=QtCore.QModelIndex()):
+        self.beginInsertColumns(QtCore.QModelIndex(), column, column + columns - 1)
+        self.endInsertColumns()
+
+        return True
 
     def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole) -> None:
         if index.isValid():
