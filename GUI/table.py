@@ -1,11 +1,10 @@
 import time
+import pandas as pd
 from PyQt6 import QtCore, QtWidgets
 
 class TableView(QtWidgets.QTableView):
     def __init__(self) -> None:
         super().__init__()
-
-        #self.setSortingEnabled(True)
 
         # movable columns
         self.verticalHeader().setSectionsMovable(True)
@@ -19,13 +18,13 @@ class TableView(QtWidgets.QTableView):
 class Table(QtCore.QAbstractTableModel):
     def __init__(self, data) -> None:
         super().__init__()
-        self._data = data
+        self.data = data
 
     def rowCount(self, index=None) -> None:
-        return self._data.shape[0]
+        return self.data.shape[0]
 
     def columnCount(self, parent=None) -> None:
-        return self._data.shape[1]
+        return self.data.shape[1]
 
     def insertRows(self, row, rows=1, index=QtCore.QModelIndex()):
         self.beginInsertRows(QtCore.QModelIndex(), row, row + rows - 1)
@@ -45,15 +44,22 @@ class Table(QtCore.QAbstractTableModel):
                 role == QtCore.Qt.ItemDataRole.DisplayRole
                 or role == QtCore.Qt.ItemDataRole.EditRole
             ):
-                value = self._data.iloc[index.row(), index.column()]
+                value = self.data.iloc[index.row(), index.column()]
 
-                return str(value) if index.column() != self._data.columns.get_loc('Timestamp') else time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
+                if pd.isna(value):
+                    return ''
+
+                elif index.column() == self.data.columns.get_loc('Timestamp'):
+                    return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
+
+                else:
+                    return str(value)
 
     def setData(self, index, value, role=None) -> None:
         if not index.isValid():
             return False
   
-        self._data.iloc[index.row(), index.column()] = value
+        self.data.iloc[index.row(), index.column()] = value
         self.dataChanged.emit(index, index)
 
         return True
@@ -63,11 +69,11 @@ class Table(QtCore.QAbstractTableModel):
             orientation == QtCore.Qt.Orientation.Horizontal
             and role == QtCore.Qt.ItemDataRole.DisplayRole
         ):
-            return self._data.columns[col]
+            return self.data.columns[col]
 
     def flags(self, index) -> None:
 
-        if index.column() == self._data.columns.get_loc('Comment'):
+        if index.column() == self.data.columns.get_loc('Comment'):
             return (
                 QtCore.Qt.ItemFlag.ItemIsSelectable
                 | QtCore.Qt.ItemFlag.ItemIsEnabled
