@@ -1,4 +1,5 @@
 import sys
+import time
 import pandas as pd
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -135,6 +136,11 @@ da-dev@xfel.eu"""
 
     def _zmq_get_data_and_update(self, message):
 
+        # is the message OK?
+        if 'Run' not in message.keys():
+            raise ValueError("Malformed message.")
+
+        # initialize the view
         if not self._is_zmq_receiving_data:
             self._is_zmq_receiving_data = True
             self._status_bar_connection_status.setText(self.zmq_endpoint)
@@ -146,25 +152,34 @@ da-dev@xfel.eu"""
             self._create_view()
         
         else:
-            self.data = pd.concat([self.data, pd.DataFrame(message, index=[0])])
-            self._table._data = self.data[::-1]
-            self._table.insertRows(self._table.rowCount())
+  
+            for ki in message.keys():
+                if ki not in self.data.columns:
+                    self._table.insertColumns(self._table.columnCount() - 1)
+                    self.plot.create_combo_box(self.data)
 
-            # questo deve usare solo gli elementi nel dizionario!!
-            # controlla che ci sia 'Run' e cercalo nei dati, per fare un update parziale
-            for ki, vi in message.items():
-                
-                
-                ci = np.argwhere(self._table._data.columns == ki)[0][0]
-                #print(self._table._data.columns, self._table.rowCount(), ci, vi, ki, self._table.index(self._table.rowCount(), ci).row(), self._table.index(self._table.rowCount(), ci).column())
-                #print(self._table.index(0, 1).column(), self._table.index(0, 1).row(), self._table.index(1, 0).column(), self._table.index(1, 0).row())
-                #self._table.setData(self._table.index(self._table.rowCount(), ci), vi)
+                    break
+
+            # is the run already in?
+            row = self.data.loc[self.data['Run'] == message['Run']]
+
+            if row.size:
+                for ki, vi in message.items():
+                    self.data.at[row.index[0], ki] = vi
+
+                    index = self._table.index(row.index[0],self.data.columns.get_loc(ki))
+                    self._table.dataChanged.emit(index, index)
+            
+            else:
+                self.data = pd.concat([self.data, pd.DataFrame({**message, **{"Comment": ''}}, index=[self._table.rowCount()])])
+                self._table._data = self.data
+                self._table.insertRows(self._table.rowCount())
             
             # update plots
             # autoscale should be optional!
             self.plot.update(self.data)
 
-            print(self._table._data)
+            print("uuu", self._table._data)
         
         # (over)write down metadata
         self.data.to_csv(self.filename_export_metadata)
