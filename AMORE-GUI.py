@@ -137,7 +137,7 @@ da-dev@xfel.eu"""
         fileMenu = menu_bar.addMenu("&View")
         # fileMenu.addAction(action_set_columns)
 
-    def _zmq_get_data_and_update(self, message):
+    def zmq_get_data_and_update(self, message):
 
         # is the message OK?
         if "Run" not in message.keys():
@@ -163,13 +163,13 @@ da-dev@xfel.eu"""
                             self.data,
                             pd.DataFrame(
                                 {**message, **{"Comment": ""}},
-                                index=[self._table.rowCount()],
+                                index=[self.table.rowCount()],
                             ),
                         ]
                     )
-                    self._table._data = self.data
+                    self.table._data = self.data
 
-                    self._table.insertColumns(self._table.columnCount() - 1)
+                    self.table.insertColumns(self.table.columnCount() - 1)
                     self.plot.update_combo_box((ki,))
 
             # is the run already in?
@@ -179,10 +179,10 @@ da-dev@xfel.eu"""
                 for ki, vi in message.items():
                     self.data.at[row.index[0], ki] = vi
 
-                    index = self._table.index(
+                    index = self.table.index(
                         row.index[0], self.data.columns.get_loc(ki)
                     )
-                    self._table.dataChanged.emit(index, index)
+                    self.table.dataChanged.emit(index, index)
 
             else:
                 self.data = pd.concat(
@@ -190,12 +190,12 @@ da-dev@xfel.eu"""
                         self.data,
                         pd.DataFrame(
                             {**message, **{"Comment": ""}},
-                            index=[self._table.rowCount()],
+                            index=[self.table.rowCount()],
                         ),
                     ]
                 )
-                self._table._data = self.data
-                self._table.insertRows(self._table.rowCount())
+                self.table._data = self.data
+                self.table.insertRows(self.table.rowCount())
 
         # update plots
         self.plot.update(self.data)
@@ -209,7 +209,7 @@ da-dev@xfel.eu"""
         self.zeromq_listener.moveToThread(self._zmq_thread)
 
         self._zmq_thread.started.connect(self.zeromq_listener.loop)
-        self.zeromq_listener.message.connect(self._zmq_get_data_and_update)
+        self.zeromq_listener.message.connect(self.zmq_get_data_and_update)
         QtCore.QTimer.singleShot(0, self._zmq_thread.start)
 
     def _create_view(self) -> None:
@@ -217,11 +217,11 @@ da-dev@xfel.eu"""
         horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
-        self._table_view = TableView()
-        self._table = Table(self.data)
-        self._table_view.setModel(self._table)
+        self.table_view = TableView()
+        self.table = Table(self.data)
+        self.table_view.setModel(self.table)
 
-        vertical_layout.addWidget(self._table_view)
+        vertical_layout.addWidget(self.table_view)
 
         # comments
         # self.
