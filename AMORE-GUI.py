@@ -8,6 +8,7 @@ from IO.zmq import ZmqStreamReceiver
 from GUI.table import TableView, Table
 from GUI.plot import Plot
 
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(
         self,
@@ -44,7 +45,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self._status_bar)
 
         self._status_bar_connection_status = QtWidgets.QLabel()
-        self._status_bar_connection_status.setStyleSheet("color:green;font-weight:bold;")
+        self._status_bar_connection_status.setStyleSheet(
+            "color:green;font-weight:bold;"
+        )
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
     def _menu_bar_import_file(self):
@@ -137,7 +140,7 @@ da-dev@xfel.eu"""
     def _zmq_get_data_and_update(self, message):
 
         # is the message OK?
-        if 'Run' not in message.keys():
+        if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
         # initialize the view
@@ -146,33 +149,51 @@ da-dev@xfel.eu"""
             self._status_bar_connection_status.setText(self.zmq_endpoint)
 
             # ingest data
-            self.data = pd.DataFrame({**message, **{"Comment": ''}}, index=[0])
+            self.data = pd.DataFrame({**message, **{"Comment": ""}}, index=[0])
 
             # build the table
             self._create_view()
-        
+
         else:
-  
+
             for ki in message.keys():
                 if ki not in self.data.columns:
-                    self.data = pd.concat([self.data, pd.DataFrame({**message, **{"Comment": ''}}, index=[self._table.rowCount()])])
+                    self.data = pd.concat(
+                        [
+                            self.data,
+                            pd.DataFrame(
+                                {**message, **{"Comment": ""}},
+                                index=[self._table.rowCount()],
+                            ),
+                        ]
+                    )
                     self._table._data = self.data
-                
-                    self._table.insertColumns(self._table.columnCount() )#- 1)
-                    self.plot.create_combo_box(self.data.columns[:-1])
+
+                    self._table.insertColumns(self._table.columnCount() - 1)
+                    self.plot.update_combo_box((ki,))
 
             # is the run already in?
-            row = self.data.loc[self.data['Run'] == message['Run']]
+            row = self.data.loc[self.data["Run"] == message["Run"]]
 
             if row.size:
                 for ki, vi in message.items():
                     self.data.at[row.index[0], ki] = vi
 
-                    index = self._table.index(row.index[0],self.data.columns.get_loc(ki))
+                    index = self._table.index(
+                        row.index[0], self.data.columns.get_loc(ki)
+                    )
                     self._table.dataChanged.emit(index, index)
-            
+
             else:
-                self.data = pd.concat([self.data, pd.DataFrame({**message, **{"Comment": ''}}, index=[self._table.rowCount()])])
+                self.data = pd.concat(
+                    [
+                        self.data,
+                        pd.DataFrame(
+                            {**message, **{"Comment": ""}},
+                            index=[self._table.rowCount()],
+                        ),
+                    ]
+                )
                 self._table._data = self.data
                 self._table.insertRows(self._table.rowCount())
 
@@ -203,7 +224,7 @@ da-dev@xfel.eu"""
         vertical_layout.addWidget(self._table_view)
 
         # comments
-        #self.
+        # self.
 
         # plotting control
         self.plot = Plot(self.data)
@@ -217,6 +238,7 @@ da-dev@xfel.eu"""
         vertical_layout.addLayout(horizontal_layout)
 
         self._view_widget.setLayout(vertical_layout)
+
 
 if __name__ == "__main__":
     QtWidgets.QApplication.setAttribute(
