@@ -24,7 +24,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._is_zmq_receiving_data = False
 
         self.setWindowTitle("~ AMORE ~")
-        self.resize(600, 800)
+        self.resize(800, 1000)
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -155,10 +155,11 @@ da-dev@xfel.eu"""
   
             for ki in message.keys():
                 if ki not in self.data.columns:
-                    self._table.insertColumns(self._table.columnCount() - 1)
-                    self.plot.create_combo_box(self.data)
-
-                    break
+                    self.data = pd.concat([self.data, pd.DataFrame({**message, **{"Comment": ''}}, index=[self._table.rowCount()])])
+                    self._table._data = self.data
+                
+                    self._table.insertColumns(self._table.columnCount() )#- 1)
+                    self.plot.create_combo_box(self.data.columns[:-1])
 
             # is the run already in?
             row = self.data.loc[self.data['Run'] == message['Run']]
@@ -174,15 +175,12 @@ da-dev@xfel.eu"""
                 self.data = pd.concat([self.data, pd.DataFrame({**message, **{"Comment": ''}}, index=[self._table.rowCount()])])
                 self._table._data = self.data
                 self._table.insertRows(self._table.rowCount())
-            
-            # update plots
-            # autoscale should be optional!
-            self.plot.update(self.data)
 
-            print("uuu", self._table._data)
-        
+        # update plots
+        self.plot.update(self.data)
+
         # (over)write down metadata
-        self.data.to_csv(self.filename_export_metadata)
+        self.data.to_json(self.filename_export_metadata)
 
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
