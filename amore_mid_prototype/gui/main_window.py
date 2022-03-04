@@ -239,8 +239,7 @@ da-dev@xfel.eu"""
 
         self._view_widget.setLayout(vertical_layout)
 
-
-if __name__ == "__main__":
+def main():
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
@@ -250,3 +249,6 @@ if __name__ == "__main__":
     window.show()
 
     sys.exit(application.exec())
+
+if __name__ == "__main__":
+    main()
