@@ -23,6 +23,8 @@ class TestEventProcessor(EventProcessor):
                        'instrument': inst, 'cycle': cycle}
                 record = DummyRecord(timestamp=int(datetime.utcnow().timestamp() * 1000))
                 self.handle_migration_complete(record, msg)
+            except EOFError:
+                break  # Allow Ctrl-D to close it
             except Exception:
                 log.error("Error processing event", exc_info=True)
 
