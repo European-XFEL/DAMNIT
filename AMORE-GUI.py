@@ -2,7 +2,7 @@ import sys
 import time
 import pandas as pd
 import numpy as np
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import Qt, QtCore, QtGui, QtWidgets
 
 from IO.zmq import ZmqStreamReceiver
 from GUI.table import TableView, Table
@@ -167,7 +167,7 @@ da-dev@xfel.eu"""
                             ),
                         ]
                     )
-                    self.table._data = self.data
+                    self.table.data = self.data
 
                     self.table.insertColumns(self.table.columnCount() - 1)
                     self.plot.update_combo_box((ki,))
@@ -194,11 +194,12 @@ da-dev@xfel.eu"""
                         ),
                     ]
                 )
-                self.table._data = self.data
+                self.table.data = self.data
                 self.table.insertRows(self.table.rowCount())
 
         # update plots
-        self.plot.update(self.data)
+        self.plot.data = self.data
+        self.plot.update()
 
         # (over)write down metadata
         self.data.to_json(self.filename_export_metadata)
@@ -233,6 +234,7 @@ da-dev@xfel.eu"""
         horizontal_layout.addStretch()
 
         horizontal_layout.addWidget(self.plot._combo_box_x_axis)
+        horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
         horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
         vertical_layout.addLayout(horizontal_layout)
