@@ -174,23 +174,6 @@ da-dev@xfel.eu"""
             self._create_view()
 
         else:
-
-            for ki in message.keys():
-                if ki not in self.data.columns:
-                    self.data = pd.concat(
-                        [
-                            self.data,
-                            pd.DataFrame(
-                                {**message, **{"Comment": ""}},
-                                index=[self.table.rowCount()],
-                            ),
-                        ]
-                    )
-                    self.table.data = self.data
-
-                    self.table.insertColumns(self.table.columnCount() - 1)
-                    self.plot.update_combo_box((ki,))
-
             # is the run already in?
             row = self.data.loc[self.data["Run"] == message["Run"]]
 
@@ -215,6 +198,11 @@ da-dev@xfel.eu"""
                 )
                 self.table.data = self.data
                 self.table.insertRows(self.table.rowCount())
+
+            new_cols = set(message) - set(self.data.columns)
+            if new_cols:
+                self.table.insertColumns(self.table.columnCount() - 1, len(new_cols))
+                self.plot.update_combo_box(new_cols)
 
         # update plots
         self.plot.data = self.data
