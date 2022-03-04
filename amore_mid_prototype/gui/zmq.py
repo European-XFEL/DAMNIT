@@ -1,5 +1,5 @@
 import zmq
-from PyQt6 import QtCore
+from PyQt5 import QtCore
 
 class ZmqStreamReceiver(QtCore.QObject):
     message = QtCore.pyqtSignal(object)

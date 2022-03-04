@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
@@ -116,27 +116,27 @@ da-dev@xfel.eu"""
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
 
-        action_connect = QtGui.QAction(QtGui.QIcon("connect.png"), "&Connect", self)
+        action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "&Connect", self)
         action_connect.setShortcut("Shift+C")
         action_connect.setStatusTip("Connect to AMORE server.")
         action_connect.triggered.connect(self._menu_bar_connect)
 
-        action_import = QtGui.QAction(QtGui.QIcon("import.png"), "&Import", self)
+        action_import = QtWidgets.QAction(QtGui.QIcon("import.png"), "&Import", self)
         action_import.setShortcut("Shift+I")
         action_import.setStatusTip("Import metadata.")
         action_import.triggered.connect(self._menu_bar_import_file)
 
-        action_export = QtGui.QAction(QtGui.QIcon("export.png"), "&Export", self)
+        action_export = QtWidgets.QAction(QtGui.QIcon("export.png"), "&Export", self)
         action_export.setShortcut("Shift+E")
         action_export.setStatusTip("Export metadata.")
         action_export.triggered.connect(self._menu_bar_export_file)
 
-        action_help = QtGui.QAction(QtGui.QIcon("help.png"), "&Help", self)
+        action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
         action_help.triggered.connect(self._menu_bar_help)
 
-        action_exit = QtGui.QAction(QtGui.QIcon("exit.png"), "&Exit", self)
+        action_exit = QtWidgets.QAction(QtGui.QIcon("exit.png"), "&Exit", self)
         action_exit.setShortcut("Ctrl+Q")
         action_exit.setStatusTip("Exit AMORE GUI.")
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)

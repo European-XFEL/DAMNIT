@@ -1,6 +1,6 @@
 import time
 import pandas as pd
-from PyQt6 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
 
 class TableView(QtWidgets.QTableView):
