@@ -165,6 +165,7 @@ da-dev@xfel.eu"""
             self._is_zmq_receiving_data = True
             self._status_bar_connection_status.setText(self.zmq_endpoint)
 
+        if self._view_widget.layout() is None:
             # ingest data
             self.data = pd.DataFrame({**message, **{"Comment": ""}}, index=[0])
 
