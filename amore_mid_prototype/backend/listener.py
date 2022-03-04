@@ -92,6 +92,7 @@ class EventProcessor:
             reduced_data = load_reduced_data(out_path)
             log.info("Reduced data has %d fields", len(reduced_data))
             add_to_db(reduced_data, self.db, proposal, run)
+
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
             reduced_data['Timestamp'] = record.timestamp / 1000

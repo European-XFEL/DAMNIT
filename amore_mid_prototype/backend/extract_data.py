@@ -125,7 +125,8 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
     values_sql = ", ".join([f':{c}' for c in col_names])
     updates_sql = ", ".join([f'{c} = :{c}' for c in col_names])
 
-    reduced_data.update({'proposal': proposal, 'run': run})
+    db_data = reduced_data.copy()
+    db_data.update({'proposal': proposal, 'run': run})
 
     with db:
         db.execute(f"""
