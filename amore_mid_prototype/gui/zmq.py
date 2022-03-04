@@ -13,11 +13,11 @@ class ZmqStreamReceiver(QtCore.QObject):
         context = zmq.Context()
         self.socket = context.socket(zmq.SUB)
         self.socket.connect(self.endpoint)
+        self.socket.subscribe(b'')
 
         self._is_connected = True
 
     def loop(self) -> None:
-
         while self._is_connected:
             string = self.socket.recv_json()
             self.message.emit(string)

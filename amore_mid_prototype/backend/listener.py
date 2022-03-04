@@ -29,6 +29,7 @@ class EventProcessor:
         self.zmq_sock: zmq.Socket = zmq.Context.instance().socket(zmq.PUB)
         zmq_port = self.zmq_sock.bind_to_random_port('tcp://*')
         self.zmq_addr = f"tcp://{socket.gethostname()}:{zmq_port}"
+        log.info("ZMQ address: %s", self.zmq_addr)
 
         self._zmq_addr_file = context_dir / '.zmq_extraction_events'
         with self._zmq_addr_file.open('w') as f:
@@ -89,10 +90,12 @@ class EventProcessor:
             log.error("Data extraction failed; exit code was %d", extract_res.returncode)
         else:
             reduced_data = load_reduced_data(out_path)
+            log.info("Reduced data has %d fields", len(reduced_data))
             add_to_db(reduced_data, self.db, proposal, run)
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
             self.zmq_sock.send_json(reduced_data)
+            log.info("Sent ZMQ message")
 
 
 def listen_migrated():
