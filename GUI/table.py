@@ -6,6 +6,7 @@ from PyQt6 import QtCore, QtWidgets
 class TableView(QtWidgets.QTableView):
     def __init__(self) -> None:
         super().__init__()
+        self.setAlternatingRowColors(False)
 
         # movable columns
         self.verticalHeader().setSectionsMovable(True)
