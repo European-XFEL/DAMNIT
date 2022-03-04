@@ -109,7 +109,7 @@ da-dev@xfel.eu"""
         if sqlite_path.is_file():
             db = sqlite3.connect(sqlite_path)
             df = pd.read_sql_query('SELECT * FROM runs', db)
-            self.data = df.rename(columns={'run': 'Run'})
+            self.data = df.rename(columns={'run': 'Run', 'comment': 'Comment'})
             self._create_view()
 
     def _create_menu_bar(self) -> None:

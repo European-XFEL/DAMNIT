@@ -19,7 +19,7 @@ def open_db() -> sqlite3.Connection:
     log.info("Opening database at %s", DB)
     conn = sqlite3.connect(str(DB))
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, migrated_at)"
+        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, migrated_at, comment)"
     )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr)"
