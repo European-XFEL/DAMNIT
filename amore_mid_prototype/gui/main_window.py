@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 import sys
 from pathlib import Path
@@ -8,6 +9,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
 from .plot import Plot
+
+
+log = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -101,12 +105,15 @@ da-dev@xfel.eu"""
         zmq_addr_path = Path(path, '.zmq_extraction_events')
         if zmq_addr_path.is_file():
             self.zmq_endpoint = zmq_addr_path.read_text().strip()
+            log.info("Connecting to %s (ZMQ)", self.zmq_endpoint)
             self._zmq_thread_launcher()
         else:
+            log.warning("No .zmq_extraction_events file in context folder")
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
 
         sqlite_path = Path(path, 'runs.sqlite')
         if sqlite_path.is_file():
+            log.info("Reading data from database")
             db = sqlite3.connect(sqlite_path)
             df = pd.read_sql_query('SELECT * FROM runs', db)
             df.migrated_at /= 1000  # ms -> s
@@ -161,6 +168,8 @@ da-dev@xfel.eu"""
         if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
+        log.info("Updating for ZMQ message: %s", message)
+
         # initialize the view
         if not self._is_zmq_receiving_data:
             self._is_zmq_receiving_data = True
@@ -178,6 +187,8 @@ da-dev@xfel.eu"""
             row = self.data.loc[self.data["Run"] == message["Run"]]
 
             if row.size:
+                log.debug("Update existing row %s for run %s",
+                          row.index, message['Run'])
                 for ki, vi in message.items():
                     self.data.at[row.index[0], ki] = vi
 
@@ -187,6 +198,7 @@ da-dev@xfel.eu"""
                     self.table.dataChanged.emit(index, index)
 
             else:
+                log.debug("New row in table")
                 self.data = pd.concat(
                     [
                         self.data,
@@ -201,6 +213,7 @@ da-dev@xfel.eu"""
 
             new_cols = set(message) - set(self.data.columns)
             if new_cols:
+                log.info("New columns for table: %s", new_cols)
                 self.table.insertColumns(self.table.columnCount() - 1, len(new_cols))
                 self.plot.update_combo_box(new_cols)
 
@@ -249,6 +262,7 @@ da-dev@xfel.eu"""
         self._view_widget.setLayout(vertical_layout)
 
 def main():
+    logging.basicConfig(level=logging.INFO)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
