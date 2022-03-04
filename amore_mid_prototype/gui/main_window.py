@@ -111,7 +111,8 @@ da-dev@xfel.eu"""
             df = pd.read_sql_query('SELECT * FROM runs', db)
             df.migrated_at /= 1000  # ms -> s
             self.data = df.rename(columns={
-                'runnr': 'Run', 'migrated_at': 'Timestamp', 'comment': 'Comment'
+                'runnr': 'Run', 'proposal': 'Proposal',
+                'migrated_at': 'Timestamp', 'comment': 'Comment'
             })
             self._create_view()
 
