@@ -38,7 +38,10 @@ class EventProcessor:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._zmq_addr_file.unlink()
+        try:
+            self._zmq_addr_file.unlink()
+        except FileNotFoundError:
+            pass
         self.zmq_sock.close()
         self.kafka_cns.close()
         self.db.close()
@@ -80,7 +83,7 @@ class EventProcessor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         extract_res = subprocess.run([
-            sys.executable, '-m', 'amore_mid_prototype.extract_data', run_dir, out_path
+            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', run_dir, out_path
         ])
         if extract_res.returncode != 0:
             log.error("Data extraction failed; exit code was %d", extract_res.returncode)
