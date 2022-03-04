@@ -94,6 +94,7 @@ class EventProcessor:
             add_to_db(reduced_data, self.db, proposal, run)
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
+            reduced_data['Timestamp'] = record.timestamp / 1000
             self.zmq_sock.send_json(reduced_data)
             log.info("Sent ZMQ message")
 
