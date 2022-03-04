@@ -29,7 +29,7 @@ class TestEventProcessor(EventProcessor):
 
 def listen_migrated():
     try:
-        with EventProcessor() as processor:
+        with TestEventProcessor() as processor:
             processor.run()
     except KeyboardInterrupt:
         print("Stopping on Ctrl-C")
