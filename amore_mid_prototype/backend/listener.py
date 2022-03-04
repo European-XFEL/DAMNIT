@@ -38,7 +38,7 @@ class EventProcessor:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._zmq_addr_file.unlink(missing_ok=True)
+        self._zmq_addr_file.unlink()
         self.zmq_sock.close()
         self.kafka_cns.close()
         self.db.close()
