@@ -1,12 +1,10 @@
 import sys
-import time
 import pandas as pd
-import numpy as np
-from PyQt6 import Qt, QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 
-from IO.zmq import ZmqStreamReceiver
-from GUI.table import TableView, Table
-from GUI.plot import Plot
+from .zmq import ZmqStreamReceiver
+from .table import TableView, Table
+from .plot import Plot
 
 
 class MainWindow(QtWidgets.QMainWindow):

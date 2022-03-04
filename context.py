@@ -1,6 +1,6 @@
 import numpy as np
 
-from amore_mid_prototype.context import Variable
+from amore_mid_prototype.backend.context import Variable
 
 @Variable(summary='mean')
 def xgm_intensity(run):
