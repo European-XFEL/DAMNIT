@@ -133,7 +133,7 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
             INSERT INTO runs (proposal, runnr, {cols_sql})
             VALUES (:proposal, :run, {values_sql})
             ON CONFLICT (proposal, runnr) DO UPDATE SET {updates_sql}
-        """, reduced_data)
+        """, db_data)
 
 
 if __name__ == '__main__':
