@@ -24,10 +24,10 @@ class Table(QtCore.QAbstractTableModel):
         super().__init__()
         self.data = data
 
-    def rowCount(self, index=None) -> None:
+    def rowCount(self, index=None) -> int:
         return self.data.shape[0]
 
-    def columnCount(self, parent=None) -> None:
+    def columnCount(self, parent=None) -> int:
         return self.data.shape[1]
 
     def insertRows(self, row, rows=1, index=QtCore.QModelIndex()):
@@ -42,7 +42,7 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
-    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole) -> None:
+    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if index.isValid():
             if (
                 role == QtCore.Qt.ItemDataRole.DisplayRole
@@ -59,7 +59,7 @@ class Table(QtCore.QAbstractTableModel):
                 else:
                     return str(value)
 
-    def setData(self, index, value, role=None) -> None:
+    def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
             return False
 
@@ -68,14 +68,14 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
-    def headerData(self, col, orientation, role) -> None:
+    def headerData(self, col, orientation, role):
         if (
             orientation == QtCore.Qt.Orientation.Horizontal
             and role == QtCore.Qt.ItemDataRole.DisplayRole
         ):
             return self.data.columns[col]
 
-    def flags(self, index) -> None:
+    def flags(self, index) -> QtCore.Qt.ItemFlag:
 
         if index.column() == self.data.columns.get_loc("Comment"):
             return (
