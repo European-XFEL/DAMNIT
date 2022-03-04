@@ -1,4 +1,7 @@
+import sqlite3
 import sys
+from pathlib import Path
+
 import pandas as pd
 from PyQt6 import QtCore, QtGui, QtWidgets
 
@@ -89,12 +92,25 @@ da-dev@xfel.eu"""
         dialog.exec()
 
     def _menu_bar_connect(self) -> None:
-        text, status_ok = QtWidgets.QInputDialog.getText(
-            self, "Connect to AMORE backend", "Endpoint (e.g. tcp://localhost:5555):"
+        path = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select context directory",
         )
-        if status_ok:
-            self.zmq_endpoint = str(text)
+        if not path:
+            return
+
+        zmq_addr_path = Path(path, '.zmq_extraction_events')
+        if zmq_addr_path.is_file():
+            self.zmq_endpoint = zmq_addr_path.read_text().strip()
             self._zmq_thread_launcher()
+        else:
+            self._status_bar_connection_status.setText("No ZMQ socket found in folder")
+
+        sqlite_path = Path(path, 'runs.sqlite')
+        if sqlite_path.is_file():
+            db = sqlite3.connect(sqlite_path)
+            df = pd.read_sql_query('SELECT * FROM runs', db)
+            self.data = df.rename(columns={'run': 'Run'})
+            self._create_view()
 
     def _create_menu_bar(self) -> None:
         menu_bar = self.menuBar()

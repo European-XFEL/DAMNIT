@@ -30,13 +30,15 @@ class EventProcessor:
         zmq_port = self.zmq_sock.bind_to_random_port('tcp://*')
         self.zmq_addr = f"tcp://{socket.gethostname()}:{zmq_port}"
 
-        with (context_dir / 'zmq_extraction_events').open('w') as f:
+        self._zmq_addr_file = context_dir / '.zmq_extraction_events'
+        with self._zmq_addr_file.open('w') as f:
             f.write(self.zmq_addr)
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self._zmq_addr_file.unlink(missing_ok=True)
         self.zmq_sock.close()
         self.kafka_cns.close()
         self.db.close()

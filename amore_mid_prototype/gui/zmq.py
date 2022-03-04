@@ -11,7 +11,7 @@ class ZmqStreamReceiver(QtCore.QObject):
         self._is_getting_messages = False
 
         context = zmq.Context()
-        self.socket = context.socket(zmq.PULL)
+        self.socket = context.socket(zmq.SUB)
         self.socket.connect(self.endpoint)
 
         self._is_connected = True
