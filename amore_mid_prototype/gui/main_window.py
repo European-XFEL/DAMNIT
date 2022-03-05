@@ -19,18 +19,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self,
         zmq_endpoint: str = None,
         filename_import_metadata: str = None,
-        filename_export_metadata: str = "AMORE.csv",
     ):
         super().__init__()
 
         self.data = None
         self.zmq_endpoint = zmq_endpoint
         self.filename_import_metadata = filename_import_metadata
-        self.filename_export_metadata = filename_export_metadata
         self._is_zmq_receiving_data = False
 
         self.setWindowTitle("~ AMORE ~")
-        self.resize(800, 1000)
+        self.resize(600, 1000)
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -45,7 +43,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage(
-            "Connect to AMORE backend or import existing metadata."
+            "Autoconfigure AMORE."
         )
         self.setStatusBar(self._status_bar)
 
@@ -67,17 +65,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if filename:
             self.filename_import_metadata = filename
 
-    def _menu_bar_export_file(self):
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            "QFileDialog.getSaveFileName()",
-            "",
-            "All files (*);;JSON files (*.json)",
-        )
-
-        if filename:
-            self.filename_export_metadata = filename
-
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
 
@@ -88,14 +75,14 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.setWindowTitle("Getting help!")
         dialog.setText(
             """To start inspecting experimental results,
-connect to the AMORE backend or import existing metadata.
+autoconfigure AMORE by selecting the proposal directory.
     
 If you experience any issue, please contact us at:
 da-dev@xfel.eu"""
         )
         dialog.exec()
 
-    def _menu_bar_connect(self) -> None:
+    def _menu_bar_autoconfigure(self) -> None:
         path = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Select context directory",
         )
@@ -123,24 +110,27 @@ da-dev@xfel.eu"""
             })
             self._create_view()
 
+    def _menu_bar_connect(self) -> None:
+        text, status_ok = QtWidgets.QInputDialog.getText(
+            self, "Connect to AMORE backend", "Endpoint (e.g. tcp://localhost:5555):"
+        )
+        if status_ok:
+            self.zmq_endpoint = str(text)
+            self._zmq_thread_launcher()
+
     def _create_menu_bar(self) -> None:
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
+
+        action_autoconfigure = QtWidgets.QAction(QtGui.QIcon("autoconfigure.png"), "&Autoconfigure", self)
+        action_autoconfigure.setShortcut("Shift+A")
+        action_autoconfigure.setStatusTip("Autoconfigure AMORE.")
+        action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
         action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "&Connect", self)
         action_connect.setShortcut("Shift+C")
         action_connect.setStatusTip("Connect to AMORE server.")
         action_connect.triggered.connect(self._menu_bar_connect)
-
-        action_import = QtWidgets.QAction(QtGui.QIcon("import.png"), "&Import", self)
-        action_import.setShortcut("Shift+I")
-        action_import.setStatusTip("Import metadata.")
-        action_import.triggered.connect(self._menu_bar_import_file)
-
-        action_export = QtWidgets.QAction(QtGui.QIcon("export.png"), "&Export", self)
-        action_export.setShortcut("Shift+E")
-        action_export.setStatusTip("Export metadata.")
-        action_export.triggered.connect(self._menu_bar_export_file)
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
@@ -153,9 +143,8 @@ da-dev@xfel.eu"""
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
         fileMenu = menu_bar.addMenu("&AMORE")
+        fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_connect)
-        fileMenu.addAction(action_import)
-        fileMenu.addAction(action_export)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
@@ -220,9 +209,6 @@ da-dev@xfel.eu"""
         # update plots
         self.plot.data = self.data
         self.plot.update()
-
-        # (over)write down metadata
-        self.data.to_json(self.filename_export_metadata)
 
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
