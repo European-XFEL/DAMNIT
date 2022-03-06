@@ -131,7 +131,9 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "Connect with &endpoint", self)
+        action_connect = QtWidgets.QAction(
+            QtGui.QIcon("connect.png"), "Connect with &endpoint", self
+        )
         action_connect.setShortcut("Shift+E")
         action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
         action_connect.triggered.connect(self._menu_bar_connect)
@@ -151,9 +153,6 @@ da-dev@xfel.eu"""
         fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
-
-        fileMenu = menu_bar.addMenu("&View")
-        # fileMenu.addAction(action_set_columns)
 
     def zmq_get_data_and_update(self, message):
 
@@ -220,12 +219,12 @@ da-dev@xfel.eu"""
             if new_cols:
                 log.info("New columns for table: %s", new_cols)
                 self.table.insertColumns(self.table.columnCount() - 1)
-                
+
                 self.plot.update_combo_box(new_cols)
-                
+
                 self.table_view.set_item_columns_visibility(
-                list(new_cols), [True for _ in list(new_cols)]
-            )
+                    list(new_cols), [True for _ in list(new_cols)]
+                )
 
         # update plots
         self.plot.data = self.data
@@ -262,12 +261,12 @@ da-dev@xfel.eu"""
         vertical_layout.addLayout(table_horizontal_layout)
 
         # comments
-        #self.nameLabel = QLabel(self)
-        #self.nameLabel.setText('Name:')
+        # self.nameLabel = QLabel(self)
+        # self.nameLabel.setText('Name:')
 
-        #comment_horizontal_layout.addWidget(self.nameLabel)
+        # comment_horizontal_layout.addWidget(self.nameLabel)
 
-        #vertical_layout.addLayout(comment_horizontal_layout)
+        # vertical_layout.addLayout(comment_horizontal_layout)
 
         # plotting control
         self.plot = Plot(self.data)
