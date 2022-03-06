@@ -220,7 +220,12 @@ da-dev@xfel.eu"""
             if new_cols:
                 log.info("New columns for table: %s", new_cols)
                 self.table.insertColumns(self.table.columnCount() - 1)
+                
                 self.plot.update_combo_box(new_cols)
+                
+                self.table_view.set_item_columns_visibility(
+                list(new_cols), [True for _ in list(new_cols)]
+            )
 
         # update plots
         self.plot.data = self.data
@@ -238,6 +243,7 @@ da-dev@xfel.eu"""
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
+        comment_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
@@ -256,7 +262,12 @@ da-dev@xfel.eu"""
         vertical_layout.addLayout(table_horizontal_layout)
 
         # comments
-        # self.
+        #self.nameLabel = QLabel(self)
+        #self.nameLabel.setText('Name:')
+
+        #comment_horizontal_layout.addWidget(self.nameLabel)
+
+        #vertical_layout.addLayout(comment_horizontal_layout)
 
         # plotting control
         self.plot = Plot(self.data)

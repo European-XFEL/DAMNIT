@@ -6,6 +6,7 @@ from PyQt5 import QtCore, QtWidgets
 class TableView(QtWidgets.QTableView):
     def __init__(self) -> None:
         super().__init__()
+        self._is_column_visible = True
         self.setAlternatingRowColors(False)
 
         self.setSortingEnabled(True)
@@ -37,9 +38,7 @@ class TableView(QtWidgets.QTableView):
         else:
             self.setColumnHidden(column_index, True)
 
-    def set_columns_visibility(self, columns, status):
-        vertical_layout = QtWidgets.QVBoxLayout()
-
+    def set_item_columns_visibility(self, columns, status):
         for i in range(len(columns)):
             item = QtWidgets.QCheckBox(columns[i])
             item.setCheckable(True)
@@ -50,10 +49,17 @@ class TableView(QtWidgets.QTableView):
                 ): self.state_changed(state, column_index)
             )
 
-            vertical_layout.addWidget(item)
-        vertical_layout.addStretch()
+            self._columns_visibility_layout.insertWidget(self._columns_visibility_layout.count()-1, item)
 
-        return vertical_layout
+    def set_columns_visibility(self, columns, status):
+        self._is_column_visible = status
+        self._columns_visibility_layout = QtWidgets.QVBoxLayout()
+
+        self._columns_visibility_layout.addStretch()
+
+        self.set_item_columns_visibility(columns, status)
+
+        return self._columns_visibility_layout 
 
 
 class Table(QtCore.QAbstractTableModel):
