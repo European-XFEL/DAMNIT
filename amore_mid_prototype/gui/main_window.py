@@ -16,9 +16,7 @@ log = logging.getLogger(__name__)
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(
-        self,
-        zmq_endpoint: str = None,
-        filename_import_metadata: str = None,
+        self, zmq_endpoint: str = None, filename_import_metadata: str = None,
     ):
         super().__init__()
 
@@ -42,9 +40,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar = QtWidgets.QStatusBar()
 
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
-        self._status_bar.showMessage(
-            "Autoconfigure AMORE."
-        )
+        self._status_bar.showMessage("Autoconfigure AMORE.")
         self.setStatusBar(self._status_bar)
 
         self._status_bar_connection_status = QtWidgets.QLabel()
@@ -89,7 +85,7 @@ da-dev@xfel.eu"""
         if not path:
             return
 
-        zmq_addr_path = Path(path, '.zmq_extraction_events')
+        zmq_addr_path = Path(path, ".zmq_extraction_events")
         if zmq_addr_path.is_file():
             self.zmq_endpoint = zmq_addr_path.read_text().strip()
             log.info("Connecting to %s (ZMQ)", self.zmq_endpoint)
@@ -98,16 +94,20 @@ da-dev@xfel.eu"""
             log.warning("No .zmq_extraction_events file in context folder")
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
 
-        sqlite_path = Path(path, 'runs.sqlite')
+        sqlite_path = Path(path, "runs.sqlite")
         if sqlite_path.is_file():
             log.info("Reading data from database")
             db = sqlite3.connect(sqlite_path)
-            df = pd.read_sql_query('SELECT * FROM runs', db)
+            df = pd.read_sql_query("SELECT * FROM runs", db)
             df.migrated_at /= 1000  # ms -> s
-            self.data = df.rename(columns={
-                'runnr': 'Run', 'proposal': 'Proposal',
-                'migrated_at': 'Timestamp', 'comment': 'Comment'
-            })
+            self.data = df.rename(
+                columns={
+                    "runnr": "Run",
+                    "proposal": "Proposal",
+                    "migrated_at": "Timestamp",
+                    "comment": "Comment",
+                }
+            )
             self._create_view()
 
     def _menu_bar_connect(self) -> None:
@@ -122,9 +122,13 @@ da-dev@xfel.eu"""
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
 
-        action_autoconfigure = QtWidgets.QAction(QtGui.QIcon("autoconfigure.png"), "&Autoconfigure", self)
+        action_autoconfigure = QtWidgets.QAction(
+            QtGui.QIcon("autoconfigure.png"), "&Autoconfigure", self
+        )
         action_autoconfigure.setShortcut("Shift+A")
-        action_autoconfigure.setStatusTip("Autoconfigure AMORE.")
+        action_autoconfigure.setStatusTip(
+            "Autoconfigure AMORE by selecting the proposal folder."
+        )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
         action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "&Connect", self)
@@ -176,8 +180,9 @@ da-dev@xfel.eu"""
             row = self.data.loc[self.data["Run"] == message["Run"]]
 
             if row.size:
-                log.debug("Update existing row %s for run %s",
-                          row.index, message['Run'])
+                log.debug(
+                    "Update existing row %s for run %s", row.index, message["Run"]
+                )
                 for ki, vi in message.items():
                     self.data.at[row.index[0], ki] = vi
 
@@ -221,14 +226,22 @@ da-dev@xfel.eu"""
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
-        horizontal_layout = QtWidgets.QHBoxLayout()
+        table_horizontal_layout = QtWidgets.QHBoxLayout()
+        plot_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
         self.table_view = TableView()
         self.table = Table(self.data)
         self.table_view.setModel(self.table)
 
-        vertical_layout.addWidget(self.table_view)
+        table_horizontal_layout.addWidget(self.table_view, stretch=1.5)
+        table_horizontal_layout.addLayout(
+            self.table_view.set_columns_visibility(
+                self.table.data.columns, [True for _ in self.table.data.columns]
+            ), stretch=0.25
+        )
+
+        vertical_layout.addLayout(table_horizontal_layout)
 
         # comments
         # self.
@@ -236,16 +249,17 @@ da-dev@xfel.eu"""
         # plotting control
         self.plot = Plot(self.data)
 
-        horizontal_layout.addWidget(self.plot._button_plot)
-        horizontal_layout.addStretch()
+        plot_horizontal_layout.addWidget(self.plot._button_plot)
+        plot_horizontal_layout.addStretch()
 
-        horizontal_layout.addWidget(self.plot._combo_box_x_axis)
-        horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
-        horizontal_layout.addWidget(self.plot._combo_box_y_axis)
+        plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
+        plot_horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
+        plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
-        vertical_layout.addLayout(horizontal_layout)
+        vertical_layout.addLayout(plot_horizontal_layout)
 
         self._view_widget.setLayout(vertical_layout)
+
 
 def main():
     logging.basicConfig(level=logging.INFO)
@@ -258,6 +272,7 @@ def main():
     window.show()
 
     sys.exit(application.exec())
+
 
 if __name__ == "__main__":
     main()

@@ -18,6 +18,36 @@ class TableView(QtWidgets.QTableView):
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
+    """
+    def doubleClicked(index) -> True:
+        if not index.isValid():
+            return False
+        
+        print(index.row(), index.column())
+
+        return True
+    """
+
+    def state_changed(self, state, column_index):
+        if (QtCore.Qt.Checked == state):
+            self.setColumnHidden(column_index, False)
+        else:
+            self.setColumnHidden(column_index, True)
+
+    def set_columns_visibility(self, columns, status):
+        vertical_layout = QtWidgets.QVBoxLayout()
+        print(self.model())
+
+        for i in range(len(columns)):
+            item = QtWidgets.QCheckBox(columns[i])
+            item.setCheckable(True)
+            item.setCheckState(QtCore.Qt.Checked if status[i] else QtCore.Qt.Unchecked)
+            item.stateChanged.connect(lambda state, column_index=self.model().data.columns.get_loc(columns[i]): self.state_changed(state, column_index) )
+
+            vertical_layout.addWidget(item)
+        vertical_layout.addStretch()
+
+        return vertical_layout
 
 class Table(QtCore.QAbstractTableModel):
     def __init__(self, data) -> None:
