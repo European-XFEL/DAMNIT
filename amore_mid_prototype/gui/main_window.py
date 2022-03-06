@@ -161,7 +161,7 @@ da-dev@xfel.eu"""
         if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
-        log.info("Updating for ZMQ message: %s", message)
+        #log.info("Updating for ZMQ message: %s", message)
 
         # initialize the view
         if not self._is_zmq_receiving_data:
@@ -178,6 +178,9 @@ da-dev@xfel.eu"""
         else:
             # is the run already in?
             row = self.data.loc[self.data["Run"] == message["Run"]]
+
+            # additional columns?
+            new_cols = set(message) - set(self.data.columns)
 
             if row.size:
                 log.debug(
@@ -205,7 +208,6 @@ da-dev@xfel.eu"""
                 self.table.data = self.data
                 self.table.insertRows(self.table.rowCount())
 
-            new_cols = set(message) - set(self.data.columns)
             if new_cols:
                 log.info("New columns for table: %s", new_cols)
                 self.table.insertColumns(self.table.columnCount() - 1, len(new_cols))
@@ -262,7 +264,7 @@ da-dev@xfel.eu"""
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
