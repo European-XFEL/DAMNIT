@@ -161,7 +161,7 @@ da-dev@xfel.eu"""
         if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
-        #log.info("Updating for ZMQ message: %s", message)
+        # log.info("Updating for ZMQ message: %s", message)
 
         # initialize the view
         if not self._is_zmq_receiving_data:
@@ -206,6 +206,15 @@ da-dev@xfel.eu"""
                     ]
                 )
                 self.table.data = self.data
+                if len(self.table.is_sorted_by):
+                    self.table.data.sort_values(
+                        self.table.is_sorted_by,
+                        ascending=self.table.is_sorted_order
+                        == QtCore.Qt.AscendingOrder,
+                        inplace=True,
+                    )
+                    self.table.data.reset_index(inplace=True, drop=True)
+
                 self.table.insertRows(self.table.rowCount())
 
             if new_cols:
@@ -240,7 +249,8 @@ da-dev@xfel.eu"""
         table_horizontal_layout.addLayout(
             self.table_view.set_columns_visibility(
                 self.table.data.columns, [True for _ in self.table.data.columns]
-            ), stretch=0.25
+            ),
+            stretch=0.25,
         )
 
         vertical_layout.addLayout(table_horizontal_layout)

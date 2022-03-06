@@ -8,6 +8,9 @@ class TableView(QtWidgets.QTableView):
         super().__init__()
         self.setAlternatingRowColors(False)
 
+        self.setSortingEnabled(True)
+        self.sortByColumn(0, QtCore.Qt.AscendingOrder)
+
         # movable columns
         self.verticalHeader().setSectionsMovable(True)
         self.horizontalHeader().setSectionsMovable(True)
@@ -19,7 +22,7 @@ class TableView(QtWidgets.QTableView):
         )
 
     """
-    def doubleClicked(index) -> True:
+    def doubleClicked(index) -> bool:
         if not index.isValid():
             return False
         
@@ -29,30 +32,36 @@ class TableView(QtWidgets.QTableView):
     """
 
     def state_changed(self, state, column_index):
-        if (QtCore.Qt.Checked == state):
+        if QtCore.Qt.Checked == state:
             self.setColumnHidden(column_index, False)
         else:
             self.setColumnHidden(column_index, True)
 
     def set_columns_visibility(self, columns, status):
         vertical_layout = QtWidgets.QVBoxLayout()
-        print(self.model())
 
         for i in range(len(columns)):
             item = QtWidgets.QCheckBox(columns[i])
             item.setCheckable(True)
             item.setCheckState(QtCore.Qt.Checked if status[i] else QtCore.Qt.Unchecked)
-            item.stateChanged.connect(lambda state, column_index=self.model().data.columns.get_loc(columns[i]): self.state_changed(state, column_index) )
+            item.stateChanged.connect(
+                lambda state, column_index=self.model().data.columns.get_loc(
+                    columns[i]
+                ): self.state_changed(state, column_index)
+            )
 
             vertical_layout.addWidget(item)
         vertical_layout.addStretch()
 
         return vertical_layout
 
+
 class Table(QtCore.QAbstractTableModel):
     def __init__(self, data) -> None:
         super().__init__()
         self.data = data
+        self.is_sorted_by = ""
+        self.is_sorted_order = None
 
     def rowCount(self, index=None) -> int:
         return self.data.shape[0]
@@ -118,3 +127,16 @@ class Table(QtCore.QAbstractTableModel):
             return (
                 QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled
             )
+
+    def sort(self, column, order):
+        self.is_sorted_by = self.data.columns.tolist()[column]
+        self.is_sorted_order = order
+
+        self.layoutAboutToBeChanged.emit()
+
+        self.data.sort_values(
+            self.is_sorted_by, ascending=order == QtCore.Qt.AscendingOrder, inplace=True
+        )
+        self.data.reset_index(inplace=True, drop=True)
+
+        self.layoutChanged.emit()
