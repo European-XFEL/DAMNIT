@@ -123,7 +123,7 @@ da-dev@xfel.eu"""
         menu_bar.setNativeMenuBar(False)
 
         action_autoconfigure = QtWidgets.QAction(
-            QtGui.QIcon("autoconfigure.png"), "&Autoconfigure", self
+            QtGui.QIcon("autoconfigure.png"), "Connect with &autoconfiguration", self
         )
         action_autoconfigure.setShortcut("Shift+A")
         action_autoconfigure.setStatusTip(
@@ -131,8 +131,8 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "&Connect", self)
-        action_connect.setShortcut("Shift+C")
+        action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "Connect with &endpoint", self)
+        action_connect.setShortcut("Shift+E")
         action_connect.setStatusTip("Connect to AMORE server.")
         action_connect.triggered.connect(self._menu_bar_connect)
 
