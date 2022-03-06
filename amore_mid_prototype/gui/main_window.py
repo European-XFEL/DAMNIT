@@ -133,7 +133,7 @@ da-dev@xfel.eu"""
 
         action_connect = QtWidgets.QAction(QtGui.QIcon("connect.png"), "Connect with &endpoint", self)
         action_connect.setShortcut("Shift+E")
-        action_connect.setStatusTip("Connect to AMORE server.")
+        action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
         action_connect.triggered.connect(self._menu_bar_connect)
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)

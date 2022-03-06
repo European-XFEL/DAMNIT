@@ -95,6 +95,9 @@ class Table(QtCore.QAbstractTableModel):
                 elif index.column() == self.data.columns.get_loc("Timestamp"):
                     return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
+                elif pd.api.types.is_float(value):
+                    return str("{:.6f}".format(value))
+
                 else:
                     return str(value)
 
