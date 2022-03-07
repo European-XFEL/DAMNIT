@@ -10,8 +10,6 @@ from matplotlib.figure import Figure
 class Canvas(QtWidgets.QDialog):
     def __init__(self, parent=None, xlabel="", ylabel=""):
         super().__init__()
-        self.autoscale = True
-
         self.setStyleSheet("background-color: white")
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -35,23 +33,16 @@ class Canvas(QtWidgets.QDialog):
         self._autoscale_checkbox.setLayoutDirection(
             QtCore.Qt.LayoutDirection.RightToLeft
         )
-        self._autoscale_checkbox.stateChanged.connect(self._set_autoscale)
 
         layout.addWidget(self._canvas)
         layout.addWidget(self._autoscale_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
-    def _set_autoscale(self):
-        if self._autoscale_checkbox.isChecked():
-            self.autoscale = True
-        else:
-            self.autoscale = False
-
     def update_canvas(self, x, y):
         self._line.set_data(x, y)
         self._line.figure.canvas.draw()
 
-        if self.autoscale:
+        if self._autoscale_checkbox.isChecked():
             self._axis.set_xlim((x.min(), x.max()))
             self._axis.set_ylim((y.min(), y.max()))
 
