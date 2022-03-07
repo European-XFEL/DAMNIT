@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 
 import pandas as pd
@@ -16,13 +17,12 @@ log = logging.getLogger(__name__)
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(
-        self, zmq_endpoint: str = None, filename_import_metadata: str = None,
+        self, zmq_endpoint: str = None, context_dir: Path = None,
     ):
         super().__init__()
 
         self.data = None
         self.zmq_endpoint = zmq_endpoint
-        self.filename_import_metadata = filename_import_metadata
         self._is_zmq_receiving_data = False
 
         self.setWindowTitle("~ AMORE ~")
@@ -30,7 +30,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_status_bar()
         self._create_menu_bar()
 
-        if self.zmq_endpoint is not None:
+        if context_dir is not None:
+            self.autoconfigure(context_dir)
+        elif self.zmq_endpoint is not None:
             self._zmq_thread_launcher()
 
         self._view_widget = QtWidgets.QWidget(self)
@@ -82,10 +84,11 @@ da-dev@xfel.eu"""
         path = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Select context directory",
         )
-        if not path:
-            return
+        if path:
+            self.autoconfigure(Path(path))
 
-        zmq_addr_path = Path(path, ".zmq_extraction_events")
+    def autoconfigure(self, path: Path):
+        zmq_addr_path = path / ".zmq_extraction_events"
         if zmq_addr_path.is_file():
             self.zmq_endpoint = zmq_addr_path.read_text().strip()
             log.info("Connecting to %s (ZMQ)", self.zmq_endpoint)
@@ -94,7 +97,7 @@ da-dev@xfel.eu"""
             log.warning("No .zmq_extraction_events file in context folder")
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
 
-        sqlite_path = Path(path, "runs.sqlite")
+        sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
             db = sqlite3.connect(sqlite_path)
@@ -284,13 +287,19 @@ da-dev@xfel.eu"""
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    ap = ArgumentParser()
+    ap.add_argument('context_dir', type=Path,
+                    help="Directory storing summarised results")
+    ap.add_argument('--debug', action='store_true')
+    args = ap.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
     application = QtWidgets.QApplication(sys.argv)
 
-    window = MainWindow()
+    window = MainWindow(context_dir=args.context_dir)
     window.show()
 
     sys.exit(application.exec())
