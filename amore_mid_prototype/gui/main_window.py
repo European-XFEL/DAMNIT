@@ -223,7 +223,7 @@ da-dev@xfel.eu"""
 
             if new_cols:
                 log.info("New columns for table: %s", new_cols)
-                self.table.insertColumns(self.table.columnCount() - 1)
+                self.table.insertColumns(self.table.columnCount() - 1, len(new_cols))
 
                 self.plot.update_combo_box(new_cols)
 
