@@ -44,7 +44,7 @@ class TableView(QtWidgets.QTableView):
             item.setCheckable(True)
             item.setCheckState(QtCore.Qt.Checked if status[i] else QtCore.Qt.Unchecked)
             item.stateChanged.connect(
-                lambda state, column_index=self.model().data.columns.get_loc(
+                lambda state, column_index=self.model()._data.columns.get_loc(
                     columns[i]
                 ): self.state_changed(state, column_index)
             )
