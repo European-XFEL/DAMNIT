@@ -231,7 +231,6 @@ da-dev@xfel.eu"""
                 )
 
         # update plots
-        self.plot.data = self.data
         self.plot.update()
 
     def _zmq_thread_launcher(self) -> None:

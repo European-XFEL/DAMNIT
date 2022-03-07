@@ -1,3 +1,5 @@
+import logging
+
 from PyQt5 import QtCore, QtWidgets
 
 from matplotlib.backends.backend_qtagg import (
@@ -5,6 +7,8 @@ from matplotlib.backends.backend_qtagg import (
     NavigationToolbar2QT as NavigationToolbar,
 )
 from matplotlib.figure import Figure
+
+log = logging.getLogger(__name__)
 
 
 class Canvas(QtWidgets.QDialog):
@@ -82,6 +86,7 @@ class Plot:
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
 
+        log.info("New plot for x=%r, y=%r")
         canvas = Canvas(self, xlabel=xlabel, ylabel=ylabel)
 
         self._canvas["key.x"].append(xlabel)
@@ -96,4 +101,5 @@ class Plot:
         for xi, yi, ci in zip(
             self._canvas["key.x"], self._canvas["key.y"], self._canvas["canvas"]
         ):
+            log.debug("Updating plot for x=%s, y=%s", xi, yi)
             ci.update_canvas(self._data[xi], self._data[yi])
