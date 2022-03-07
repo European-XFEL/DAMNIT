@@ -30,13 +30,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_status_bar()
         self._create_menu_bar()
 
+        self._view_widget = QtWidgets.QWidget(self)
+        self.setCentralWidget(self._view_widget)
+
         if context_dir is not None:
             self.autoconfigure(context_dir)
         elif self.zmq_endpoint is not None:
             self._zmq_thread_launcher()
-
-        self._view_widget = QtWidgets.QWidget(self)
-        self.setCentralWidget(self._view_widget)
 
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
