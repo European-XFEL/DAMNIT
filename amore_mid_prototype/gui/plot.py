@@ -101,4 +101,4 @@ class Plot:
         for xi, yi, ci in zip(
             self._canvas["key.x"], self._canvas["key.y"], self._canvas["canvas"]
         ):
-            ci.update_canvas(self.data[xi], self.data[yi])
+            ci.update_canvas(self._data[xi], self._data[yi])
