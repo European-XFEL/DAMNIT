@@ -17,6 +17,8 @@ log = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    db = None
+
     def __init__(
         self, zmq_endpoint: str = None, context_dir: Path = None,
     ):
@@ -101,8 +103,8 @@ da-dev@xfel.eu"""
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
-            db = sqlite3.connect(sqlite_path)
-            df = pd.read_sql_query("SELECT * FROM runs", db)
+            self.db = sqlite3.connect(sqlite_path)
+            df = pd.read_sql_query("SELECT * FROM runs", self.db)
             self.data = df.rename(
                 columns={
                     "runnr": "Run",
@@ -264,6 +266,7 @@ da-dev@xfel.eu"""
         # the table
         self.table_view = TableView()
         self.table = Table(self)
+        self.table.comment_changed.connect(self.save_comment)
         self.table_view.setModel(self.table)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
@@ -298,6 +301,16 @@ da-dev@xfel.eu"""
 
         self._view_widget.setLayout(vertical_layout)
 
+    def save_comment(self, row, value):
+        if self.db is None:
+            log.warning("No SQLite database in use, comment not saved")
+            return
+
+        prop, run = self.data.iloc[row][['Proposal', 'Run']]
+        with self.db:
+            self.db.execute("""
+                UPDATE runs set comment=? WHERE proposal=? AND runnr=?
+            """, (value, prop, run))
 
 def main():
     ap = ArgumentParser()

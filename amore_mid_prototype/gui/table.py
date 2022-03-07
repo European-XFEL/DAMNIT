@@ -64,6 +64,8 @@ class TableView(QtWidgets.QTableView):
 
 
 class Table(QtCore.QAbstractTableModel):
+    comment_changed = QtCore.pyqtSignal(int, str)
+
     def __init__(self, main_window):
         super().__init__()
         self._main_window = main_window
@@ -118,6 +120,9 @@ class Table(QtCore.QAbstractTableModel):
 
         self._data.iloc[index.row(), index.column()] = value
         self.dataChanged.emit(index, index)
+
+        # Only comment column is editable
+        self.comment_changed.emit(index.row(), value)
 
         return True
 
