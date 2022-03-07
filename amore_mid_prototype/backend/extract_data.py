@@ -27,8 +27,14 @@ class Context:
         log.debug("Loaded context from %s: %d variables", path, len(vars))
         return cls(vars)
 
+    @staticmethod
+    def get_start_time(xd_run):
+        ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
+        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
+        return np.float64(np.datetime64(ts, 'us').item().timestamp())
+
     def process(self, xd_run):
-        res = {}
+        res = {'start_time': self.get_start_time(xd_run)}
         for name, var in self.vars.items():
             try:
                 data = var.func(xd_run)
