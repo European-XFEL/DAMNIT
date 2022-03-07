@@ -23,5 +23,5 @@ dependencies = [
 [project.urls]
 Home = "https://git.xfel.eu/amore/mid-2833"
 
-[scripts]
+[project.scripts]
 amore-proto = "amore_mid_prototype.cli:main"
