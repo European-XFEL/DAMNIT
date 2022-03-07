@@ -13,6 +13,7 @@ classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version", "description"]
 dependencies = [
     "EXtra-data",
+    "kafka-python",
     "matplotlib",
     "numpy",
     "pandas",
