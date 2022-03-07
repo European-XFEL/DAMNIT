@@ -312,6 +312,16 @@ da-dev@xfel.eu"""
                 UPDATE runs set comment=? WHERE proposal=? AND runnr=?
             """, (value, int(prop), int(run)))
 
+def run_app(context_dir):
+    QtWidgets.QApplication.setAttribute(
+        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
+    )
+    application = QtWidgets.QApplication(sys.argv)
+
+    window = MainWindow(context_dir=context_dir)
+    window.show()
+    return application.exec()
+
 def main():
     ap = ArgumentParser()
     ap.add_argument('context_dir', type=Path, nargs='?',
@@ -320,15 +330,8 @@ def main():
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
-    QtWidgets.QApplication.setAttribute(
-        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
-    )
-    application = QtWidgets.QApplication(sys.argv)
 
-    window = MainWindow(context_dir=args.context_dir)
-    window.show()
-
-    sys.exit(application.exec())
+    sys.exit(run_app(args.context_dir))
 
 
 if __name__ == "__main__":
