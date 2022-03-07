@@ -44,11 +44,12 @@ class Canvas(QtWidgets.QDialog):
 
     def update_canvas(self, x, y):
         self._line.set_data(x, y)
-        self._line.figure.canvas.draw()
 
         if self._autoscale_checkbox.isChecked():
             self._axis.set_xlim((x.min(), x.max()))
             self._axis.set_ylim((y.min(), y.max()))
+
+        self._line.figure.canvas.draw()
 
 
 class Plot:
