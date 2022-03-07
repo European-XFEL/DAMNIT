@@ -291,7 +291,7 @@ da-dev@xfel.eu"""
 
 def main():
     ap = ArgumentParser()
-    ap.add_argument('context_dir', type=Path,
+    ap.add_argument('context_dir', type=Path, nargs='?',
                     help="Directory storing summarised results")
     ap.add_argument('--debug', action='store_true')
     args = ap.parse_args()
