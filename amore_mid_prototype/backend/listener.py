@@ -77,7 +77,7 @@ class EventProcessor:
         with self.db:
             self.db.execute("""
                 INSERT INTO runs (proposal, runnr, migrated_at) VALUES (?, ?, ?)
-            """, (proposal, run, record.timestamp))
+            """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
         out_path = self.context_dir / 'extracted_data' / f'p{proposal}_r{run}.h5'

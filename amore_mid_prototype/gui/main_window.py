@@ -102,7 +102,6 @@ da-dev@xfel.eu"""
             log.info("Reading data from database")
             db = sqlite3.connect(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", db)
-            df.migrated_at /= 1000  # ms -> s
             self.data = df.rename(
                 columns={
                     "runnr": "Run",

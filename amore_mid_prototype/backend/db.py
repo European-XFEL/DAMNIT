@@ -1,4 +1,3 @@
-from datetime import datetime
 import logging
 import sqlite3
 
@@ -26,12 +25,6 @@ def open_db() -> sqlite3.Connection:
     )
     conn.row_factory = sqlite3.Row
     return conn
-
-
-def timestamp(row: sqlite3.Row, tz=None) -> datetime:
-    # Kafka timestamps are in ms from the Unix epoch
-    # Without specifying a timezone, fromtimestamp() converts to local time
-    return datetime.fromtimestamp(row['timestamp'] / 1000, tz=tz)
 
 
 if __name__ == '__main__':
