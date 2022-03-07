@@ -17,6 +17,7 @@ dependencies = [
     "numpy",
     "pandas",
     "PyQt5",
+    "pyzmq",
     "xarray",
 ]
 
