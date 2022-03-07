@@ -307,10 +307,11 @@ da-dev@xfel.eu"""
             return
 
         prop, run = self.data.iloc[row][['Proposal', 'Run']]
+        log.debug("Saving comment for prop %d run %d", prop, run)
         with self.db:
             self.db.execute("""
                 UPDATE runs set comment=? WHERE proposal=? AND runnr=?
-            """, (value, prop, run))
+            """, (value, int(prop), int(run)))
 
 def main():
     ap = ArgumentParser()
