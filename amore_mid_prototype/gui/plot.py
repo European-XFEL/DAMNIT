@@ -58,13 +58,14 @@ class Plot:
         keys = list(main_window.data.columns)
         keys.remove("Comment")
 
-        self._button_plot = QtWidgets.QPushButton()
+        self._button_plot = QtWidgets.QPushButton(main_window)
         self._button_plot.setEnabled(True)
         self._button_plot.setText("Plot")
         self._button_plot.clicked.connect(self._button_plot_clicked)
 
         self.create_combo_box()
         self.update_combo_box(keys)
+        self._combo_box_x_axis.setCurrentText('Run')
 
         self._canvas = {"key.x": [], "key.y": [], "canvas": []}
 
@@ -73,14 +74,12 @@ class Plot:
         return self._main_window.data
 
     def create_combo_box(self):
-        self._combo_box_x_axis = QtWidgets.QComboBox()
-        self._combo_box_y_axis = QtWidgets.QComboBox()
+        self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
+        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
 
     def update_combo_box(self, keys):
         for ki in keys:
             self._combo_box_x_axis.addItem(ki)
-
-        for ki in keys:
             self._combo_box_y_axis.addItem(ki)
 
     def _button_plot_clicked(self):
