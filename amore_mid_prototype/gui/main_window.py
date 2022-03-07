@@ -107,7 +107,7 @@ da-dev@xfel.eu"""
                 columns={
                     "runnr": "Run",
                     "proposal": "Proposal",
-                    "migrated_at": "Timestamp",
+                    "start_time": "Timestamp",
                     "comment": "Comment",
                 }
             )
@@ -164,6 +164,9 @@ da-dev@xfel.eu"""
             raise ValueError("Malformed message.")
 
         # log.info("Updating for ZMQ message: %s", message)
+
+        # Rename start_time -> Timestamp for table
+        message['Timestamp'] = message.pop('start_time')
 
         # initialize the view
         if not self._is_zmq_receiving_data:
