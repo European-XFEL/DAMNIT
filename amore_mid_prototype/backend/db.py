@@ -1,11 +1,9 @@
 import logging
 import sqlite3
 
-DB = 'runs.sqlite'
-
 log = logging.getLogger(__name__)
 
-def open_db() -> sqlite3.Connection:
+def open_db(path='runs.sqlite') -> sqlite3.Connection:
     """ Initialize the sqlite run database
 
     A new database is created if no pre-existing one is present. A single
@@ -15,8 +13,8 @@ def open_db() -> sqlite3.Connection:
 
     More columns may be added later (by executing ALTER TABLE runs ADD COLUMN)
     """
-    log.info("Opening database at %s", DB)
-    conn = sqlite3.connect(str(DB))
+    log.info("Opening database at %s", path)
+    conn = sqlite3.connect(path)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, added_at, comment)"
     )

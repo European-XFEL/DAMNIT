@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 class EventProcessor:
     def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
-        self.db = open_db()
+        self.db = open_db(context_dir / 'runs.sqlite')
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.execute("pragma user_version=0;")
 
