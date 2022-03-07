@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import Qt
 
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
@@ -186,6 +187,22 @@ da-dev@xfel.eu"""
             # additional columns?
             new_cols = set(message) - set(self.data.columns)
 
+            if new_cols:
+                log.info("New columns for table: %s", new_cols)
+                ncols_before = self.table.columnCount()
+                self.table.beginInsertColumns(
+                    QtCore.QModelIndex(), ncols_before, ncols_before + len(new_cols) - 1
+                )
+                for col_name in new_cols:
+                    self.data.insert(len(self.data.columns), col_name, pd.NA)
+                self.table.endInsertColumns()
+
+                self.plot.update_combo_box(new_cols)
+
+                self.table_view.set_item_columns_visibility(
+                    list(new_cols), [True for _ in list(new_cols)]
+                )
+
             if row.size:
                 log.debug(
                     "Update existing row %s for run %s", row.index, message["Run"]
@@ -199,36 +216,32 @@ da-dev@xfel.eu"""
                     self.table.dataChanged.emit(index, index)
 
             else:
-                log.debug("New row in table")
-                self.data = pd.concat(
+                sort_col = self.table.is_sorted_by
+                if self.table.is_sorted_by and message.get(sort_col):
+                    newval = message[sort_col]
+                    if self.table.is_sorted_order == Qt.SortOrder.AscendingOrder:
+                        ix = self.data[sort_col].searchsorted(newval)
+                    else:
+                        ix_back = self.data[sort_col][::-1].searchsorted(newval)
+                        ix = len(self.data) - ix_back
+                else:
+                    ix = len(self.data)
+                log.debug("New row in table at index %d", ix)
+
+                new_df = pd.concat(
                     [
-                        self.data,
+                        self.data.iloc[:ix],
                         pd.DataFrame(
                             {**message, **{"Comment": ""}},
                             index=[self.table.rowCount()],
                         ),
-                    ]
+                        self.data.iloc[ix:]
+                    ], ignore_index=True,
                 )
-                if len(self.table.is_sorted_by):
-                    self.data.sort_values(
-                        self.table.is_sorted_by,
-                        ascending=self.table.is_sorted_order
-                        == QtCore.Qt.AscendingOrder,
-                        inplace=True,
-                    )
-                    self.data.reset_index(inplace=True, drop=True)
 
-                self.table.insertRows(self.table.rowCount())
-
-            if new_cols:
-                log.info("New columns for table: %s", new_cols)
-                self.table.insertColumns(self.table.columnCount() - 1, len(new_cols))
-
-                self.plot.update_combo_box(new_cols)
-
-                self.table_view.set_item_columns_visibility(
-                    list(new_cols), [True for _ in list(new_cols)]
-                )
+                self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
+                self.data = new_df
+                self.table.endInsertRows()
 
         # update plots
         self.plot.update()
