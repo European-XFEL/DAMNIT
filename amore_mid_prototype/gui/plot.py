@@ -86,8 +86,8 @@ class Plot:
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
 
-        log.info("New plot for x=%r, y=%r")
-        canvas = Canvas(self, xlabel=xlabel, ylabel=ylabel)
+        log.info("New plot for x=%r, y=%r", xlabel, ylabel)
+        canvas = Canvas(self._main_window, xlabel=xlabel, ylabel=ylabel)
 
         self._canvas["key.x"].append(xlabel)
         self._canvas["key.y"].append(ylabel)
