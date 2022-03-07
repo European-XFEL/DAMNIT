@@ -250,12 +250,12 @@ da-dev@xfel.eu"""
         self.table = Table(self.data)
         self.table_view.setModel(self.table)
 
-        table_horizontal_layout.addWidget(self.table_view, stretch=1.5)
+        table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addLayout(
             self.table_view.set_columns_visibility(
                 self.table.data.columns, [True for _ in self.table.data.columns]
             ),
-            stretch=0.25,
+            stretch=1,
         )
 
         vertical_layout.addLayout(table_horizontal_layout)
