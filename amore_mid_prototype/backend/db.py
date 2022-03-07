@@ -11,14 +11,14 @@ def open_db() -> sqlite3.Connection:
     A new database is created if no pre-existing one is present. A single
     table is created: runs, which has columns:
 
-        proposal, run, migrated_at
+        proposal, run, added_at, comment
 
     More columns may be added later (by executing ALTER TABLE runs ADD COLUMN)
     """
     log.info("Opening database at %s", DB)
     conn = sqlite3.connect(str(DB))
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, migrated_at, comment)"
+        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, added_at, comment)"
     )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr)"

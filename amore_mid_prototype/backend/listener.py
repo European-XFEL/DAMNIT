@@ -76,7 +76,8 @@ class EventProcessor:
 
         with self.db:
             self.db.execute("""
-                INSERT INTO runs (proposal, runnr, migrated_at) VALUES (?, ?, ?)
+                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, runnr) DO NOTHING
             """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
@@ -95,7 +96,7 @@ class EventProcessor:
 
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
-            reduced_data['migrated_at'] = record.timestamp / 1000
+            reduced_data['added_at'] = record.timestamp / 1000
             self.zmq_sock.send_json(reduced_data)
             log.info("Sent ZMQ message")
 
