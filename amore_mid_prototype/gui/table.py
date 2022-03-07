@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtCore import Qt
 
 
 class TableView(QtWidgets.QTableView):
@@ -10,7 +11,7 @@ class TableView(QtWidgets.QTableView):
         self.setAlternatingRowColors(False)
 
         self.setSortingEnabled(True)
-        self.sortByColumn(0, QtCore.Qt.AscendingOrder)
+        self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
         # movable columns
         self.verticalHeader().setSectionsMovable(True)
@@ -33,7 +34,7 @@ class TableView(QtWidgets.QTableView):
     """
 
     def state_changed(self, state, column_index):
-        if QtCore.Qt.Checked == state:
+        if Qt.CheckState.Checked == state:
             self.setColumnHidden(column_index, False)
         else:
             self.setColumnHidden(column_index, True)
@@ -42,7 +43,7 @@ class TableView(QtWidgets.QTableView):
         for i in range(len(columns)):
             item = QtWidgets.QCheckBox(columns[i])
             item.setCheckable(True)
-            item.setCheckState(QtCore.Qt.Checked if status[i] else QtCore.Qt.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if status[i] else Qt.CheckState.Unchecked)
             item.stateChanged.connect(
                 lambda state, column_index=self.model()._data.columns.get_loc(
                     columns[i]
@@ -91,11 +92,11 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
-    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if index.isValid():
             if (
-                role == QtCore.Qt.ItemDataRole.DisplayRole
-                or role == QtCore.Qt.ItemDataRole.EditRole
+                role == Qt.ItemDataRole.DisplayRole
+                or role == Qt.ItemDataRole.EditRole
             ):
                 value = self._data.iloc[index.row(), index.column()]
 
@@ -122,23 +123,23 @@ class Table(QtCore.QAbstractTableModel):
 
     def headerData(self, col, orientation, role):
         if (
-            orientation == QtCore.Qt.Orientation.Horizontal
-            and role == QtCore.Qt.ItemDataRole.DisplayRole
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
         ):
             return self._data.columns[col]
 
-    def flags(self, index) -> QtCore.Qt.ItemFlag:
+    def flags(self, index) -> Qt.ItemFlag:
 
         if index.column() == self._data.columns.get_loc("Comment"):
             return (
-                QtCore.Qt.ItemFlag.ItemIsSelectable
-                | QtCore.Qt.ItemFlag.ItemIsEnabled
-                | QtCore.Qt.ItemFlag.ItemIsEditable
+                Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsEditable
             )
 
         else:
             return (
-                QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
             )
 
     def sort(self, column, order):
@@ -148,7 +149,7 @@ class Table(QtCore.QAbstractTableModel):
         self.layoutAboutToBeChanged.emit()
 
         self._data.sort_values(
-            self.is_sorted_by, ascending=order == QtCore.Qt.AscendingOrder, inplace=True
+            self.is_sorted_by, ascending=order == Qt.SortOrder.AscendingOrder, inplace=True
         )
         self._data.reset_index(inplace=True, drop=True)
 
