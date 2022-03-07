@@ -57,9 +57,9 @@ class Canvas(QtWidgets.QDialog):
 
 
 class Plot:
-    def __init__(self, data) -> None:
-        self._data = data
-        keys = list(data.columns)
+    def __init__(self, main_window) -> None:
+        self._main_window = main_window
+        keys = list(main_window.data.columns)
         keys.remove("Comment")
 
         self._button_plot = QtWidgets.QPushButton()
@@ -71,6 +71,10 @@ class Plot:
         self.update_combo_box(keys)
 
         self._canvas = {"key.x": [], "key.y": [], "canvas": []}
+
+    @property
+    def _data(self):
+        return self._main_window.data
 
     def create_combo_box(self):
         self._combo_box_x_axis = QtWidgets.QComboBox()

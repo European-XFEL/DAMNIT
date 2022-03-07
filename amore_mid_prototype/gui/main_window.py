@@ -209,15 +209,14 @@ da-dev@xfel.eu"""
                         ),
                     ]
                 )
-                self.table.data = self.data
                 if len(self.table.is_sorted_by):
-                    self.table.data.sort_values(
+                    self.data.sort_values(
                         self.table.is_sorted_by,
                         ascending=self.table.is_sorted_order
                         == QtCore.Qt.AscendingOrder,
                         inplace=True,
                     )
-                    self.table.data.reset_index(inplace=True, drop=True)
+                    self.data.reset_index(inplace=True, drop=True)
 
                 self.table.insertRows(self.table.rowCount())
 
@@ -252,13 +251,13 @@ da-dev@xfel.eu"""
 
         # the table
         self.table_view = TableView()
-        self.table = Table(self.data)
+        self.table = Table(self)
         self.table_view.setModel(self.table)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addLayout(
             self.table_view.set_columns_visibility(
-                self.table.data.columns, [True for _ in self.table.data.columns]
+                self.data.columns, [True for _ in self.data.columns]
             ),
             stretch=1,
         )
@@ -274,7 +273,7 @@ da-dev@xfel.eu"""
         # vertical_layout.addLayout(comment_horizontal_layout)
 
         # plotting control
-        self.plot = Plot(self.data)
+        self.plot = Plot(self)
 
         plot_horizontal_layout.addWidget(self.plot._button_plot)
         plot_horizontal_layout.addStretch()
