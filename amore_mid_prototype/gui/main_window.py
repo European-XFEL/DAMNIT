@@ -301,12 +301,11 @@ da-dev@xfel.eu"""
 
         self._view_widget.setLayout(vertical_layout)
 
-    def save_comment(self, row, value):
+    def save_comment(self, prop, run, value):
         if self.db is None:
             log.warning("No SQLite database in use, comment not saved")
             return
 
-        prop, run = self.data.iloc[row][['Proposal', 'Run']]
         log.debug("Saving comment for prop %d run %d", prop, run)
         with self.db:
             self.db.execute("""

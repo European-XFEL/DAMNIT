@@ -122,7 +122,8 @@ class Table(QtCore.QAbstractTableModel):
         self.dataChanged.emit(index, index)
 
         # Only comment column is editable
-        self.comment_changed.emit(index.row(), value)
+        prop, run = self.data.iloc[index.row()][['Proposal', 'Run']]
+        self.comment_changed.emit(int(prop), int(run), value)
 
         return True
 
