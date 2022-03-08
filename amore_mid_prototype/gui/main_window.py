@@ -42,6 +42,9 @@ class MainWindow(QtWidgets.QMainWindow):
         elif self.zmq_endpoint is not None:
             self._zmq_thread_launcher()
 
+    def closeEvent(self, event):
+        self._zmq_thread.exit()
+
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
 
@@ -169,7 +172,7 @@ da-dev@xfel.eu"""
         # log.info("Updating for ZMQ message: %s", message)
 
         # Rename start_time -> Timestamp for table
-        message['Timestamp'] = message.pop('start_time')
+        message["Timestamp"] = message.pop("start_time")
 
         # initialize the view
         if not self._is_zmq_receiving_data:
@@ -238,8 +241,9 @@ da-dev@xfel.eu"""
                             {**message, **{"Comment": ""}},
                             index=[self.table.rowCount()],
                         ),
-                        self.data.iloc[ix:]
-                    ], ignore_index=True,
+                        self.data.iloc[ix:],
+                    ],
+                    ignore_index=True,
                 )
 
                 self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
@@ -318,14 +322,15 @@ da-dev@xfel.eu"""
         self.comment = QtWidgets.QLineEdit(self)
 
         self.comment_time = QtWidgets.QLineEdit(self)
+        self.comment_time.setStyleSheet("width: 25px;")
 
         comment_button = QtWidgets.QPushButton("Comment")
         comment_button.setEnabled(True)
         comment_button.clicked.connect(self._comment_button_clicked)
 
         comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=0.75)
-        comment_horizontal_layout.addWidget(self.comment_time, stretch=0.25)
+        comment_horizontal_layout.addWidget(self.comment)
+        comment_horizontal_layout.addWidget(self.comment_time)
 
         vertical_layout.addLayout(comment_horizontal_layout)
 
@@ -335,7 +340,7 @@ da-dev@xfel.eu"""
         comment_timer.timeout.connect(self._set_comment_date)
         comment_timer.start()
 
-        comment_horizontal_layout.setContentsMargins(-1, -1, -1, 0)
+        # comment_horizontal_layout.setContentsMargins(-1, -1, -1, 0)
 
         # plotting control
         self.plot = Plot(self)
@@ -358,9 +363,13 @@ da-dev@xfel.eu"""
 
         log.debug("Saving comment for prop %d run %d", prop, run)
         with self.db:
-            self.db.execute("""
+            self.db.execute(
+                """
                 UPDATE runs set comment=? WHERE proposal=? AND runnr=?
-            """, (value, int(prop), int(run)))
+            """,
+                (value, int(prop), int(run)),
+            )
+
 
 def run_app(context_dir):
     QtWidgets.QApplication.setAttribute(
@@ -372,11 +381,13 @@ def run_app(context_dir):
     window.show()
     return application.exec()
 
+
 def main():
     ap = ArgumentParser()
-    ap.add_argument('context_dir', type=Path, nargs='?',
-                    help="Directory storing summarised results")
-    ap.add_argument('--debug', action='store_true')
+    ap.add_argument(
+        "context_dir", type=Path, nargs="?", help="Directory storing summarised results"
+    )
+    ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
