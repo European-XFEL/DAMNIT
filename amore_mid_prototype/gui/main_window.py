@@ -324,8 +324,8 @@ da-dev@xfel.eu"""
         comment_button.clicked.connect(self._comment_button_clicked)
 
         comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=0.75)
-        comment_horizontal_layout.addWidget(self.comment_time, stretch=0.25)
+        comment_horizontal_layout.addWidget(self.comment, stretch=3)
+        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
 
         vertical_layout.addLayout(comment_horizontal_layout)
 
