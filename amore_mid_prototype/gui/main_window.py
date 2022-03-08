@@ -120,9 +120,13 @@ da-dev@xfel.eu"""
                     "proposal": "Proposal",
                     "start_time": "Timestamp",
                     "comment": "Comment",
+                    **self.column_renames()
                 }
             )
             self._create_view()
+
+    def column_renames(self):
+        return {name: v.title for name, v in self._attributi.items() if v.title}
 
     def column_title(self, name):
         if name in self._attributi:
@@ -182,7 +186,8 @@ da-dev@xfel.eu"""
         # log.info("Updating for ZMQ message: %s", message)
 
         # Rename start_time -> Timestamp for table
-        message['Timestamp'] = message.pop('start_time')
+        renames = {'start_time': 'Timestamp', **self.column_renames()}
+        message = {renames.get(k, k): v for (k, v) in message.items()}
 
         # initialize the view
         if not self._is_zmq_receiving_data:
