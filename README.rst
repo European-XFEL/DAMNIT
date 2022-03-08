@@ -4,7 +4,7 @@ AMORE prototype for MID
 Installation::
 
     # Make a virtualenv
-    module load anaconda-python/3.8
+    module load maxwell anaconda-python/3.8
     python -m venv env
 
     env/bin/pip install .
