@@ -54,13 +54,16 @@ class TableView(QtWidgets.QTableView):
             )
 
     def set_columns_visibility(self, columns, status):
+        group = QtWidgets.QGroupBox("Show column")
         self._columns_visibility_layout = QtWidgets.QVBoxLayout()
 
         self._columns_visibility_layout.addStretch()
 
         self.set_item_columns_visibility(columns, status)
 
-        return self._columns_visibility_layout
+        group.setLayout(self._columns_visibility_layout)
+
+        return group
 
 
 class Table(QtCore.QAbstractTableModel):

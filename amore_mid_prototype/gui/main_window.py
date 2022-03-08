@@ -275,7 +275,7 @@ da-dev@xfel.eu"""
         # (over)write down metadata
         self.data.to_json("AMORE.json")
 
-        log.debug(self.data)
+        log.debug("Dataset:\n", self.data)
 
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
@@ -333,7 +333,7 @@ da-dev@xfel.eu"""
         self.table_view.setModel(self.table)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
-        table_horizontal_layout.addLayout(
+        table_horizontal_layout.addWidget(
             self.table_view.set_columns_visibility(
                 [self.column_title(c) for c in self.data.columns],
                 [True for _ in self.data.columns]
