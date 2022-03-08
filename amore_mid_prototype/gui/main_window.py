@@ -9,6 +9,7 @@ import pandas as pd
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
+from ..context import ContextFile
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
 from .plot import Plot
@@ -28,6 +29,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data = None
         self.zmq_endpoint = zmq_endpoint
         self._is_zmq_receiving_data = False
+        self._attributi = {}
 
         self.setWindowTitle("~ AMORE ~")
         self.resize(600, 1000)
@@ -92,6 +94,12 @@ da-dev@xfel.eu"""
             self.autoconfigure(Path(path))
 
     def autoconfigure(self, path: Path):
+        context_path = path / 'context.py'
+        if context_path.is_file():
+            log.info("Reading context file %s", context_path)
+            ctx_file = ContextFile.from_py_file(context_path)
+            self._attributi = ctx_file.vars
+
         zmq_addr_path = path / ".zmq_extraction_events"
         if zmq_addr_path.is_file():
             self.zmq_endpoint = zmq_addr_path.read_text().strip()
@@ -112,9 +120,18 @@ da-dev@xfel.eu"""
                     "proposal": "Proposal",
                     "start_time": "Timestamp",
                     "comment": "Comment",
+                    **self.column_renames()
                 }
             )
             self._create_view()
+
+    def column_renames(self):
+        return {name: v.title for name, v in self._attributi.items() if v.title}
+
+    def column_title(self, name):
+        if name in self._attributi:
+            return self._attributi[name].title or name
+        return name
 
     def _menu_bar_connect(self) -> None:
         text, status_ok = QtWidgets.QInputDialog.getText(
@@ -169,7 +186,8 @@ da-dev@xfel.eu"""
         # log.info("Updating for ZMQ message: %s", message)
 
         # Rename start_time -> Timestamp for table
-        message['Timestamp'] = message.pop('start_time')
+        renames = {'start_time': 'Timestamp', **self.column_renames()}
+        message = {renames.get(k, k): v for (k, v) in message.items()}
 
         # initialize the view
         if not self._is_zmq_receiving_data:
@@ -307,7 +325,8 @@ da-dev@xfel.eu"""
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addLayout(
             self.table_view.set_columns_visibility(
-                self.data.columns, [True for _ in self.data.columns]
+                [self.column_title(c) for c in self.data.columns],
+                [True for _ in self.data.columns]
             ),
             stretch=1,
         )

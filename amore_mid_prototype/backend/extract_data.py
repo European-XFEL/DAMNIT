@@ -9,33 +9,27 @@ import h5py
 import numpy as np
 import xarray
 
-from .context import Variable
+from ..context import ContextFile
+from .db import open_db
 
 log = logging.getLogger(__name__)
 
 
-class Context:
-    def __init__(self, vars):
-        self.vars = vars
+def get_start_time(xd_run):
+    ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
+    # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
+    return np.datetime64(ts, 'us').item().timestamp()
+
+
+class Results:
+    def __init__(self, data, ctx):
+        self.data = data
+        self.ctx = ctx
 
     @classmethod
-    def from_py_file(cls, path: Path):
-        code = path.read_bytes()
-        d = {}
-        exec(code, d)
-        vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
-        log.debug("Loaded context from %s: %d variables", path, len(vars))
-        return cls(vars)
-
-    @staticmethod
-    def get_start_time(xd_run):
-        ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
-        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-        return np.float64(np.datetime64(ts, 'us').item().timestamp())
-
-    def process(self, xd_run):
-        res = {'start_time': self.get_start_time(xd_run)}
-        for name, var in self.vars.items():
+    def create(cls, ctx_file: ContextFile, xd_run):
+        res = {'start_time': np.asarray(get_start_time(xd_run))}
+        for name, var in ctx_file.vars.items():
             try:
                 data = var.func(xd_run)
                 if not isinstance(data, xarray.DataArray):
@@ -44,13 +38,7 @@ class Context:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
                 res[name] = data
-        return Results(res, self)
-
-
-class Results:
-    def __init__(self, data, ctx):
-        self.data = data
-        self.ctx = ctx
+        return Results(res, ctx_file)
 
     @staticmethod
     def _datasets_for_arr(name, arr):
@@ -98,9 +86,9 @@ class Results:
 
 
 def run_and_save(run_path, out_path):
-    ctx = Context.from_py_file(Path('context.py'))
+    ctx_file = ContextFile.from_py_file(Path('context.py'))
     run = extra_data.RunDirectory(run_path)
-    res = ctx.process(run)
+    res = Results.create(ctx_file, run)
     res.save_hdf5(out_path)
 
 

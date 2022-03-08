@@ -132,7 +132,8 @@ class Table(QtCore.QAbstractTableModel):
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
         ):
-            return self._data.columns[col]
+            name = self._data.columns[col]
+            return self._main_window.column_title(name)
 
     def flags(self, index) -> Qt.ItemFlag:
 
