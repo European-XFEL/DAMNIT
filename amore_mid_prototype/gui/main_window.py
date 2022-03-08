@@ -9,6 +9,7 @@ import pandas as pd
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
+from ..context import ContextFile
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
 from .plot import Plot
@@ -28,6 +29,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data = None
         self.zmq_endpoint = zmq_endpoint
         self._is_zmq_receiving_data = False
+        self._attributi = {}
 
         self.setWindowTitle("~ AMORE ~")
         self.resize(600, 1000)
@@ -115,6 +117,17 @@ da-dev@xfel.eu"""
                 }
             )
             self._create_view()
+
+        context_path = path / 'context.py'
+        if context_path.is_file():
+            log.info("Reading context file %s", context_path)
+            ctx_file = ContextFile.from_py_file(context_path)
+            self._attributi = ctx_file.vars
+
+    def column_title(self, name):
+        if name in self._attributi:
+            return self._attributi[name].title or name
+        return name
 
     def _menu_bar_connect(self) -> None:
         text, status_ok = QtWidgets.QInputDialog.getText(
