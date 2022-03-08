@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -239,6 +240,40 @@ da-dev@xfel.eu"""
         self.zeromq_listener.message.connect(self.zmq_get_data_and_update)
         QtCore.QTimer.singleShot(0, self._zmq_thread.start)
 
+    def _set_comment_date(self):
+        self.comment_time.setText(
+            time.strftime("%H:%M %d/%m/%Y", time.localtime(time.time()))
+        )
+
+    def _comment_button_clicked(self):
+        self.data = pd.concat(
+            [
+                self.data,
+                pd.DataFrame(
+                    {
+                        "Timestamp": int(
+                            time.mktime(
+                                time.strptime(
+                                    self.comment_time.text(), "%H:%M %d/%m/%Y"
+                                )
+                            )
+                        ),
+                        "Comment": self.comment.text(),
+                    },
+                    index=[self.table.rowCount()],
+                ),
+            ]
+        )
+        self.table.data = self.data
+        if len(self.table.is_sorted_by):
+            self.table.data.sort_values(
+                self.table.is_sorted_by,
+                ascending=self.table.is_sorted_order == QtCore.Qt.AscendingOrder,
+                inplace=True,
+            )
+            self.table.data.reset_index(inplace=True, drop=True)
+        self.table.insertRows(self.table.rowCount())
+
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -261,12 +296,27 @@ da-dev@xfel.eu"""
         vertical_layout.addLayout(table_horizontal_layout)
 
         # comments
-        # self.nameLabel = QLabel(self)
-        # self.nameLabel.setText('Name:')
+        self.comment = QtWidgets.QLineEdit(self)
 
-        # comment_horizontal_layout.addWidget(self.nameLabel)
+        self.comment_time = QtWidgets.QLineEdit(self)
 
-        # vertical_layout.addLayout(comment_horizontal_layout)
+        comment_button = QtWidgets.QPushButton("Comment")
+        comment_button.setEnabled(True)
+        comment_button.clicked.connect(self._comment_button_clicked)
+
+        comment_horizontal_layout.addWidget(comment_button)
+        comment_horizontal_layout.addWidget(self.comment, stretch=0.75)
+        comment_horizontal_layout.addWidget(self.comment_time, stretch=0.25)
+
+        vertical_layout.addLayout(comment_horizontal_layout)
+
+        comment_timer = QtCore.QTimer()
+        self._set_comment_date()
+        comment_timer.setInterval(30000)
+        comment_timer.timeout.connect(self._set_comment_date)
+        comment_timer.start()
+
+        comment_horizontal_layout.setContentsMargins(-1, -1, -1, 0)
 
         # plotting control
         self.plot = Plot(self.data)
