@@ -86,7 +86,7 @@ class Results:
 
 
 def run_and_save(run_path, out_path):
-    ctx_file = ContextFile.from_py_file(Path('../context.py'))
+    ctx_file = ContextFile.from_py_file(Path('context.py'))
     run = extra_data.RunDirectory(run_path)
     res = Results.create(ctx_file, run)
     res.save_hdf5(out_path)
