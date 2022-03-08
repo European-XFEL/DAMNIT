@@ -21,7 +21,7 @@ To listen for new runs and extract data::
     cd /path/to/proposal/scratch/amore  # Context directory
     amore-proto listen
 
-To launch the GUI overview::
+To launch the GUI overview (e.g. on `max-display <https://max-display.desy.de:3443/>`_)::
 
     source env/bin/activate
     amore-proto gui
