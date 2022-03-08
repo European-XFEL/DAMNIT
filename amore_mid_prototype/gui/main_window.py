@@ -271,6 +271,9 @@ da-dev@xfel.eu"""
         # update plots
         self.plot.update()
 
+        # (over)write down metadata
+        self.data.to_json("AMORE.json")
+
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
         self.zeromq_listener = ZmqStreamReceiver(self.zmq_endpoint)
