@@ -2,10 +2,12 @@ import logging
 import sqlite3
 import sys
 import time
+from argparse import ArgumentParser
 from pathlib import Path
 
 import pandas as pd
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import Qt
 
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
@@ -16,14 +18,15 @@ log = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    db = None
+
     def __init__(
-        self, zmq_endpoint: str = None, filename_import_metadata: str = None,
+        self, zmq_endpoint: str = None, context_dir: Path = None,
     ):
         super().__init__()
 
         self.data = None
         self.zmq_endpoint = zmq_endpoint
-        self.filename_import_metadata = filename_import_metadata
         self._is_zmq_receiving_data = False
 
         self.setWindowTitle("~ AMORE ~")
@@ -31,11 +34,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_status_bar()
         self._create_menu_bar()
 
-        if self.zmq_endpoint is not None:
-            self._zmq_thread_launcher()
-
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
+
+        if context_dir is not None:
+            self.autoconfigure(context_dir)
+        elif self.zmq_endpoint is not None:
+            self._zmq_thread_launcher()
 
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
@@ -83,10 +88,11 @@ da-dev@xfel.eu"""
         path = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Select context directory",
         )
-        if not path:
-            return
+        if path:
+            self.autoconfigure(Path(path))
 
-        zmq_addr_path = Path(path, ".zmq_extraction_events")
+    def autoconfigure(self, path: Path):
+        zmq_addr_path = path / ".zmq_extraction_events"
         if zmq_addr_path.is_file():
             self.zmq_endpoint = zmq_addr_path.read_text().strip()
             log.info("Connecting to %s (ZMQ)", self.zmq_endpoint)
@@ -95,17 +101,16 @@ da-dev@xfel.eu"""
             log.warning("No .zmq_extraction_events file in context folder")
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
 
-        sqlite_path = Path(path, "runs.sqlite")
+        sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
-            db = sqlite3.connect(sqlite_path)
-            df = pd.read_sql_query("SELECT * FROM runs", db)
-            df.migrated_at /= 1000  # ms -> s
+            self.db = sqlite3.connect(sqlite_path)
+            df = pd.read_sql_query("SELECT * FROM runs", self.db)
             self.data = df.rename(
                 columns={
                     "runnr": "Run",
                     "proposal": "Proposal",
-                    "migrated_at": "Timestamp",
+                    "start_time": "Timestamp",
                     "comment": "Comment",
                 }
             )
@@ -163,6 +168,9 @@ da-dev@xfel.eu"""
 
         # log.info("Updating for ZMQ message: %s", message)
 
+        # Rename start_time -> Timestamp for table
+        message['Timestamp'] = message.pop('start_time')
+
         # initialize the view
         if not self._is_zmq_receiving_data:
             self._is_zmq_receiving_data = True
@@ -182,6 +190,22 @@ da-dev@xfel.eu"""
             # additional columns?
             new_cols = set(message) - set(self.data.columns)
 
+            if new_cols:
+                log.info("New columns for table: %s", new_cols)
+                ncols_before = self.table.columnCount()
+                self.table.beginInsertColumns(
+                    QtCore.QModelIndex(), ncols_before, ncols_before + len(new_cols) - 1
+                )
+                for col_name in new_cols:
+                    self.data.insert(len(self.data.columns), col_name, pd.NA)
+                self.table.endInsertColumns()
+
+                self.plot.update_combo_box(new_cols)
+
+                self.table_view.set_item_columns_visibility(
+                    list(new_cols), [True for _ in list(new_cols)]
+                )
+
             if row.size:
                 log.debug(
                     "Update existing row %s for run %s", row.index, message["Run"]
@@ -195,40 +219,34 @@ da-dev@xfel.eu"""
                     self.table.dataChanged.emit(index, index)
 
             else:
-                log.debug("New row in table")
-                self.data = pd.concat(
+                sort_col = self.table.is_sorted_by
+                if self.table.is_sorted_by and message.get(sort_col):
+                    newval = message[sort_col]
+                    if self.table.is_sorted_order == Qt.SortOrder.AscendingOrder:
+                        ix = self.data[sort_col].searchsorted(newval)
+                    else:
+                        ix_back = self.data[sort_col][::-1].searchsorted(newval)
+                        ix = len(self.data) - ix_back
+                else:
+                    ix = len(self.data)
+                log.debug("New row in table at index %d", ix)
+
+                new_df = pd.concat(
                     [
-                        self.data,
+                        self.data.iloc[:ix],
                         pd.DataFrame(
                             {**message, **{"Comment": ""}},
                             index=[self.table.rowCount()],
                         ),
-                    ]
+                        self.data.iloc[ix:]
+                    ], ignore_index=True,
                 )
-                self.table.data = self.data
-                if len(self.table.is_sorted_by):
-                    self.table.data.sort_values(
-                        self.table.is_sorted_by,
-                        ascending=self.table.is_sorted_order
-                        == QtCore.Qt.AscendingOrder,
-                        inplace=True,
-                    )
-                    self.table.data.reset_index(inplace=True, drop=True)
 
-                self.table.insertRows(self.table.rowCount())
-
-            if new_cols:
-                log.info("New columns for table: %s", new_cols)
-                self.table.insertColumns(self.table.columnCount() - 1)
-
-                self.plot.update_combo_box(new_cols)
-
-                self.table_view.set_item_columns_visibility(
-                    list(new_cols), [True for _ in list(new_cols)]
-                )
+                self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
+                self.data = new_df
+                self.table.endInsertRows()
 
         # update plots
-        self.plot.data = self.data
         self.plot.update()
 
     def _zmq_thread_launcher(self) -> None:
@@ -282,15 +300,16 @@ da-dev@xfel.eu"""
 
         # the table
         self.table_view = TableView()
-        self.table = Table(self.data)
+        self.table = Table(self)
+        self.table.comment_changed.connect(self.save_comment)
         self.table_view.setModel(self.table)
 
-        table_horizontal_layout.addWidget(self.table_view, stretch=1.5)
+        table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addLayout(
             self.table_view.set_columns_visibility(
-                self.table.data.columns, [True for _ in self.table.data.columns]
+                self.data.columns, [True for _ in self.data.columns]
             ),
-            stretch=0.25,
+            stretch=1,
         )
 
         vertical_layout.addLayout(table_horizontal_layout)
@@ -319,7 +338,7 @@ da-dev@xfel.eu"""
         comment_horizontal_layout.setContentsMargins(-1, -1, -1, 0)
 
         # plotting control
-        self.plot = Plot(self.data)
+        self.plot = Plot(self)
 
         plot_horizontal_layout.addWidget(self.plot._button_plot)
         plot_horizontal_layout.addStretch()
@@ -332,18 +351,37 @@ da-dev@xfel.eu"""
 
         self._view_widget.setLayout(vertical_layout)
 
+    def save_comment(self, prop, run, value):
+        if self.db is None:
+            log.warning("No SQLite database in use, comment not saved")
+            return
 
-def main():
-    logging.basicConfig(level=logging.DEBUG)
+        log.debug("Saving comment for prop %d run %d", prop, run)
+        with self.db:
+            self.db.execute("""
+                UPDATE runs set comment=? WHERE proposal=? AND runnr=?
+            """, (value, int(prop), int(run)))
+
+def run_app(context_dir):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
     application = QtWidgets.QApplication(sys.argv)
 
-    window = MainWindow()
+    window = MainWindow(context_dir=context_dir)
     window.show()
+    return application.exec()
 
-    sys.exit(application.exec())
+def main():
+    ap = ArgumentParser()
+    ap.add_argument('context_dir', type=Path, nargs='?',
+                    help="Directory storing summarised results")
+    ap.add_argument('--debug', action='store_true')
+    args = ap.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+
+    sys.exit(run_app(args.context_dir))
 
 
 if __name__ == "__main__":

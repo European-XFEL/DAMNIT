@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 class EventProcessor:
     def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
-        self.db = open_db()
+        self.db = open_db(context_dir / 'runs.sqlite')
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.execute("pragma user_version=0;")
 
@@ -76,8 +76,9 @@ class EventProcessor:
 
         with self.db:
             self.db.execute("""
-                INSERT INTO runs (proposal, runnr, migrated_at) VALUES (?, ?, ?)
-            """, (proposal, run, record.timestamp))
+                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, runnr) DO NOTHING
+            """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
         out_path = self.context_dir / 'extracted_data' / f'p{proposal}_r{run}.h5'
@@ -95,7 +96,7 @@ class EventProcessor:
 
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
-            reduced_data['Timestamp'] = record.timestamp / 1000
+            reduced_data['added_at'] = record.timestamp / 1000
             self.zmq_sock.send_json(reduced_data)
             log.info("Sent ZMQ message")
 

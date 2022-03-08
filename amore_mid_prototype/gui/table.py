@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtCore import Qt
 
 
 class TableView(QtWidgets.QTableView):
@@ -9,7 +10,7 @@ class TableView(QtWidgets.QTableView):
         self.setAlternatingRowColors(False)
 
         self.setSortingEnabled(True)
-        self.sortByColumn(0, QtCore.Qt.AscendingOrder)
+        self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
         # movable columns
         self.verticalHeader().setSectionsMovable(True)
@@ -32,7 +33,7 @@ class TableView(QtWidgets.QTableView):
     """
 
     def state_changed(self, state, column_index):
-        if QtCore.Qt.Checked == state:
+        if Qt.CheckState.Checked == state:
             self.setColumnHidden(column_index, False)
         else:
             self.setColumnHidden(column_index, True)
@@ -41,9 +42,9 @@ class TableView(QtWidgets.QTableView):
         for i in range(len(columns)):
             item = QtWidgets.QCheckBox(columns[i])
             item.setCheckable(True)
-            item.setCheckState(QtCore.Qt.Checked if status[i] else QtCore.Qt.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if status[i] else Qt.CheckState.Unchecked)
             item.stateChanged.connect(
-                lambda state, column_index=self.model().data.columns.get_loc(
+                lambda state, column_index=self.model()._data.columns.get_loc(
                     columns[i]
                 ): self.state_changed(state, column_index)
             )
@@ -63,17 +64,23 @@ class TableView(QtWidgets.QTableView):
 
 
 class Table(QtCore.QAbstractTableModel):
-    def __init__(self, data) -> None:
+    comment_changed = QtCore.pyqtSignal(int, int, str)
+
+    def __init__(self, main_window):
         super().__init__()
-        self.data = data
+        self._main_window = main_window
         self.is_sorted_by = ""
         self.is_sorted_order = None
 
+    @property
+    def _data(self):
+        return self._main_window.data
+
     def rowCount(self, index=None) -> int:
-        return self.data.shape[0]
+        return self._data.shape[0]
 
     def columnCount(self, parent=None) -> int:
-        return self.data.shape[1]
+        return self._data.shape[1]
 
     def insertRows(self, row, rows=1, index=QtCore.QModelIndex()):
         self.beginInsertRows(QtCore.QModelIndex(), row, row + rows - 1)
@@ -87,18 +94,18 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
-    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if index.isValid():
             if (
-                role == QtCore.Qt.ItemDataRole.DisplayRole
-                or role == QtCore.Qt.ItemDataRole.EditRole
+                role == Qt.ItemDataRole.DisplayRole
+                or role == Qt.ItemDataRole.EditRole
             ):
-                value = self.data.iloc[index.row(), index.column()]
+                value = self._data.iloc[index.row(), index.column()]
 
                 if pd.isna(value):
                     return ""
 
-                elif index.column() == self.data.columns.get_loc("Timestamp"):
+                elif index.column() == self._data.columns.get_loc("Timestamp"):
                     return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
                 elif pd.api.types.is_float(value):
@@ -111,41 +118,45 @@ class Table(QtCore.QAbstractTableModel):
         if not index.isValid():
             return False
 
-        self.data.iloc[index.row(), index.column()] = value
+        self._data.iloc[index.row(), index.column()] = value
         self.dataChanged.emit(index, index)
+
+        # Only comment column is editable
+        prop, run = self._data.iloc[index.row()][['Proposal', 'Run']]
+        self.comment_changed.emit(int(prop), int(run), value)
 
         return True
 
     def headerData(self, col, orientation, role):
         if (
-            orientation == QtCore.Qt.Orientation.Horizontal
-            and role == QtCore.Qt.ItemDataRole.DisplayRole
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
         ):
-            return self.data.columns[col]
+            return self._data.columns[col]
 
-    def flags(self, index) -> QtCore.Qt.ItemFlag:
+    def flags(self, index) -> Qt.ItemFlag:
 
-        if index.column() == self.data.columns.get_loc("Comment"):
+        if index.column() == self._data.columns.get_loc("Comment"):
             return (
-                QtCore.Qt.ItemFlag.ItemIsSelectable
-                | QtCore.Qt.ItemFlag.ItemIsEnabled
-                | QtCore.Qt.ItemFlag.ItemIsEditable
+                Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsEditable
             )
 
         else:
             return (
-                QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
             )
 
     def sort(self, column, order):
-        self.is_sorted_by = self.data.columns.tolist()[column]
+        self.is_sorted_by = self._data.columns.tolist()[column]
         self.is_sorted_order = order
 
         self.layoutAboutToBeChanged.emit()
 
-        self.data.sort_values(
-            self.is_sorted_by, ascending=order == QtCore.Qt.AscendingOrder, inplace=True
+        self._data.sort_values(
+            self.is_sorted_by, ascending=order == Qt.SortOrder.AscendingOrder, inplace=True
         )
-        self.data.reset_index(inplace=True, drop=True)
+        self._data.reset_index(inplace=True, drop=True)
 
         self.layoutChanged.emit()
