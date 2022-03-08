@@ -94,6 +94,12 @@ da-dev@xfel.eu"""
             self.autoconfigure(Path(path))
 
     def autoconfigure(self, path: Path):
+        context_path = path / 'context.py'
+        if context_path.is_file():
+            log.info("Reading context file %s", context_path)
+            ctx_file = ContextFile.from_py_file(context_path)
+            self._attributi = ctx_file.vars
+
         zmq_addr_path = path / ".zmq_extraction_events"
         if zmq_addr_path.is_file():
             self.zmq_endpoint = zmq_addr_path.read_text().strip()
@@ -117,12 +123,6 @@ da-dev@xfel.eu"""
                 }
             )
             self._create_view()
-
-        context_path = path / 'context.py'
-        if context_path.is_file():
-            log.info("Reading context file %s", context_path)
-            ctx_file = ContextFile.from_py_file(context_path)
-            self._attributi = ctx_file.vars
 
     def column_title(self, name):
         if name in self._attributi:
