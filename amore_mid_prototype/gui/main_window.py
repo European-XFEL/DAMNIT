@@ -320,7 +320,8 @@ da-dev@xfel.eu"""
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addLayout(
             self.table_view.set_columns_visibility(
-                self.data.columns, [True for _ in self.data.columns]
+                [self.column_title(c) for c in self.data.columns],
+                [True for _ in self.data.columns]
             ),
             stretch=1,
         )
