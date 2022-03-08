@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
@@ -218,7 +219,7 @@ da-dev@xfel.eu"""
                     QtCore.QModelIndex(), ncols_before, ncols_before + len(new_cols) - 1
                 )
                 for col_name in new_cols:
-                    self.data.insert(len(self.data.columns), col_name, pd.NA)
+                    self.data.insert(len(self.data.columns), col_name, np.nan)
                 self.table.endInsertColumns()
 
                 self.plot.update_combo_box(new_cols)
@@ -273,6 +274,8 @@ da-dev@xfel.eu"""
 
         # (over)write down metadata
         self.data.to_json("AMORE.json")
+
+        log.debug(self.data)
 
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
