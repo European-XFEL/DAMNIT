@@ -22,16 +22,6 @@ class TableView(QtWidgets.QTableView):
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-    """
-    def doubleClicked(index) -> bool:
-        if not index.isValid():
-            return False
-        
-        print(index.row(), index.column())
-
-        return True
-    """
-
     def state_changed(self, state, column_index):
         if Qt.CheckState.Checked == state:
             self.setColumnHidden(column_index, False)

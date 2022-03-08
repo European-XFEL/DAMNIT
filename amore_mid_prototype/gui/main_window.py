@@ -13,7 +13,7 @@ from PyQt5.QtCore import Qt
 from ..context import ContextFile
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
-from .plot import Plot
+from .plot import Canvas, Plot
 
 
 log = logging.getLogger(__name__)
@@ -275,8 +275,6 @@ da-dev@xfel.eu"""
         # (over)write down metadata
         self.data.to_json("AMORE.json")
 
-        log.debug("Dataset:\n", self.data)
-
     def _zmq_thread_launcher(self) -> None:
         self._zmq_thread = QtCore.QThread()
         self.zeromq_listener = ZmqStreamReceiver(self.zmq_endpoint)
@@ -320,6 +318,17 @@ da-dev@xfel.eu"""
             self.table.data.reset_index(inplace=True, drop=True)
         self.table.insertRows(self.table.rowCount())
 
+    def inspect_data(self, index):
+        run = self.data["Run"][index.row()]
+        quantity = self.data.columns[index.column()]
+
+        log.info("Selected run {}, property {}".format(run, quantity))
+
+        # read data from corresponding HDF5, if available
+
+        #canvas = Canvas(self, x=[0,1], y=[2,3], xlabel="Event", ylabel=quantity)
+        #canvas.show()
+
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -331,6 +340,8 @@ da-dev@xfel.eu"""
         self.table = Table(self)
         self.table.comment_changed.connect(self.save_comment)
         self.table_view.setModel(self.table)
+
+        self.table_view.doubleClicked.connect(self.inspect_data)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addWidget(
@@ -364,8 +375,6 @@ da-dev@xfel.eu"""
         comment_timer.setInterval(30000)
         comment_timer.timeout.connect(self._set_comment_date)
         comment_timer.start()
-
-        # comment_horizontal_layout.setContentsMargins(-1, -1, -1, 0)
 
         # plotting control
         self.plot = Plot(self)

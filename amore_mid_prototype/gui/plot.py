@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 
 class Canvas(QtWidgets.QDialog):
-    def __init__(self, parent=None, xlabel="", ylabel=""):
+    def __init__(self, parent=None, x=[], y=[], xlabel="", ylabel=""):
         super().__init__()
         self.setStyleSheet("background-color: white")
 
@@ -26,7 +26,7 @@ class Canvas(QtWidgets.QDialog):
         self._axis.set_position([0.15, 0.15, 0.85, 0.85])
         self._axis.grid()
 
-        (self._line,) = self._axis.plot([], [], "o")
+        (self._line,) = self._axis.plot(x, y, "o")
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
