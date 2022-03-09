@@ -326,8 +326,8 @@ da-dev@xfel.eu"""
 
         # read data from corresponding HDF5, if available
 
-        #canvas = Canvas(self, x=[0,1], y=[2,3], xlabel="Event", ylabel=quantity)
-        #canvas.show()
+        self._canvas_inspect = Canvas(self, x=np.array([0,1]), y=np.array([2,3]), xlabel="Event", ylabel=quantity)
+        self._canvas_inspect.show()
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
