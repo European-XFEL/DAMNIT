@@ -324,6 +324,10 @@ da-dev@xfel.eu"""
         run = self.data["Run"][index.row()]
         quantity = self.data.columns[index.column()]
 
+        # Don't try to plot comments
+        if quantity == "Comment":
+            return
+
         log.info("Selected run {}, property {}".format(run, quantity))
 
         # read data from corresponding HDF5, if available
