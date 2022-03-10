@@ -28,6 +28,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
 
         self.data = None
+        self._zmq_thread = None
         self.zmq_endpoint = zmq_endpoint
         self._is_zmq_receiving_data = False
         self._attributi = {}
@@ -46,7 +47,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._zmq_thread_launcher()
 
     def closeEvent(self, event):
-        self._zmq_thread.exit()
+        if self._zmq_thread is not None:
+            self._zmq_thread.exit()
 
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
