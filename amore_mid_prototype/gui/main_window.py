@@ -320,6 +320,8 @@ da-dev@xfel.eu"""
             self.table.data.reset_index(inplace=True, drop=True)
         self.table.insertRows(self.table.rowCount())
 
+        self.comment.clear()
+
     def inspect_data(self, index):
         run = self.data["Run"][index.row()]
         quantity = self.data.columns[index.column()]
