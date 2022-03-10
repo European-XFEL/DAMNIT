@@ -5,6 +5,8 @@ Installation::
 
     # Make a virtualenv
     module load maxwell anaconda-python/3.8
+    git clone https://git.xfel.eu/amore/mid-2832.git
+    cd mid-2832
     python -m venv env
 
     env/bin/pip install .
