@@ -70,8 +70,8 @@ class EventProcessor:
         if msg.get('instrument') != 'MID':
             return
 
-        proposal = msg['proposal']
-        run = msg['run']
+        proposal = int(msg['proposal'])
+        run = int(msg['run'])
         run_dir = msg['path']
 
         with self.db:
