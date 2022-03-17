@@ -48,6 +48,8 @@ class MainWindow(QtWidgets.QMainWindow):
         elif self.zmq_endpoint is not None:
             self._zmq_thread_launcher()
 
+        self._canvas_inspect = []
+
     def closeEvent(self, event):
         if self._zmq_thread is not None:
             self._zmq_thread.exit()
@@ -360,15 +362,15 @@ da-dev@xfel.eu"""
 
         dataset.close()
 
-        self._canvas_inspect = Canvas(
+        self._canvas_inspect.append(Canvas(
             self,
             x=x,
             y=y,
             xlabel="Train ID (run {})".format(run),
             ylabel=quantity_title,
             fmt="ro",
-        )
-        self._canvas_inspect.show()
+        ))
+        self._canvas_inspect[-1].show()
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
