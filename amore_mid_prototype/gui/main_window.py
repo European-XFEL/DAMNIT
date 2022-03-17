@@ -62,9 +62,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self._status_bar)
 
         self._status_bar_connection_status = QtWidgets.QLabel()
-        self._status_bar_connection_status.setStyleSheet(
-            "color:green;font-weight:bold;"
-        )
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
     def _menu_bar_import_file(self):
@@ -117,6 +114,9 @@ da-dev@xfel.eu"""
             self._zmq_thread_launcher()
         else:
             log.warning("No .zmq_extraction_events file in context folder")
+            self._status_bar_connection_status.setStyleSheet(
+                "color:red;font-weight:bold;"
+            )
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
@@ -204,6 +204,9 @@ da-dev@xfel.eu"""
         # initialize the view
         if not self._is_zmq_receiving_data:
             self._is_zmq_receiving_data = True
+            self._status_bar_connection_status.setStyleSheet(
+                "color:green;font-weight:bold;"
+            )
             self._status_bar_connection_status.setText(self.zmq_endpoint)
 
         if self.data is None:
