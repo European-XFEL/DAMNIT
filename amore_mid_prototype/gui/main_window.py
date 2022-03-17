@@ -324,13 +324,16 @@ da-dev@xfel.eu"""
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
+
         quantity_title = self.data.columns[index.column()]
+        quantity = quantity_title
 
         # a LUT would be better
         for ki, vi in self._attributi.items():
             if vi.title == quantity_title:
                 quantity = ki
-
+                continue
+        
         file_name = self.extracted_data_template.format(proposal, run)
 
         log.info(
