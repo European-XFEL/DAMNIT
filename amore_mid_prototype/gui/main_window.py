@@ -99,7 +99,7 @@ da-dev@xfel.eu"""
             self.autoconfigure(Path(path))
 
     def autoconfigure(self, path: Path):
-        context_path = path / 'context.py'
+        context_path = path / "context.py"
         if context_path.is_file():
             log.info("Reading context file %s", context_path)
             ctx_file = ContextFile.from_py_file(context_path)
@@ -127,7 +127,7 @@ da-dev@xfel.eu"""
                     "proposal": "Proposal",
                     "start_time": "Timestamp",
                     "comment": "Comment",
-                    **self.column_renames()
+                    **self.column_renames(),
                 }
             )
             self._create_view()
@@ -193,7 +193,7 @@ da-dev@xfel.eu"""
         # log.info("Updating for ZMQ message: %s", message)
 
         # Rename start_time -> Timestamp for table
-        renames = {'start_time': 'Timestamp', **self.column_renames()}
+        renames = {"start_time": "Timestamp", **self.column_renames()}
         message = {renames.get(k, k): v for (k, v) in message.items()}
 
         # initialize the view
@@ -333,24 +333,35 @@ da-dev@xfel.eu"""
 
         file_name = self.extracted_data_template.format(proposal, run)
 
-        log.info("Selected proposal {} run {}, property {}".format(proposal, run, quantity_title))
+        log.info(
+            "Selected proposal {} run {}, property {}".format(
+                proposal, run, quantity_title
+            )
+        )
 
         # read data from corresponding HDF5, if available
         try:
-            dataset = h5py.File(file_name, 'r')
+            dataset = h5py.File(file_name, "r")
         except FileNotFoundError:
             log.warning("{} not found...".format(file_name))
             return
 
         try:
-            x, y = dataset[quantity]['trainId'][:], dataset[quantity]['data'][:] 
+            x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
-        
+
         dataset.close()
 
-        self._canvas_inspect = Canvas(self, x=x, y=y, xlabel="Train ID", ylabel=quantity_title)
+        self._canvas_inspect = Canvas(
+            self,
+            x=x,
+            y=y,
+            xlabel="Train ID (run {})".format(run),
+            ylabel=quantity_title,
+            fmt="ro",
+        )
         self._canvas_inspect.show()
 
     def _create_view(self) -> None:
@@ -371,7 +382,7 @@ da-dev@xfel.eu"""
         table_horizontal_layout.addWidget(
             self.table_view.set_columns_visibility(
                 [self.column_title(c) for c in self.data.columns],
-                [True for _ in self.data.columns]
+                [True for _ in self.data.columns],
             ),
             stretch=1,
         )
