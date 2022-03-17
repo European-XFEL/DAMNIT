@@ -124,6 +124,8 @@ da-dev@xfel.eu"""
                 }
             )
             self._create_view()
+        
+        self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
