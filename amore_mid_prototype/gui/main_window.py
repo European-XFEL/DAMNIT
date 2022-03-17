@@ -64,18 +64,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
-    def _menu_bar_import_file(self):
-
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "QFileDialog.getOpenFileName()",
-            "",
-            "All files (*);;JSON files (*.json)",
-        )
-
-        if filename:
-            self.filename_import_metadata = filename
-
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
 
