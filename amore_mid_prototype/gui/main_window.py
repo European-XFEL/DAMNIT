@@ -362,6 +362,7 @@ da-dev@xfel.eu"""
             xlabel="Train ID (run {})".format(run),
             ylabel=quantity_title,
             fmt="ro",
+            autoscale=False
         ))
         self._canvas_inspect[-1].show()
 

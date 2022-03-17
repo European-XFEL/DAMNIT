@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 
 class Canvas(QtWidgets.QDialog):
-    def __init__(self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o"):
+    def __init__(self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o", autoscale=True):
         super().__init__()
         self.setStyleSheet("background-color: white")
 
@@ -32,14 +32,16 @@ class Canvas(QtWidgets.QDialog):
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
         self._navigation_toolbar.layout().setSpacing(1)
 
-        self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
-        self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
-        self._autoscale_checkbox.setLayoutDirection(
-            QtCore.Qt.LayoutDirection.RightToLeft
-        )
+        if autoscale:
+            self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
+            self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
+            self._autoscale_checkbox.setLayoutDirection(
+                QtCore.Qt.LayoutDirection.RightToLeft
+            )
 
         layout.addWidget(self._canvas)
-        layout.addWidget(self._autoscale_checkbox)
+        if autoscale:
+            layout.addWidget(self._autoscale_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
     def update_canvas(self, x, y):
