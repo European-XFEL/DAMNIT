@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
@@ -112,6 +113,8 @@ da-dev@xfel.eu"""
         else:
             log.warning("No .zmq_extraction_events file in context folder")
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
+
+        self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
@@ -319,14 +322,35 @@ da-dev@xfel.eu"""
         self.table.insertRows(self.table.rowCount())
 
     def inspect_data(self, index):
+        proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
-        quantity = self.data.columns[index.column()]
+        quantity_title = self.data.columns[index.column()]
 
-        log.info("Selected run {}, property {}".format(run, quantity))
+        # a LUT would be better
+        for ki, vi in self._attributi.items():
+            if vi.title == quantity_title:
+                quantity = ki
+
+        file_name = self.extracted_data_template.format(proposal, run)
+
+        log.info("Selected proposal {} run {}, property {}".format(proposal, run, quantity_title))
 
         # read data from corresponding HDF5, if available
+        try:
+            dataset = h5py.File(file_name, 'r')
+        except FileNotFoundError:
+            log.warning("{} not found...".format(file_name))
+            return
 
-        self._canvas_inspect = Canvas(self, x=np.array([0,1]), y=np.array([2,3]), xlabel="Event", ylabel=quantity)
+        try:
+            x, y = dataset[quantity]['trainId'][:], dataset[quantity]['data'][:] 
+        except KeyError:
+            log.warning("'{}' not found in {}...".format(quantity, file_name))
+            return
+        
+        dataset.close()
+
+        self._canvas_inspect = Canvas(self, x=x, y=y, xlabel="Train ID", ylabel=quantity_title)
         self._canvas_inspect.show()
 
     def _create_view(self) -> None:
