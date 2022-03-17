@@ -34,7 +34,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._is_zmq_receiving_data = False
         self._attributi = {}
 
-        self.setWindowTitle("~ AMORE ~")
+        self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
+        self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
         self.resize(600, 1000)
         self._create_status_bar()
         self._create_menu_bar()
@@ -180,7 +181,7 @@ da-dev@xfel.eu"""
         action_exit.setStatusTip("Exit AMORE GUI.")
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
-        fileMenu = menu_bar.addMenu("&AMORE")
+        fileMenu = menu_bar.addMenu(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE")
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
