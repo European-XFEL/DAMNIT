@@ -88,6 +88,11 @@ class Plot:
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
 
+        # multiple rows can be selected
+        # we could even merge multiple runs here
+        for index in self._main_window.table_view.selectedIndexes():
+            log.info("Selected row %d", index.row())
+
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(self._main_window, xlabel=xlabel, ylabel=ylabel)
 
