@@ -88,24 +88,26 @@ class Table(QtCore.QAbstractTableModel):
         return True
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if index.isValid():
-            if (
-                role == Qt.ItemDataRole.DisplayRole
-                or role == Qt.ItemDataRole.EditRole
-            ):
-                value = self._data.iloc[index.row(), index.column()]
+        if not index.isValid():
+            return
 
-                if pd.isna(value):
-                    return ""
+        if (
+            role == Qt.ItemDataRole.DisplayRole
+            or role == Qt.ItemDataRole.EditRole
+        ):
+            value = self._data.iloc[index.row(), index.column()]
 
-                elif index.column() == self._data.columns.get_loc("Timestamp"):
-                    return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
+            if pd.isna(value):
+                return ""
 
-                elif pd.api.types.is_float(value):
-                    return str("{:.6f}".format(value))
+            elif index.column() == self._data.columns.get_loc("Timestamp"):
+                return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
-                else:
-                    return str(value)
+            elif pd.api.types.is_float(value):
+                return str("{:.6f}".format(value))
+
+            else:
+                return str(value)
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
