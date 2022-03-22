@@ -304,12 +304,16 @@ da-dev@xfel.eu"""
                                 )
                             )
                         ),
+                        "Run": pd.NA,
+                        "Proposal": pd.NA,
                         "Comment": self.comment.text(),
                     },
                     index=[self.table.rowCount()],
                 ),
             ]
         )
+
+        # this block is ugly
         self.table.data = self.data
         if len(self.table.is_sorted_by):
             self.table.data.sort_values(
@@ -405,12 +409,13 @@ da-dev@xfel.eu"""
         self.comment_time = QtWidgets.QLineEdit(self)
         self.comment_time.setStyleSheet("width: 25px;")
 
-        comment_button = QtWidgets.QPushButton("Additionally log")
+        comment_button = QtWidgets.QPushButton("Additional comment")
         comment_button.setEnabled(True)
         comment_button.clicked.connect(self._comment_button_clicked)
 
         comment_horizontal_layout.addWidget(comment_button)
         comment_horizontal_layout.addWidget(self.comment, stretch=3)
+        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
         comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
 
         vertical_layout.addLayout(comment_horizontal_layout)
@@ -445,7 +450,7 @@ da-dev@xfel.eu"""
             self.db.execute(
                 """
                 UPDATE runs set comment=? WHERE proposal=? AND runnr=?
-            """,
+                """,
                 (value, int(prop), int(run)),
             )
 
