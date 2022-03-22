@@ -17,7 +17,7 @@ class TestEventProcessor(EventProcessor):
             try:
                 line = input('proposal run: ')
                 prop, run = line.split()
-                path = glob(f'/gpfs/exfel/exp/*/*/p{prop:06}/raw/r{run:04}')[0]
+                path = glob(f'/gpfs/exfel/exp/*/*/p{prop:>06}/raw/r{run:>04}')[0]
                 inst, cycle = path.split('/')[4:6]
                 msg = {'proposal': prop, 'run': run, 'path': path,
                        'instrument': inst, 'cycle': cycle}
