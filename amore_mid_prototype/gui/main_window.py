@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
@@ -30,10 +31,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data = None
         self._zmq_thread = None
         self.zmq_endpoint = zmq_endpoint
+        self._zmq_thread = None
         self._is_zmq_receiving_data = False
         self._attributi = {}
 
-        self.setWindowTitle("~ AMORE ~")
+        self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
+        self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
         self.resize(600, 1000)
         self._create_status_bar()
         self._create_menu_bar()
@@ -45,6 +48,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
         elif self.zmq_endpoint is not None:
             self._zmq_thread_launcher()
+
+        self._canvas_inspect = []
 
     def closeEvent(self, event):
         if self._zmq_thread is not None:
@@ -58,22 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self._status_bar)
 
         self._status_bar_connection_status = QtWidgets.QLabel()
-        self._status_bar_connection_status.setStyleSheet(
-            "color:green;font-weight:bold;"
-        )
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
-
-    def _menu_bar_import_file(self):
-
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "QFileDialog.getOpenFileName()",
-            "",
-            "All files (*);;JSON files (*.json)",
-        )
-
-        if filename:
-            self.filename_import_metadata = filename
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -100,7 +90,7 @@ da-dev@xfel.eu"""
             self.autoconfigure(Path(path))
 
     def autoconfigure(self, path: Path):
-        context_path = path / 'context.py'
+        context_path = path / "context.py"
         if context_path.is_file():
             log.info("Reading context file %s", context_path)
             ctx_file = ContextFile.from_py_file(context_path)
@@ -113,7 +103,12 @@ da-dev@xfel.eu"""
             self._zmq_thread_launcher()
         else:
             log.warning("No .zmq_extraction_events file in context folder")
+            self._status_bar_connection_status.setStyleSheet(
+                "color:red;font-weight:bold;"
+            )
             self._status_bar_connection_status.setText("No ZMQ socket found in folder")
+
+        self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
@@ -126,10 +121,12 @@ da-dev@xfel.eu"""
                     "proposal": "Proposal",
                     "start_time": "Timestamp",
                     "comment": "Comment",
-                    **self.column_renames()
+                    **self.column_renames(),
                 }
             )
             self._create_view()
+        
+        self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -177,7 +174,7 @@ da-dev@xfel.eu"""
         action_exit.setStatusTip("Exit AMORE GUI.")
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
-        fileMenu = menu_bar.addMenu("&AMORE")
+        fileMenu = menu_bar.addMenu(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE")
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
@@ -192,12 +189,15 @@ da-dev@xfel.eu"""
         # log.info("Updating for ZMQ message: %s", message)
 
         # Rename start_time -> Timestamp for table
-        renames = {'start_time': 'Timestamp', **self.column_renames()}
+        renames = {"start_time": "Timestamp", **self.column_renames()}
         message = {renames.get(k, k): v for (k, v) in message.items()}
 
         # initialize the view
         if not self._is_zmq_receiving_data:
             self._is_zmq_receiving_data = True
+            self._status_bar_connection_status.setStyleSheet(
+                "color:green;font-weight:bold;"
+            )
             self._status_bar_connection_status.setText(self.zmq_endpoint)
 
         if self.data is None:
@@ -323,19 +323,55 @@ da-dev@xfel.eu"""
         self.comment.clear()
 
     def inspect_data(self, index):
+        proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
-        quantity = self.data.columns[index.column()]
+
+        quantity_title = self.data.columns[index.column()]
+        quantity = quantity_title
 
         # Don't try to plot comments
         if quantity == "Comment":
             return
 
-        log.info("Selected run {}, property {}".format(run, quantity))
+        # a LUT would be better
+        for ki, vi in self._attributi.items():
+            if vi.title == quantity_title:
+                quantity = ki
+                continue
+        
+        file_name = self.extracted_data_template.format(proposal, run)
+
+        log.info(
+            "Selected proposal {} run {}, property {}".format(
+                proposal, run, quantity_title
+            )
+        )
 
         # read data from corresponding HDF5, if available
+        try:
+            dataset = h5py.File(file_name, "r")
+        except FileNotFoundError:
+            log.warning("{} not found...".format(file_name))
+            return
 
-        self._canvas_inspect = Canvas(self, x=np.array([0,1]), y=np.array([2,3]), xlabel="Event", ylabel=quantity)
-        self._canvas_inspect.show()
+        try:
+            x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+        except KeyError:
+            log.warning("'{}' not found in {}...".format(quantity, file_name))
+            return
+
+        dataset.close()
+
+        self._canvas_inspect.append(Canvas(
+            self,
+            x=x,
+            y=y,
+            xlabel="Train ID (run {})".format(run),
+            ylabel=quantity_title,
+            fmt="ro",
+            autoscale=False
+        ))
+        self._canvas_inspect[-1].show()
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
@@ -355,7 +391,7 @@ da-dev@xfel.eu"""
         table_horizontal_layout.addWidget(
             self.table_view.set_columns_visibility(
                 [self.column_title(c) for c in self.data.columns],
-                [True for _ in self.data.columns]
+                [True for _ in self.data.columns],
             ),
             stretch=1,
         )
