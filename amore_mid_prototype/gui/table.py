@@ -32,7 +32,9 @@ class TableView(QtWidgets.QTableView):
         for i in range(len(columns)):
             item = QtWidgets.QCheckBox(columns[i])
             item.setCheckable(True)
-            item.setCheckState(Qt.CheckState.Checked if status[i] else Qt.CheckState.Unchecked)
+            item.setCheckState(
+                Qt.CheckState.Checked if status[i] else Qt.CheckState.Unchecked
+            )
             item.stateChanged.connect(
                 lambda state, column_index=self.model()._data.columns.get_loc(
                     columns[i]
@@ -91,16 +93,20 @@ class Table(QtCore.QAbstractTableModel):
         if not index.isValid():
             return
 
-        if (
-            role == Qt.ItemDataRole.DisplayRole
-            or role == Qt.ItemDataRole.EditRole
-        ):
+        if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             value = self._data.iloc[index.row(), index.column()]
 
             if pd.isna(value):
                 return ""
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
+                return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
+
+            elif (
+                index.column() == self._data.columns.get_loc("Added at")
+                if "Added at" in self._data.columns
+                else False
+            ):
                 return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
             elif pd.api.types.is_float(value):
@@ -117,7 +123,7 @@ class Table(QtCore.QAbstractTableModel):
         self.dataChanged.emit(index, index)
 
         # Only comment column is editable
-        prop, run = self._data.iloc[index.row()][['Proposal', 'Run']]
+        prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
         self.comment_changed.emit(int(prop), int(run), value)
 
         return True
@@ -140,9 +146,7 @@ class Table(QtCore.QAbstractTableModel):
             )
 
         else:
-            return (
-                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
-            )
+            return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
 
     def sort(self, column, order):
         self.is_sorted_by = self._data.columns.tolist()[column]
@@ -151,7 +155,9 @@ class Table(QtCore.QAbstractTableModel):
         self.layoutAboutToBeChanged.emit()
 
         self._data.sort_values(
-            self.is_sorted_by, ascending=order == Qt.SortOrder.AscendingOrder, inplace=True
+            self.is_sorted_by,
+            ascending=order == Qt.SortOrder.AscendingOrder,
+            inplace=True,
         )
         self._data.reset_index(inplace=True, drop=True)
 

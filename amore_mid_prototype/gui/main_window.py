@@ -125,7 +125,7 @@ da-dev@xfel.eu"""
                 }
             )
             self._create_view()
-        
+
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
     def column_renames(self):
@@ -174,7 +174,9 @@ da-dev@xfel.eu"""
         action_exit.setStatusTip("Exit AMORE GUI.")
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
-        fileMenu = menu_bar.addMenu(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE")
+        fileMenu = menu_bar.addMenu(
+            QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
+        )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
@@ -188,8 +190,14 @@ da-dev@xfel.eu"""
 
         # log.info("Updating for ZMQ message: %s", message)
 
-        # Rename start_time -> Timestamp for table
-        renames = {"start_time": "Timestamp", **self.column_renames()}
+        # Rename:
+        #  start_time -> Timestamp
+        #  added_at -> Added at
+        renames = {
+            "start_time": "Timestamp",
+            "added_at": "Added at",
+            **self.column_renames(),
+        }
         message = {renames.get(k, k): v for (k, v) in message.items()}
 
         # initialize the view
@@ -342,7 +350,7 @@ da-dev@xfel.eu"""
             if vi.title == quantity_title:
                 quantity = ki
                 continue
-        
+
         file_name = self.extracted_data_template.format(proposal, run)
 
         log.info(
@@ -366,15 +374,17 @@ da-dev@xfel.eu"""
 
         dataset.close()
 
-        self._canvas_inspect.append(Canvas(
-            self,
-            x=x,
-            y=y,
-            xlabel="Event (run {})".format(run),
-            ylabel=quantity_title,
-            fmt="ro",
-            autoscale=False
-        ))
+        self._canvas_inspect.append(
+            Canvas(
+                self,
+                x=x,
+                y=y,
+                xlabel="Event (run {})".format(run),
+                ylabel=quantity_title,
+                fmt="ro",
+                autoscale=False,
+            )
+        )
         self._canvas_inspect[-1].show()
 
     def _create_view(self) -> None:

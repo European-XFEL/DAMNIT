@@ -14,7 +14,9 @@ log = logging.getLogger(__name__)
 
 
 class Canvas(QtWidgets.QDialog):
-    def __init__(self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o", autoscale=True):
+    def __init__(
+        self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o", autoscale=True
+    ):
         super().__init__()
         self.setStyleSheet("background-color: white")
 
@@ -113,4 +115,7 @@ class Plot:
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
 
             # not nice to replace NAs with nans, but better solutions require more coding
-            ci.update_canvas(self._data[xi].replace(pd.NA, np.nan), self._data[yi].replace(pd.NA, np.nan))
+            ci.update_canvas(
+                self._data[xi].replace(pd.NA, np.nan),
+                self._data[yi].replace(pd.NA, np.nan),
+            )
