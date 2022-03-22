@@ -400,11 +400,12 @@ da-dev@xfel.eu"""
 
         # comments
         self.comment = QtWidgets.QLineEdit(self)
+        self.comment.setText("Time can be edited in the field on the right.")
 
         self.comment_time = QtWidgets.QLineEdit(self)
         self.comment_time.setStyleSheet("width: 25px;")
 
-        comment_button = QtWidgets.QPushButton("Comment")
+        comment_button = QtWidgets.QPushButton("Additionally log")
         comment_button.setEnabled(True)
         comment_button.clicked.connect(self._comment_button_clicked)
 
