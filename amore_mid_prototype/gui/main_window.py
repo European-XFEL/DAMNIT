@@ -366,7 +366,7 @@ da-dev@xfel.eu"""
             self,
             x=x,
             y=y,
-            xlabel="Train ID (run {})".format(run),
+            xlabel="Event (run {})".format(run),
             ylabel=quantity_title,
             fmt="ro",
             autoscale=False
