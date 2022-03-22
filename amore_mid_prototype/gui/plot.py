@@ -1,4 +1,6 @@
 import logging
+import pandas as pd
+import numpy as np
 
 from PyQt5 import QtCore, QtWidgets
 
@@ -109,4 +111,6 @@ class Plot:
             self._canvas["key.x"], self._canvas["key.y"], self._canvas["canvas"]
         ):
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
-            ci.update_canvas(self._data[xi], self._data[yi])
+
+            # not nice to replace NAs with nans, but better solutions require more coding
+            ci.update_canvas(self._data[xi].replace(pd.NA, np.nan), self._data[yi].replace(pd.NA, np.nan))
