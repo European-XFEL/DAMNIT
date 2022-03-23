@@ -44,6 +44,8 @@ def main():
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 
     if args.subcmd == 'gui':
+        if args.context_dir is not None and not args.context_dir.is_dir():
+            sys.exit(f"{args.context_dir} is not a directory")
         from .gui.main_window import run_app
         return run_app(args.context_dir)
 
