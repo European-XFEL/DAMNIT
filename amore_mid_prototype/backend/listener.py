@@ -104,7 +104,7 @@ class EventProcessor:
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
-        if msg.get('detector') != 'agipd' and run == 3217:
+        if msg.get('detector') != 'agipd' or proposal != 3217:
             return
 
         with self.db:
