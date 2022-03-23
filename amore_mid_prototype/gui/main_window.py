@@ -388,8 +388,8 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=x,
-                y=y,
+                x=[x],
+                y=[y],
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="ro",
@@ -450,13 +450,17 @@ da-dev@xfel.eu"""
         # plotting control
         self.plot = Plot(self)
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot)
+        buttons_vbox = QtWidgets.QVBoxLayout()
+        buttons_vbox.addWidget(self.plot._button_plot)
+        buttons_vbox.addWidget(self.plot._button_plot_runs)
+        plot_horizontal_layout.addLayout(buttons_vbox)
         plot_horizontal_layout.addStretch()
 
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
         plot_horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
         plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
+        vertical_layout.addSpacing(10)
         vertical_layout.addLayout(plot_horizontal_layout)
 
         self._view_widget.setLayout(vertical_layout)
