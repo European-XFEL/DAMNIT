@@ -12,7 +12,8 @@ from .db import open_db
 from .extract_data import add_to_db, load_reduced_data
 
 BROKERS = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
-TOPIC = 'xfel-test-r2d2'
+MIGRATION_TOPIC = 'xfel-test-r2d2'
+CALIBRATION_TOPIC = "xfel-test-offline-cal"
 CONSUMER_ID = 'xfel-da-amore-mid-prototype'
 
 log = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class EventProcessor:
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.execute("pragma user_version=0;")
 
-        self.kafka_cns = KafkaConsumer(TOPIC, bootstrap_servers=BROKERS, group_id=CONSUMER_ID)
+        self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS, group_id=CONSUMER_ID)
 
         self.zmq_sock: zmq.Socket = zmq.Context.instance().socket(zmq.PUB)
         zmq_port = self.zmq_sock.bind_to_random_port('tcp://*')
@@ -100,12 +101,11 @@ class EventProcessor:
             log.info("Sent ZMQ message")
 
     def handle_correction_complete(self, record, msg: dict):
-        if msg.get('instrument') != 'MID':
-            return
-
         proposal = int(msg['proposal'])
         run = int(msg['run'])
-        run_dir = msg['path']
+
+        if msg.get('detector') != 'agipd' or proposal != 3217:
+            return
 
         with self.db:
             self.db.execute("""
@@ -118,7 +118,7 @@ class EventProcessor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         extract_res = subprocess.run([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', run_dir, out_path
+            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', str(proposal), str(run), out_path
         ])
         if extract_res.returncode != 0:
             log.error("Data extraction failed; exit code was %d", extract_res.returncode)

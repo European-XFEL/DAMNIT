@@ -87,9 +87,11 @@ class Results:
                 f[path][()] = arr
 
 
-def run_and_save(run, out_path):
+def run_and_save(proposal, run, out_path):
+    run_dc = extra_data.open_run(proposal, run, data="all")
+
     ctx_file = ContextFile.from_py_file(Path('context.py'))
-    res = Results.create(ctx_file, run)
+    res = Results.create(ctx_file, run_dc)
     res.save_hdf5(out_path)
 
 
@@ -144,8 +146,7 @@ def extract_and_ingest(proposal, run):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
-    run_dc = extra_data.open_run(proposal, run, data="all")
-    run_and_save(run_dc, out_path)
+    run_and_save(proposal, run, out_path)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
@@ -153,4 +154,8 @@ def extract_and_ingest(proposal, run):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    run_and_save(sys.argv[1], sys.argv[2])
+
+    proposal = int(sys.argv[1])
+    run = int(sys.argv[2])
+    out_path = sys.argv[3]
+    run_and_save(proposal, run, out_path)
