@@ -101,12 +101,11 @@ class EventProcessor:
             log.info("Sent ZMQ message")
 
     def handle_correction_complete(self, record, msg: dict):
-        if msg.get('instrument') != 'MID':
-            return
-
         proposal = int(msg['proposal'])
         run = int(msg['run'])
-        run_dir = msg['path']
+
+        if msg.get('detector') != 'agipd' and run == 3217:
+            return
 
         with self.db:
             self.db.execute("""
