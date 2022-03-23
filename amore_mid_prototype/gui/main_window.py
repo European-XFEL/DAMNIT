@@ -76,7 +76,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.setText(
             """To start inspecting experimental results,
 autoconfigure AMORE by selecting the proposal directory.
-    
+
 If you experience any issue, please contact us at:
 da-dev@xfel.eu"""
         )
@@ -337,6 +337,16 @@ da-dev@xfel.eu"""
 
         self.comment.clear()
 
+    def get_run_file(self, proposal, run):
+        file_name = self.extracted_data_template.format(proposal, run)
+
+        try:
+            run_file = h5py.File(file_name)
+            return file_name, run_file
+        except FileNotFoundError as e:
+            log.warning("{} not found...".format(file_name))
+            raise e
+
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
@@ -354,19 +364,15 @@ da-dev@xfel.eu"""
                 quantity = ki
                 continue
 
-        file_name = self.extracted_data_template.format(proposal, run)
-
         log.info(
             "Selected proposal {} run {}, property {}".format(
                 proposal, run, quantity_title
             )
         )
 
-        # read data from corresponding HDF5, if available
         try:
-            dataset = h5py.File(file_name, "r")
-        except FileNotFoundError:
-            log.warning("{} not found...".format(file_name))
+            file_name, dataset = self.get_run_file(proposal, run)
+        except:
             return
 
         try:
@@ -374,8 +380,8 @@ da-dev@xfel.eu"""
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
-
-        dataset.close()
+        finally:
+            dataset.close()
 
         self._canvas_inspect.append(
             Canvas(
