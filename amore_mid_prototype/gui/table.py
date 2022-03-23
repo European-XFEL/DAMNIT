@@ -142,7 +142,7 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
-    def headerData(self, col, orientation, role):
+    def headerData(self, col, orientation, role=Qt.ItemDataRole.DisplayRole):
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
