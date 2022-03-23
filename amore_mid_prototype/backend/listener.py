@@ -64,9 +64,42 @@ class EventProcessor:
         else:
             log.debug("Unexpected %s event from Kafka", event)
 
-    EXPECTED_EVENTS = {'migration_complete'}
+    EXPECTED_EVENTS = {'correction_complete'}
 
     def handle_migration_complete(self, record, msg: dict):
+        if msg.get('instrument') != 'MID':
+            return
+
+        proposal = int(msg['proposal'])
+        run = int(msg['run'])
+        run_dir = msg['path']
+
+        with self.db:
+            self.db.execute("""
+                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, runnr) DO NOTHING
+            """, (proposal, run, record.timestamp / 1000))
+        log.info("Added p%d r%d to database", proposal, run)
+
+        out_path = self.context_dir / 'extracted_data' / f'p{proposal}_r{run}.h5'
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        extract_res = subprocess.run([
+            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', run_dir, out_path
+        ])
+        if extract_res.returncode != 0:
+            log.error("Data extraction failed; exit code was %d", extract_res.returncode)
+        else:
+            reduced_data = load_reduced_data(out_path)
+            log.info("Reduced data has %d fields", len(reduced_data))
+            add_to_db(reduced_data, self.db, proposal, run)
+
+            reduced_data['Proposal'] = proposal
+            reduced_data['Run'] = run
+            self.zmq_sock.send_json(reduced_data)
+            log.info("Sent ZMQ message")
+
+    def handle_correction_complete(self, record, msg: dict):
         if msg.get('instrument') != 'MID':
             return
 
