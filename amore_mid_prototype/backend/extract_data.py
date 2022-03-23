@@ -144,8 +144,8 @@ def extract_and_ingest(proposal, run):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
-    run = extra_data.open_run(proposal, run, data="all")
-    run_and_save(run, out_path)
+    run_dc = extra_data.open_run(proposal, run, data="all")
+    run_and_save(run_dc, out_path)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
