@@ -116,6 +116,7 @@ da-dev@xfel.eu"""
             self.db = sqlite3.connect(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
+            df.pop('added_at')
             self.data = df.rename(
                 columns={
                     "runnr": "Run",
@@ -193,10 +194,8 @@ da-dev@xfel.eu"""
 
         # Rename:
         #  start_time -> Timestamp
-        #  added_at -> Added at
         renames = {
             "start_time": "Timestamp",
-            "added_at": "Added at",
             **self.column_renames(),
         }
         message = {
