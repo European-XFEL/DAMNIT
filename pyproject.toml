@@ -20,6 +20,9 @@ dependencies = [
     "PyQt5",
     "pyzmq",
     "xarray",
+    "scipy",
+    "pasha",
+    "extra_geom"
 ]
 
 [project.urls]
