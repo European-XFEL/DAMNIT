@@ -347,22 +347,24 @@ da-dev@xfel.eu"""
             log.warning("{} not found...".format(file_name))
             raise e
 
+    def ds_name(self, quantity):
+        # a LUT would be better
+        for ki, vi in self._attributi.items():
+            if vi.title == quantity:
+                return ki
+
+        return quantity
+
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
 
         quantity_title = self.data.columns[index.column()]
-        quantity = quantity_title
+        quantity = self.ds_name(quantity_title)
 
         # Don't try to plot comments
         if quantity in ["Comment", "Status"]:
             return
-
-        # a LUT would be better
-        for ki, vi in self._attributi.items():
-            if vi.title == quantity_title:
-                quantity = ki
-                continue
 
         log.info(
             "Selected proposal {} run {}, property {}".format(
