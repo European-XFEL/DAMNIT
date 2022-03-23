@@ -105,13 +105,6 @@ class Table(QtCore.QAbstractTableModel):
             elif index.column() == self._data.columns.get_loc("Timestamp"):
                 return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
-            elif (
-                index.column() == self._data.columns.get_loc("Added at")
-                if "Added at" in self._data.columns
-                else False
-            ):
-                return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
-
             elif pd.api.types.is_float(value):
                 return str("{:.6f}".format(value))
 
