@@ -2,6 +2,8 @@ import logging
 import re
 import sqlite3
 import sys
+from datetime import datetime, timezone
+from glob import glob
 from pathlib import Path
 
 import extra_data
@@ -128,6 +130,25 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
             VALUES (:proposal, :run, {values_sql})
             ON CONFLICT (proposal, runnr) DO UPDATE SET {updates_sql}
         """, db_data)
+
+
+def extract_and_ingest(proposal, run):
+    db = open_db()
+    with db:
+        db.execute("""
+            INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+            ON CONFLICT (proposal, runnr) DO NOTHING
+        """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
+    log.info("Ensured p%d r%d in database", proposal, run)
+
+    out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
+    run_and_save(run_dir, out_path)
+    reduced_data = load_reduced_data(out_path)
+    log.info("Reduced data has %d fields", len(reduced_data))
+    add_to_db(reduced_data, db, proposal, run)
 
 
 if __name__ == '__main__':

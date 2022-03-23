@@ -27,12 +27,26 @@ def main():
         help="Directory to store summarised results"
     )
 
+    reprocess_ap = subparsers.add_parser(
+        'reprocess',
+        help="Extract data from specified runs. This does not send live updates yet."
+    )
+    reprocess_ap.add_argument(
+        '--proposal', required=True, type=int, # TODO: make this optional
+        help="Proposal number, e.g. 1234"
+    )
+    reprocess_ap.add_argument(
+        'run', nargs='+', type=int,
+        help="Run number, e.g. 96. Multiple runs can be specified at once."
+    )
+
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 
     if args.subcmd == 'gui':
         from .gui.main_window import run_app
         return run_app(args.context_dir)
+
     elif args.subcmd == 'listen':
         if args.test:
             from .backend.test_listener import listen_migrated
@@ -40,6 +54,11 @@ def main():
             from .backend.listener import listen_migrated
         os.chdir(args.context_dir)
         return listen_migrated()
+
+    elif args.subcmd == 'reprocess':
+        from .backend.extract_data import extract_and_ingest
+        for run in args.run:
+            extract_and_ingest(args.proposal, run)
 
 
 if __name__ == '__main__':
