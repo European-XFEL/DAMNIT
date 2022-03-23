@@ -87,9 +87,8 @@ class Results:
                 f[path][()] = arr
 
 
-def run_and_save(run_path, out_path):
+def run_and_save(run, out_path):
     ctx_file = ContextFile.from_py_file(Path('context.py'))
-    run = extra_data.RunDirectory(run_path)
     res = Results.create(ctx_file, run)
     res.save_hdf5(out_path)
 
@@ -144,8 +143,9 @@ def extract_and_ingest(proposal, run):
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
-    run_and_save(run_dir, out_path)
+    # run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
+    run_dc = extra_data.open_run(proposal, run, data="all")
+    run_and_save(run_dc, out_path)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
