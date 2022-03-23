@@ -115,6 +115,7 @@ da-dev@xfel.eu"""
             log.info("Reading data from database")
             self.db = sqlite3.connect(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
+            df.insert(0, "Status", True)
             self.data = df.rename(
                 columns={
                     "runnr": "Run",
@@ -198,7 +199,10 @@ da-dev@xfel.eu"""
             "added_at": "Added at",
             **self.column_renames(),
         }
-        message = {renames.get(k, k): v for (k, v) in message.items()}
+        message = {
+            "Status": True,
+            **{renames.get(k, k): v for (k, v) in message.items()},
+        }
 
         # initialize the view
         if not self._is_zmq_receiving_data:
@@ -342,7 +346,7 @@ da-dev@xfel.eu"""
         quantity = quantity_title
 
         # Don't try to plot comments
-        if quantity == "Comment":
+        if quantity in ["Comment", "Status"]:
             return
 
         # a LUT would be better

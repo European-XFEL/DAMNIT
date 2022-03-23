@@ -62,7 +62,9 @@ class Plot:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
         keys = list(main_window.data.columns)
-        keys.remove("Comment")
+
+        for ki in ["Comment", "Status"]:
+            keys.remove(ki)
 
         self._button_plot = QtWidgets.QPushButton(main_window)
         self._button_plot.setEnabled(True)
@@ -116,6 +118,6 @@ class Plot:
 
             # not nice to replace NAs with nans, but better solutions require more coding
             ci.update_canvas(
-                self._data[xi].replace(pd.NA, np.nan),
-                self._data[yi].replace(pd.NA, np.nan),
+                self._data[xi].replace(pd.NA, np.nan)[self._data["Status"]],
+                self._data[yi].replace(pd.NA, np.nan)[self._data["Status"]],
             )

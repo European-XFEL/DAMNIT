@@ -29,6 +29,9 @@ class TableView(QtWidgets.QTableView):
             self.setColumnHidden(column_index, True)
 
     def set_item_columns_visibility(self, columns, status):
+        if "Status" in columns:
+            columns.remove("Status")
+
         for i in range(len(columns)):
             item = QtWidgets.QCheckBox(columns[i])
             item.setCheckable(True)
@@ -96,8 +99,8 @@ class Table(QtCore.QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             value = self._data.iloc[index.row(), index.column()]
 
-            if pd.isna(value):
-                return ""
+            if pd.isna(value) or index.column() == self._data.columns.get_loc("Status"):
+                return None
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
                 return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
@@ -115,16 +118,34 @@ class Table(QtCore.QAbstractTableModel):
             else:
                 return str(value)
 
+        elif role == Qt.ItemDataRole.CheckStateRole and index.column() == self._data.columns.get_loc(
+            "Status"
+        ):
+            if self._data["Status"].iloc[index.row()]:
+                return QtCore.Qt.Checked
+            else:
+                return QtCore.Qt.Unchecked
+
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
             return False
 
-        self._data.iloc[index.row(), index.column()] = value
-        self.dataChanged.emit(index, index)
+        if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+            self._data.iloc[index.row(), index.column()] = value
+            self.dataChanged.emit(index, index)
 
-        # Only comment column is editable
-        prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
-        self.comment_changed.emit(int(prop), int(run), value)
+            print(value)
+
+            # Only comment column is editable
+            if index.column() == self._data.columns.get_loc("Comment"):
+                prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
+                self.comment_changed.emit(int(prop), int(run), value)
+
+        elif role == Qt.ItemDataRole.CheckStateRole:
+            if self._data["Status"].iloc[index.row()]:
+                self._data["Status"].values[index.row()] = False
+            else:
+                self._data["Status"].values[index.row()] = True
 
         return True
 
@@ -143,6 +164,13 @@ class Table(QtCore.QAbstractTableModel):
                 Qt.ItemFlag.ItemIsSelectable
                 | Qt.ItemFlag.ItemIsEnabled
                 | Qt.ItemFlag.ItemIsEditable
+            )
+
+        elif index.column() == self._data.columns.get_loc("Status"):
+            return (
+                Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsUserCheckable
             )
 
         else:
