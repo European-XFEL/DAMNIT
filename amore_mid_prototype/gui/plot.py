@@ -96,7 +96,7 @@ class Plot:
 
         # multiple rows can be selected
         # we could even merge multiple runs here
-        for index in self._main_window.table_view.selectedIndexes():
+        for index in self._main_window.table_view.selectionModel().selectedRows():
             log.info("Selected row %d", index.row())
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
