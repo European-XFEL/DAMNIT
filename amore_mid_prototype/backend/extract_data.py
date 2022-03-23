@@ -157,4 +157,5 @@ if __name__ == '__main__':
 
     proposal = int(sys.argv[1])
     run = int(sys.argv[2])
-    run_and_save(proposal, run)
+    out_path = sys.argv[3]
+    run_and_save(proposal, run, out_path)
