@@ -25,6 +25,7 @@ class EventProcessor:
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.execute("pragma user_version=0;")
         self.proposal = get_meta(self.db, 'proposal')
+        log.info(f"Will watch for events from proposal {self.proposal}")
 
         self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS, group_id=CONSUMER_ID)
 
