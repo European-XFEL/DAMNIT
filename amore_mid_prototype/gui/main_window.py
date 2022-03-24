@@ -117,10 +117,13 @@ da-dev@xfel.eu"""
             self.db = open_db(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
+            df.insert(-1, "comment_id", pd.NA)
             df.pop('added_at')
             comments_df = pd.read_sql_query(
                 "SELECT rowid as comment_id, * FROM time_comments", self.db
             )
+            comments_df.insert(0, 'Run', pd.NA)
+            comments_df.insert(1, 'Proposal', pd.NA)
             self.data = pd.concat([
                 df.rename(columns={
                     "runnr": "Run",
