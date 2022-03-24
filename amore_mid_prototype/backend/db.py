@@ -21,6 +21,9 @@ def open_db(path='runs.sqlite') -> sqlite3.Connection:
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
+    )
     conn.row_factory = sqlite3.Row
     return conn
 

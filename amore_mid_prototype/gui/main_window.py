@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import time
 from argparse import ArgumentParser
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -117,6 +118,7 @@ da-dev@xfel.eu"""
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
             df.pop('added_at')
+            comments_df = pd.read_sql_query("SELECT * FROM time_comments", self.db)
             self.data = df.rename(
                 columns={
                     "runnr": "Run",
@@ -125,7 +127,10 @@ da-dev@xfel.eu"""
                     "comment": "Comment",
                     **self.column_renames(),
                 }
-            )
+            ).concat(comments_df.rename(columns={
+                "timestamp": "Timestamp",
+                "comment": "Comment",
+            })).sort_values("Timestamp", ascending=False)
             self._create_view()
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
@@ -303,29 +308,26 @@ da-dev@xfel.eu"""
         )
 
     def _comment_button_clicked(self):
+        ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
+        text = self.comment.text()
+        with self.db:
+            cur = self.db.execute("INSERT INTO time_comments VALUES (?, ?)", (ts, text))
+        comment_id = cur.lastrowid
         self.data = pd.concat(
             [
                 self.data,
-                pd.DataFrame(
-                    {
-                        "Timestamp": int(
-                            time.mktime(
-                                time.strptime(
-                                    self.comment_time.text(), "%H:%M %d/%m/%Y"
-                                )
-                            )
-                        ),
-                        "Run": pd.NA,
-                        "Proposal": pd.NA,
-                        "Comment": self.comment.text(),
-                    },
-                    index=[self.table.rowCount()],
-                ),
-            ]
+                pd.DataFrame({
+                    "Timestamp": ts,
+                    "Run": pd.NA,
+                    "Proposal": pd.NA,
+                    "Comment": text,
+                    "comment_id": comment_id,
+                }),
+            ],
+            ignore_index=True,
         )
 
         # this block is ugly
-        self.table.data = self.data
         if len(self.table.is_sorted_by):
             self.table.data.sort_values(
                 self.table.is_sorted_by,
@@ -408,6 +410,7 @@ da-dev@xfel.eu"""
         self.table_view = TableView()
         self.table = Table(self)
         self.table.comment_changed.connect(self.save_comment)
+        self.table.time_comment_changed.connect(self.save_time_comment)
         self.table_view.setModel(self.table)
 
         self.table_view.doubleClicked.connect(self.inspect_data)
@@ -479,6 +482,17 @@ da-dev@xfel.eu"""
                 (value, int(prop), int(run)),
             )
 
+    def save_time_comment(self, comment_id, value):
+        if self.db is None:
+            log.warning("No SQLite database in use, comment not saved")
+            return
+
+        log.debug("Saving time-based comment ID %d", comment_id)
+        with self.db:
+            self.db.execute(
+                """UPDATE runs set comment=? WHERE rowid=?""",
+                (value, comment_id),
+            )
 
 def run_app(context_dir):
     QtWidgets.QApplication.setAttribute(

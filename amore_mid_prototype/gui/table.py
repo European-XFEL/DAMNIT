@@ -63,6 +63,7 @@ class TableView(QtWidgets.QTableView):
 
 class Table(QtCore.QAbstractTableModel):
     comment_changed = QtCore.pyqtSignal(int, int, str)
+    time_comment_changed = QtCore.pyqtSignal(int, str)
 
     def __init__(self, main_window):
         super().__init__()
@@ -127,13 +128,15 @@ class Table(QtCore.QAbstractTableModel):
             self._data.iloc[index.row(), index.column()] = value
             self.dataChanged.emit(index, index)
 
-            print(value)
-
             # Only comment column is editable
             if index.column() == self._data.columns.get_loc("Comment"):
                 prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
                 if not (pd.isna(prop) or pd.isna(run)):
                     self.comment_changed.emit(int(prop), int(run), value)
+                else:
+                    comment_id = self._data.iloc[index.row()]["comment_id"]
+                    if not pd.isna(comment_id):
+                        self.time_comment_changed.emit(comment_id, value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
             if self._data["Status"].iloc[index.row()]:
