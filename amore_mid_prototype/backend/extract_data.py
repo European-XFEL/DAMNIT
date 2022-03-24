@@ -12,7 +12,7 @@ import numpy as np
 import xarray
 
 from ..context import ContextFile
-from .db import open_db
+from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
 
@@ -135,6 +135,9 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
 
 def extract_and_ingest(proposal, run):
     db = open_db()
+    if proposal is None:
+        proposal = get_meta(db, 'proposal')
+
     with db:
         db.execute("""
             INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)

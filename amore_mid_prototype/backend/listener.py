@@ -8,7 +8,7 @@ from pathlib import Path
 from kafka import KafkaConsumer
 import zmq
 
-from .db import open_db
+from .db import open_db, get_meta
 from .extract_data import add_to_db, load_reduced_data
 
 BROKERS = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
@@ -24,6 +24,7 @@ class EventProcessor:
         self.db = open_db(context_dir / 'runs.sqlite')
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.execute("pragma user_version=0;")
+        self.proposal = get_meta(self.db, 'proposal')
 
         self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS, group_id=CONSUMER_ID)
 
@@ -68,12 +69,12 @@ class EventProcessor:
     EXPECTED_EVENTS = {'correction_complete'}
 
     def handle_migration_complete(self, record, msg: dict):
-        if msg.get('instrument') != 'MID':
-            return
-
         proposal = int(msg['proposal'])
         run = int(msg['run'])
         run_dir = msg['path']
+
+        if proposal != self.proposal:
+            return
 
         with self.db:
             self.db.execute("""
@@ -104,7 +105,7 @@ class EventProcessor:
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
-        if msg.get('detector') != 'agipd' or proposal != 3217:
+        if msg.get('detector') != 'agipd' or proposal != self.proposal:
             return
 
         with self.db:
