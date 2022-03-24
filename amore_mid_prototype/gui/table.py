@@ -132,7 +132,8 @@ class Table(QtCore.QAbstractTableModel):
             # Only comment column is editable
             if index.column() == self._data.columns.get_loc("Comment"):
                 prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
-                self.comment_changed.emit(int(prop), int(run), value)
+                if not (pd.isna(prop) or pd.isna(run)):
+                    self.comment_changed.emit(int(prop), int(run), value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
             if self._data["Status"].iloc[index.row()]:
