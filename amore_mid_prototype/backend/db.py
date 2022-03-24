@@ -24,6 +24,9 @@ def open_db(path='runs.sqlite') -> sqlite3.Connection:
     conn.execute(  # data about metadata - metametadata?
         "CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
+    )
     conn.row_factory = sqlite3.Row
     return conn
 
