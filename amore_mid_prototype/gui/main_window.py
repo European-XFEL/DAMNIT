@@ -1,5 +1,4 @@
 import logging
-import sqlite3
 import sys
 import time
 from argparse import ArgumentParser
@@ -12,6 +11,7 @@ import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
+from ..backend.db import open_db
 from ..context import ContextFile
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
@@ -114,23 +114,26 @@ da-dev@xfel.eu"""
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
-            self.db = sqlite3.connect(sqlite_path)
+            self.db = open_db(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
             df.pop('added_at')
-            comments_df = pd.read_sql_query("SELECT * FROM time_comments", self.db)
-            self.data = df.rename(
-                columns={
+            comments_df = pd.read_sql_query(
+                "SELECT rowid as comment_id, * FROM time_comments", self.db
+            )
+            self.data = pd.concat([
+                df.rename(columns={
                     "runnr": "Run",
                     "proposal": "Proposal",
                     "start_time": "Timestamp",
                     "comment": "Comment",
                     **self.column_renames(),
-                }
-            ).concat(comments_df.rename(columns={
-                "timestamp": "Timestamp",
-                "comment": "Comment",
-            })).sort_values("Timestamp", ascending=False)
+                }),
+                comments_df.rename(columns={
+                    "timestamp": "Timestamp",
+                    "comment": "Comment",
+                }),
+            ]).sort_values("Timestamp", ascending=False)
             self._create_view()
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
@@ -322,7 +325,7 @@ da-dev@xfel.eu"""
                     "Proposal": pd.NA,
                     "Comment": text,
                     "comment_id": comment_id,
-                }),
+                }, index=[0]),
             ],
             ignore_index=True,
         )
@@ -490,7 +493,7 @@ da-dev@xfel.eu"""
         log.debug("Saving time-based comment ID %d", comment_id)
         with self.db:
             self.db.execute(
-                """UPDATE runs set comment=? WHERE rowid=?""",
+                """UPDATE time_comments set comment=? WHERE rowid=?""",
                 (value, comment_id),
             )
 
