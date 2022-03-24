@@ -87,7 +87,8 @@ class EventProcessor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         extract_res = subprocess.run([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', run_dir, out_path
+            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
+            str(proposal), str(run), out_path
         ])
         if extract_res.returncode != 0:
             log.error("Data extraction failed; exit code was %d", extract_res.returncode)
