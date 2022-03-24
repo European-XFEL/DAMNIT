@@ -117,7 +117,7 @@ da-dev@xfel.eu"""
             self.db = open_db(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
-            df.insert(-1, "comment_id", pd.NA)
+            df.insert(len(df.columns), "comment_id", pd.NA)
             df.pop('added_at')
             comments_df = pd.read_sql_query(
                 "SELECT rowid as comment_id, * FROM time_comments", self.db
