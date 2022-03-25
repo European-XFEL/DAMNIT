@@ -1,5 +1,4 @@
 import logging
-import pandas as pd
 import numpy as np
 
 from PyQt5 import QtCore, QtWidgets
@@ -183,12 +182,12 @@ class Plot:
                 runs = [index.siblingAtColumn(2).data() for index in runs_as_series]
 
                 x, y = self.get_run_series_data(proposal, runs[0], xi, yi)
-                xs.append(x)
-                ys.append(y)
+                xs.append(self._main_window.make_finite(x))
+                ys.append(self._main_window.make_finite(y))
             else:
-                # not nice to replace NAs with nans, but better solutions require more coding
-                xs.append(self._data[xi].replace(pd.NA, np.nan)[self._data["Status"]])
-                ys.append(self._data[yi].replace(pd.NA, np.nan)[self._data["Status"]])
+                # not nice to replace NAs/infs with nans, but better solutions require more coding
+                xs.append(self._main_window.make_finite(self._data[xi])[self._data["Status"]])
+                ys.append(self._main_window.make_finite(self._data[yi])[self._data["Status"]])
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
             ci.update_canvas(xs, ys)

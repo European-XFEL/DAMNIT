@@ -363,6 +363,14 @@ da-dev@xfel.eu"""
 
         return quantity
 
+    def make_finite(self, data):
+        if not isinstance(data, pd.Series):
+            data = pd.Series(data)
+
+        return data.replace(pd.NA, np.nan)  \
+                   .replace(np.inf, np.nan) \
+                   .replace(-np.inf, np.nan)
+
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
@@ -396,8 +404,8 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[x],
-                y=[y],
+                x=[self.make_finite(x)],
+                y=[self.make_finite(y)],
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="ro",
