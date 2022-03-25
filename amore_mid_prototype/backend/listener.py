@@ -46,9 +46,11 @@ class EventProcessor:
             self._zmq_addr_file.unlink()
         except FileNotFoundError:
             pass
-        self.zmq_sock.close()
         self.kafka_cns.close()
         self.db.close()
+        # Closing the ZMQ socket can block (if messages are still being sent)
+        # so do this after the other steps.
+        self.zmq_sock.close()
         return False
 
     def run(self):
