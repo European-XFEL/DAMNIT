@@ -113,6 +113,17 @@ class EventProcessor:
             return
 
         with self.db:
+            run_count = self.db.execute("""
+                SELECT COUNT(runnr)
+                FROM runs
+                WHERE proposal = ? AND runnr = ?
+            """, (proposal, run)).fetchone()[0]
+
+            if run_count > 0:
+                log.info(f"Already processed run {run}, skipping re-processing")
+                return
+
+        with self.db:
             self.db.execute("""
                 INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
                 ON CONFLICT (proposal, runnr) DO NOTHING
