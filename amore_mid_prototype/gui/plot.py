@@ -67,8 +67,18 @@ class Canvas(QtWidgets.QDialog):
             line.set_data(x, y)
 
             if self._autoscale_checkbox.isChecked() or not plot_exists:
-                self._axis.set_xlim((x.min(), x.max()))
-                self._axis.set_ylim((y.min(), y.max()))
+                margin = 0.05
+
+                x_range = x.max() - x.min()
+                x_min = x.min() - x_range * margin
+                x_max = x.max() + x_range * margin
+
+                y_range = y.max() - y.min()
+                y_min = y.min() - y_range * margin
+                y_max = y.max() + y_range * margin
+
+                self._axis.set_xlim((x_min, x_max))
+                self._axis.set_ylim((y_min, y_max))
 
             line.figure.canvas.draw()
 
