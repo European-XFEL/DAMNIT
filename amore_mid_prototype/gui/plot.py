@@ -15,7 +15,15 @@ log = logging.getLogger(__name__)
 
 class Canvas(QtWidgets.QDialog):
     def __init__(
-        self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o", plot_type="default", autoscale=True
+        self,
+        parent=None,
+        x=[],
+        y=[],
+        xlabel="",
+        ylabel="",
+        fmt="o",
+        plot_type="default",
+        autoscale=True,
     ):
         super().__init__()
         self.setStyleSheet("background-color: white")
@@ -28,12 +36,14 @@ class Canvas(QtWidgets.QDialog):
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
-        self._axis.set_ylabel(ylabel if self.plot_type == "default" else "Probability density")
+        self._axis.set_ylabel(
+            ylabel if self.plot_type == "default" else "Probability density"
+        )
         self._axis.set_position([0.20, 0.15, 0.80, 0.85])
         self._axis.grid()
 
         self._fmt = fmt
-        self._lines = { }
+        self._lines = {}
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
@@ -69,7 +79,7 @@ class Canvas(QtWidgets.QDialog):
             if self.plot_type == "default":
                 line.set_data(x, y)
             if self.plot_type == "histogram1D":
-                y, hx = np.histogram(y, bins=100, density=True)
+                y, hx = np.histogram(x, bins=100, density=True)
                 x = (hx[1] - hx[0]) / 2 + hx[:-1]
                 line.set_data(x, y)
 
@@ -105,14 +115,20 @@ class Plot:
         self._button_plot.setText("Plot summary for all runs")
         self._button_plot.clicked.connect(lambda: self._button_plot_clicked(False))
 
-        self._button_plot_runs = QtWidgets.QPushButton("Plot for selected runs", main_window)
+        self._button_plot_runs = QtWidgets.QPushButton(
+            "Plot for selected runs", main_window
+        )
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
-        self._toggle_probability_density = QtWidgets.QPushButton("Compute probability density", main_window)
+        self._toggle_probability_density = QtWidgets.QPushButton(
+            "Compute probability density", main_window
+        )
         self._toggle_probability_density.setCheckable(True)
         self._toggle_probability_density.setChecked(True)
         self._toggle_probability_density.toggle()
-        self._toggle_probability_density.clicked.connect(self._toggle_probability_density_clicked)
+        self._toggle_probability_density.clicked.connect(
+            self._toggle_probability_density_clicked
+        )
 
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
         self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
@@ -125,7 +141,7 @@ class Plot:
             "key.y": [],
             "canvas": [],
             "type": [],
-            "runs_as_series": []
+            "runs_as_series": [],
         }
 
     @property
@@ -149,29 +165,44 @@ class Plot:
 
         if runs_as_series:
             if len(selected_rows) == 0:
-                QMessageBox.warning(self._main_window, "No runs selected",
-                                    "When plotting runs as series, you must select some runs in the table.")
+                QMessageBox.warning(
+                    self._main_window,
+                    "No runs selected",
+                    "When plotting runs as series, you must select some runs in the table.",
+                )
                 return
 
             # Find the proposals of currently selected runs
             proposals = [index.siblingAtColumn(1).data() for index in selected_rows]
             if len(set(proposals)) > 1:
-                QMessageBox.warning(self._main_window, "Multiple proposals selected",
-                                    "Cannot plot data for runs from different proposals")
+                QMessageBox.warning(
+                    self._main_window,
+                    "Multiple proposals selected",
+                    "Cannot plot data for runs from different proposals",
+                )
                 return
 
             try:
                 index = selected_rows[0]
                 proposal = proposals[0]
                 run = index.siblingAtColumn(2).data()
-                self.get_run_series_data(proposal, run, xlabel, ylabel)
+                self.get_run_series_data(
+                    proposal, run, xlabel, ylabel
+                ) if self.plot_type == "default" else self.get_run_series_data(
+                    proposal, run, xlabel, xlabel
+                )
             except:
-                QMessageBox.warning(self._main_window, "Plotting failed",
-                                    f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run")
+                QMessageBox.warning(
+                    self._main_window,
+                    "Plotting failed",
+                    f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
+                )
                 return
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
-        canvas = Canvas(self._main_window, xlabel=xlabel, ylabel=ylabel, plot_type=self.plot_type)
+        canvas = Canvas(
+            self._main_window, xlabel=xlabel, ylabel=ylabel, plot_type=self.plot_type
+        )
         if runs_as_series:
             canvas.setWindowTitle(f"Run {run}")
 
@@ -194,10 +225,14 @@ class Plot:
             self.plot_type = "default"
 
     def update(self):
-        for index, (xi, yi, ci, runs_as_series) in enumerate(zip(
-                self._canvas["key.x"].copy(), self._canvas["key.y"].copy(),
-                self._canvas["canvas"].copy(), self._canvas["runs_as_series"].copy()
-        )):
+        for index, (xi, yi, ci, runs_as_series) in enumerate(
+            zip(
+                self._canvas["key.x"].copy(),
+                self._canvas["key.y"].copy(),
+                self._canvas["canvas"].copy(),
+                self._canvas["runs_as_series"].copy(),
+            )
+        ):
             xs = []
             ys = []
 
@@ -219,8 +254,12 @@ class Plot:
                 ys.append(self._main_window.make_finite(y))
             else:
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
-                xs.append(self._main_window.make_finite(self._data[xi])[self._data["Status"]])
-                ys.append(self._main_window.make_finite(self._data[yi])[self._data["Status"]])
+                xs.append(
+                    self._main_window.make_finite(self._data[xi])[self._data["Status"]]
+                )
+                ys.append(
+                    self._main_window.make_finite(self._data[yi])[self._data["Status"]]
+                )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
             ci.update_canvas(xs, ys)

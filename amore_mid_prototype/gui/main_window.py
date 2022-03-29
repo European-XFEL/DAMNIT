@@ -118,25 +118,28 @@ da-dev@xfel.eu"""
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
-            df.pop('added_at')
+            df.pop("added_at")
             comments_df = pd.read_sql_query(
                 "SELECT rowid as comment_id, * FROM time_comments", self.db
             )
-            comments_df.insert(0, 'Run', pd.NA)
-            comments_df.insert(1, 'Proposal', pd.NA)
-            self.data = pd.concat([
-                df.rename(columns={
-                    "runnr": "Run",
-                    "proposal": "Proposal",
-                    "start_time": "Timestamp",
-                    "comment": "Comment",
-                    **self.column_renames(),
-                }),
-                comments_df.rename(columns={
-                    "timestamp": "Timestamp",
-                    "comment": "Comment",
-                }),
-            ]).sort_values("Timestamp", ascending=False)
+            comments_df.insert(0, "Run", pd.NA)
+            comments_df.insert(1, "Proposal", pd.NA)
+            self.data = pd.concat(
+                [
+                    df.rename(
+                        columns={
+                            "runnr": "Run",
+                            "proposal": "Proposal",
+                            "start_time": "Timestamp",
+                            "comment": "Comment",
+                            **self.column_renames(),
+                        }
+                    ),
+                    comments_df.rename(
+                        columns={"timestamp": "Timestamp", "comment": "Comment",}
+                    ),
+                ]
+            ).sort_values("Timestamp", ascending=False)
             self._create_view()
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
@@ -322,13 +325,16 @@ da-dev@xfel.eu"""
         self.data = pd.concat(
             [
                 self.data,
-                pd.DataFrame({
-                    "Timestamp": ts,
-                    "Run": pd.NA,
-                    "Proposal": pd.NA,
-                    "Comment": text,
-                    "comment_id": comment_id,
-                }, index=[0]),
+                pd.DataFrame(
+                    {
+                        "Timestamp": ts,
+                        "Run": pd.NA,
+                        "Proposal": pd.NA,
+                        "Comment": text,
+                        "comment_id": comment_id,
+                    },
+                    index=[0],
+                ),
             ],
             ignore_index=True,
         )
@@ -367,9 +373,9 @@ da-dev@xfel.eu"""
         if not isinstance(data, pd.Series):
             data = pd.Series(data)
 
-        return data.replace(pd.NA, np.nan)  \
-                   .replace(np.inf, np.nan) \
-                   .replace(-np.inf, np.nan)
+        return (
+            data.replace(pd.NA, np.nan).replace(np.inf, np.nan).replace(-np.inf, np.nan)
+        )
 
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
@@ -484,8 +490,10 @@ da-dev@xfel.eu"""
         self.plot._button_plot.setMinimumWidth(200)
         plot_parameters_horizontal_layout.addStretch()
 
-        plot_parameters_horizontal_layout.addWidget(self.plot._toggle_probability_density)
-        
+        plot_parameters_horizontal_layout.addWidget(
+            self.plot._toggle_probability_density
+        )
+
         plot_vertical_layout.addSpacing(-20)
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
@@ -520,6 +528,7 @@ da-dev@xfel.eu"""
                 """UPDATE time_comments set comment=? WHERE rowid=?""",
                 (value, comment_id),
             )
+
 
 def run_app(context_dir):
     QtWidgets.QApplication.setAttribute(
