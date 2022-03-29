@@ -121,7 +121,7 @@ class Plot:
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
         self._toggle_probability_density = QtWidgets.QPushButton(
-            "Compute probability density", main_window
+            "Histogram", main_window
         )
         self._toggle_probability_density.setCheckable(True)
         self._toggle_probability_density.setChecked(True)
