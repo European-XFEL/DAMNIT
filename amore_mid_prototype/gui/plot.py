@@ -183,14 +183,13 @@ class Plot:
                 return
 
             try:
+                if self.plot_type == "histogram1D":
+                    ylabel = xlabel
+
                 index = selected_rows[0]
                 proposal = proposals[0]
                 run = index.siblingAtColumn(2).data()
-                self.get_run_series_data(
-                    proposal, run, xlabel, ylabel
-                ) if self.plot_type == "default" else self.get_run_series_data(
-                    proposal, run, xlabel, xlabel
-                )
+                self.get_run_series_data(proposal, run, xlabel, ylabel)
             except:
                 QMessageBox.warning(
                     self._main_window,
