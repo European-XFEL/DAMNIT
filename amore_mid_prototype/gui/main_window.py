@@ -418,7 +418,6 @@ da-dev@xfel.eu"""
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
-        plot_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
         self.table_view = TableView()
@@ -466,19 +465,33 @@ da-dev@xfel.eu"""
 
         # plotting control
         self.plot = Plot(self)
+        plotting_group = QtWidgets.QGroupBox("Plotting controls")
+        plot_vertical_layout = QtWidgets.QVBoxLayout()
+        plot_horizontal_layout = QtWidgets.QHBoxLayout()
+        plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
-        buttons_vbox = QtWidgets.QVBoxLayout()
-        buttons_vbox.addWidget(self.plot._button_plot)
-        buttons_vbox.addWidget(self.plot._button_plot_runs)
-        plot_horizontal_layout.addLayout(buttons_vbox)
+        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        self.plot._button_plot_runs.setMinimumWidth(200)
         plot_horizontal_layout.addStretch()
 
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
         plot_horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
         plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
-        vertical_layout.addSpacing(10)
-        vertical_layout.addLayout(plot_horizontal_layout)
+        plot_vertical_layout.addLayout(plot_horizontal_layout)
+
+        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot)
+        self.plot._button_plot.setMinimumWidth(200)
+        plot_parameters_horizontal_layout.addStretch()
+
+        plot_parameters_horizontal_layout.addWidget(self.plot._toggle_probability_density)
+        
+        plot_vertical_layout.addSpacing(-20)
+        plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
+
+        plotting_group.setLayout(plot_vertical_layout)
+
+        vertical_layout.addWidget(plotting_group)
 
         self._view_widget.setLayout(vertical_layout)
 

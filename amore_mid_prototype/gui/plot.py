@@ -15,19 +15,21 @@ log = logging.getLogger(__name__)
 
 class Canvas(QtWidgets.QDialog):
     def __init__(
-        self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o", autoscale=True
+        self, parent=None, x=[], y=[], xlabel="", ylabel="", fmt="o", plot_type="default", autoscale=True
     ):
         super().__init__()
         self.setStyleSheet("background-color: white")
 
         layout = QtWidgets.QVBoxLayout(self)
 
+        self.plot_type = plot_type
+
         self.figure = Figure(figsize=(5, 3))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
-        self._axis.set_ylabel(ylabel)
-        self._axis.set_position([0.15, 0.15, 0.85, 0.85])
+        self._axis.set_ylabel(ylabel if self.plot_type == "default" else "Probability density")
+        self._axis.set_position([0.20, 0.15, 0.80, 0.85])
         self._axis.grid()
 
         self._fmt = fmt
@@ -37,6 +39,8 @@ class Canvas(QtWidgets.QDialog):
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
         self._navigation_toolbar.layout().setSpacing(1)
 
+        layout.addWidget(self._canvas)
+
         self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
         if autoscale:
             self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
@@ -44,8 +48,6 @@ class Canvas(QtWidgets.QDialog):
                 QtCore.Qt.LayoutDirection.RightToLeft
             )
 
-        layout.addWidget(self._canvas)
-        if autoscale:
             layout.addWidget(self._autoscale_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
@@ -64,7 +66,12 @@ class Canvas(QtWidgets.QDialog):
                 self._lines[series] = self._axis.plot([], [], fmt)[0]
 
             line = self._lines[series]
-            line.set_data(x, y)
+            if self.plot_type == "default":
+                line.set_data(x, y)
+            if self.plot_type == "histogram1D":
+                y, hx = np.histogram(y, bins=100, density=True)
+                x = (hx[1] - hx[0]) / 2 + hx[:-1]
+                line.set_data(x, y)
 
             if self._autoscale_checkbox.isChecked() or not plot_exists:
                 margin = 0.05
@@ -91,6 +98,8 @@ class Plot:
         for ki in ["Comment", "Status"]:
             keys.remove(ki)
 
+        self.plot_type = "default"
+
         self._button_plot = QtWidgets.QPushButton(main_window)
         self._button_plot.setEnabled(True)
         self._button_plot.setText("Plot summary for all runs")
@@ -99,7 +108,15 @@ class Plot:
         self._button_plot_runs = QtWidgets.QPushButton("Plot for selected runs", main_window)
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
-        self.create_combo_box()
+        self._toggle_probability_density = QtWidgets.QPushButton("Compute probability density", main_window)
+        self._toggle_probability_density.setCheckable(True)
+        self._toggle_probability_density.setChecked(True)
+        self._toggle_probability_density.toggle()
+        self._toggle_probability_density.clicked.connect(self._toggle_probability_density_clicked)
+
+        self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
+        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
+
         self.update_combo_box(keys)
         self._combo_box_x_axis.setCurrentText("Run")
 
@@ -107,16 +124,13 @@ class Plot:
             "key.x": [],
             "key.y": [],
             "canvas": [],
+            "type": [],
             "runs_as_series": []
         }
 
     @property
     def _data(self):
         return self._main_window.data
-
-    def create_combo_box(self):
-        self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
 
     def update_combo_box(self, keys):
         for ki in keys:
@@ -157,18 +171,27 @@ class Plot:
                 return
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
-        canvas = Canvas(self._main_window, xlabel=xlabel, ylabel=ylabel)
+        canvas = Canvas(self._main_window, xlabel=xlabel, ylabel=ylabel, plot_type=self.plot_type)
         if runs_as_series:
             canvas.setWindowTitle(f"Run {run}")
 
         self._canvas["key.x"].append(xlabel)
         self._canvas["key.y"].append(ylabel)
         self._canvas["canvas"].append(canvas)
+        self._canvas["type"].append(self.plot_type)
         self._canvas["runs_as_series"].append(selected_rows if runs_as_series else None)
 
         self.update()
 
         canvas.show()
+
+    def _toggle_probability_density_clicked(self):
+        if self._toggle_probability_density.isChecked():
+            self._combo_box_y_axis.setEnabled(False)
+            self.plot_type = "histogram1D"
+        else:
+            self._combo_box_y_axis.setEnabled(True)
+            self.plot_type = "default"
 
     def update(self):
         for index, (xi, yi, ci, runs_as_series) in enumerate(zip(
