@@ -1,8 +1,8 @@
 import logging
-import sqlite3
 import sys
 import time
 from argparse import ArgumentParser
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +11,7 @@ import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
+from ..backend.db import open_db
 from ..context import ContextFile
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
@@ -76,7 +77,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.setText(
             """To start inspecting experimental results,
 autoconfigure AMORE by selecting the proposal directory.
-    
+
 If you experience any issue, please contact us at:
 da-dev@xfel.eu"""
         )
@@ -113,19 +114,32 @@ da-dev@xfel.eu"""
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
-            self.db = sqlite3.connect(sqlite_path)
+            self.db = open_db(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
-            df.pop('added_at')
-            self.data = df.rename(
-                columns={
-                    "runnr": "Run",
-                    "proposal": "Proposal",
-                    "start_time": "Timestamp",
-                    "comment": "Comment",
-                    **self.column_renames(),
-                }
+            df.insert(len(df.columns), "comment_id", pd.NA)
+            df.pop("added_at")
+            comments_df = pd.read_sql_query(
+                "SELECT rowid as comment_id, * FROM time_comments", self.db
             )
+            comments_df.insert(0, "Run", pd.NA)
+            comments_df.insert(1, "Proposal", pd.NA)
+            self.data = pd.concat(
+                [
+                    df.rename(
+                        columns={
+                            "runnr": "Run",
+                            "proposal": "Proposal",
+                            "start_time": "Timestamp",
+                            "comment": "Comment",
+                            **self.column_renames(),
+                        }
+                    ),
+                    comments_df.rename(
+                        columns={"timestamp": "Timestamp", "comment": "Comment",}
+                    ),
+                ]
+            ).sort_values("Timestamp", ascending=False)
             self._create_view()
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
@@ -303,29 +317,29 @@ da-dev@xfel.eu"""
         )
 
     def _comment_button_clicked(self):
+        ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
+        text = self.comment.text()
+        with self.db:
+            cur = self.db.execute("INSERT INTO time_comments VALUES (?, ?)", (ts, text))
+        comment_id = cur.lastrowid
         self.data = pd.concat(
             [
                 self.data,
                 pd.DataFrame(
                     {
-                        "Timestamp": int(
-                            time.mktime(
-                                time.strptime(
-                                    self.comment_time.text(), "%H:%M %d/%m/%Y"
-                                )
-                            )
-                        ),
+                        "Timestamp": ts,
                         "Run": pd.NA,
                         "Proposal": pd.NA,
-                        "Comment": self.comment.text(),
+                        "Comment": text,
+                        "comment_id": comment_id,
                     },
-                    index=[self.table.rowCount()],
+                    index=[0],
                 ),
-            ]
+            ],
+            ignore_index=True,
         )
 
         # this block is ugly
-        self.table.data = self.data
         if len(self.table.is_sorted_by):
             self.table.data.sort_values(
                 self.table.is_sorted_by,
@@ -337,24 +351,42 @@ da-dev@xfel.eu"""
 
         self.comment.clear()
 
+    def get_run_file(self, proposal, run):
+        file_name = self.extracted_data_template.format(proposal, run)
+
+        try:
+            run_file = h5py.File(file_name)
+            return file_name, run_file
+        except FileNotFoundError as e:
+            log.warning("{} not found...".format(file_name))
+            raise e
+
+    def ds_name(self, quantity):
+        # a LUT would be better
+        for ki, vi in self._attributi.items():
+            if vi.title == quantity:
+                return ki
+
+        return quantity
+
+    def make_finite(self, data):
+        if not isinstance(data, pd.Series):
+            data = pd.Series(data)
+
+        return (
+            data.replace(pd.NA, np.nan).replace(np.inf, np.nan).replace(-np.inf, np.nan)
+        )
+
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
         run = self.data["Run"][index.row()]
 
         quantity_title = self.data.columns[index.column()]
-        quantity = quantity_title
+        quantity = self.ds_name(quantity_title)
 
         # Don't try to plot comments
         if quantity in ["Comment", "Status"]:
             return
-
-        # a LUT would be better
-        for ki, vi in self._attributi.items():
-            if vi.title == quantity_title:
-                quantity = ki
-                continue
-
-        file_name = self.extracted_data_template.format(proposal, run)
 
         log.info(
             "Selected proposal {} run {}, property {}".format(
@@ -362,11 +394,9 @@ da-dev@xfel.eu"""
             )
         )
 
-        # read data from corresponding HDF5, if available
         try:
-            dataset = h5py.File(file_name, "r")
-        except FileNotFoundError:
-            log.warning("{} not found...".format(file_name))
+            file_name, dataset = self.get_run_file(proposal, run)
+        except:
             return
 
         try:
@@ -374,14 +404,14 @@ da-dev@xfel.eu"""
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
-
-        dataset.close()
+        finally:
+            dataset.close()
 
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=x,
-                y=y,
+                x=[self.make_finite(x)],
+                y=[self.make_finite(y)],
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="ro",
@@ -394,12 +424,12 @@ da-dev@xfel.eu"""
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
-        plot_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
         self.table_view = TableView()
         self.table = Table(self)
         self.table.comment_changed.connect(self.save_comment)
+        self.table.time_comment_changed.connect(self.save_time_comment)
         self.table_view.setModel(self.table)
 
         self.table_view.doubleClicked.connect(self.inspect_data)
@@ -441,15 +471,35 @@ da-dev@xfel.eu"""
 
         # plotting control
         self.plot = Plot(self)
+        plotting_group = QtWidgets.QGroupBox("Plotting controls")
+        plot_vertical_layout = QtWidgets.QVBoxLayout()
+        plot_horizontal_layout = QtWidgets.QHBoxLayout()
+        plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot)
+        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        self.plot._button_plot_runs.setMinimumWidth(200)
         plot_horizontal_layout.addStretch()
 
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
         plot_horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
         plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
-        vertical_layout.addLayout(plot_horizontal_layout)
+        plot_vertical_layout.addLayout(plot_horizontal_layout)
+
+        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot)
+        self.plot._button_plot.setMinimumWidth(200)
+        plot_parameters_horizontal_layout.addStretch()
+
+        plot_parameters_horizontal_layout.addWidget(
+            self.plot._toggle_probability_density
+        )
+
+        plot_vertical_layout.addSpacing(-20)
+        plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
+
+        plotting_group.setLayout(plot_vertical_layout)
+
+        vertical_layout.addWidget(plotting_group)
 
         self._view_widget.setLayout(vertical_layout)
 
@@ -465,6 +515,18 @@ da-dev@xfel.eu"""
                 UPDATE runs set comment=? WHERE proposal=? AND runnr=?
                 """,
                 (value, int(prop), int(run)),
+            )
+
+    def save_time_comment(self, comment_id, value):
+        if self.db is None:
+            log.warning("No SQLite database in use, comment not saved")
+            return
+
+        log.debug("Saving time-based comment ID %d", comment_id)
+        with self.db:
+            self.db.execute(
+                """UPDATE time_comments set comment=? WHERE rowid=?""",
+                (value, comment_id),
             )
 
 

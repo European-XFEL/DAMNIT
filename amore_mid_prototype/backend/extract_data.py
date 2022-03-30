@@ -12,7 +12,7 @@ import numpy as np
 import xarray
 
 from ..context import ContextFile
-from .db import open_db
+from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
 
@@ -87,10 +87,11 @@ class Results:
                 f[path][()] = arr
 
 
-def run_and_save(run_path, out_path):
+def run_and_save(proposal, run, out_path):
+    run_dc = extra_data.open_run(proposal, run, data="all")
+
     ctx_file = ContextFile.from_py_file(Path('context.py'))
-    run = extra_data.RunDirectory(run_path)
-    res = Results.create(ctx_file, run)
+    res = Results.create(ctx_file, run_dc)
     res.save_hdf5(out_path)
 
 
@@ -134,6 +135,9 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
 
 def extract_and_ingest(proposal, run):
     db = open_db()
+    if proposal is None:
+        proposal = get_meta(db, 'proposal')
+
     with db:
         db.execute("""
             INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
@@ -144,8 +148,8 @@ def extract_and_ingest(proposal, run):
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
-    run_and_save(run_dir, out_path)
+    # run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
+    run_and_save(proposal, run, out_path)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
@@ -153,4 +157,8 @@ def extract_and_ingest(proposal, run):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    run_and_save(sys.argv[1], sys.argv[2])
+
+    proposal = int(sys.argv[1])
+    run = int(sys.argv[2])
+    out_path = sys.argv[3]
+    run_and_save(proposal, run, out_path)

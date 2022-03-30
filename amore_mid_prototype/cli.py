@@ -32,12 +32,21 @@ def main():
         help="Extract data from specified runs. This does not send live updates yet."
     )
     reprocess_ap.add_argument(
-        '--proposal', required=True, type=int, # TODO: make this optional
+        '--proposal', type=int,
         help="Proposal number, e.g. 1234"
     )
     reprocess_ap.add_argument(
         'run', nargs='+', type=int,
         help="Run number, e.g. 96. Multiple runs can be specified at once."
+    )
+
+    proposal_ap = subparsers.add_parser(
+        'proposal',
+        help="Get or set the proposal number to collect metadata from"
+    )
+    proposal_ap.add_argument(
+        'proposal', nargs='?', type=int,
+        help="Proposal number to set, e.g. 1234"
     )
 
     args = ap.parse_args()
@@ -61,6 +70,19 @@ def main():
         from .backend.extract_data import extract_and_ingest
         for run in args.run:
             extract_and_ingest(args.proposal, run)
+
+    elif args.subcmd == 'proposal':
+        from .backend.db import open_db, get_meta, set_meta
+        db = open_db()
+        currently_set = get_meta(db, 'proposal', None)
+        if args.proposal is None:
+            print("Current proposal number:", currently_set)
+        elif args.proposal == currently_set:
+            print(f"No change - proposal {currently_set} already set")
+        else:
+            set_meta(db, 'proposal', args.proposal)
+            print(f"Changed proposal to {args.proposal} (was {currently_set})")
+
 
 
 if __name__ == '__main__':
