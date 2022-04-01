@@ -190,7 +190,8 @@ class Plot:
                 proposal = proposals[0]
                 run = index.siblingAtColumn(2).data()
                 self.get_run_series_data(proposal, run, xlabel, ylabel)
-            except:
+            except Exception:
+                log.warning("Error getting data for plot", exc_info=True)
                 QMessageBox.warning(
                     self._main_window,
                     "Plotting failed",
@@ -264,10 +265,7 @@ class Plot:
             ci.update_canvas(xs, ys)
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
-        try:
-            file_name, dataset = self._main_window.get_run_file(proposal, run)
-        except:
-            return
+        file_name, dataset = self._main_window.get_run_file(proposal, run)
 
         x_quantity = self._main_window.ds_name(xlabel)
         y_quantity = self._main_window.ds_name(ylabel)
