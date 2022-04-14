@@ -38,7 +38,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
-        self.resize(600, 1000)
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -52,9 +51,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._canvas_inspect = []
 
+        self.center_window()
+
     def closeEvent(self, event):
         if self._zmq_thread is not None:
             self._zmq_thread.exit()
+
+    def center_window(self):
+        """
+        Center and resize the window to the screen the cursor is placed on.
+        """
+        screen = QtGui.QGuiApplication.screenAt(QtGui.QCursor.pos())
+
+        screen_size = screen.size()
+        max_width = screen_size.width()
+        max_height = screen_size.height()
+
+        # Resize to a reasonable default
+        self.resize(int(max_width * 0.8), int(max_height * 0.8))
+
+        # Center window
+        self.move(screen.geometry().center() - self.frameGeometry().center())
 
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
