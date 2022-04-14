@@ -341,12 +341,12 @@ da-dev@xfel.eu"""
 
         # this block is ugly
         if len(self.table.is_sorted_by):
-            self.table.data.sort_values(
+            self.data.sort_values(
                 self.table.is_sorted_by,
                 ascending=self.table.is_sorted_order == QtCore.Qt.AscendingOrder,
                 inplace=True,
             )
-            self.table.data.reset_index(inplace=True, drop=True)
+            self.data.reset_index(inplace=True, drop=True)
         self.table.insertRows(self.table.rowCount())
 
         self.comment.clear()
