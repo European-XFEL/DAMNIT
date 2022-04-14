@@ -493,7 +493,7 @@ da-dev@xfel.eu"""
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        plot_horizontal_layout.addWidget(self.plot._button_plot)
         self.plot._button_plot_runs.setMinimumWidth(200)
         plot_horizontal_layout.addStretch()
 
@@ -503,7 +503,7 @@ da-dev@xfel.eu"""
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
 
-        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot)
+        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
         self.plot._button_plot.setMinimumWidth(200)
         plot_parameters_horizontal_layout.addStretch()
 
@@ -511,7 +511,6 @@ da-dev@xfel.eu"""
             self.plot._toggle_probability_density
         )
 
-        plot_vertical_layout.addSpacing(-20)
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
