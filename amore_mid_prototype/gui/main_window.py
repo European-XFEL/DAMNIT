@@ -1,3 +1,4 @@
+import os
 import logging
 import sys
 import time
@@ -10,6 +11,8 @@ import numpy as np
 import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+
+from extra_data.read_machinery import find_proposal
 
 from ..backend.db import open_db
 from ..context import ContextFile
@@ -101,8 +104,31 @@ da-dev@xfel.eu"""
         dialog.exec()
 
     def _menu_bar_autoconfigure(self) -> None:
+        proposal_dir = ""
+
+        # If we're on a system with access to GPFS, prompt for the proposal
+        # number so we can preset the prompt for the AMORE directory.
+        if os.path.isdir("/gpfs/exfel/exp"):
+            prompt = True
+            while prompt:
+                prop_no, prompt = QtWidgets.QInputDialog.getInt(self, "Select proposal",
+                                                                "Which proposal is this for?")
+                if not prompt:
+                    break
+
+                proposal = f"p{prop_no:06}"
+                try:
+                    proposal_dir = find_proposal(proposal)
+                    prompt = False
+                except Exception as e:
+                    button = QtWidgets.QMessageBox.warning(self, "Bad proposal number",
+                                                           "Could not find a proposal with this number, try again?",
+                                                           buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+                    if button != QtWidgets.QMessageBox.Yes:
+                        prompt = False
+
         path = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Select context directory",
+            self, "Select context directory", proposal_dir
         )
         if path:
             self.autoconfigure(Path(path))
