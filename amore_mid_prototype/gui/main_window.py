@@ -136,11 +136,16 @@ da-dev@xfel.eu"""
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
             df.pop("added_at")
+
+            # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
                 "SELECT rowid as comment_id, * FROM time_comments", self.db
             )
             comments_df.insert(0, "Run", pd.NA)
             comments_df.insert(1, "Proposal", pd.NA)
+            # Don't try to plot comments
+            comments_df.insert(2, "Status", False)
+
             self.data = pd.concat(
                 [
                     df.rename(
@@ -344,6 +349,7 @@ da-dev@xfel.eu"""
                 self.data,
                 pd.DataFrame(
                     {
+                        "Status": False,
                         "Timestamp": ts,
                         "Run": pd.NA,
                         "Proposal": pd.NA,
