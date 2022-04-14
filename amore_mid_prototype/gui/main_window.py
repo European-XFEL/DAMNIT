@@ -187,8 +187,10 @@ da-dev@xfel.eu"""
                         columns={"timestamp": "Timestamp", "comment": "Comment",}
                     ),
                 ]
-            ).sort_values("Timestamp", ascending=False)
+            )
             self._create_view()
+            self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
+                                         Qt.SortOrder.AscendingOrder)
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
