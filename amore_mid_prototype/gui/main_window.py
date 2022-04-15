@@ -22,6 +22,7 @@ from .plot import Canvas, Plot
 
 
 log = logging.getLogger(__name__)
+pd.options.mode.use_inf_as_na = True
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -424,9 +425,7 @@ da-dev@xfel.eu"""
         if not isinstance(data, pd.Series):
             data = pd.Series(data)
 
-        return (
-            data.replace(pd.NA, np.nan).replace(np.inf, np.nan).replace(-np.inf, np.nan)
-        )
+        return data.fillna(np.nan)
 
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]

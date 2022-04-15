@@ -32,15 +32,16 @@ class Canvas(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.plot_type = plot_type
+        is_histogram = self.plot_type != "default"
 
         self.figure = Figure(figsize=(5, 3))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(
-            ylabel if self.plot_type == "default" else "Probability density"
+            ylabel if not is_histogram else "Probability density"
         )
-        self._axis.set_position([0.20, 0.15, 0.80, 0.85])
+        self._axis.set_title(f"{xlabel} vs {ylabel}" if not is_histogram else f"Probability density of {xlabel}")
         self._axis.grid()
 
         self._fmt = fmt
@@ -63,6 +64,7 @@ class Canvas(QtWidgets.QDialog):
         layout.addWidget(self._navigation_toolbar)
 
         self.update_canvas(x, y)
+        self.figure.tight_layout()
 
     @property
     def has_data(self):
@@ -74,14 +76,14 @@ class Canvas(QtWidgets.QDialog):
 
             plot_exists = series in self._lines
             if not plot_exists:
-                self._lines[series] = self._axis.plot([], [], fmt)[0]
+                self._lines[series] = self._axis.plot([], [], fmt, alpha=0.5)[0]
                 mplcursors.cursor(self._lines[series], hover=True)
 
             line = self._lines[series]
             if self.plot_type == "default":
                 line.set_data(x, y)
             if self.plot_type == "histogram1D":
-                y, hx = np.histogram(x, bins=100, density=True)
+                y, hx = np.histogram(x.dropna(), bins=100, density=True)
                 x = (hx[1] - hx[0]) / 2 + hx[:-1]
                 line.set_data(x, y)
 
