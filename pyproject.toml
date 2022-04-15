@@ -15,6 +15,7 @@ dependencies = [
     "EXtra-data",
     "kafka-python",
     "matplotlib",
+    "mplcursors",
     "numpy",
     "pandas",
     "PyQt5",

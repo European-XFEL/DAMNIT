@@ -4,6 +4,7 @@ import numpy as np
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
 
+import mplcursors
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,
@@ -74,6 +75,7 @@ class Canvas(QtWidgets.QDialog):
             plot_exists = series in self._lines
             if not plot_exists:
                 self._lines[series] = self._axis.plot([], [], fmt)[0]
+                mplcursors.cursor(self._lines[series], hover=True)
 
             line = self._lines[series]
             if self.plot_type == "default":
