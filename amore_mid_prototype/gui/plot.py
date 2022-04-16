@@ -10,6 +10,7 @@ from matplotlib.backends.backend_qtagg import (
     NavigationToolbar2QT as NavigationToolbar,
 )
 from matplotlib.figure import Figure
+from mpl_interactions import zoom_factory, panhandler
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,8 @@ class Canvas(QtWidgets.QDialog):
             layout.addWidget(self._autoscale_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
+        self._panhandler = panhandler(self.figure, button=1)
+        self._zoom_factory = None
         self.update_canvas(x, y)
         self.figure.tight_layout()
 
@@ -102,6 +105,10 @@ class Canvas(QtWidgets.QDialog):
                 self._axis.set_ylim((y_min, y_max))
 
             line.figure.canvas.draw()
+
+        if self._zoom_factory is not None:
+            self._zoom_factory()
+        self._zoom_factory = zoom_factory(self._axis, base_scale=1.07)
 
 
 class Plot:
