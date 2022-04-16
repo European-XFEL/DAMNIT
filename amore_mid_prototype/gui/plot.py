@@ -90,11 +90,11 @@ class Canvas(QtWidgets.QDialog):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
                 margin = 0.05
 
-                x_range = x.max() - x.min()
+                x_range = max(10, np.abs(x.max() - x.min()))
                 x_min = x.min() - x_range * margin
                 x_max = x.max() + x_range * margin
 
-                y_range = y.max() - y.min()
+                y_range = max(10, np.abs(y.max() - y.min()))
                 y_min = y.min() - y_range * margin
                 y_max = y.max() + y_range * margin
 
