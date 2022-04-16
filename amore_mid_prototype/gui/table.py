@@ -164,6 +164,10 @@ class Table(QtCore.QAbstractTableModel):
             else:
                 return QtCore.Qt.Unchecked
 
+        elif role == Qt.ToolTipRole:
+            if index.column() == self._data.columns.get_loc("Comment"):
+                return self.data(index)
+
     def isCommentRow(self, row):
         return row in self._data["comment_id"].dropna()
 

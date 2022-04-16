@@ -585,11 +585,24 @@ da-dev@xfel.eu"""
             )
 
 
+class TableViewStyle(QtWidgets.QProxyStyle):
+    """
+    Subclass that enables instant tooltips for widgets in a TableView.
+    """
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QtWidgets.QStyle.SH_ToolTip_WakeUpDelay \
+           and isinstance(widget.parent(), TableView):
+            return 0
+        else:
+            return super().styleHint(hint, option, widget, returnData)
+
+
 def run_app(context_dir):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
     application = QtWidgets.QApplication(sys.argv)
+    application.setStyle(TableViewStyle())
 
     window = MainWindow(context_dir=context_dir)
     window.show()
