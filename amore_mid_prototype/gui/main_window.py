@@ -482,6 +482,12 @@ da-dev@xfel.eu"""
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table_view.setModel(self.table)
 
+        # Always keep these columns as small as possible to save space
+        header = self.table_view.horizontalHeader()
+        for column in ["Status", "Proposal", "Run", "Timestamp"]:
+            column_index = self.data.columns.get_loc(column)
+            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+
         self.table_view.doubleClicked.connect(self.inspect_data)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
