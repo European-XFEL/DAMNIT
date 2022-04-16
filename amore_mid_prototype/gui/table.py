@@ -108,6 +108,7 @@ class TableView(QtWidgets.QTableView):
 class Table(QtCore.QAbstractTableModel):
     comment_changed = QtCore.pyqtSignal(int, int, str)
     time_comment_changed = QtCore.pyqtSignal(int, str)
+    run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
     def __init__(self, main_window):
         super().__init__()
@@ -198,10 +199,9 @@ class Table(QtCore.QAbstractTableModel):
                         self.time_comment_changed.emit(comment_id, value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
-            if self._data["Status"].iloc[index.row()]:
-                self._data["Status"].values[index.row()] = False
-            else:
-                self._data["Status"].values[index.row()] = True
+            new_state = not self._data["Status"].iloc[index.row()]
+            self._data["Status"].values[index.row()] = new_state
+            self.run_visibility_changed.emit(index.row(), new_state)
 
         return True
 

@@ -480,6 +480,7 @@ da-dev@xfel.eu"""
         self.table = Table(self)
         self.table.comment_changed.connect(self.save_comment)
         self.table.time_comment_changed.connect(self.save_time_comment)
+        self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
         self.table_view.setModel(self.table)
 
         # Always keep these columns as small as possible to save space
