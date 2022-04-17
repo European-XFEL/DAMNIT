@@ -110,6 +110,9 @@ class Canvas(QtWidgets.QDialog):
             self._zoom_factory()
         self._zoom_factory = zoom_factory(self._axis, base_scale=1.07)
 
+        # Update the toolbar history so that clicking the home button resets the
+        # plot limits properly.
+        self._canvas.toolbar.update()
 
 class Plot:
     def __init__(self, main_window) -> None:
