@@ -144,6 +144,11 @@ class Plot:
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
         self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
 
+        self.vs_button = QtWidgets.QToolButton()
+        self.vs_button.setText("vs.")
+        self.vs_button.setToolTip("Click to swap axes")
+        self.vs_button.clicked.connect(self.swap_plot_axes)
+
         self.update_combo_box(keys)
         self._combo_box_x_axis.setCurrentText("Run")
 
@@ -154,6 +159,11 @@ class Plot:
             "type": [],
             "runs_as_series": [],
         }
+
+    def swap_plot_axes(self):
+        new_x = self._combo_box_y_axis.currentText()
+        self._combo_box_y_axis.setCurrentText(self._combo_box_x_axis.currentText())
+        self._combo_box_x_axis.setCurrentText(new_x)
 
     @property
     def _data(self):

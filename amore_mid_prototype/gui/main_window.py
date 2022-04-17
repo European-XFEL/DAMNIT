@@ -538,7 +538,7 @@ da-dev@xfel.eu"""
         plot_horizontal_layout.addStretch()
 
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
-        plot_horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
+        plot_horizontal_layout.addWidget(self.plot.vs_button)
         plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
