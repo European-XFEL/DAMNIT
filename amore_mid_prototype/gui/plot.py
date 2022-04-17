@@ -52,6 +52,18 @@ class Canvas(QtWidgets.QDialog):
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
         self._navigation_toolbar.layout().setSpacing(1)
 
+        # This is a filthy hack to stop the navigation bars box-zoom feature and
+        # the panhandler interfering with each other. If both of these are
+        # enabled at the same time then the panhandler will move the canvas
+        # while the user draws a box, which doesn't work very well. This way,
+        # the panhandler is only enabled when box zoom is disabled.
+        #
+        # Ideally the panhandler would support matplotlibs widgetLock, see:
+        # https://github.com/ianhi/mpl-interactions/pull/243#issuecomment-1101523740
+        self._navigation_toolbar._actions["zoom"].triggered.connect(
+            lambda checked: self.toggle_panhandler(not checked)
+        )
+
         layout.addWidget(self._canvas)
 
         self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
@@ -70,11 +82,19 @@ class Canvas(QtWidgets.QDialog):
         layout.addWidget(self._display_annotations_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
-        self._panhandler = panhandler(self.figure, button=1)
         self._cursors = []
         self._zoom_factory = None
+        self._panhandler = panhandler(self.figure, button=1)
+
         self.update_canvas(x, y)
         self.figure.tight_layout()
+
+
+    def toggle_panhandler(self, enabled):
+        if enabled:
+            self._panhandler.enable()
+        else:
+            self._panhandler.disable()
 
     def toggle_annotations(self, state):
         if state == QtCore.Qt.Checked:
