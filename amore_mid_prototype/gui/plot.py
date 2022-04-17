@@ -62,12 +62,29 @@ class Canvas(QtWidgets.QDialog):
             )
 
             layout.addWidget(self._autoscale_checkbox)
+
+        self._display_annotations_checkbox = QtWidgets.QCheckBox("Display hover annotations")
+        self._display_annotations_checkbox.stateChanged.connect(self.toggle_annotations)
+        self._display_annotations_checkbox.setLayoutDirection(QtCore.Qt.RightToLeft)
+
+        layout.addWidget(self._display_annotations_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
         self._panhandler = panhandler(self.figure, button=1)
+        self._cursors = []
         self._zoom_factory = None
         self.update_canvas(x, y)
         self.figure.tight_layout()
+
+    def toggle_annotations(self, state):
+        if state == QtCore.Qt.Checked:
+            for line in self._lines.values():
+                self._cursors.append(mplcursors.cursor(line, hover=True))
+        else:
+            for cursor in self._cursors:
+                cursor.remove()
+
+            self._cursors.clear()
 
     @property
     def has_data(self):
@@ -80,7 +97,6 @@ class Canvas(QtWidgets.QDialog):
             plot_exists = series in self._lines
             if not plot_exists:
                 self._lines[series] = self._axis.plot([], [], fmt, alpha=0.5)[0]
-                mplcursors.cursor(self._lines[series], hover=True)
 
             line = self._lines[series]
             if self.plot_type == "default":
@@ -113,6 +129,17 @@ class Canvas(QtWidgets.QDialog):
         # Update the toolbar history so that clicking the home button resets the
         # plot limits properly.
         self._canvas.toolbar.update()
+
+        # If the Run is one of the axes, enable annotations
+        if self._axis.get_xlabel() == "Run" or self._axis.get_ylabel() == "Run":
+            # The cursors that display the annotations do not update their
+            # internal state when the data of a plot changes. So when updating
+            # the data, we first disable annotations to clear existing cursors
+            # and then reenable annotations to create new cursors for the
+            # current data.
+            self._display_annotations_checkbox.setCheckState(QtCore.Qt.Unchecked)
+            self._display_annotations_checkbox.setCheckState(QtCore.Qt.Checked)
+
 
 class Plot:
     def __init__(self, main_window) -> None:
