@@ -38,7 +38,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._received_update = False
         self._attributi = {}
 
-        self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
+        self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
         self._create_status_bar()
         self._create_menu_bar()
