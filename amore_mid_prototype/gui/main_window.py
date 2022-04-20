@@ -40,7 +40,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._is_zmq_receiving_data = False
         self._attributi = {}
 
-        self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
+        self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
         self._create_status_bar()
         self._create_menu_bar()
