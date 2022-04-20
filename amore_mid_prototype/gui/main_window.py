@@ -1,3 +1,4 @@
+import os
 import logging
 import sys
 import time
@@ -11,6 +12,8 @@ import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
+from extra_data.read_machinery import find_proposal
+
 from ..backend.db import open_db
 from ..context import ContextFile
 from .zmq import ZmqStreamReceiver
@@ -19,6 +22,7 @@ from .plot import Canvas, Plot
 
 
 log = logging.getLogger(__name__)
+pd.options.mode.use_inf_as_na = True
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -38,7 +42,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
-        self.resize(600, 1000)
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -52,9 +55,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._canvas_inspect = []
 
+        self.center_window()
+
     def closeEvent(self, event):
         if self._zmq_thread is not None:
             self._zmq_thread.exit()
+
+    def center_window(self):
+        """
+        Center and resize the window to the screen the cursor is placed on.
+        """
+        screen = QtGui.QGuiApplication.screenAt(QtGui.QCursor.pos())
+
+        screen_size = screen.size()
+        max_width = screen_size.width()
+        max_height = screen_size.height()
+
+        # Resize to a reasonable default
+        self.resize(int(max_width * 0.8), int(max_height * 0.8))
+
+        # Center window
+        self.move(screen.geometry().center() - self.frameGeometry().center())
 
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
@@ -84,8 +105,31 @@ da-dev@xfel.eu"""
         dialog.exec()
 
     def _menu_bar_autoconfigure(self) -> None:
+        proposal_dir = ""
+
+        # If we're on a system with access to GPFS, prompt for the proposal
+        # number so we can preset the prompt for the AMORE directory.
+        if os.path.isdir("/gpfs/exfel/exp"):
+            prompt = True
+            while prompt:
+                prop_no, prompt = QtWidgets.QInputDialog.getInt(self, "Select proposal",
+                                                                "Which proposal is this for?")
+                if not prompt:
+                    break
+
+                proposal = f"p{prop_no:06}"
+                try:
+                    proposal_dir = find_proposal(proposal)
+                    prompt = False
+                except Exception as e:
+                    button = QtWidgets.QMessageBox.warning(self, "Bad proposal number",
+                                                           "Could not find a proposal with this number, try again?",
+                                                           buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+                    if button != QtWidgets.QMessageBox.Yes:
+                        prompt = False
+
         path = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Select context directory",
+            self, "Select context directory", proposal_dir
         )
         if path:
             self.autoconfigure(Path(path))
@@ -119,11 +163,16 @@ da-dev@xfel.eu"""
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
             df.pop("added_at")
+
+            # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
                 "SELECT rowid as comment_id, * FROM time_comments", self.db
             )
             comments_df.insert(0, "Run", pd.NA)
             comments_df.insert(1, "Proposal", pd.NA)
+            # Don't try to plot comments
+            comments_df.insert(2, "Status", False)
+
             self.data = pd.concat(
                 [
                     df.rename(
@@ -139,8 +188,10 @@ da-dev@xfel.eu"""
                         columns={"timestamp": "Timestamp", "comment": "Comment",}
                     ),
                 ]
-            ).sort_values("Timestamp", ascending=False)
+            )
             self._create_view()
+            self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
+                                         Qt.SortOrder.AscendingOrder)
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
@@ -327,6 +378,7 @@ da-dev@xfel.eu"""
                 self.data,
                 pd.DataFrame(
                     {
+                        "Status": False,
                         "Timestamp": ts,
                         "Run": pd.NA,
                         "Proposal": pd.NA,
@@ -341,12 +393,12 @@ da-dev@xfel.eu"""
 
         # this block is ugly
         if len(self.table.is_sorted_by):
-            self.table.data.sort_values(
+            self.data.sort_values(
                 self.table.is_sorted_by,
                 ascending=self.table.is_sorted_order == QtCore.Qt.AscendingOrder,
                 inplace=True,
             )
-            self.table.data.reset_index(inplace=True, drop=True)
+            self.data.reset_index(inplace=True, drop=True)
         self.table.insertRows(self.table.rowCount())
 
         self.comment.clear()
@@ -373,9 +425,7 @@ da-dev@xfel.eu"""
         if not isinstance(data, pd.Series):
             data = pd.Series(data)
 
-        return (
-            data.replace(pd.NA, np.nan).replace(np.inf, np.nan).replace(-np.inf, np.nan)
-        )
+        return data.fillna(np.nan)
 
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
@@ -430,7 +480,14 @@ da-dev@xfel.eu"""
         self.table = Table(self)
         self.table.comment_changed.connect(self.save_comment)
         self.table.time_comment_changed.connect(self.save_time_comment)
+        self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
         self.table_view.setModel(self.table)
+
+        # Always keep these columns as small as possible to save space
+        header = self.table_view.horizontalHeader()
+        for column in ["Status", "Proposal", "Run", "Timestamp"]:
+            column_index = self.data.columns.get_loc(column)
+            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
@@ -476,17 +533,17 @@ da-dev@xfel.eu"""
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        plot_horizontal_layout.addWidget(self.plot._button_plot)
         self.plot._button_plot_runs.setMinimumWidth(200)
         plot_horizontal_layout.addStretch()
 
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
-        plot_horizontal_layout.addWidget(QtWidgets.QLabel("vs."))
+        plot_horizontal_layout.addWidget(self.plot.vs_button)
         plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
 
-        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot)
+        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
         self.plot._button_plot.setMinimumWidth(200)
         plot_parameters_horizontal_layout.addStretch()
 
@@ -494,7 +551,6 @@ da-dev@xfel.eu"""
             self.plot._toggle_probability_density
         )
 
-        plot_vertical_layout.addSpacing(-20)
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
@@ -530,11 +586,24 @@ da-dev@xfel.eu"""
             )
 
 
+class TableViewStyle(QtWidgets.QProxyStyle):
+    """
+    Subclass that enables instant tooltips for widgets in a TableView.
+    """
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QtWidgets.QStyle.SH_ToolTip_WakeUpDelay \
+           and isinstance(widget.parent(), TableView):
+            return 0
+        else:
+            return super().styleHint(hint, option, widget, returnData)
+
+
 def run_app(context_dir):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
     application = QtWidgets.QApplication(sys.argv)
+    application.setStyle(TableViewStyle())
 
     window = MainWindow(context_dir=context_dir)
     window.show()

@@ -4,11 +4,13 @@ import numpy as np
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
 
+import mplcursors
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,
 )
 from matplotlib.figure import Figure
+from mpl_interactions import zoom_factory, panhandler
 
 log = logging.getLogger(__name__)
 
@@ -31,15 +33,16 @@ class Canvas(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         self.plot_type = plot_type
+        is_histogram = self.plot_type != "default"
 
         self.figure = Figure(figsize=(5, 3))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(
-            ylabel if self.plot_type == "default" else "Probability density"
+            ylabel if not is_histogram else "Probability density"
         )
-        self._axis.set_position([0.20, 0.15, 0.80, 0.85])
+        self._axis.set_title(f"{xlabel} vs {ylabel}" if not is_histogram else f"Probability density of {xlabel}")
         self._axis.grid()
 
         self._fmt = fmt
@@ -48,6 +51,18 @@ class Canvas(QtWidgets.QDialog):
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
         self._navigation_toolbar.layout().setSpacing(1)
+
+        # This is a filthy hack to stop the navigation bars box-zoom feature and
+        # the panhandler interfering with each other. If both of these are
+        # enabled at the same time then the panhandler will move the canvas
+        # while the user draws a box, which doesn't work very well. This way,
+        # the panhandler is only enabled when box zoom is disabled.
+        #
+        # Ideally the panhandler would support matplotlibs widgetLock, see:
+        # https://github.com/ianhi/mpl-interactions/pull/243#issuecomment-1101523740
+        self._navigation_toolbar._actions["zoom"].triggered.connect(
+            lambda checked: self.toggle_panhandler(not checked)
+        )
 
         layout.addWidget(self._canvas)
 
@@ -59,9 +74,37 @@ class Canvas(QtWidgets.QDialog):
             )
 
             layout.addWidget(self._autoscale_checkbox)
+
+        self._display_annotations_checkbox = QtWidgets.QCheckBox("Display hover annotations")
+        self._display_annotations_checkbox.stateChanged.connect(self.toggle_annotations)
+        self._display_annotations_checkbox.setLayoutDirection(QtCore.Qt.RightToLeft)
+
+        layout.addWidget(self._display_annotations_checkbox)
         layout.addWidget(self._navigation_toolbar)
 
+        self._cursors = []
+        self._zoom_factory = None
+        self._panhandler = panhandler(self.figure, button=1)
+
         self.update_canvas(x, y)
+        self.figure.tight_layout()
+
+
+    def toggle_panhandler(self, enabled):
+        if enabled:
+            self._panhandler.enable()
+        else:
+            self._panhandler.disable()
+
+    def toggle_annotations(self, state):
+        if state == QtCore.Qt.Checked:
+            for line in self._lines.values():
+                self._cursors.append(mplcursors.cursor(line, hover=True))
+        else:
+            for cursor in self._cursors:
+                cursor.remove()
+
+            self._cursors.clear()
 
     @property
     def has_data(self):
@@ -73,24 +116,24 @@ class Canvas(QtWidgets.QDialog):
 
             plot_exists = series in self._lines
             if not plot_exists:
-                self._lines[series] = self._axis.plot([], [], fmt)[0]
+                self._lines[series] = self._axis.plot([], [], fmt, alpha=0.5)[0]
 
             line = self._lines[series]
             if self.plot_type == "default":
                 line.set_data(x, y)
             if self.plot_type == "histogram1D":
-                y, hx = np.histogram(x, bins=100, density=True)
+                y, hx = np.histogram(x.dropna(), bins=100, density=True)
                 x = (hx[1] - hx[0]) / 2 + hx[:-1]
                 line.set_data(x, y)
 
             if self._autoscale_checkbox.isChecked() or not plot_exists:
                 margin = 0.05
 
-                x_range = x.max() - x.min()
+                x_range = max(10, np.abs(x.max() - x.min()))
                 x_min = x.min() - x_range * margin
                 x_max = x.max() + x_range * margin
 
-                y_range = y.max() - y.min()
+                y_range = max(10, np.abs(y.max() - y.min()))
                 y_min = y.min() - y_range * margin
                 y_max = y.max() + y_range * margin
 
@@ -98,6 +141,24 @@ class Canvas(QtWidgets.QDialog):
                 self._axis.set_ylim((y_min, y_max))
 
             line.figure.canvas.draw()
+
+        if self._zoom_factory is not None:
+            self._zoom_factory()
+        self._zoom_factory = zoom_factory(self._axis, base_scale=1.07)
+
+        # Update the toolbar history so that clicking the home button resets the
+        # plot limits properly.
+        self._canvas.toolbar.update()
+
+        # If the Run is one of the axes, enable annotations
+        if self._axis.get_xlabel() == "Run" or self._axis.get_ylabel() == "Run":
+            # The cursors that display the annotations do not update their
+            # internal state when the data of a plot changes. So when updating
+            # the data, we first disable annotations to clear existing cursors
+            # and then reenable annotations to create new cursors for the
+            # current data.
+            self._display_annotations_checkbox.setCheckState(QtCore.Qt.Unchecked)
+            self._display_annotations_checkbox.setCheckState(QtCore.Qt.Checked)
 
 
 class Plot:
@@ -133,6 +194,11 @@ class Plot:
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
         self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
 
+        self.vs_button = QtWidgets.QToolButton()
+        self.vs_button.setText("vs.")
+        self.vs_button.setToolTip("Click to swap axes")
+        self.vs_button.clicked.connect(self.swap_plot_axes)
+
         self.update_combo_box(keys)
         self._combo_box_x_axis.setCurrentText("Run")
 
@@ -143,6 +209,11 @@ class Plot:
             "type": [],
             "runs_as_series": [],
         }
+
+    def swap_plot_axes(self):
+        new_x = self._combo_box_y_axis.currentText()
+        self._combo_box_y_axis.setCurrentText(self._combo_box_x_axis.currentText())
+        self._combo_box_x_axis.setCurrentText(new_x)
 
     @property
     def _data(self):
