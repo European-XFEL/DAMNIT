@@ -30,22 +30,24 @@ class EventProcessor:
         self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS, group_id=CONSUMER_ID)
 
         self.zmq_sock: zmq.Socket = zmq.Context.instance().socket(zmq.PUB)
-        zmq_port = self.zmq_sock.bind_to_random_port('tcp://*')
-        self.zmq_addr = f"tcp://{socket.gethostname()}:{zmq_port}"
-        log.info("ZMQ address: %s", self.zmq_addr)
+        zmq_addr_file = context_dir / '.zmq_extraction_events'
 
-        self._zmq_addr_file = context_dir / '.zmq_extraction_events'
-        with self._zmq_addr_file.open('w') as f:
-            f.write(self.zmq_addr)
+        # If there is an existing port, use that
+        if zmq_addr_file.is_file():
+            self.zmq_addr = zmq_addr_file.read_text()
+            self.zmq_sock.bind(self.zmq_addr)
+        else:
+            # Otherwise, pick a random one
+            zmq_port = self.zmq_sock.bind_to_random_port('tcp://*')
+            self.zmq_addr = f"tcp://{socket.gethostbyname(socket.getfqdn())}:{zmq_port}"
+            zmq_addr_file.write_text(self.zmq_addr)
+
+        log.info("ZMQ address: %s", self.zmq_addr)
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        try:
-            self._zmq_addr_file.unlink()
-        except FileNotFoundError:
-            pass
         self.kafka_cns.close()
         self.db.close()
         # Closing the ZMQ socket can block (if messages are still being sent)
