@@ -1,3 +1,4 @@
+from cProfile import label
 import logging
 import numpy as np
 
@@ -24,6 +25,7 @@ class Canvas(QtWidgets.QDialog):
         xlabel="",
         ylabel="",
         fmt="o",
+        legend=None,
         plot_type="default",
         autoscale=True,
     ):
@@ -39,10 +41,12 @@ class Canvas(QtWidgets.QDialog):
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
-        self._axis.set_ylabel(
-            ylabel if not is_histogram else "Probability density"
+        self._axis.set_ylabel(ylabel if not is_histogram else "Probability density")
+        self._axis.set_title(
+            f"{xlabel} vs {ylabel}"
+            if not is_histogram
+            else f"Probability density of {xlabel}"
         )
-        self._axis.set_title(f"{xlabel} vs {ylabel}" if not is_histogram else f"Probability density of {xlabel}")
         self._axis.grid()
 
         self._fmt = fmt
@@ -75,7 +79,9 @@ class Canvas(QtWidgets.QDialog):
 
             layout.addWidget(self._autoscale_checkbox)
 
-        self._display_annotations_checkbox = QtWidgets.QCheckBox("Display hover annotations")
+        self._display_annotations_checkbox = QtWidgets.QCheckBox(
+            "Display hover annotations"
+        )
         self._display_annotations_checkbox.stateChanged.connect(self.toggle_annotations)
         self._display_annotations_checkbox.setLayoutDirection(QtCore.Qt.RightToLeft)
 
@@ -86,9 +92,9 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y)
+        print("99999", x, y)
+        self.update_canvas(x, y, legend=legend)
         self.figure.tight_layout()
-
 
     def toggle_panhandler(self, enabled):
         if enabled:
@@ -110,21 +116,41 @@ class Canvas(QtWidgets.QDialog):
     def has_data(self):
         return len(self._lines) > 0
 
-    def update_canvas(self, xs, ys, series_names=["default"]):
-        for x, y, series in zip(xs, ys, series_names):
+    def update_canvas(self, xs, ys, legend=None, series_names=["default"]):
+        default_color = 5 * [
+            "b",
+            "g",
+            "r",
+            "c",
+            "m",
+            "y",
+            "k",
+        ]  # horrible, cmap should be used
+        print("qui", len(xs), len(ys), series_names)
+        self._lines[series_names[0]] = []
+        for x, y, series, color, label in zip(
+            xs,
+            ys,
+            len(xs) * series_names,
+            default_color,
+            legend if legend is not None else len(xs) * None,
+        ):
             fmt = self._fmt if len(xs) == 1 else "o"
 
-            plot_exists = series in self._lines
+            plot_exists = len(self._lines[series_names[0]]) == len(xs)
             if not plot_exists:
-                self._lines[series] = self._axis.plot([], [], fmt, alpha=0.5)[0]
+                self._lines[series].append(
+                    self._axis.plot([], [], fmt, color=color, label=label, alpha=0.5)[0]
+                )
 
-            line = self._lines[series]
+            # line = self._lines[series][-1]
+            print("setting", color, self._lines, series)
             if self.plot_type == "default":
-                line.set_data(x, y)
+                self._lines[series][-1].set_data(x, y)
             if self.plot_type == "histogram1D":
                 y, hx = np.histogram(x.dropna(), bins=100, density=True)
                 x = (hx[1] - hx[0]) / 2 + hx[:-1]
-                line.set_data(x, y)
+                self._lines[series][-1].set_data(x, y)
 
             if self._autoscale_checkbox.isChecked() or not plot_exists:
                 margin = 0.05
@@ -140,7 +166,10 @@ class Canvas(QtWidgets.QDialog):
                 self._axis.set_xlim((x_min, x_max))
                 self._axis.set_ylim((y_min, y_max))
 
-            line.figure.canvas.draw()
+            if len(xs) > 1:
+                self._axis.legend()
+
+            self._lines[series][-1].figure.canvas.draw()
 
         if self._zoom_factory is not None:
             self._zoom_factory()
@@ -207,6 +236,7 @@ class Plot:
             "key.y": [],
             "canvas": [],
             "type": [],
+            "legend": [],
             "runs_as_series": [],
         }
 
@@ -257,10 +287,13 @@ class Plot:
                 if self.plot_type == "histogram1D":
                     ylabel = xlabel
 
-                index = selected_rows[0]
-                proposal = proposals[0]
-                run = index.siblingAtColumn(2).data()
-                self.get_run_series_data(proposal, run, xlabel, ylabel)
+                run = [i.siblingAtColumn(2).data() for i in selected_rows]
+
+                x, y = [], []
+                for p, r in zip(proposals, run):
+                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                    x.append(xi)
+                    y.append(yi)
             except Exception:
                 log.warning("Error getting data for plot", exc_info=True)
                 QMessageBox.warning(
@@ -272,7 +305,13 @@ class Plot:
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
-            self._main_window, xlabel=xlabel, ylabel=ylabel, plot_type=self.plot_type
+            self._main_window,
+            x=x,
+            y=y,
+            xlabel=xlabel,
+            ylabel=ylabel,
+            legend=run,
+            plot_type=self.plot_type,
         )
         if runs_as_series:
             canvas.setWindowTitle(f"Run {run}")
@@ -316,13 +355,15 @@ class Plot:
                     continue
 
                 # Find the proposals of currently selected runs
-                index = runs_as_series[0]
-                proposal = index.siblingAtColumn(1).data()
-                runs = [index.siblingAtColumn(2).data() for index in runs_as_series]
+                proposal = [index.siblingAtColumn(1).data() for index in runs_as_series]
+                run = [index.siblingAtColumn(2).data() for index in runs_as_series]
 
-                x, y = self.get_run_series_data(proposal, runs[0], xi, yi)
-                xs.append(self._main_window.make_finite(x))
-                ys.append(self._main_window.make_finite(y))
+                print("55", proposal, run)
+
+                for pi, ri in zip(proposal, run):
+                    x, y = self.get_run_series_data(pi, ri, xi, yi)
+                    xs.append(self._main_window.make_finite(x))
+                    ys.append(self._main_window.make_finite(y))
             else:
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
