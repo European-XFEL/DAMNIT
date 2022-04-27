@@ -360,8 +360,6 @@ da-dev@xfel.eu"""
                     col = pd.Series([value], index=[self.table.rowCount()], dtype="object")
                     new_entries.insert(len(new_entries.columns), col_name, col)
 
-                print(new_entries)
-
                 new_df = pd.concat(
                     [
                         self.data.iloc[:ix],
@@ -370,7 +368,6 @@ da-dev@xfel.eu"""
                     ],
                     ignore_index=True,
                 )
-                print(new_df)
 
                 self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
                 self.data = new_df

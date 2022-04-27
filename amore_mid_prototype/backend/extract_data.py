@@ -58,7 +58,7 @@ class Results:
                     cursor.close()
 
             try:
-                if result is not None:
+                if result is not None and result[0] is not None:
                     value = result[0]
                     if isinstance(value, bytes):
                         value = pickle.loads(value)
