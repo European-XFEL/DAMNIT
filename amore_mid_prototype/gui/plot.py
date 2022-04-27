@@ -11,6 +11,7 @@ from matplotlib.backends.backend_qtagg import (
     NavigationToolbar2QT as NavigationToolbar,
 )
 from matplotlib.figure import Figure
+from matplotlib import cm as mpl_cm
 from mpl_interactions import zoom_factory, panhandler
 
 log = logging.getLogger(__name__)
@@ -115,25 +116,18 @@ class Canvas(QtWidgets.QDialog):
         return len(self._lines) > 0
 
     def update_canvas(self, xs, ys, legend=None, series_names=["default"]):
-        default_color = 5 * [
-            "b",
-            "g",
-            "r",
-            "c",
-            "m",
-            "y",
-            "k",
-        ]  # horrible, cmap should be used
+        cmap = mpl_cm.get_cmap("tab20")
 
         self._lines[series_names[0]] = []
-        for x, y, series, color, label in zip(
+        for i, x, y, series, label in zip(
+            range(len(xs)),
             xs,
             ys,
             len(xs) * series_names,
-            default_color,
             legend if legend is not None else len(xs) * [None],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
+            color = cmap(i / len(xs))
 
             plot_exists = len(self._lines[series_names[0]]) == len(xs)
             if not plot_exists:
@@ -271,35 +265,35 @@ class Plot:
                 )
                 return
 
-            # Find the proposals of currently selected runs
-            proposals = [index.siblingAtColumn(1).data() for index in selected_rows]
-            if len(set(proposals)) > 1:
-                QMessageBox.warning(
-                    self._main_window,
-                    "Multiple proposals selected",
-                    "Cannot plot data for runs from different proposals",
-                )
-                return
+        # Find the proposals of currently selected runs
+        proposals = [index.siblingAtColumn(1).data() for index in selected_rows]
+        if len(set(proposals)) > 1:
+            QMessageBox.warning(
+                self._main_window,
+                "Multiple proposals selected",
+                "Cannot plot data for runs from different proposals",
+            )
+            return
 
-            try:
-                if self.plot_type == "histogram1D":
-                    ylabel = xlabel
+        try:
+            if self.plot_type == "histogram1D":
+                ylabel = xlabel
 
-                run = [i.siblingAtColumn(2).data() for i in selected_rows]
+            run = [i.siblingAtColumn(2).data() for i in selected_rows]
 
-                x, y = [], []
-                for p, r in zip(proposals, run):
-                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
-                    x.append(xi)
-                    y.append(yi)
-            except Exception:
-                log.warning("Error getting data for plot", exc_info=True)
-                QMessageBox.warning(
-                    self._main_window,
-                    "Plotting failed",
-                    f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
-                )
-                return
+            x, y = [], []
+            for p, r in zip(proposals, run):
+                xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                x.append(xi)
+                y.append(yi)
+        except Exception:
+            log.warning("Error getting data for plot", exc_info=True)
+            QMessageBox.warning(
+                self._main_window,
+                "Plotting failed",
+                f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
+            )
+            return
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
