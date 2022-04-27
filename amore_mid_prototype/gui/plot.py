@@ -126,7 +126,7 @@ class Canvas(QtWidgets.QDialog):
             "y",
             "k",
         ]  # horrible, cmap should be used
-        print("qui", len(xs), len(ys), series_names)
+
         self._lines[series_names[0]] = []
         for x, y, series, color, label in zip(
             xs,
@@ -143,8 +143,6 @@ class Canvas(QtWidgets.QDialog):
                     self._axis.plot([], [], fmt, color=color, label=label, alpha=0.5)[0]
                 )
 
-            # line = self._lines[series][-1]
-            print("setting", color, self._lines, series)
             if self.plot_type == "default":
                 self._lines[series][-1].set_data(x, y)
             if self.plot_type == "histogram1D":
@@ -155,16 +153,16 @@ class Canvas(QtWidgets.QDialog):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
                 margin = 0.05
 
-                x_range = max(10, np.abs(x.max() - x.min()))
+                x_range = np.abs(x.max() - x.min())
                 x_min = x.min() - x_range * margin
                 x_max = x.max() + x_range * margin
 
-                y_range = max(10, np.abs(y.max() - y.min()))
+                y_range = np.abs(y.max() - y.min())
                 y_min = y.min() - y_range * margin
                 y_max = y.max() + y_range * margin
 
                 self._axis.set_xlim((x_min, x_max))
-                self._axis.set_ylim((y_min, y_max))
+                self._axis.set_ylim((y_min if not self.plot_type == "histogram1D" else 0, y_max))
 
             if len(xs) > 1:
                 self._axis.legend()
