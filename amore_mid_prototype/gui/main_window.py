@@ -1,3 +1,4 @@
+import pickle
 import os
 import logging
 import sys
@@ -15,7 +16,7 @@ from PyQt5.QtCore import Qt
 from extra_data.read_machinery import find_proposal
 
 from ..backend.db import open_db
-from ..context import ContextFile
+from ..context import ContextFile, RectROI
 from .zmq import ZmqStreamReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
@@ -163,6 +164,14 @@ da-dev@xfel.eu"""
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
             df.pop("added_at")
+
+            # Unpickle serialized objects. First we select all columns that
+            # might need deserializing.
+            object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
+            # Then we check each element and unpickle it if necessary, and
+            # finally update the main DataFrame.
+            unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
+            df.update(unpickled_cols)
 
             # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
@@ -331,17 +340,37 @@ da-dev@xfel.eu"""
                     ix = len(self.data)
                 log.debug("New row in table at index %d", ix)
 
+                # Extract the high-rank arrays from the messages, because
+                # DataFrames can only handle 1D cell elements by default. The
+                # way around this is to create a column manually with a dtype of
+                # 'object'.
+                ndarray_cols = { }
+                for key, value in message.copy().items():
+                    if isinstance(value, np.ndarray) and value.ndim > 1:
+                        ndarray_cols[key] = value
+                        del message[key]
+
+                # Create a DataFrame with the new data to insert into the main table
+                new_entries = pd.DataFrame({**message, **{"Comment": ""}},
+                                           index=[self.table.rowCount()])
+
+                # Insert columns with 'object' dtype for the special columns
+                # with arrays that are >1D.
+                for col_name, value in ndarray_cols.items():
+                    col = pd.Series([value], index=[self.table.rowCount()], dtype="object")
+                    new_entries.insert(len(new_entries.columns), col_name, col)
+
+                print(new_entries)
+
                 new_df = pd.concat(
                     [
                         self.data.iloc[:ix],
-                        pd.DataFrame(
-                            {**message, **{"Comment": ""}},
-                            index=[self.table.rowCount()],
-                        ),
+                        new_entries,
                         self.data.iloc[ix:],
                     ],
                     ignore_index=True,
                 )
+                print(new_df)
 
                 self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
                 self.data = new_df
@@ -444,13 +473,20 @@ da-dev@xfel.eu"""
             )
         )
 
+        cell_data = self.data.iloc[index.row(), index.column()]
+        is_roi = isinstance(cell_data, RectROI)
+        is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 2) or is_roi
+
         try:
             file_name, dataset = self.get_run_file(proposal, run)
         except:
             return
 
         try:
-            x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+            if is_image or is_roi:
+                image = dataset[quantity]["data"][:]
+            else:
+                x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
@@ -460,8 +496,10 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[self.make_finite(x)],
-                y=[self.make_finite(y)],
+                x=[self.make_finite(x)] if not is_image else [],
+                y=[self.make_finite(y)] if not is_image else [],
+                image=image if is_image else None,
+                roi=cell_data if is_roi else None,
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="ro",
@@ -469,6 +507,20 @@ da-dev@xfel.eu"""
             )
         )
         self._canvas_inspect[-1].show()
+
+        if is_roi:
+            self._canvas_inspect[-1].roi_changed.connect(lambda roi: self.save_roi(roi, run, quantity, index))
+
+    def save_roi(self, roi, run, var_name, index):
+        with self.db:
+            self.db.execute(
+                f"""
+                UPDATE runs set {var_name}=? WHERE runnr=?
+                """,
+                (pickle.dumps(roi), run)
+            )
+
+        self.table.setData(index, roi, role=Qt.DisplayRole)
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()

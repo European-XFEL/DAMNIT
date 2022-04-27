@@ -1,3 +1,5 @@
+import pickle
+
 import zmq
 from PyQt5 import QtCore
 
@@ -20,8 +22,8 @@ class ZmqStreamReceiver(QtCore.QObject):
 
     def loop(self) -> None:
         while self._is_connected:
-            string = self.socket.recv_json()
-            self.message.emit(string)
+            msg = self.socket.recv()
+            self.message.emit(pickle.loads(msg))
 
             self._is_getting_messages = True
 

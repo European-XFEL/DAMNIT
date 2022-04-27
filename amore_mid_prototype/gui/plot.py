@@ -9,18 +9,25 @@ from matplotlib.backends.backend_qtagg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,
 )
+import matplotlib.patches as patches
 from matplotlib.figure import Figure
 from mpl_interactions import zoom_factory, panhandler
+
+from ..context import RectROI
 
 log = logging.getLogger(__name__)
 
 
 class Canvas(QtWidgets.QDialog):
+    roi_changed = QtCore.pyqtSignal(object)
+
     def __init__(
         self,
         parent=None,
         x=[],
         y=[],
+        image=None,
+        roi=None,
         xlabel="",
         ylabel="",
         fmt="o",
@@ -35,7 +42,7 @@ class Canvas(QtWidgets.QDialog):
         self.plot_type = plot_type
         is_histogram = self.plot_type != "default"
 
-        self.figure = Figure(figsize=(5, 3))
+        self.figure = Figure(figsize=(8, 5))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
@@ -43,10 +50,10 @@ class Canvas(QtWidgets.QDialog):
             ylabel if not is_histogram else "Probability density"
         )
         self._axis.set_title(f"{xlabel} vs {ylabel}" if not is_histogram else f"Probability density of {xlabel}")
-        self._axis.grid()
 
         self._fmt = fmt
         self._lines = {}
+        self._image = None
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
@@ -79,21 +86,62 @@ class Canvas(QtWidgets.QDialog):
         self._display_annotations_checkbox.stateChanged.connect(self.toggle_annotations)
         self._display_annotations_checkbox.setLayoutDirection(QtCore.Qt.RightToLeft)
 
+        self._roi_x_spinbox = QtWidgets.QSpinBox()
+        self._roi_x_spinbox.setPrefix("x: ")
+        self._roi_y_spinbox = QtWidgets.QSpinBox()
+        self._roi_y_spinbox.setPrefix("y: ")
+        self._roi_width_spinbox = QtWidgets.QSpinBox()
+        self._roi_width_spinbox.setPrefix("width: ")
+        self._roi_height_spinbox = QtWidgets.QSpinBox()
+        self._roi_height_spinbox.setPrefix("height: ")
+
+        self._save_roi_button = QtWidgets.QToolButton()
+        self._save_roi_button.setText("Save ROI parameter")
+        self._save_roi_button.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self._save_roi_button.clicked.connect(self.on_save_roi)
+
+        roi_layout = QtWidgets.QHBoxLayout()
+        roi_layout.addStretch()
+        roi_layout.addWidget(QtWidgets.QLabel("ROI settings: "))
+        if roi is not None:
+            self._roi_x_spinbox.setRange(0, image.shape[1] - 1)
+            self._roi_x_spinbox.setValue(roi.x)
+            self._roi_y_spinbox.setRange(0, image.shape[0] - 1)
+            self._roi_y_spinbox.setValue(roi.y)
+
+            self._roi_width_spinbox.setRange(1, image.shape[0])
+            self._roi_width_spinbox.setValue(roi.width)
+            self._roi_height_spinbox.setRange(1, image.shape[1])
+            self._roi_height_spinbox.setValue(roi.height)
+        for widget in [self._roi_x_spinbox, self._roi_y_spinbox,
+                       self._roi_width_spinbox, self._roi_height_spinbox]:
+            roi_layout.addWidget(widget)
+            widget.valueChanged.connect(self.on_roi_changed)
+
         layout.addWidget(self._display_annotations_checkbox)
+        if roi is not None:
+            layout.addLayout(roi_layout)
+            layout.addWidget(self._save_roi_button)
         layout.addWidget(self._navigation_toolbar)
 
+        self._roi = None
         self._cursors = []
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y)
+        self.update_canvas(x, y, image, roi)
         self.figure.tight_layout()
 
+    def on_save_roi(self):
+        self.roi_changed.emit(RectROI(self._roi_x_spinbox.value(),
+                                      self._roi_y_spinbox.value(),
+                                      self._roi_width_spinbox.value(),
+                                      self._roi_height_spinbox.value()))
 
     def toggle_panhandler(self, enabled):
-        if enabled:
+        if enabled and not self._panhandler.enabled:
             self._panhandler.enable()
-        else:
+        elif self._panhandler.enabled:
             self._panhandler.disable()
 
     def toggle_annotations(self, state):
@@ -110,37 +158,60 @@ class Canvas(QtWidgets.QDialog):
     def has_data(self):
         return len(self._lines) > 0
 
-    def update_canvas(self, xs, ys, series_names=["default"]):
-        for x, y, series in zip(xs, ys, series_names):
-            fmt = self._fmt if len(xs) == 1 else "o"
+    def on_roi_changed(self, value):
+        x = self._roi_x_spinbox.value()
+        y = self._roi_y_spinbox.value()
+        width = self._roi_width_spinbox.value()
+        height = self._roi_height_spinbox.value()
 
-            plot_exists = series in self._lines
-            if not plot_exists:
-                self._lines[series] = self._axis.plot([], [], fmt, alpha=0.5)[0]
+        self._roi.set(x=x, y=y, width=width, height=height)
+        self._canvas.draw()
 
-            line = self._lines[series]
-            if self.plot_type == "default":
-                line.set_data(x, y)
-            if self.plot_type == "histogram1D":
-                y, hx = np.histogram(x.dropna(), bins=100, density=True)
-                x = (hx[1] - hx[0]) / 2 + hx[:-1]
-                line.set_data(x, y)
+    def update_canvas(self, xs, ys, image=None, roi=None, series_names=["default"]):
+        if image is not None:
+            if self._image is None:
+                self._image = self._axis.imshow(image)
+            else:
+                self._image.set_array(image)
 
-            if self._autoscale_checkbox.isChecked() or not plot_exists:
-                margin = 0.05
+            if roi is not None:
+                if self._roi is None:
+                    self._roi = patches.Rectangle((roi.x, roi.y), roi.width, roi.height,
+                                                  edgecolor="r", facecolor="none")
+                    self._axis.add_patch(self._roi)
+        else:
+            self._axis.grid()
 
-                x_range = max(10, np.abs(x.max() - x.min()))
-                x_min = x.min() - x_range * margin
-                x_max = x.max() + x_range * margin
+            for x, y, series in zip(xs, ys, series_names):
+                fmt = self._fmt if len(xs) == 1 else "o"
 
-                y_range = max(10, np.abs(y.max() - y.min()))
-                y_min = y.min() - y_range * margin
-                y_max = y.max() + y_range * margin
+                plot_exists = series in self._lines
+                if not plot_exists:
+                    self._lines[series] = self._axis.plot([], [], fmt, alpha=0.5)[0]
 
-                self._axis.set_xlim((x_min, x_max))
-                self._axis.set_ylim((y_min, y_max))
+                line = self._lines[series]
+                if self.plot_type == "default":
+                    line.set_data(x, y)
+                if self.plot_type == "histogram1D":
+                    y, hx = np.histogram(x.dropna(), bins=100, density=True)
+                    x = (hx[1] - hx[0]) / 2 + hx[:-1]
+                    line.set_data(x, y)
 
-            line.figure.canvas.draw()
+                if self._autoscale_checkbox.isChecked() or not plot_exists:
+                    margin = 0.05
+
+                    x_range = max(10, np.abs(x.max() - x.min()))
+                    x_min = x.min() - x_range * margin
+                    x_max = x.max() + x_range * margin
+
+                    y_range = max(10, np.abs(y.max() - y.min()))
+                    y_min = y.min() - y_range * margin
+                    y_max = y.max() + y_range * margin
+
+                    self._axis.set_xlim((x_min, x_max))
+                    self._axis.set_ylim((y_min, y_max))
+
+                line.figure.canvas.draw()
 
         if self._zoom_factory is not None:
             self._zoom_factory()
