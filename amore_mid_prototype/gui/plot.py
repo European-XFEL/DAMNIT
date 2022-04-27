@@ -37,13 +37,13 @@ class Canvas(QtWidgets.QDialog):
         self.plot_type = plot_type
         is_histogram = self.plot_type != "default"
 
-        self.figure = Figure(figsize=(5, 3))
+        self.figure = Figure(figsize=(6, 4))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel if not is_histogram else "Probability density")
         self._axis.set_title(
-            f"{xlabel} vs {ylabel}"
+            f"{ylabel} vs. {xlabel}"
             if not is_histogram
             else f"Probability density of {xlabel}"
         )
@@ -71,16 +71,15 @@ class Canvas(QtWidgets.QDialog):
         layout.addWidget(self._canvas)
 
         self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
-        if autoscale:
-            self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
-            self._autoscale_checkbox.setLayoutDirection(
-                QtCore.Qt.LayoutDirection.RightToLeft
-            )
+        self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
+        self._autoscale_checkbox.setLayoutDirection(
+            QtCore.Qt.LayoutDirection.RightToLeft
+        )
 
-            layout.addWidget(self._autoscale_checkbox)
+        layout.addWidget(self._autoscale_checkbox)
 
         self._display_annotations_checkbox = QtWidgets.QCheckBox(
-            "Display hover annotations"
+            "Display hover annotations", self
         )
         self._display_annotations_checkbox.stateChanged.connect(self.toggle_annotations)
         self._display_annotations_checkbox.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -92,7 +91,6 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        print("99999", x, y)
         self.update_canvas(x, y, legend=legend)
         self.figure.tight_layout()
 
@@ -162,7 +160,9 @@ class Canvas(QtWidgets.QDialog):
                 y_max = y.max() + y_range * margin
 
                 self._axis.set_xlim((x_min, x_max))
-                self._axis.set_ylim((y_min if not self.plot_type == "histogram1D" else 0, y_max))
+                self._axis.set_ylim(
+                    (y_min if not self.plot_type == "histogram1D" else 0, y_max)
+                )
 
             if len(xs) > 1:
                 self._axis.legend()
