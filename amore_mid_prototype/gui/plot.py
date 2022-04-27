@@ -133,7 +133,7 @@ class Canvas(QtWidgets.QDialog):
             ys,
             len(xs) * series_names,
             default_color,
-            legend if legend is not None else len(xs) * None,
+            legend if legend is not None else len(xs) * [None],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
 
@@ -148,7 +148,7 @@ class Canvas(QtWidgets.QDialog):
             if self.plot_type == "default":
                 self._lines[series][-1].set_data(x, y)
             if self.plot_type == "histogram1D":
-                y, hx = np.histogram(x.dropna(), bins=100, density=True)
+                y, hx = np.histogram(x[~np.isnan(x)], bins=100, density=True)
                 x = (hx[1] - hx[0]) / 2 + hx[:-1]
                 self._lines[series][-1].set_data(x, y)
 
