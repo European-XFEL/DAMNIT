@@ -1,6 +1,7 @@
 from cProfile import label
 import logging
 from unittest.mock import patch
+import pandas as pd
 import numpy as np
 
 from PyQt5 import QtCore, QtWidgets
@@ -288,7 +289,7 @@ class Plot:
         self._main_window = main_window
         keys = list(main_window.data.columns)
 
-        for ki in ["Comment", "Status"]:
+        for ki in ["Comment", "Status"] + [xi for xi in keys if xi.startswith("_")]:
             keys.remove(ki)
 
         self.plot_type = "default"
@@ -367,7 +368,8 @@ class Plot:
                 return
 
         # Find the proposals of currently selected runs
-        proposals = [index.siblingAtColumn(1).data() for index in selected_rows]
+        proposals = [self._data.iloc[index.row()]["Proposal"] for index in selected_rows]
+        proposals = [pi for pi in proposals if pi is not pd.NA]
         if len(set(proposals)) > 1:
             QMessageBox.warning(
                 self._main_window,

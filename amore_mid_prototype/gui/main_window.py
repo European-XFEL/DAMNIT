@@ -161,12 +161,11 @@ da-dev@xfel.eu"""
             self.db = open_db(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
-            df.insert(len(df.columns), "comment_id", pd.NA)
-            df.pop("added_at")
+            df.insert(len(df.columns), "_comment_id", pd.NA)
 
             # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
-                "SELECT rowid as comment_id, * FROM time_comments", self.db
+                "SELECT rowid as _comment_id, * FROM time_comments", self.db
             )
             comments_df.insert(0, "Run", pd.NA)
             comments_df.insert(1, "Proposal", pd.NA)
@@ -181,6 +180,7 @@ da-dev@xfel.eu"""
                             "proposal": "Proposal",
                             "start_time": "Timestamp",
                             "comment": "Comment",
+                            "added_at": "_added_at",
                             **self.column_renames(),
                         }
                     ),
@@ -189,9 +189,28 @@ da-dev@xfel.eu"""
                     ),
                 ]
             )
+
+            # move some columns
+            if "Timestamp" in self.data.columns:
+                self.data.insert(0, "Timestamp", self.data.pop("Timestamp"))
+
+            if "Status" in self.data.columns:
+                self.data.insert(1, "Status", self.data.pop("Status"))
+            
+            if "Run" in self.data.columns:
+                self.data.insert(2, "Run", self.data.pop("Run"))
+            
+            if "Comment" in self.data.columns:
+                self.data.insert(3, "Comment", self.data.pop("Comment"))
+
             self._create_view()
             self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
                                          Qt.SortOrder.AscendingOrder)
+            
+            # hide some column
+            for column in self.data.columns:
+                if column.startswith("_"):
+                    self.table_view.setColumnHidden(self.data.columns.get_loc(column), True)
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
@@ -383,7 +402,7 @@ da-dev@xfel.eu"""
                         "Run": pd.NA,
                         "Proposal": pd.NA,
                         "Comment": text,
-                        "comment_id": comment_id,
+                        "_comment_id": comment_id,
                     },
                     index=[0],
                 ),
@@ -485,7 +504,7 @@ da-dev@xfel.eu"""
 
         # Always keep these columns as small as possible to save space
         header = self.table_view.horizontalHeader()
-        for column in ["Status", "Proposal", "Run", "Timestamp"]:
+        for column in ["Status", "Run", "Timestamp"]:
             column_index = self.data.columns.get_loc(column)
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 

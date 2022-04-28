@@ -1,6 +1,6 @@
 import time
 import pandas as pd
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
 
@@ -17,6 +17,12 @@ class TableView(QtWidgets.QTableView):
         )
 
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
+
+        # these are fixed
+        self.static_columns = ["Timestamp", "Status", "Run", "Comment"]
+
+        # these are hidden
+        self.hidden_column = []
 
     def setModel(self, model):
         """
@@ -36,8 +42,8 @@ class TableView(QtWidgets.QTableView):
             self.setColumnHidden(column_index, True)
 
     def item_moved(self, parent, start, end, destination, row):
-        # Take account of the static columns, and the Status column
-        col_offset = self._static_columns_widget.count() + 1
+        # Take account of the static columns
+        col_offset = len(self.static_columns)
 
         col_from = start + col_offset
         col_to = self._columns_widget.currentIndex().row() + col_offset
@@ -60,33 +66,33 @@ class TableView(QtWidgets.QTableView):
         layout = QtWidgets.QVBoxLayout()
 
         # Add the widget for static columns
-        self._static_columns_widget = QtWidgets.QListWidget()
-        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
-        for column, status in zip(columns, statuses):
-            if column in static_columns:
-                item = QtWidgets.QListWidgetItem(column)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-                self._static_columns_widget.addItem(item)
-        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-                                            QtWidgets.QSizePolicy.Minimum)
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
+        #self._static_columns_widget = QtWidgets.QListWidget()
+        
+        #for column, status in zip(columns, statuses):
+        #    if column in static_columns:
+        #        item = QtWidgets.QListWidgetItem(column)
+        #        item.setCheckState(Qt.Checked if status else Qt.Unchecked)
+        #        self._static_columns_widget.addItem(item)
+        #self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+        #                                    QtWidgets.QSizePolicy.Minimum)
+        #self._static_columns_widget.itemChanged.connect(self.item_changed)
 
         # Remove the static columns
         columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
-                                            if x[0] not in static_columns]))
+                                            if (x[0] not in self.static_columns and not x[0].startswith("_"))]))
 
         self._columns_widget = QtWidgets.QListWidget()
         self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
 
-        self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+        #self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
         self.set_item_columns_visibility(columns, statuses)
 
-        layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
-        layout.addWidget(self._static_columns_widget)
+        #layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
+        #layout.addWidget(self._static_columns_widget)
         layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
         layout.addWidget(self._columns_widget)
         group.setLayout(layout)
@@ -98,12 +104,9 @@ class TableView(QtWidgets.QTableView):
         data = self.model()._data
 
         comment_col = data.columns.get_loc("Comment")
-        timestamp_col = data.columns.get_loc("Timestamp")
 
-        for row in data["comment_id"].dropna().index:
-            self.setSpan(row, 0, 1, timestamp_col)
-            self.setSpan(row, comment_col, 1, 1000)
-
+        for row in data["_comment_id"].dropna().index:
+            self.setSpan(row, comment_col, 1, 100)
 
 class Table(QtCore.QAbstractTableModel):
     comment_changed = QtCore.pyqtSignal(int, int, str)
@@ -176,9 +179,13 @@ class Table(QtCore.QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             if index.column() == self._data.columns.get_loc("Comment"):
                 return self.data(index)
+        
+        elif role == QtCore.Qt.BackgroundRole: # and len(self.comment_index):
+            if index.row() in self._data["_comment_id"].dropna().index:
+                return QtGui.QBrush(Qt.yellow)
 
     def isCommentRow(self, row):
-        return row in self._data["comment_id"].dropna()
+        return row in self._data["_comment_id"].dropna()
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
@@ -194,7 +201,7 @@ class Table(QtCore.QAbstractTableModel):
                 if not (pd.isna(prop) or pd.isna(run)):
                     self.comment_changed.emit(int(prop), int(run), value)
                 else:
-                    comment_id = self._data.iloc[index.row()]["comment_id"]
+                    comment_id = self._data.iloc[index.row()]["_comment_id"]
                     if not pd.isna(comment_id):
                         self.time_comment_changed.emit(comment_id, value)
 
