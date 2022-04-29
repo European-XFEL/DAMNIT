@@ -1,5 +1,6 @@
 import time
 import pandas as pd
+import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
@@ -19,7 +20,7 @@ class TableView(QtWidgets.QTableView):
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
 
         # these are fixed
-        self.static_columns = ["Timestamp", "Status", "Run", "Comment"]
+        self.static_columns = ["Timestamp", "Comment"] #["Timestamp", "Status", "Run", "Comment"]
 
         # these are hidden
         self.hidden_column = []
@@ -32,6 +33,9 @@ class TableView(QtWidgets.QTableView):
         super().setModel(model)
         self.model().rowsInserted.connect(self.style_comment_rows)
 
+        #print("qui")
+        #self._columns_order = np.arange(self.model().columnCount())
+
     def item_changed(self, item):
         state = item.checkState()
         column_index = self.model()._data.columns.get_loc(item.text())
@@ -42,7 +46,7 @@ class TableView(QtWidgets.QTableView):
             self.setColumnHidden(column_index, True)
 
     def item_moved(self, parent, start, end, destination, row):
-        # Take account of the static columns
+        # Take account of the static columns, and the Status column
         col_offset = len(self.static_columns)
 
         col_from = start + col_offset
@@ -51,8 +55,6 @@ class TableView(QtWidgets.QTableView):
         self.horizontalHeader().moveSection(col_from, col_to)
 
     def set_item_columns_visibility(self, columns, status):
-        if "Status" in columns:
-            columns.remove("Status")
 
         for i in range(len(columns)):
             item = QtWidgets.QListWidgetItem(columns[i])
@@ -180,7 +182,7 @@ class Table(QtCore.QAbstractTableModel):
             if index.column() == self._data.columns.get_loc("Comment"):
                 return self.data(index)
         
-        elif role == QtCore.Qt.BackgroundRole: # and len(self.comment_index):
+        elif role == QtCore.Qt.BackgroundRole:
             if index.row() in self._data["_comment_id"].dropna().index:
                 return QtGui.QBrush(Qt.yellow)
 

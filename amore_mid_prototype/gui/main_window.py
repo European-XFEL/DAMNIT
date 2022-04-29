@@ -191,17 +191,17 @@ da-dev@xfel.eu"""
             )
 
             # move some columns
+            if "Comment" in self.data.columns:
+                self.data.insert(1, "Comment", self.data.pop("Comment"))
+
             if "Timestamp" in self.data.columns:
                 self.data.insert(0, "Timestamp", self.data.pop("Timestamp"))
 
             if "Status" in self.data.columns:
-                self.data.insert(1, "Status", self.data.pop("Status"))
+                self.data.insert(2, "Status", self.data.pop("Status"))
             
             if "Run" in self.data.columns:
-                self.data.insert(2, "Run", self.data.pop("Run"))
-            
-            if "Comment" in self.data.columns:
-                self.data.insert(3, "Comment", self.data.pop("Comment"))
+                self.data.insert(3, "Run", self.data.pop("Run"))
 
             self._create_view()
             self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
@@ -211,6 +211,9 @@ da-dev@xfel.eu"""
             for column in self.data.columns:
                 if column.startswith("_"):
                     self.table_view.setColumnHidden(self.data.columns.get_loc(column), True)
+
+                    # to avoid tweaking the sorting, hidden columns should be the last ones
+                    self.data.insert(len(self.data.columns) - 1, column, self.data.pop(column))
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
@@ -483,7 +486,8 @@ da-dev@xfel.eu"""
                 y=[self.make_finite(y)],
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
-                fmt="ro",
+                fmt="o-",
+                color="red",
                 autoscale=False,
             )
         )

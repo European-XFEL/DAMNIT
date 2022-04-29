@@ -372,8 +372,6 @@ class Plot:
         proposals = [self._data.iloc[index.row()]["Proposal"] for index in selected_rows]
         proposals = [pi for pi in proposals if pi is not pd.NA]
 
-        print(proposals, selected_rows, runs_as_series)
-
         if len(set(proposals)) > 1:
             QMessageBox.warning(
                 self._main_window,
@@ -387,7 +385,6 @@ class Plot:
                 ylabel = xlabel
 
             run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
-            print(proposals, run)
 
             x, y = [], []
             if runs_as_series:
@@ -403,8 +400,6 @@ class Plot:
                 f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
             )
             return
-
-        print(x, y)
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
