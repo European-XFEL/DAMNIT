@@ -28,6 +28,7 @@ class Canvas(QtWidgets.QDialog):
         xlabel="",
         ylabel="",
         fmt="o",
+        color=None,
         legend=None,
         plot_type="default",
         autoscale=True,
@@ -56,6 +57,7 @@ class Canvas(QtWidgets.QDialog):
         self._axis.grid()
 
         self._fmt = fmt
+        self._color = color
         self._lines = {}
         self._kwargs = {}
 
@@ -212,7 +214,7 @@ class Canvas(QtWidgets.QDialog):
             legend if legend is not None else len(xs) * [None],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
-            color = cmap(i / len(xs))
+            color = cmap(i / len(xs)) if self._color is None else self._color
 
             plot_exists = len(self._lines[series_names[0]]) == len(xs)
             if not plot_exists:
@@ -354,7 +356,6 @@ class Plot:
         ylabel = self._combo_box_y_axis.currentText()
 
         # multiple rows can be selected
-        # we could even merge multiple runs here
         for index in selected_rows:
             log.info("Selected row %d", index.row())
 
@@ -370,6 +371,9 @@ class Plot:
         # Find the proposals of currently selected runs
         proposals = [self._data.iloc[index.row()]["Proposal"] for index in selected_rows]
         proposals = [pi for pi in proposals if pi is not pd.NA]
+
+        print(proposals, selected_rows, runs_as_series)
+
         if len(set(proposals)) > 1:
             QMessageBox.warning(
                 self._main_window,
@@ -382,13 +386,15 @@ class Plot:
             if self.plot_type == "histogram1D":
                 ylabel = xlabel
 
-            run = [i.siblingAtColumn(2).data() for i in selected_rows]
+            run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
+            print(proposals, run)
 
             x, y = [], []
-            for p, r in zip(proposals, run):
-                xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
-                x.append(xi)
-                y.append(yi)
+            if runs_as_series:
+                for p, r in zip(proposals, run):
+                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                    x.append(xi)
+                    y.append(yi)
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
@@ -397,6 +403,8 @@ class Plot:
                 f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
             )
             return
+
+        print(x, y)
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
