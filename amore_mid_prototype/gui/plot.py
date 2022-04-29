@@ -369,7 +369,9 @@ class Plot:
                 return
 
         # Find the proposals of currently selected runs
-        proposals = [self._data.iloc[index.row()]["Proposal"] for index in selected_rows]
+        proposals = [
+            self._data.iloc[index.row()]["Proposal"] for index in selected_rows
+        ]
         proposals = [pi for pi in proposals if pi is not pd.NA]
 
         if len(set(proposals)) > 1:

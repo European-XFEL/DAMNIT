@@ -25,6 +25,19 @@ log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
 
+class QLogger(logging.Handler):
+    # https://stackoverflow.com/questions/28655198/best-way-to-display-logs-in-pyqt
+    def __init__(self, parent):
+        super().__init__()
+        self.widget = QtWidgets.QPlainTextEdit(parent)
+        self.widget.setReadOnly(True)
+        self.widget.setFixedHeight(75)
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.widget.appendPlainText(msg)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     db = None
 
@@ -47,6 +60,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
+
+        # logging
+        self.logger = QLogger(self)
+        self.logger.setFormatter(
+            logging.Formatter("%(asctime)s: %(levelname)s: %(message)s")
+        )
+        logging.getLogger().addHandler(self.logger)
 
         if context_dir is not None:
             self.autoconfigure(context_dir)
@@ -112,8 +132,9 @@ da-dev@xfel.eu"""
         if os.path.isdir("/gpfs/exfel/exp"):
             prompt = True
             while prompt:
-                prop_no, prompt = QtWidgets.QInputDialog.getInt(self, "Select proposal",
-                                                                "Which proposal is this for?")
+                prop_no, prompt = QtWidgets.QInputDialog.getInt(
+                    self, "Select proposal", "Which proposal is this for?"
+                )
                 if not prompt:
                     break
 
@@ -122,9 +143,12 @@ da-dev@xfel.eu"""
                     proposal_dir = find_proposal(proposal)
                     prompt = False
                 except Exception as e:
-                    button = QtWidgets.QMessageBox.warning(self, "Bad proposal number",
-                                                           "Could not find a proposal with this number, try again?",
-                                                           buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+                    button = QtWidgets.QMessageBox.warning(
+                        self,
+                        "Bad proposal number",
+                        "Could not find a proposal with this number, try again?",
+                        buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
                     if button != QtWidgets.QMessageBox.Yes:
                         prompt = False
 
@@ -199,21 +223,26 @@ da-dev@xfel.eu"""
 
             if "Status" in self.data.columns:
                 self.data.insert(2, "Status", self.data.pop("Status"))
-            
+
             if "Run" in self.data.columns:
                 self.data.insert(3, "Run", self.data.pop("Run"))
 
             self._create_view()
-            self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
-                                         Qt.SortOrder.AscendingOrder)
-            
+            self.table_view.sortByColumn(
+                self.data.columns.get_loc("Timestamp"), Qt.SortOrder.AscendingOrder
+            )
+
             # hide some column
             for column in self.data.columns:
                 if column.startswith("_"):
-                    self.table_view.setColumnHidden(self.data.columns.get_loc(column), True)
+                    self.table_view.setColumnHidden(
+                        self.data.columns.get_loc(column), True
+                    )
 
                     # to avoid tweaking the sorting, hidden columns should be the last ones
-                    self.data.insert(len(self.data.columns) - 1, column, self.data.pop(column))
+                    self.data.insert(
+                        len(self.data.columns) - 1, column, self.data.pop(column)
+                    )
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
@@ -277,7 +306,7 @@ da-dev@xfel.eu"""
         if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
-        # log.info("Updating for ZMQ message: %s", message)
+        log.debug("Updating for ZMQ message: %s", message)
 
         # Rename:
         #  start_time -> Timestamp
@@ -510,7 +539,9 @@ da-dev@xfel.eu"""
         header = self.table_view.horizontalHeader()
         for column in ["Status", "Run", "Timestamp"]:
             column_index = self.data.columns.get_loc(column)
-            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(
+                column_index, QtWidgets.QHeaderView.ResizeToContents
+            )
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
@@ -537,7 +568,7 @@ da-dev@xfel.eu"""
         comment_button.clicked.connect(self._comment_button_clicked)
 
         comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=3)
+        comment_horizontal_layout.addWidget(self.comment, stretch=5)
         comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
         comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
 
@@ -580,6 +611,8 @@ da-dev@xfel.eu"""
 
         vertical_layout.addWidget(plotting_group)
 
+        vertical_layout.addWidget(self.logger.widget)
+
         self._view_widget.setLayout(vertical_layout)
 
     def save_comment(self, prop, run, value):
@@ -613,9 +646,11 @@ class TableViewStyle(QtWidgets.QProxyStyle):
     """
     Subclass that enables instant tooltips for widgets in a TableView.
     """
+
     def styleHint(self, hint, option=None, widget=None, returnData=None):
-        if hint == QtWidgets.QStyle.SH_ToolTip_WakeUpDelay \
-           and isinstance(widget.parent(), TableView):
+        if hint == QtWidgets.QStyle.SH_ToolTip_WakeUpDelay and isinstance(
+            widget.parent(), TableView
+        ):
             return 0
         else:
             return super().styleHint(hint, option, widget, returnData)

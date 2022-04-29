@@ -20,7 +20,10 @@ class TableView(QtWidgets.QTableView):
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
 
         # these are fixed
-        self.static_columns = ["Timestamp", "Comment"] #["Timestamp", "Status", "Run", "Comment"]
+        self.static_columns = [
+            "Timestamp",
+            "Comment",
+        ]  # ["Timestamp", "Status", "Run", "Comment"]
 
         # these are hidden
         self.hidden_column = []
@@ -33,8 +36,8 @@ class TableView(QtWidgets.QTableView):
         super().setModel(model)
         self.model().rowsInserted.connect(self.style_comment_rows)
 
-        #print("qui")
-        #self._columns_order = np.arange(self.model().columnCount())
+        # print("qui")
+        # self._columns_order = np.arange(self.model().columnCount())
 
     def item_changed(self, item):
         state = item.checkState()
@@ -68,33 +71,43 @@ class TableView(QtWidgets.QTableView):
         layout = QtWidgets.QVBoxLayout()
 
         # Add the widget for static columns
-        #self._static_columns_widget = QtWidgets.QListWidget()
-        
-        #for column, status in zip(columns, statuses):
+        # self._static_columns_widget = QtWidgets.QListWidget()
+
+        # for column, status in zip(columns, statuses):
         #    if column in static_columns:
         #        item = QtWidgets.QListWidgetItem(column)
         #        item.setCheckState(Qt.Checked if status else Qt.Unchecked)
         #        self._static_columns_widget.addItem(item)
-        #self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+        # self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
         #                                    QtWidgets.QSizePolicy.Minimum)
-        #self._static_columns_widget.itemChanged.connect(self.item_changed)
+        # self._static_columns_widget.itemChanged.connect(self.item_changed)
 
         # Remove the static columns
-        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
-                                            if (x[0] not in self.static_columns and not x[0].startswith("_"))]))
+        columns, statuses = map(
+            list,
+            zip(
+                *[
+                    x
+                    for x in zip(columns, statuses)
+                    if (x[0] not in self.static_columns and not x[0].startswith("_"))
+                ]
+            ),
+        )
 
         self._columns_widget = QtWidgets.QListWidget()
         self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
 
-        #self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
-        self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+        # self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+        self._columns_widget.setStyleSheet(
+            "QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }"
+        )
 
         self.set_item_columns_visibility(columns, statuses)
 
-        #layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
-        #layout.addWidget(self._static_columns_widget)
+        # layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
+        # layout.addWidget(self._static_columns_widget)
         layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
         layout.addWidget(self._columns_widget)
         group.setLayout(layout)
@@ -109,6 +122,7 @@ class TableView(QtWidgets.QTableView):
 
         for row in data["_comment_id"].dropna().index:
             self.setSpan(row, comment_col, 1, 100)
+
 
 class Table(QtCore.QAbstractTableModel):
     comment_changed = QtCore.pyqtSignal(int, int, str)
@@ -170,9 +184,11 @@ class Table(QtCore.QAbstractTableModel):
             else:
                 return str(value)
 
-        elif role == Qt.ItemDataRole.CheckStateRole \
-             and index.column() == self._data.columns.get_loc("Status") \
-             and not self.isCommentRow(index.row()):
+        elif (
+            role == Qt.ItemDataRole.CheckStateRole
+            and index.column() == self._data.columns.get_loc("Status")
+            and not self.isCommentRow(index.row())
+        ):
             if self._data["Status"].iloc[index.row()]:
                 return QtCore.Qt.Checked
             else:
@@ -181,7 +197,7 @@ class Table(QtCore.QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             if index.column() == self._data.columns.get_loc("Comment"):
                 return self.data(index)
-        
+
         elif role == QtCore.Qt.BackgroundRole:
             if index.row() in self._data["_comment_id"].dropna().index:
                 return QtGui.QBrush(Qt.yellow)
