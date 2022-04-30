@@ -165,20 +165,27 @@ class Canvas(QtWidgets.QDialog):
         height = self._roi_height_spinbox.value()
 
         self._roi.set(x=x, y=y, width=width, height=height)
+        self._roi_crosshair.set_data(x + width // 2, y + height // 2)
         self._canvas.draw()
 
     def update_canvas(self, xs, ys, image=None, roi=None, series_names=["default"]):
         if image is not None:
             if self._image is None:
-                self._image = self._axis.imshow(image)
+                self._image = self._axis.imshow(image, interpolation="nearest")
+                self.figure.colorbar(self._image, ax=self._axis)
             else:
                 self._image.set_array(image)
+
+            vmin = np.nanquantile(image, 0.01, method='nearest')
+            vmax = np.nanquantile(image, 0.99, method='nearest')
+            self._image.set_clim(vmin, vmax)
 
             if roi is not None:
                 if self._roi is None:
                     self._roi = patches.Rectangle((roi.x, roi.y), roi.width, roi.height,
                                                   edgecolor="r", facecolor="none")
                     self._axis.add_patch(self._roi)
+                    self._roi_crosshair = self._axis.plot(roi.x + roi.width // 2, roi.y + roi.height // 2, "b+")[0]
         else:
             self._axis.grid()
 

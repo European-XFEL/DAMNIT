@@ -19,9 +19,9 @@ class TestEventProcessor(EventProcessor):
                 path = glob(f'/gpfs/exfel/exp/*/*/p{self.proposal:>06}/raw/r{run:>04}')[0]
                 inst, cycle = path.split('/')[4:6]
                 msg = {'proposal': self.proposal, 'run': run, 'path': path,
-                       'instrument': inst, 'cycle': cycle}
+                       'instrument': inst, 'cycle': cycle, 'detector': 'agipd'}
                 record = DummyRecord(timestamp=int(datetime.utcnow().timestamp() * 1000))
-                self.handle_migration_complete(record, msg)
+                self.handle_correction_complete(record, msg)
             except EOFError:
                 break  # Allow Ctrl-D to close it
             except Exception:

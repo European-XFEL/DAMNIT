@@ -506,18 +506,20 @@ da-dev@xfel.eu"""
         self._canvas_inspect[-1].show()
 
         if is_roi:
-            self._canvas_inspect[-1].roi_changed.connect(lambda roi: self.save_roi(roi, run, quantity, index))
+            self._canvas_inspect[-1].roi_changed.connect(lambda roi: self.save_parameter(roi, run, quantity, index))
 
-    def save_roi(self, roi, run, var_name, index):
+    def save_parameter(self, value, run, param_name, index):
+        serialized_value = pickle.dumps(value) if isinstance(value, RectROI) else value
+
         with self.db:
             self.db.execute(
                 f"""
-                UPDATE runs set {var_name}=? WHERE runnr=?
+                UPDATE runs set {param_name}=? WHERE runnr=?
                 """,
-                (pickle.dumps(roi), run)
+                (serialized_value, run)
             )
 
-        self.table.setData(index, roi, role=Qt.DisplayRole)
+        self.table.setData(index, value, role=Qt.DisplayRole)
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()

@@ -148,7 +148,7 @@ class EventProcessor:
 
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
-            self.zmq_sock.send_json(reduced_data)
+            self.zmq_sock.send(pickle.dumps(reduced_data))
             log.info("Sent ZMQ message")
 
 
