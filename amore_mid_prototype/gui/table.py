@@ -161,7 +161,11 @@ class Table(QtCore.QAbstractTableModel):
         fig = Figure()
         canvas = FigureCanvas(fig)
         ax = fig.add_subplot()
-        ax.imshow(array)
+        background = np.nanmean(array)
+        offset_array = np.nan_to_num(array, background)
+        vmin = np.nanquantile(offset_array, 0.01, method='nearest')
+        vmax = np.nanquantile(offset_array, 0.99, method='nearest')
+        ax.imshow(offset_array, vmin=vmin, vmax=vmax)
         canvas.draw()
 
         width, height = fig.figbbox.width, fig.figbbox.height
