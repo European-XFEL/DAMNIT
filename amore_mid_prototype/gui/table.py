@@ -19,11 +19,15 @@ class TableView(QtWidgets.QTableView):
 
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
 
+        # menu
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+
         # these are fixed
         self.static_columns = [
             "Timestamp",
             "Comment",
-        ]  # ["Timestamp", "Status", "Run", "Comment"]
+        ]
 
         # these are hidden
         self.hidden_column = []
@@ -36,8 +40,10 @@ class TableView(QtWidgets.QTableView):
         super().setModel(model)
         self.model().rowsInserted.connect(self.style_comment_rows)
 
-        # print("qui")
-        # self._columns_order = np.arange(self.model().columnCount())
+    def show_context_menu(self, pos):
+        menu = QtWidgets.QMenu(self)
+        menu.addAction("Change color?")
+        menu.exec_(self.mapToGlobal(pos))
 
     def item_changed(self, item):
         state = item.checkState()
@@ -49,7 +55,7 @@ class TableView(QtWidgets.QTableView):
             self.setColumnHidden(column_index, True)
 
     def item_moved(self, parent, start, end, destination, row):
-        # Take account of the static columns, and the Status column
+        # Take account of the static columns
         col_offset = len(self.static_columns)
 
         col_from = start + col_offset
