@@ -14,9 +14,9 @@ from PyQt5.QtCore import Qt
 
 from extra_data.read_machinery import find_proposal
 
-from ..backend.db import open_db
+from ..backend.db import open_db, get_meta
 from ..context import ContextFile
-from .zmq import ZmqStreamReceiver
+from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
 
@@ -27,17 +27,15 @@ pd.options.mode.use_inf_as_na = True
 
 class MainWindow(QtWidgets.QMainWindow):
     db = None
+    db_id = None
 
-    def __init__(
-        self, zmq_endpoint: str = None, context_dir: Path = None,
-    ):
+    def __init__(self, context_dir: Path = None):
         super().__init__()
 
         self.data = None
-        self._zmq_thread = None
-        self.zmq_endpoint = zmq_endpoint
-        self._zmq_thread = None
-        self._is_zmq_receiving_data = False
+        self._updates_thread = None
+        self._updates_thread = None
+        self._received_update = False
         self._attributi = {}
 
         self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
@@ -50,16 +48,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if context_dir is not None:
             self.autoconfigure(context_dir)
-        elif self.zmq_endpoint is not None:
-            self._zmq_thread_launcher()
 
         self._canvas_inspect = []
 
         self.center_window()
 
     def closeEvent(self, event):
-        if self._zmq_thread is not None:
-            self._zmq_thread.exit()
+        if self._updates_thread is not None:
+            self._updates_thread.exit()
 
     def center_window(self):
         """
@@ -141,24 +137,16 @@ da-dev@xfel.eu"""
             ctx_file = ContextFile.from_py_file(context_path)
             self._attributi = ctx_file.vars
 
-        zmq_addr_path = path / ".zmq_extraction_events"
-        if zmq_addr_path.is_file():
-            self.zmq_endpoint = zmq_addr_path.read_text().strip()
-            log.info("Connecting to %s (ZMQ)", self.zmq_endpoint)
-            self._zmq_thread_launcher()
-        else:
-            log.warning("No .zmq_extraction_events file in context folder")
-            self._status_bar_connection_status.setStyleSheet(
-                "color:red;font-weight:bold;"
-            )
-            self._status_bar_connection_status.setText("No ZMQ socket found in folder")
-
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
             self.db = open_db(sqlite_path)
+
+            self.db_id = get_meta(self.db, 'db_id')
+            self._updates_thread_launcher()
+
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
@@ -203,14 +191,6 @@ da-dev@xfel.eu"""
             return self._attributi[name].title or name
         return name
 
-    def _menu_bar_connect(self) -> None:
-        text, status_ok = QtWidgets.QInputDialog.getText(
-            self, "Connect to AMORE backend", "Endpoint (e.g. tcp://localhost:5555):"
-        )
-        if status_ok:
-            self.zmq_endpoint = str(text)
-            self._zmq_thread_launcher()
-
     def _create_menu_bar(self) -> None:
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
@@ -223,13 +203,6 @@ da-dev@xfel.eu"""
             "Autoconfigure AMORE by selecting the proposal folder."
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
-
-        action_connect = QtWidgets.QAction(
-            QtGui.QIcon("connect.png"), "Connect with &endpoint", self
-        )
-        action_connect.setShortcut("Shift+E")
-        action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
-        action_connect.triggered.connect(self._menu_bar_connect)
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
@@ -245,17 +218,16 @@ da-dev@xfel.eu"""
             QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
-    def zmq_get_data_and_update(self, message):
+    def handle_update(self, message):
 
         # is the message OK?
         if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
-        # log.info("Updating for ZMQ message: %s", message)
+        # log.info("Updating for message: %s", message)
 
         # Rename:
         #  start_time -> Timestamp
@@ -269,12 +241,14 @@ da-dev@xfel.eu"""
         }
 
         # initialize the view
-        if not self._is_zmq_receiving_data:
-            self._is_zmq_receiving_data = True
+        if not self._received_update:
+            self._received_update = True
             self._status_bar_connection_status.setStyleSheet(
                 "color:green;font-weight:bold;"
             )
-            self._status_bar_connection_status.setText(self.zmq_endpoint)
+            self._status_bar_connection_status.setText(
+                f"Getting updates ({self.db_id})"
+            )
 
         if self.data is None:
             # ingest data
@@ -353,14 +327,15 @@ da-dev@xfel.eu"""
         # (over)write down metadata
         self.data.to_json("AMORE.json")
 
-    def _zmq_thread_launcher(self) -> None:
-        self._zmq_thread = QtCore.QThread()
-        self.zeromq_listener = ZmqStreamReceiver(self.zmq_endpoint)
-        self.zeromq_listener.moveToThread(self._zmq_thread)
+    def _updates_thread_launcher(self) -> None:
+        assert self.db_id is not None
+        self._updates_thread = QtCore.QThread()
+        self.update_receiver = UpdateReceiver(self.db_id)
+        self.update_receiver.moveToThread(self._updates_thread)
 
-        self._zmq_thread.started.connect(self.zeromq_listener.loop)
-        self.zeromq_listener.message.connect(self.zmq_get_data_and_update)
-        QtCore.QTimer.singleShot(0, self._zmq_thread.start)
+        self._updates_thread.started.connect(self.update_receiver.loop)
+        self.update_receiver.message.connect(self.handle_update)
+        QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
     def _set_comment_date(self):
         self.comment_time.setText(

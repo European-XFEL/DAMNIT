@@ -1,17 +1,18 @@
 import json
 import logging
-import socket
 import subprocess
 import sys
 from pathlib import Path
 
-from kafka import KafkaConsumer
-import zmq
+from kafka import KafkaConsumer, KafkaProducer
 
+from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 from .extract_data import add_to_db, load_reduced_data
 
-BROKERS = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
+# For now, the migration & calibration events come via DESY's Kafka brokers,
+# but the AMORE updates go via XFEL's test instance.
+BROKERS_IN = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
 MIGRATION_TOPIC = 'xfel-test-r2d2'
 CALIBRATION_TOPIC = "xfel-test-offline-cal"
 CONSUMER_ID = 'xfel-da-amore-mid-prototype'
@@ -27,30 +28,23 @@ class EventProcessor:
         self.proposal = get_meta(self.db, 'proposal')
         log.info(f"Will watch for events from proposal {self.proposal}")
 
-        self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS, group_id=CONSUMER_ID)
+        self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS_IN, group_id=CONSUMER_ID)
 
-        self.zmq_sock: zmq.Socket = zmq.Context.instance().socket(zmq.PUB)
-        zmq_port = self.zmq_sock.bind_to_random_port('tcp://*')
-        self.zmq_addr = f"tcp://{socket.gethostname()}:{zmq_port}"
-        log.info("ZMQ address: %s", self.zmq_addr)
-
-        self._zmq_addr_file = context_dir / '.zmq_extraction_events'
-        with self._zmq_addr_file.open('w') as f:
-            f.write(self.zmq_addr)
+        self.kafka_prd = KafkaProducer(
+            bootstrap_servers=UPDATE_BROKERS,
+            value_serializer=lambda d: json.dumps(d).encode('utf-8'),
+        )
+        self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        try:
-            self._zmq_addr_file.unlink()
-        except FileNotFoundError:
-            pass
         self.kafka_cns.close()
         self.db.close()
-        # Closing the ZMQ socket can block (if messages are still being sent)
+        # Closing the producer can block (if messages are still being sent)
         # so do this after the other steps.
-        self.zmq_sock.close()
+        self.kafka_prd.close(timeout=2)  # timeout in seconds
         return False
 
     def run(self):
@@ -102,8 +96,8 @@ class EventProcessor:
 
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
-            self.zmq_sock.send_json(reduced_data)
-            log.info("Sent ZMQ message")
+            self.kafka_prd.send(self.update_topic, reduced_data)
+            log.info("Sent Kafka update")
 
     def handle_correction_complete(self, record, msg: dict):
         proposal = int(msg['proposal'])
@@ -145,8 +139,8 @@ class EventProcessor:
 
             reduced_data['Proposal'] = proposal
             reduced_data['Run'] = run
-            self.zmq_sock.send_json(reduced_data)
-            log.info("Sent ZMQ message")
+            self.kafka_prd.send(self.update_topic, reduced_data)
+            log.info("Sent Kafka update")
 
 
 def listen_migrated():
