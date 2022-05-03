@@ -161,6 +161,8 @@ def extract_and_ingest(proposal, run):
         value_serializer=lambda d: json.dumps(d).encode('utf-8'),
     )
     update_topic = UPDATE_TOPIC.format(get_meta(db, 'db_id'))
+    reduced_data['Proposal'] = proposal
+    reduced_data['Run'] = run
     kafka_prd.send(update_topic, reduced_data)
     log.info("Sent Kafka update")
 
