@@ -4,11 +4,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaConsumer
 
-from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
-from .extract_data import add_to_db, load_reduced_data
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -28,13 +26,9 @@ class EventProcessor:
         self.proposal = get_meta(self.db, 'proposal')
         log.info(f"Will watch for events from proposal {self.proposal}")
 
-        self.kafka_cns = KafkaConsumer(CALIBRATION_TOPIC, bootstrap_servers=BROKERS_IN, group_id=CONSUMER_ID)
-
-        self.kafka_prd = KafkaProducer(
-            bootstrap_servers=UPDATE_BROKERS,
-            value_serializer=lambda d: json.dumps(d).encode('utf-8'),
+        self.kafka_cns = KafkaConsumer(
+            CALIBRATION_TOPIC, bootstrap_servers=BROKERS_IN, group_id=CONSUMER_ID
         )
-        self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
 
     def __enter__(self):
         return self
@@ -42,9 +36,6 @@ class EventProcessor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.kafka_cns.close()
         self.db.close()
-        # Closing the producer can block (if messages are still being sent)
-        # so do this after the other steps.
-        self.kafka_prd.close(timeout=2)  # timeout in seconds
         return False
 
     def run(self):
@@ -68,7 +59,6 @@ class EventProcessor:
     def handle_migration_complete(self, record, msg: dict):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
-        run_dir = msg['path']
 
         if proposal != self.proposal:
             return
@@ -80,24 +70,14 @@ class EventProcessor:
             """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
-        out_path = self.context_dir / 'extracted_data' / f'p{proposal}_r{run}.h5'
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
         extract_res = subprocess.run([
             sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
-            str(proposal), str(run), out_path
-        ])
+            str(proposal), str(run),
+        ], cwd=self.context_dir)
         if extract_res.returncode != 0:
             log.error("Data extraction failed; exit code was %d", extract_res.returncode)
         else:
-            reduced_data = load_reduced_data(out_path)
-            log.info("Reduced data has %d fields", len(reduced_data))
-            add_to_db(reduced_data, self.db, proposal, run)
-
-            reduced_data['Proposal'] = proposal
-            reduced_data['Run'] = run
-            self.kafka_prd.send(self.update_topic, reduced_data)
-            log.info("Sent Kafka update")
+            log.info("Data extraction succeeded")
 
     def handle_correction_complete(self, record, msg: dict):
         proposal = int(msg['proposal'])
@@ -124,23 +104,13 @@ class EventProcessor:
             """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
-        out_path = self.context_dir / 'extracted_data' / f'p{proposal}_r{run}.h5'
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
         extract_res = subprocess.run([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', str(proposal), str(run), out_path
-        ])
+            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', str(proposal), str(run)
+        ], cwd=self.context_dir)
         if extract_res.returncode != 0:
             log.error("Data extraction failed; exit code was %d", extract_res.returncode)
         else:
-            reduced_data = load_reduced_data(out_path)
-            log.info("Reduced data has %d fields", len(reduced_data))
-            add_to_db(reduced_data, self.db, proposal, run)
-
-            reduced_data['Proposal'] = proposal
-            reduced_data['Run'] = run
-            self.kafka_prd.send(self.update_topic, reduced_data)
-            log.info("Sent Kafka update")
+            log.info("Data extraction succeeded")
 
 
 def listen_migrated():
