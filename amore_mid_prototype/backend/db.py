@@ -1,7 +1,6 @@
 import logging
 import sqlite3
-from binascii import b2a_hex
-from random import randbytes
+from secrets import token_hex
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -33,7 +32,9 @@ def open_db(path='runs.sqlite') -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     get_meta(  # A random ID for the update topic
         conn, 'db_id', set_default=True,
-        default=lambda: b2a_hex(randbytes(20)).decode('ascii')
+        # The ID is not a secret and doesn't need to be cryptographically
+        # secure, but the secrets module is convenient to get a random string.
+        default=lambda: token_hex(20)
     )
     return conn
 
