@@ -13,7 +13,7 @@ from .db import open_db, get_meta
 BROKERS_IN = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
 MIGRATION_TOPIC = 'xfel-test-r2d2'
 CALIBRATION_TOPIC = "xfel-test-offline-cal"
-CONSUMER_ID = 'xfel-da-amore-mid-prototype'
+CONSUMER_ID = 'xfel-da-amore-prototype-{}'
 
 log = logging.getLogger(__name__)
 
@@ -26,8 +26,9 @@ class EventProcessor:
         self.proposal = get_meta(self.db, 'proposal')
         log.info(f"Will watch for events from proposal {self.proposal}")
 
+        consumer_id = CONSUMER_ID.format(get_meta(self.db, 'db_id'))
         self.kafka_cns = KafkaConsumer(
-            CALIBRATION_TOPIC, bootstrap_servers=BROKERS_IN, group_id=CONSUMER_ID
+            CALIBRATION_TOPIC, bootstrap_servers=BROKERS_IN, group_id=consumer_id
         )
 
     def __enter__(self):
