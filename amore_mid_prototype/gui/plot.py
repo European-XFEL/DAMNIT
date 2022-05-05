@@ -6,6 +6,7 @@ import numpy as np
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
+from .PyQt_elements import CheckableComboBox
 
 import mplcursors
 from matplotlib.backends.backend_qtagg import (
@@ -25,8 +26,10 @@ class Canvas(QtWidgets.QDialog):
         parent=None,
         x=[],
         y=[],
+        y1=None,
         xlabel="",
         ylabel="",
+        ylabel1=None,
         fmt="o",
         color=None,
         legend=None,
@@ -37,7 +40,7 @@ class Canvas(QtWidgets.QDialog):
         self.setStyleSheet("background-color: white")
 
         self.data_x, self.data_y = None, None
-        self.histogram1D_bins = 5
+        self.histogram1D_bins = 10
 
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -49,16 +52,20 @@ class Canvas(QtWidgets.QDialog):
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel if not is_histogram else "Probability density")
-        self._axis.set_title(
-            f"{ylabel} vs. {xlabel}"
-            if not is_histogram
-            else f"Probability density of {xlabel}"
-        )
+        if y1 is not None:
+            self._axis1 = self._axis.twinx()
+            self._axis1.set_ylabel(ylabel1)
+        # self._axis.set_title(
+        #    f"{ylabel} vs. {xlabel}"
+        #    if not is_histogram
+        #    else f"Probability density of {xlabel}"
+        # )
         self._axis.grid()
 
         self._fmt = fmt
         self._color = color
         self._lines = {}
+        self._lines1 = {}
         self._kwargs = {}
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
@@ -122,7 +129,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, legend=legend)
+        self.update_canvas(x, y, y1s=y1, legend=legend)
         self.figure.tight_layout()
 
     def toggle_panhandler(self, enabled):
@@ -158,14 +165,18 @@ class Canvas(QtWidgets.QDialog):
         y_min = y_min - y_range * margin
         y_max = y_max + y_range * margin
 
-        self._axis.set_xlim((x_min, x_max))
-        self._axis.set_ylim((y_min, y_max))
+        return x_min, x_max, y_min, y_max
 
-    def update_canvas(self, xs=None, ys=None, legend=None, series_names=["default"]):
+        # self._axis.set_xlim((x_min, x_max))
+        # self._axis.set_ylim((y_min, y_max))
+
+    def update_canvas(
+        self, xs=None, ys=None, y1s=None, legend=None, series_names=["default"]
+    ):
         cmap = mpl_cm.get_cmap("tab20")
 
-        if (xs is None and ys is None) and self.plot_type == "histogram1D":
-            xs, ys = [], []
+        if xs is None and ys is None:  # and self.plot_type == "histogram1D":
+            xs, ys, y1s = [], [], []
 
             for series in self._lines.keys():
                 for i in range(len(self.data_x)):
@@ -193,7 +204,11 @@ class Canvas(QtWidgets.QDialog):
                     xs_max = max(xs_max, x.max())
                     ys_max = min(ys_max, y.max())
 
-                self.autoscale(xs_min, xs_max, 0, ys_max, margin=0.05)
+                x_min, x_max, y_min, y_max = self.autoscale(
+                    xs_min, xs_max, 0, ys_max, margin=0.05
+                )
+                self._axis.set_xlim((x_min, x_max))
+                self._axis.set_ylim((y_min, y_max))
 
             return
 
@@ -204,7 +219,11 @@ class Canvas(QtWidgets.QDialog):
             xs_min, ys_min = np.asarray(xs[0]).min(), 0
             xs_max, ys_max = np.asarray(xs[0]).max(), 1
 
+        if y1s is None:
+            y1s = []
+
         self._lines[series_names[0]] = []
+        self._lines1[series_names[0]] = []
         self._kwargs[series_names[0]] = []
         for i, x, y, series, label in zip(
             range(len(xs)),
@@ -214,7 +233,15 @@ class Canvas(QtWidgets.QDialog):
             legend if legend is not None else len(xs) * [None],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
-            color = cmap(i / len(xs)) if self._color is None else self._color
+            fmt1 = "s"
+            color = (
+                cmap(i / len(xs))
+                if len(ys) == 0
+                else cmap(i / len(xs) / 2)
+                if self._color is None
+                else self._color
+            )
+            color1 = cmap((i + len(xs)) / len(xs) / 2)
 
             plot_exists = len(self._lines[series_names[0]]) == len(xs)
             if not plot_exists:
@@ -224,9 +251,17 @@ class Canvas(QtWidgets.QDialog):
                             [], [], fmt, color=color, label=label, alpha=0.5
                         )[0]
                     )
+                    if len(y1s) > 0:
+                        self._lines1[series].append(
+                            self._axis1.plot(
+                                [], [], fmt1, color=color1, label=label, alpha=0.5
+                            )[0]
+                        )
 
             if self.plot_type == "default":
                 self._lines[series][-1].set_data(x, y)
+                if len(y1s) > 0:
+                    self._lines1[series][-1].set_data(x, y1s[i])
             if self.plot_type == "histogram1D":
                 self._kwargs[series].append(
                     {
@@ -259,13 +294,28 @@ class Canvas(QtWidgets.QDialog):
                     xs_max = max([np.asarray(xi).max() for xi in xs])
                     ys_max = max([np.asarray(yi).max() for yi in ys])
 
-                self.autoscale(
+                x_min, x_max, y_min, y_max = self.autoscale(
                     xs_min,
                     xs_max,
                     ys_min if not self.plot_type == "histogram1D" else 0,
                     ys_max,
                     margin=0.05,
                 )
+                self._axis.set_xlim((x_min, x_max))
+                self._axis.set_ylim((y_min, y_max))
+
+                if len(y1s) > 0:
+                    y1s_min = min([np.asarray(yi).min() for yi in y1s])
+                    y1s_max = max([np.asarray(yi).max() for yi in y1s])
+                    x_min, x_max, y_min, y_max = self.autoscale(
+                        xs_min,
+                        xs_max,
+                        y1s_min if not self.plot_type == "histogram1D" else 0,
+                        y1s_max,
+                        margin=0.05,
+                    )
+                    self._axis1.set_xlim((x_min, x_max))
+                    self._axis1.set_ylim((y_min, y_max))
 
         if self._zoom_factory is not None:
             self._zoom_factory()
@@ -317,12 +367,9 @@ class Plot:
         )
 
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
+        self._combo_box_y_axis = CheckableComboBox(self._main_window)
 
-        self.vs_button = QtWidgets.QToolButton()
-        self.vs_button.setText("vs.")
-        self.vs_button.setToolTip("Click to swap axes")
-        self.vs_button.clicked.connect(self.swap_plot_axes)
+        self.vs_label = QtWidgets.QLabel("versus")
 
         self.update_combo_box(keys)
         self._combo_box_x_axis.setCurrentText("Run")
@@ -353,7 +400,7 @@ class Plot:
     def _button_plot_clicked(self, runs_as_series):
         selected_rows = self._main_window.table_view.selectionModel().selectedRows()
         xlabel = self._combo_box_x_axis.currentText()
-        ylabel = self._combo_box_y_axis.currentText()
+        ylabel = self._combo_box_y_axis.currentData()
 
         # multiple rows can be selected
         for index in selected_rows:
@@ -388,12 +435,16 @@ class Plot:
 
             run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
 
-            x, y = [], []
+            x, y, y1 = [], [], []
             if runs_as_series:
                 for p, r in zip(proposals, run):
-                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel[0])
                     x.append(xi)
                     y.append(yi)
+
+                    if len(ylabel) > 1:
+                        _, yi = self.get_run_series_data(p, r, xlabel, ylabel[1])
+                        y1.append(yi)
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
@@ -408,13 +459,15 @@ class Plot:
             self._main_window,
             x=x,
             y=y,
+            y1=None if len(ylabel) == 1 else y1,
             xlabel=xlabel,
-            ylabel=ylabel,
+            ylabel=ylabel[0],
+            ylabel1=None if len(ylabel) == 1 else ylabel[1],
             legend=run,
             plot_type=self.plot_type,
         )
-        if runs_as_series:
-            canvas.setWindowTitle(f"Run: {run}")
+        # if runs_as_series:
+        #    canvas.setWindowTitle(f"Run: {run}")
 
         self._canvas["key.x"].append(xlabel)
         self._canvas["key.y"].append(ylabel)
@@ -445,6 +498,7 @@ class Plot:
         ):
             xs = []
             ys = []
+            y1s = []
 
             if runs_as_series:
                 # Plots with runs as series don't need to be updated (unless the
@@ -455,8 +509,12 @@ class Plot:
                     continue
 
                 # Find the proposals of currently selected runs
-                proposal = [index.siblingAtColumn(1).data() for index in runs_as_series]
-                run = [index.siblingAtColumn(2).data() for index in runs_as_series]
+                # proposal = [index.siblingAtColumn(1).data() for index in runs_as_series]
+                # run = [index.siblingAtColumn(2).data() for index in runs_as_series]
+                proposal = [
+                    self._data.iloc[index.row()]["Proposal"] for index in runs_as_series
+                ]
+                run = [self._data.iloc[index.row()]["Run"] for index in runs_as_series]
 
                 for pi, ri in zip(proposal, run):
                     x, y = self.get_run_series_data(pi, ri, xi, yi)
@@ -468,11 +526,19 @@ class Plot:
                     self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
                 ys.append(
-                    self._main_window.make_finite(self._data[yi])[self._data["Status"]]
+                    self._main_window.make_finite(self._data[yi[0]])[
+                        self._data["Status"]
+                    ]
                 )
+                if len(yi) > 1:
+                    y1s.append(
+                        self._main_window.make_finite(self._data[yi[1]])[
+                            self._data["Status"]
+                        ]
+                    )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
-            ci.update_canvas(xs, ys)
+            ci.update_canvas(xs, ys, y1s=y1s)
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
         file_name, dataset = self._main_window.get_run_file(proposal, run)

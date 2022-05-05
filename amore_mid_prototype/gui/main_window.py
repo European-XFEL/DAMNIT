@@ -591,9 +591,11 @@ da-dev@xfel.eu"""
         self.plot._button_plot_runs.setMinimumWidth(200)
         plot_horizontal_layout.addStretch()
 
-        plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
-        plot_horizontal_layout.addWidget(self.plot.vs_button)
+        self.plot._combo_box_x_axis.setFixedWidth(300)
+        self.plot._combo_box_y_axis.setFixedWidth(300)
         plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
+        plot_horizontal_layout.addWidget(self.plot.vs_label)
+        plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
 
