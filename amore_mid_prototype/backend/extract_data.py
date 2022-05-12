@@ -1,17 +1,19 @@
+import json
 import logging
 import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
-from glob import glob
 from pathlib import Path
 
 import extra_data
 import h5py
 import numpy as np
 import xarray
+from kafka import KafkaProducer
 
 from ..context import ContextFile
+from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
@@ -148,11 +150,21 @@ def extract_and_ingest(proposal, run):
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
     run_and_save(proposal, run, out_path)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
+
+    # Send update via Kafka
+    kafka_prd = KafkaProducer(
+        bootstrap_servers=UPDATE_BROKERS,
+        value_serializer=lambda d: json.dumps(d).encode('utf-8'),
+    )
+    update_topic = UPDATE_TOPIC.format(get_meta(db, 'db_id'))
+    reduced_data['Proposal'] = proposal
+    reduced_data['Run'] = run
+    kafka_prd.send(update_topic, reduced_data)
+    log.info("Sent Kafka update")
 
 
 if __name__ == '__main__':
@@ -160,5 +172,4 @@ if __name__ == '__main__':
 
     proposal = int(sys.argv[1])
     run = int(sys.argv[2])
-    out_path = sys.argv[3]
-    run_and_save(proposal, run, out_path)
+    extract_and_ingest(proposal, run)

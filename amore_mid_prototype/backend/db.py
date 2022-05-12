@@ -1,5 +1,7 @@
 import logging
 import sqlite3
+from secrets import token_hex
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -28,16 +30,32 @@ def open_db(path='runs.sqlite') -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
     )
     conn.row_factory = sqlite3.Row
+    get_meta(  # A random ID for the update topic
+        conn, 'db_id', set_default=True,
+        # The ID is not a secret and doesn't need to be cryptographically
+        # secure, but the secrets module is convenient to get a random string.
+        default=lambda: token_hex(20)
+    )
     return conn
 
-def get_meta(conn, key, default=KeyError):
-    row = conn.execute("SELECT value FROM metameta WHERE key=?", (key,)).fetchone()
-    if row is not None:
-        return row[0]
-    elif default is KeyError:
-        raise KeyError(f"No key {key} in database metadata")
-    else:
-        return default
+def get_meta(conn, key, default: Any =KeyError, set_default=False):
+    with conn:
+        row = conn.execute(
+            "SELECT value FROM metameta WHERE key=?", (key,)
+        ).fetchone()
+        if row is not None:
+            return row[0]
+        elif default is KeyError:
+            raise KeyError(f"No key {key} in database metadata")
+        else:
+            if callable(default):
+                default = default()
+            if set_default:
+                conn.execute(
+                    "INSERT INTO metameta VALUES (:key, :value)",
+                    {'key': key, 'value': default}
+                )
+            return default
 
 def set_meta(conn, key, value):
     with conn:
