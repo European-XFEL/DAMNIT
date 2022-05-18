@@ -117,16 +117,24 @@ da-dev@xfel.eu"""
                 try:
                     proposal_dir = find_proposal(proposal)
                     prompt = False
-                except Exception as e:
+                except Exception:
                     button = QtWidgets.QMessageBox.warning(self, "Bad proposal number",
                                                            "Could not find a proposal with this number, try again?",
                                                            buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
                     if button != QtWidgets.QMessageBox.Yes:
                         prompt = False
 
-        path = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Select context directory", proposal_dir
-        )
+        # By convention the AMORE directory is often stored at usr/Shared/amore,
+        # so if this directory exists, then we use it.
+        standard_path = Path(proposal_dir) / "usr/Shared/amore"
+        if standard_path.is_dir():
+            path = standard_path
+        else:
+            # Otherwise, we prompt the user
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select context directory", proposal_dir
+            )
+
         if path:
             self.autoconfigure(Path(path))
 
