@@ -29,9 +29,9 @@ class TestEventProcessor(EventProcessor):
                 log.error("Error processing event", exc_info=True)
 
 
-def listen_migrated():
+def listen(topics):
     try:
-        with TestEventProcessor() as processor:
+        with TestEventProcessor(topics) as processor:
             processor.run()
     except KeyboardInterrupt:
         print("Stopping on Ctrl-C")
@@ -39,4 +39,4 @@ def listen_migrated():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    listen_migrated()
+    listen(["correction_complete"])
