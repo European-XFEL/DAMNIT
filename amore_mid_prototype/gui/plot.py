@@ -2,6 +2,7 @@ from cProfile import label
 import logging
 from unittest.mock import patch
 import numpy as np
+import pandas as pd
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
@@ -367,7 +368,9 @@ class Plot:
                 return
 
         # Find the proposals of currently selected runs
-        proposals = [index.siblingAtColumn(1).data() for index in selected_rows]
+        proposals = [self._data.iloc[index.row()]["Proposal"] for index in selected_rows]
+        proposals = [pi for pi in proposals if pi is not pd.NA]
+
         if len(set(proposals)) > 1:
             QMessageBox.warning(
                 self._main_window,
@@ -380,13 +383,14 @@ class Plot:
             if self.plot_type == "histogram1D":
                 ylabel = xlabel
 
-            run = [i.siblingAtColumn(2).data() for i in selected_rows]
+            run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
 
             x, y = [], []
-            for p, r in zip(proposals, run):
-                xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
-                x.append(xi)
-                y.append(yi)
+            if runs_as_series:
+                for p, r in zip(proposals, run):
+                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                    x.append(xi)
+                    y.append(yi)
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
