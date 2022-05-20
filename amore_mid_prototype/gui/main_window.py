@@ -322,13 +322,30 @@ da-dev@xfel.eu"""
                     ix = len(self.data)
                 log.debug("New row in table at index %d", ix)
 
+                # Extract the high-rank arrays from the messages, because
+                # DataFrames can only handle 1D cell elements by default. The
+                # way around this is to create a column manually with a dtype of
+                # 'object'.
+                ndarray_cols = { }
+                for key, value in message.copy().items():
+                    if isinstance(value, np.ndarray) and value.ndim > 1:
+                        ndarray_cols[key] = value
+                        del message[key]
+
+                # Create a DataFrame with the new data to insert into the main table
+                new_entries = pd.DataFrame({**message, **{"Comment": ""}},
+                                           index=[self.table.rowCount()])
+
+                # Insert columns with 'object' dtype for the special columns
+                # with arrays that are >1D.
+                for col_name, value in ndarray_cols.items():
+                    col = pd.Series([value], index=[self.table.rowCount()], dtype="object")
+                    new_entries.insert(len(new_entries.columns), col_name, col)
+
                 new_df = pd.concat(
                     [
                         self.data.iloc[:ix],
-                        pd.DataFrame(
-                            {**message, **{"Comment": ""}},
-                            index=[self.table.rowCount()],
-                        ),
+                        new_entries,
                         self.data.iloc[ix:],
                     ],
                     ignore_index=True,
@@ -436,13 +453,19 @@ da-dev@xfel.eu"""
             )
         )
 
+        cell_data = self.data.iloc[index.row(), index.column()]
+        is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 2)
+
         try:
             file_name, dataset = self.get_run_file(proposal, run)
         except:
             return
 
         try:
-            x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+            if is_image:
+                image = dataset[quantity]["data"][:]
+            else:
+                x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
@@ -452,8 +475,9 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[self.make_finite(x)],
-                y=[self.make_finite(y)],
+                x=[self.make_finite(x)] if not is_image else [],
+                y=[self.make_finite(y)] if not is_image else [],
+                image=image if is_image else None,
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="ro",

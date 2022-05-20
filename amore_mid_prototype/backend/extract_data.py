@@ -11,6 +11,7 @@ import extra_data
 import h5py
 import numpy as np
 import xarray
+from scipy import ndimage
 from kafka import KafkaProducer
 
 from ..context import ContextFile
@@ -61,7 +62,17 @@ class Results:
 
     def summarise(self, name):
         data = self.data[name]
+
         if data.ndim == 0:
+            return data
+        elif data.ndim == 2 and self.ctx.vars[name].summary is None:
+            # For the sake of space and memory we downsample images to a
+            # resolution of 150x150.
+            zoom_ratio = 150 / max(data.shape)
+            if zoom_ratio < 1:
+                data = ndimage.zoom(np.nan_to_num(data),
+                                    zoom_ratio)
+
             return data
         else:
             summary_method = self.ctx.vars[name].summary
@@ -101,8 +112,10 @@ def run_and_save(proposal, run, out_path):
 def load_reduced_data(h5_path):
     with h5py.File(h5_path, 'r') as f:
         # SQlite doesn't like np.float32; .item() converts to Python numbers
+        to_safe_type = lambda x: x.item() if np.isscalar(x) else x
+
         return {
-            name: dset[()].item() for name, dset in f['.reduced'].items()
+            name: to_safe_type(dset[()]) for name, dset in f['.reduced'].items()
         }
 
 def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
@@ -127,6 +140,11 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
 
     db_data = reduced_data.copy()
     db_data.update({'proposal': proposal, 'run': run})
+
+    # Serialize non-SQLite-supported types
+    for key, value in db_data.items():
+        if not isinstance(value, (type(None), int, float, str, bytes)):
+            db_data[key] = pickle.dumps(value)
 
     with db:
         db.execute(f"""

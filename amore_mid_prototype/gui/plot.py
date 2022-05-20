@@ -1,6 +1,4 @@
-from cProfile import label
 import logging
-from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
@@ -25,6 +23,7 @@ class Canvas(QtWidgets.QDialog):
         parent=None,
         x=[],
         y=[],
+        image=None,
         xlabel="",
         ylabel="",
         fmt="o",
@@ -43,7 +42,7 @@ class Canvas(QtWidgets.QDialog):
         self.plot_type = plot_type
         is_histogram = self.plot_type != "default"
 
-        self.figure = Figure(figsize=(6, 4))
+        self.figure = Figure(figsize=(8, 5))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
@@ -53,10 +52,10 @@ class Canvas(QtWidgets.QDialog):
             if not is_histogram
             else f"Probability density of {xlabel}"
         )
-        self._axis.grid()
 
         self._fmt = fmt
         self._lines = {}
+        self._image = None
         self._kwargs = {}
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
@@ -120,7 +119,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, legend=legend)
+        self.update_canvas(x, y, image, legend=legend)
         self.figure.tight_layout()
 
     def toggle_panhandler(self, enabled):
@@ -159,7 +158,7 @@ class Canvas(QtWidgets.QDialog):
         self._axis.set_xlim((x_min, x_max))
         self._axis.set_ylim((y_min, y_max))
 
-    def update_canvas(self, xs=None, ys=None, legend=None, series_names=["default"]):
+    def update_canvas(self, xs=None, ys=None, image=None, legend=None, series_names=["default"]):
         cmap = mpl_cm.get_cmap("tab20")
 
         if (xs is None and ys is None) and self.plot_type == "histogram1D":
@@ -194,76 +193,87 @@ class Canvas(QtWidgets.QDialog):
                 self.autoscale(xs_min, xs_max, 0, ys_max, margin=0.05)
 
             return
+        elif image is not None:
+            if self._image is None:
+                self._image = self._axis.imshow(image, interpolation="nearest")
+                self.figure.colorbar(self._image, ax=self._axis)
+            else:
+                self._image.set_array(image)
 
-        self.data_x = xs
-        self.data_y = ys
+            vmin = np.nanquantile(image, 0.01, method='nearest')
+            vmax = np.nanquantile(image, 0.99, method='nearest')
+            self._image.set_clim(vmin, vmax)
+        else:
+            self._axis.grid()
+            self.data_x = xs
+            self.data_y = ys
 
-        if len(xs):
-            xs_min, ys_min = np.asarray(xs[0]).min(), 0
-            xs_max, ys_max = np.asarray(xs[0]).max(), 1
+            if len(xs):
+                xs_min, ys_min = np.asarray(xs[0]).min(), 0
+                xs_max, ys_max = np.asarray(xs[0]).max(), 1
 
-        self._lines[series_names[0]] = []
-        self._kwargs[series_names[0]] = []
-        for i, x, y, series, label in zip(
-            range(len(xs)),
-            xs,
-            ys,
-            len(xs) * series_names,
-            legend if legend is not None else len(xs) * [None],
-        ):
-            fmt = self._fmt if len(xs) == 1 else "o"
-            color = cmap(i / len(xs))
+            self._lines[series_names[0]] = []
+            self._kwargs[series_names[0]] = []
+            for i, x, y, series, label in zip(
+                range(len(xs)),
+                xs,
+                ys,
+                len(xs) * series_names,
+                legend if legend is not None else len(xs) * [None],
+            ):
+                fmt = self._fmt if len(xs) == 1 else "o"
+                color = cmap(i / len(xs))
 
-            plot_exists = len(self._lines[series_names[0]]) == len(xs)
-            if not plot_exists:
+                plot_exists = len(self._lines[series_names[0]]) == len(xs)
+                if not plot_exists:
+                    if self.plot_type == "default":
+                        self._lines[series].append(
+                            self._axis.plot(
+                                [], [], fmt, color=color, label=label, alpha=0.5
+                            )[0]
+                        )
+
                 if self.plot_type == "default":
-                    self._lines[series].append(
-                        self._axis.plot(
-                            [], [], fmt, color=color, label=label, alpha=0.5
-                        )[0]
+                    self._lines[series][-1].set_data(x, y)
+                if self.plot_type == "histogram1D":
+                    self._kwargs[series].append(
+                        {
+                            "color": color,
+                            "density": True,
+                            "align": "mid",
+                            "label": label,
+                            "alpha": 0.5,
+                        }
                     )
+                    y, x, patches = self._axis.hist(
+                        x, bins=self.histogram1D_bins, **self._kwargs[series][-1]
+                    )
+                    self._lines[series].append(patches)
 
-            if self.plot_type == "default":
-                self._lines[series][-1].set_data(x, y)
-            if self.plot_type == "histogram1D":
-                self._kwargs[series].append(
-                    {
-                        "color": color,
-                        "density": True,
-                        "align": "mid",
-                        "label": label,
-                        "alpha": 0.5,
-                    }
-                )
-                y, x, patches = self._axis.hist(
-                    x, bins=self.histogram1D_bins, **self._kwargs[series][-1]
-                )
-                self._lines[series].append(patches)
+                    xs_min = min(xs_min, x.min())
+                    xs_max = max(xs_max, x.max())
+                    ys_max = min(ys_max, y.max())
 
-                xs_min = min(xs_min, x.min())
-                xs_max = max(xs_max, x.max())
-                ys_max = min(ys_max, y.max())
+                if len(xs) > 1:
+                    self._axis.legend()
+            self.figure.canvas.draw()
 
-            if len(xs) > 1:
-                self._axis.legend()
-        self.figure.canvas.draw()
+            if len(xs):
+                if self._autoscale_checkbox.isChecked() or not plot_exists:
 
-        if len(xs):
-            if self._autoscale_checkbox.isChecked() or not plot_exists:
+                    if self.plot_type != "histogram1D":
+                        xs_min = min([xi.min() for xi in xs])
+                        ys_min = min([yi.min() for yi in ys])
+                        xs_max = max([xi.max() for xi in xs])
+                        ys_max = max([yi.max() for yi in ys])
 
-                if self.plot_type != "histogram1D":
-                    xs_min = min([xi.min() for xi in xs])
-                    ys_min = min([yi.min() for yi in ys])
-                    xs_max = max([xi.max() for xi in xs])
-                    ys_max = max([yi.max() for yi in ys])
-
-                self.autoscale(
-                    xs_min,
-                    xs_max,
-                    ys_min if not self.plot_type == "histogram1D" else 0,
-                    ys_max,
-                    margin=0.05,
-                )
+                    self.autoscale(
+                        xs_min,
+                        xs_max,
+                        ys_min if not self.plot_type == "histogram1D" else 0,
+                        ys_max,
+                        margin=0.05,
+                    )
 
         if self._zoom_factory is not None:
             self._zoom_factory()

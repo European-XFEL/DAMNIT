@@ -1,8 +1,18 @@
 import time
+from functools import lru_cache
+
+import numpy as np
 import pandas as pd
-from PyQt5 import QtCore, QtWidgets
+
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qtagg import FigureCanvas
+
+from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
+
+ROW_HEIGHT = 30
+THUMBNAIL_SIZE = 35
 
 class TableView(QtWidgets.QTableView):
     def __init__(self) -> None:
@@ -17,6 +27,7 @@ class TableView(QtWidgets.QTableView):
         )
 
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
+        self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
 
     def setModel(self, model):
         """
@@ -25,6 +36,8 @@ class TableView(QtWidgets.QTableView):
         """
         super().setModel(model)
         self.model().rowsInserted.connect(self.style_comment_rows)
+        self.model().rowsInserted.connect(self.resize_new_rows)
+        self.resizeRowsToContents()
 
     def item_changed(self, item):
         state = item.checkState()
@@ -104,6 +117,10 @@ class TableView(QtWidgets.QTableView):
             self.setSpan(row, 0, 1, timestamp_col)
             self.setSpan(row, comment_col, 1, 1000)
 
+    def resize_new_rows(self, parent, first, last):
+        for row in range(first, last + 1):
+            self.resizeRowToContents(row)
+
 
 class Table(QtCore.QAbstractTableModel):
     comment_changed = QtCore.pyqtSignal(int, int, str)
@@ -138,14 +155,51 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
+    @lru_cache(maxsize=500)
+    def generateThumbnail(self, index) -> QtGui.QPixmap:
+        """
+        Helper function to generate a thumbnail for a 2D array.
+
+        Note that we require an index for self._data as the argument instead of
+        an ndarray. That's because this function is quite expensive and called
+        very often by self.data(), so for performance we try to cache the
+        thumbnails with @lru_cache. Unfortunately ndarrays are not hashable so
+        we have to take an index instead.
+        """
+        image = self._data.iloc[index.row(), index.column()]
+
+        fig = Figure(figsize=(1, 1))
+        canvas = FigureCanvas(fig)
+        ax = fig.add_subplot()
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        vmin = np.nanquantile(image, 0.01, method='nearest')
+        vmax = np.nanquantile(image, 0.99, method='nearest')
+        ax.imshow(image, vmin=vmin, vmax=vmax, extent=(0, 1, 1, 0))
+        ax.axis('tight')
+        ax.axis('off')
+        ax.margins(0, 0)
+        canvas.draw()
+
+        width, height = int(fig.figbbox.width), int(fig.figbbox.height)
+        image = QtGui.QImage(canvas.buffer_rgba(), width, height, QtGui.QImage.Format_ARGB32)
+        return QtGui.QPixmap(image).scaled(QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
+                                           Qt.KeepAspectRatio)
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return
 
-        if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            value = self._data.iloc[index.row(), index.column()]
+        value = self._data.iloc[index.row(), index.column()]
 
-            if pd.isna(value) or index.column() == self._data.columns.get_loc("Status"):
+        if role == Qt.DecorationRole:
+            if isinstance(value, np.ndarray):
+                return self.generateThumbnail(index)
+        elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+            if isinstance(value, np.ndarray):
+                # The image preview for this is taken care of by the DecorationRole
+                return None
+
+            elif pd.isna(value) or index.column() == self._data.columns.get_loc("Status"):
                 return None
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
@@ -224,16 +278,22 @@ class Table(QtCore.QAbstractTableModel):
         return item_flags
 
     def sort(self, column, order):
-        self.is_sorted_by = self._data.columns.tolist()[column]
-        self.is_sorted_order = order
+        is_sorted_by = self._data.columns.tolist()[column]
 
         self.layoutAboutToBeChanged.emit()
 
-        self._data.sort_values(
-            self.is_sorted_by,
-            ascending=order == Qt.SortOrder.AscendingOrder,
-            inplace=True,
-        )
-        self._data.reset_index(inplace=True, drop=True)
-
-        self.layoutChanged.emit()
+        try:
+            self._data.sort_values(
+                is_sorted_by,
+                ascending=order == Qt.SortOrder.AscendingOrder,
+                inplace=True,
+            )
+        except ValueError:
+            QtWidgets.QMessageBox.warning(self._main_window, "Sorting error",
+                                          "This column cannot be sorted")
+        else:
+            self.is_sorted_by = is_sorted_by
+            self.is_sorted_order = order
+            self._data.reset_index(inplace=True, drop=True)
+        finally:
+            self.layoutChanged.emit()
