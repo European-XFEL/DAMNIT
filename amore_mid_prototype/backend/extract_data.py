@@ -1,5 +1,6 @@
 import json
 import logging
+import pickle
 import re
 import sqlite3
 import sys
@@ -158,7 +159,7 @@ def extract_and_ingest(proposal, run):
     # Send update via Kafka
     kafka_prd = KafkaProducer(
         bootstrap_servers=UPDATE_BROKERS,
-        value_serializer=lambda d: json.dumps(d).encode('utf-8'),
+        value_serializer=lambda d: pickle.dumps(d),
     )
     update_topic = UPDATE_TOPIC.format(get_meta(db, 'db_id'))
     reduced_data['Proposal'] = proposal

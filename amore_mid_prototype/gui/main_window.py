@@ -1,3 +1,4 @@
+import pickle
 import os
 import logging
 import sys
@@ -159,6 +160,14 @@ da-dev@xfel.eu"""
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
             df.pop("added_at")
+
+            # Unpickle serialized objects. First we select all columns that
+            # might need deserializing.
+            object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
+            # Then we check each element and unpickle it if necessary, and
+            # finally update the main DataFrame.
+            unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
+            df.update(unpickled_cols)
 
             # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(

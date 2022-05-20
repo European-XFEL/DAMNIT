@@ -1,4 +1,4 @@
-import json
+import pickle
 import logging
 
 from kafka import KafkaConsumer
@@ -22,9 +22,9 @@ class UpdateReceiver(QtCore.QObject):
     def loop(self) -> None:
         for record in self.kafka_cns:
             try:
-                msg = json.loads(record.value.decode())
+                msg = pickle.loads(record.value)
             except Exception:
-                log.error("Kafka event was not valid JSON.", exc_info=True)
+                log.error("Kafka event could not be un-pickled.", exc_info=True)
                 continue
 
             self.message.emit(msg)
