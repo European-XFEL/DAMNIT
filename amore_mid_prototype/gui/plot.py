@@ -182,8 +182,8 @@ class Canvas(QtWidgets.QDialog):
                     ys.append(y)
             self.figure.canvas.draw()
 
-            xs_min, ys_min = np.asarray(xs[0]).min(), 0
-            xs_max, ys_max = np.asarray(xs[0]).max(), 1
+            xs_min, ys_min = xs[0].min(), 0
+            xs_max, ys_max = xs[0].max(), 1
 
             if self._autoscale_checkbox.isChecked():
                 for x, y in zip(xs, ys):
@@ -252,10 +252,10 @@ class Canvas(QtWidgets.QDialog):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
 
                 if self.plot_type != "histogram1D":
-                    xs_min = min([np.asarray(xi).min() for xi in xs])
-                    ys_min = min([np.asarray(yi).min() for yi in ys])
-                    xs_max = max([np.asarray(xi).max() for xi in xs])
-                    ys_max = max([np.asarray(yi).max() for yi in ys])
+                    xs_min = min([xi.min() for xi in xs])
+                    ys_min = min([yi.min() for yi in ys])
+                    xs_max = max([xi.max() for xi in xs])
+                    ys_max = max([yi.max() for yi in ys])
 
                 self.autoscale(
                     xs_min,
