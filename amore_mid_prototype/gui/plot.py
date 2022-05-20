@@ -64,6 +64,7 @@ class Canvas(QtWidgets.QDialog):
 
         self._fmt = fmt
         self._color = color
+        self._legend = legend
         self._lines = {}
         self._lines1 = {}
         self._kwargs = {}
@@ -129,7 +130,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, y1s=y1, legend=legend)
+        self.update_canvas(x, y, y1s=y1)
         self.figure.tight_layout()
 
     def toggle_panhandler(self, enabled):
@@ -140,7 +141,7 @@ class Canvas(QtWidgets.QDialog):
 
     def toggle_annotations(self, state):
         if state == QtCore.Qt.Checked:
-            for line in self._lines.values():
+            for line in list(self._lines.values()) + list(self._lines1.values()):
                 self._cursors.append(mplcursors.cursor(line, hover=True))
         else:
             for cursor in self._cursors:
@@ -171,8 +172,9 @@ class Canvas(QtWidgets.QDialog):
         # self._axis.set_ylim((y_min, y_max))
 
     def update_canvas(
-        self, xs=None, ys=None, y1s=None, legend=None, series_names=["default"]
+        self, xs=None, ys=None, y1s=None, series_names=["default"]
     ):
+        # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
 
         if xs is None and ys is None:  # and self.plot_type == "histogram1D":
@@ -230,7 +232,7 @@ class Canvas(QtWidgets.QDialog):
             xs,
             ys,
             len(xs) * series_names,
-            legend if legend is not None else len(xs) * [None],
+            self._legend if self._legend is not None else len(xs) * [None],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
             fmt1 = "s"
@@ -254,7 +256,7 @@ class Canvas(QtWidgets.QDialog):
                     if len(y1s) > 0:
                         self._lines1[series].append(
                             self._axis1.plot(
-                                [], [], fmt1, color=color1, label=label, alpha=0.5
+                                [], [], fmt1, color=color1, label=label if len(xs) > 1 else self._legend[1], alpha=0.5
                             )[0]
                         )
 
@@ -281,8 +283,9 @@ class Canvas(QtWidgets.QDialog):
                 xs_max = max(xs_max, x.max())
                 ys_max = min(ys_max, y.max())
 
-            if len(xs) > 1:
-                self._axis.legend()
+        if self._legend is not None:
+            self._axis.legend()
+        
         self.figure.canvas.draw()
 
         if len(xs):
@@ -367,7 +370,7 @@ class Plot:
         )
 
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        self._combo_box_y_axis = CheckableComboBox(self._main_window)
+        self._combo_box_y_axis = CheckableComboBox(self._main_window, maximum_items=2)
 
         self.vs_label = QtWidgets.QLabel("versus")
 
@@ -438,12 +441,12 @@ class Plot:
             x, y, y1 = [], [], []
             if runs_as_series:
                 for p, r in zip(proposals, run):
-                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel[0])
+                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel[0] if self.plot_type == "default" else ylabel)
                     x.append(xi)
                     y.append(yi)
 
                     if len(ylabel) > 1:
-                        _, yi = self.get_run_series_data(p, r, xlabel, ylabel[1])
+                        _, yi = self.get_run_series_data(p, r, xlabel, ylabel[1] if self.plot_type == "default" else ylabel)
                         y1.append(yi)
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
@@ -453,6 +456,9 @@ class Plot:
                 f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
             )
             return
+
+        if not runs_as_series:
+            run=ylabel
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
@@ -521,18 +527,19 @@ class Plot:
                     xs.append(self._main_window.make_finite(x))
                     ys.append(self._main_window.make_finite(y))
             else:
+                print("qui", xi, yi)
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
                     self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
                 ys.append(
-                    self._main_window.make_finite(self._data[yi[0]])[
+                    self._main_window.make_finite(self._data[yi[0] if self.plot_type == "default" else yi])[
                         self._data["Status"]
                     ]
                 )
                 if len(yi) > 1:
                     y1s.append(
-                        self._main_window.make_finite(self._data[yi[1]])[
+                        self._main_window.make_finite(self._data[yi[1] if self.plot_type == "default" else yi])[
                             self._data["Status"]
                         ]
                     )
@@ -547,6 +554,7 @@ class Plot:
         y_quantity = self._main_window.ds_name(ylabel)
 
         try:
+            print(x_quantity, y_quantity, proposal, run, xlabel, ylabel)
             x_ds, y_ds = dataset[x_quantity], dataset[y_quantity]
             x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
             tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
