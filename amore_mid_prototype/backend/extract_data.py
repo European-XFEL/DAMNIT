@@ -38,7 +38,7 @@ class Results:
         for name, var in ctx_file.vars.items():
             try:
                 data = var.func(xd_run)
-                if not isinstance(data, xarray.DataArray):
+                if not isinstance(data, (xarray.DataArray, str)):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
@@ -56,14 +56,17 @@ class Results:
                 for dim, coords in arr.coords.items()
             ]
         else:
+            value = arr if isinstance(arr, str) else np.asarray(arr)
             return [
-                (f'{name}/data', np.asarray(arr))
+                (f'{name}/data', value)
             ]
 
     def summarise(self, name):
         data = self.data[name]
 
-        if data.ndim == 0:
+        if isinstance(data, str):
+            return data
+        elif data.ndim == 0:
             return data
         elif data.ndim == 2 and self.ctx.vars[name].summary is None:
             # For the sake of space and memory we downsample images to a
@@ -95,7 +98,11 @@ class Results:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
-                f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
+                print(path, arr, type(arr))
+                if isinstance(arr, str):
+                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
+                else:
+                    f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
 
             for path, arr in dsets:
                 f[path][()] = arr
@@ -110,12 +117,18 @@ def run_and_save(proposal, run, out_path):
 
 
 def load_reduced_data(h5_path):
-    with h5py.File(h5_path, 'r') as f:
-        # SQlite doesn't like np.float32; .item() converts to Python numbers
-        to_safe_type = lambda x: x.item() if np.isscalar(x) else x
+    def get_dset_value(ds):
+        # If it's a string, extract the string
+        if h5py.check_string_dtype(ds.dtype) is not None:
+            return ds.asstr()[0]
+        else:
+            value = ds[()]
+            # SQlite doesn't like np.float32; .item() converts to Python numbers
+            return value.item() if np.isscalar(value) else value
 
+    with h5py.File(h5_path, 'r') as f:
         return {
-            name: to_safe_type(dset[()]) for name, dset in f['.reduced'].items()
+            name: get_dset_value(dset) for name, dset in f['.reduced'].items()
         }
 
 def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
