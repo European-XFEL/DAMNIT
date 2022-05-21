@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
@@ -362,6 +363,19 @@ class Plot:
         selected_rows = self._main_window.table_view.selectionModel().selectedRows()
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
+
+        # Don't try to plot columns with non-numeric types, which might include
+        # e.g. images or strings. Note that the run and proposal columns are
+        # special cases, since we definitely might want to plot against those
+        # columns but they may have pd.NA's from comment rows (which are only
+        # given a timestamp).
+        dtype_warn = lambda col: QtWidgets.QMessageBox.warning(self._main_window, "Plotting failed", \
+                                                               f"'{col}' could not be plotted, its column has non-numeric data.")
+        safe_cols = ["Proposal", "Run"]
+        for label in [xlabel, ylabel]:
+            if not label in safe_cols and not is_numeric_dtype(self._data[label].dtype):
+                dtype_warn(label)
+                return
 
         # multiple rows can be selected
         # we could even merge multiple runs here
