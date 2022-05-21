@@ -204,7 +204,7 @@ class Canvas(QtWidgets.QDialog):
             vmax = np.nanquantile(image, 0.99, method='nearest')
             self._image.set_clim(vmin, vmax)
         else:
-            self._axis.grid()
+            self._axis.grid(visible=True)
             self.data_x = xs
             self.data_y = ys
 
