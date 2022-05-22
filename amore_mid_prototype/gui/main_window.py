@@ -12,11 +12,13 @@ import numpy as np
 import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+from kafka.errors import NoBrokersAvailable
 
 from extra_data.read_machinery import find_proposal
 
 from ..backend.db import open_db, get_meta
 from ..context import ContextFile
+from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
@@ -47,12 +49,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
 
+        self.center_window()
+
         if context_dir is not None:
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
-
-        self.center_window()
 
     def closeEvent(self, event):
         if self._updates_thread is not None:
@@ -363,8 +365,16 @@ da-dev@xfel.eu"""
 
     def _updates_thread_launcher(self) -> None:
         assert self.db_id is not None
+
+        try:
+            self.update_receiver = UpdateReceiver(self.db_id)
+        except NoBrokersAvailable:
+            QtWidgets.QMessageBox.warning(self, "Broker connection failed",
+                                          f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
+                                          "DAMNIT can operate offline, but it will not receive any updates from new or reprocessed runs.")
+            return
+
         self._updates_thread = QtCore.QThread()
-        self.update_receiver = UpdateReceiver(self.db_id)
         self.update_receiver.moveToThread(self._updates_thread)
 
         self._updates_thread.started.connect(self.update_receiver.loop)

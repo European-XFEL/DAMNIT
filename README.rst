@@ -35,9 +35,11 @@ Kafka
 ------
 The GUI is updated by Kafka messages sent by the backend. Currently we use
 XFEL's internal Kafka broker at ``exflwebstor01.desy.de:9102``, but this is only
-accessible inside the control network. If you're running AMORE outside the
-network and not using a VPN, you'll first have to forward the broker port to
-your machine::
+accessible inside the control network.
+
+AMORE can run offline, but if you want updates from the backend and you're
+running AMORE outside the network and not using a VPN, you'll first have to
+forward the broker port to your machine::
 
     ssh -L 9102:exflwebstor01.desy.de:9102 max-exfl.desy.de
 
