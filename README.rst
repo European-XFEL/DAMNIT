@@ -4,10 +4,10 @@ AMORE prototype for MID
 Installation::
 
     # Make a virtualenv
-    module load maxwell anaconda-python/3.8
+    module load exfel exfel_anaconda3
     git clone https://git.xfel.eu/amore/mid-2832.git
     cd mid-2832
-    python -m venv env
+    python3 -m venv env
 
     env/bin/pip install .
 

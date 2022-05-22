@@ -201,8 +201,8 @@ class Canvas(QtWidgets.QDialog):
             else:
                 self._image.set_array(image)
 
-            vmin = np.nanquantile(image, 0.01, method='nearest')
-            vmax = np.nanquantile(image, 0.99, method='nearest')
+            vmin = np.nanquantile(image, 0.01, interpolation='nearest')
+            vmax = np.nanquantile(image, 0.99, interpolation='nearest')
             self._image.set_clim(vmin, vmax)
         else:
             self._axis.grid(visible=True)
