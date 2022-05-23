@@ -403,19 +403,25 @@ class Plot:
             )
             return
 
-        try:
-            if self.plot_type == "histogram1D":
-                ylabel = xlabel
+        if self.plot_type == "histogram1D":
+            ylabel = xlabel
 
-            run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
+        selected_runs = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
 
-            x, y = [], []
-            if runs_as_series:
-                for p, r in zip(proposals, run):
+        run = []
+        x, y = [], []
+        if runs_as_series:
+            for p, r in zip(proposals, selected_runs):
+                try:
                     xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                except Exception:
+                    pass
+                else:
+                    run.append(r)
                     x.append(xi)
                     y.append(yi)
-        except Exception:
+
+        if runs_as_series and (len(x) == 0 or len(y) == 0):
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
                 self._main_window,
