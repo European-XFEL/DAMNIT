@@ -351,15 +351,15 @@ class Plot:
 
         self._button_plot = QtWidgets.QPushButton(main_window)
         self._button_plot.setEnabled(True)
-        self._button_plot.setText("Plot summary for all runs")
+        self._button_plot.setText("All runs")
         self._button_plot.clicked.connect(lambda: self._button_plot_clicked(False))
 
         self._button_plot_runs = QtWidgets.QPushButton(
-            "Plot for selected runs", main_window
+            "Selected runs", main_window
         )
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
-        self._toggle_probability_density = QtWidgets.QPushButton(
+        self._toggle_probability_density = QtWidgets.QCheckBox(
             "Histogram", main_window
         )
         self._toggle_probability_density.setCheckable(True)

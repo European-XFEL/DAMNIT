@@ -557,13 +557,15 @@ da-dev@xfel.eu"""
         vertical_layout.addLayout(table_horizontal_layout)
 
         # comments
+        comment_group = QtWidgets.QGroupBox("Additional comment (time can be edited)")
+
         self.comment = QtWidgets.QLineEdit(self)
         self.comment.setText("Time can be edited in the field on the right.")
 
         self.comment_time = QtWidgets.QLineEdit(self)
         self.comment_time.setStyleSheet("width: 25px;")
 
-        comment_button = QtWidgets.QPushButton("Additional comment")
+        comment_button = QtWidgets.QPushButton("Insert")
         comment_button.setEnabled(True)
         comment_button.clicked.connect(self._comment_button_clicked)
 
@@ -572,7 +574,7 @@ da-dev@xfel.eu"""
         comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
         comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
 
-        vertical_layout.addLayout(comment_horizontal_layout)
+        #vertical_layout.addLayout(comment_horizontal_layout)
 
         comment_timer = QtCore.QTimer()
         self._set_comment_date()
@@ -580,16 +582,27 @@ da-dev@xfel.eu"""
         comment_timer.timeout.connect(self._set_comment_date)
         comment_timer.start()
 
+        comment_group.setLayout(comment_horizontal_layout)
+
+        vertical_layout.addWidget(comment_group)
+
         # plotting control
         self.plot = Plot(self)
-        plotting_group = QtWidgets.QGroupBox("Plotting controls")
+        plotting_group = QtWidgets.QGroupBox("Plot (double-click on a cell to inspect results)")
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
+        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        self.plot._button_plot_runs.setMinimumWidth(150)
+
         plot_horizontal_layout.addWidget(self.plot._button_plot)
-        self.plot._button_plot_runs.setMinimumWidth(200)
+        self.plot._button_plot.setMinimumWidth(150)
         plot_horizontal_layout.addStretch()
+
+        plot_horizontal_layout.addWidget(
+            self.plot._toggle_probability_density
+        )
 
         self.plot._combo_box_x_axis.setFixedWidth(300)
         self.plot._combo_box_y_axis.setFixedWidth(300)
@@ -599,13 +612,9 @@ da-dev@xfel.eu"""
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
 
-        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        self.plot._button_plot.setMinimumWidth(200)
-        plot_parameters_horizontal_layout.addStretch()
-
-        plot_parameters_horizontal_layout.addWidget(
-            self.plot._toggle_probability_density
-        )
+        #plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        #self.plot._button_plot.setMinimumWidth(150)
+        #plot_parameters_horizontal_layout.addStretch()
 
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
