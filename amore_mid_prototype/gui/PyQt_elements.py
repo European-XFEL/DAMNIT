@@ -11,8 +11,9 @@ class CheckableComboBox(QtWidgets.QComboBox):
             size.setHeight(20)
             return size
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, parent, maximum_items=None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.maximum_items = maximum_items
 
         # Make the combo editable to set a custom text, but readonly
         self.setEditable(True)
@@ -55,7 +56,9 @@ class CheckableComboBox(QtWidgets.QComboBox):
                 if item.checkState() == QtCore.Qt.Checked:
                     item.setCheckState(QtCore.Qt.Unchecked)
                 else:
-                    item.setCheckState(QtCore.Qt.Checked)
+                    if self.maximum_items is not None:
+                        if len(self.currentData()) < self.maximum_items:
+                            item.setCheckState(QtCore.Qt.Checked)
                 return True
         return False
 
