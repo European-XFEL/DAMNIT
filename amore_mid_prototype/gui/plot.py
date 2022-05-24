@@ -405,6 +405,9 @@ class Plot:
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentData()
 
+        if len(ylabel) == 0:
+            return
+
         # multiple rows can be selected
         for index in selected_rows:
             log.info("Selected row %d", index.row())
