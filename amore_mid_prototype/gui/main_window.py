@@ -58,6 +58,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_status_bar()
         self._create_menu_bar()
 
+        self.tabs = QtWidgets.QTabWidget()
+        self.tab1 = QtWidgets.QWidget()
+        self.tab2 = QtWidgets.QWidget()
+
+        self.tabs.addTab(self.tab1, "Inspector")
+        self.tabs.addTab(self.tab2, "Editor")
+
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
 
@@ -275,12 +282,12 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_connect = QtWidgets.QAction(
-            QtGui.QIcon("connect.png"), "Connect with &endpoint", self
-        )
-        action_connect.setShortcut("Shift+E")
-        action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
-        action_connect.triggered.connect(self._menu_bar_connect)
+        #action_connect = QtWidgets.QAction(
+        #    QtGui.QIcon("connect.png"), "Connect with &endpoint", self
+        #)
+        #action_connect.setShortcut("Shift+E")
+        #action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
+        #action_connect.triggered.connect(self._menu_bar_connect)
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
@@ -296,9 +303,36 @@ da-dev@xfel.eu"""
             QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        fileMenu.addAction(action_connect)
+        #fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
+
+        tags_menu = menu_bar.addMenu("&Tags")
+
+        tags_menu_editor = QtWidgets.QAction(QtGui.QIcon("tags.png"), "&Editor", self)
+        tags_menu_editor.setShortcut("Shift+T")
+        tags_menu_editor.setStatusTip("Add, edit or delete tags.")
+        #tags_menu_editor.triggered.connect(self._menu_bar_help)
+
+        tags_menu.addAction(tags_menu_editor)
+
+        columns_menu = menu_bar.addMenu("&Columns")
+
+        action_column_editor= QtWidgets.QAction(QtGui.QIcon("column_add.png"), "&Editor", self)
+        action_column_editor.setShortcut("Shift+C")
+        action_column_editor.setStatusTip("Add or modify columns.")
+        #action_column_add.triggered.connect(self._menu_bar_help)
+
+        columns_menu.addAction(action_column_editor)
+
+        groups_menu = menu_bar.addMenu("&Groups")
+
+        groups_menu_editor = QtWidgets.QAction(QtGui.QIcon("groups.png"), "&Editor", self)
+        groups_menu_editor.setShortcut("Shift+G")
+        groups_menu_editor.setStatusTip("Add, modify or delete groups.")
+        #groups_menu_add.triggered.connect(self._menu_bar_help)
+
+        groups_menu.addAction(groups_menu_editor)
 
     def zmq_get_data_and_update(self, message):
 
@@ -525,7 +559,22 @@ da-dev@xfel.eu"""
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
+        filter_horizontal_layout = QtWidgets.QHBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
+
+        # filter
+        filter_button = QtWidgets.QPushButton("Filter data")
+        filter_button.setEnabled(True)
+        filter_button.setMinimumWidth(175)
+        #filter_button.clicked.connect(self._comment_button_clicked)
+
+        self.filter = QtWidgets.QLineEdit(self)
+        self.filter.setToolTip("Filter results.")
+
+        filter_horizontal_layout.addWidget(filter_button)
+        filter_horizontal_layout.addWidget(self.filter )
+
+        vertical_layout.addLayout(filter_horizontal_layout)
 
         # the table
         self.table_view = TableView()
@@ -545,46 +594,17 @@ da-dev@xfel.eu"""
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
-        table_horizontal_layout.addWidget(self.table_view, stretch=6)
-        table_horizontal_layout.addWidget(
-            self.table_view.set_columns_visibility(
-                [self.column_title(c) for c in self.data.columns],
-                [True for _ in self.data.columns],
-            ),
-            stretch=1,
-        )
+        table_horizontal_layout.addWidget(self.table_view) #, stretch=6)
+
+        #table_horizontal_layout.addWidget(
+        #    self.table_view.set_columns_visibility(
+        #        [self.column_title(c) for c in self.data.columns],
+        #        [True for _ in self.data.columns],
+        #    ),
+        #    stretch=1,
+        #)
 
         vertical_layout.addLayout(table_horizontal_layout)
-
-        # comments
-        comment_group = QtWidgets.QGroupBox("Additional comment (time can be edited)")
-
-        self.comment = QtWidgets.QLineEdit(self)
-        self.comment.setText("Time can be edited in the field on the right.")
-
-        self.comment_time = QtWidgets.QLineEdit(self)
-        self.comment_time.setStyleSheet("width: 25px;")
-
-        comment_button = QtWidgets.QPushButton("Insert")
-        comment_button.setEnabled(True)
-        comment_button.clicked.connect(self._comment_button_clicked)
-
-        comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=5)
-        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
-        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
-
-        #vertical_layout.addLayout(comment_horizontal_layout)
-
-        comment_timer = QtCore.QTimer()
-        self._set_comment_date()
-        comment_timer.setInterval(30000)
-        comment_timer.timeout.connect(self._set_comment_date)
-        comment_timer.start()
-
-        comment_group.setLayout(comment_horizontal_layout)
-
-        vertical_layout.addWidget(comment_group)
 
         # plotting control
         self.plot = Plot(self)
@@ -621,6 +641,37 @@ da-dev@xfel.eu"""
         plotting_group.setLayout(plot_vertical_layout)
 
         vertical_layout.addWidget(plotting_group)
+
+        # comments
+        #comment_group = QtWidgets.QGroupBox("Additional comment (time can be edited)")
+
+        self.comment = QtWidgets.QLineEdit(self)
+        self.comment.setToolTip("Time can be edited in the field on the right.")
+
+        self.comment_time = QtWidgets.QLineEdit(self)
+        self.comment_time.setStyleSheet("width: 25px;")
+
+        comment_button = QtWidgets.QPushButton("Additional comment")
+        comment_button.setEnabled(True)
+        comment_button.setMinimumWidth(175)
+        comment_button.clicked.connect(self._comment_button_clicked)
+
+        comment_horizontal_layout.addWidget(comment_button)
+        comment_horizontal_layout.addWidget(self.comment, stretch=5)
+        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
+        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
+
+        vertical_layout.addLayout(comment_horizontal_layout)
+
+        comment_timer = QtCore.QTimer()
+        self._set_comment_date()
+        comment_timer.setInterval(30000)
+        comment_timer.timeout.connect(self._set_comment_date)
+        comment_timer.start()
+
+        #comment_group.setLayout(comment_horizontal_layout)
+
+        #vertical_layout.addWidget(comment_group)
 
         vertical_layout.addWidget(self.logger.widget)
 
