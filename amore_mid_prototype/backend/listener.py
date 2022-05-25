@@ -1,8 +1,10 @@
 import json
 import logging
+import queue
 import subprocess
 import sys
 from pathlib import Path
+from threading import Thread
 
 from kafka import KafkaConsumer
 
@@ -14,6 +16,38 @@ BROKERS_IN = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
 CONSUMER_ID = 'xfel-da-amore-prototype-{}'
 
 log = logging.getLogger(__name__)
+
+
+def watch_processes_finish(q: queue.Queue):
+    procs_by_prop_run = {}
+    while True:
+        # Get new subprocesses from the main thread
+        try:
+            prop, run, popen = q.get(timeout=1)
+            procs_by_prop_run[prop, run] = popen
+        except queue.Empty:
+            pass
+
+        # Check if any of the subprocesses we're tracking have finished
+        to_delete = set()
+        for (prop, run), popen in procs_by_prop_run.items():
+            returncode = popen.poll()
+            if returncode is None:
+                continue  # Still running
+
+            # Can't delete from a dict while iterating over it
+            to_delete.add((prop, run))
+            if returncode == 0:
+                log.info("Data extraction for p%d r%d succeeded", prop, run)
+            else:
+                log.error(
+                    "Data extraction for p%d, r%d failed with exit code %d",
+                    prop, run, returncode
+                )
+
+        for prop, run in to_delete:
+            del procs_by_prop_run[prop, run]
+
 
 class EventProcessor:
     EXPECTED_EVENTS = ["migration_complete", "correction_complete"]
@@ -30,6 +64,14 @@ class EventProcessor:
         self.kafka_cns = KafkaConsumer(
             *topics, bootstrap_servers=BROKERS_IN, group_id=consumer_id
         )
+
+        self.extract_procs_queue = queue.Queue()
+        self.extract_procs_watcher = Thread(
+            target=watch_processes_finish,
+            args=(self.extract_procs_queue,),
+            daemon=True
+        )
+        self.extract_procs_watcher.start()
 
     def __enter__(self):
         return self
@@ -69,14 +111,11 @@ class EventProcessor:
             """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
-        extract_res = subprocess.run([
+        extract_proc = subprocess.Popen([
             sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
             str(proposal), str(run),
         ], cwd=self.context_dir)
-        if extract_res.returncode != 0:
-            log.error("Data extraction failed; exit code was %d", extract_res.returncode)
-        else:
-            log.info("Data extraction succeeded")
+        self.extract_procs_queue.put((proposal, run, extract_proc))
 
     def handle_correction_complete(self, record, msg: dict):
         proposal = int(msg['proposal'])
@@ -103,13 +142,10 @@ class EventProcessor:
             """, (proposal, run, record.timestamp / 1000))
         log.info("Added p%d r%d to database", proposal, run)
 
-        extract_res = subprocess.run([
+        extract_proc = subprocess.Popen([
             sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', str(proposal), str(run)
         ], cwd=self.context_dir)
-        if extract_res.returncode != 0:
-            log.error("Data extraction failed; exit code was %d", extract_res.returncode)
-        else:
-            log.info("Data extraction succeeded")
+        self.extract_procs_queue.put((proposal, run, extract_proc))
 
 
 def listen(topics):
