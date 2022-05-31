@@ -16,6 +16,10 @@ class TestEventProcessor(EventProcessor):
         while True:
             try:
                 run = input(f'Run for proposal {self.proposal}: ')
+                # If the user presses 'Enter' without typing the input will be empty
+                if len(run) == 0:
+                    continue
+
                 path = glob(f'/gpfs/exfel/exp/*/*/p{self.proposal:>06}/raw/r{run:>04}')[0]
                 inst, cycle = path.split('/')[4:6]
                 msg = {'proposal': self.proposal, 'run': run, 'path': path,
