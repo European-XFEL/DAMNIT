@@ -381,12 +381,12 @@ class Plot:
         # special cases, since we definitely might want to plot against those
         # columns but they may have pd.NA's from comment rows (which are only
         # given a timestamp).
-        dtype_warn = lambda col: QtWidgets.QMessageBox.warning(self._main_window, "Plotting failed", \
-                                                               f"'{col}' could not be plotted, its column has non-numeric data.")
         safe_cols = ["Proposal", "Run"]
         for label in [xlabel, ylabel]:
             if not label in safe_cols and not is_numeric_dtype(self._data[label].dtype):
-                dtype_warn(label)
+                QMessageBox.warning(self._main_window,
+                                    "Plotting failed",
+                                    f"'{label}' could not be plotted, its column has non-numeric data.")
                 return
 
         # multiple rows can be selected

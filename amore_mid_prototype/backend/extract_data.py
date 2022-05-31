@@ -1,4 +1,3 @@
-import json
 import logging
 import pickle
 import re
@@ -98,7 +97,6 @@ class Results:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
-                print(path, arr, type(arr))
                 if isinstance(arr, str):
                     f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
                 else:
