@@ -298,10 +298,6 @@ class Canvas(QtWidgets.QDialog):
 class Plot:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
-        keys = list(main_window.data.columns)
-
-        for ki in ["Comment", "Status"]:
-            keys.remove(ki)
 
         self.plot_type = "default"
 
@@ -333,7 +329,6 @@ class Plot:
         self.vs_button.setToolTip("Click to swap axes")
         self.vs_button.clicked.connect(self.swap_plot_axes)
 
-        self.update_combo_box(keys)
         self._combo_box_x_axis.setCurrentText("Run")
 
         self._canvas = {
@@ -344,6 +339,13 @@ class Plot:
             "legend": [],
             "runs_as_series": [],
         }
+
+    def update_columns(self):
+        keys = list(self._main_window.data.columns)
+
+        for ki in ["Comment", "Status"]:
+            keys.remove(ki)
+        self.update_combo_box(keys)
 
     def swap_plot_axes(self):
         new_x = self._combo_box_y_axis.currentText()

@@ -67,26 +67,13 @@ class TableView(QtWidgets.QTableView):
 
             self._columns_widget.addItem(item)
 
-    def set_columns_visibility(self, columns, statuses):
+    def create_column_widget(self):
         group = QtWidgets.QGroupBox("Column settings")
 
         layout = QtWidgets.QVBoxLayout()
 
         # Add the widget for static columns
         self._static_columns_widget = QtWidgets.QListWidget()
-        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
-        for column, status in zip(columns, statuses):
-            if column in static_columns:
-                item = QtWidgets.QListWidgetItem(column)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-                self._static_columns_widget.addItem(item)
-        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-                                            QtWidgets.QSizePolicy.Minimum)
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
-
-        # Remove the static columns
-        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
-                                            if x[0] not in static_columns]))
 
         self._columns_widget = QtWidgets.QListWidget()
         self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
@@ -96,8 +83,6 @@ class TableView(QtWidgets.QTableView):
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
-        self.set_item_columns_visibility(columns, statuses)
-
         layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
         layout.addWidget(self._static_columns_widget)
         layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
@@ -105,6 +90,22 @@ class TableView(QtWidgets.QTableView):
         group.setLayout(layout)
 
         return group
+
+    def set_columns(self, columns, statuses):
+        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
+        for column, status in zip(columns, statuses):
+            if column in static_columns:
+                item = QtWidgets.QListWidgetItem(column)
+                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
+                self._static_columns_widget.addItem(item)
+        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+                                                  QtWidgets.QSizePolicy.Minimum)
+        self._static_columns_widget.itemChanged.connect(self.item_changed)
+
+        # Remove the static columns
+        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
+                                            if x[0] not in static_columns]))
+        self.set_item_columns_visibility(columns, statuses)
 
     def style_comment_rows(self, *_):
         self.clearSpans()

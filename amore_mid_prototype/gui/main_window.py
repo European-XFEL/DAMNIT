@@ -49,6 +49,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
 
+        self._create_view()
         self.center_window()
 
         if context_dir is not None:
@@ -196,9 +197,20 @@ da-dev@xfel.eu"""
                     ),
                 ]
             )
-            self._create_view()
+
+            self.table_view.setModel(self.table)
             self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
                                          Qt.SortOrder.AscendingOrder)
+
+            # Always keep these columns as small as possible to save space
+            header = self.table_view.horizontalHeader()
+            for column in ["Status", "Proposal", "Run", "Timestamp"]:
+                column_index = self.data.columns.get_loc(column)
+                header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+
+            self.table_view.set_columns([self.column_title(c) for c in self.data.columns],
+                                        [True for _ in self.data.columns])
+            self.plot.update_columns()
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
@@ -507,24 +519,12 @@ da-dev@xfel.eu"""
         self.table.comment_changed.connect(self.save_comment)
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
-        self.table_view.setModel(self.table)
-
-        # Always keep these columns as small as possible to save space
-        header = self.table_view.horizontalHeader()
-        for column in ["Status", "Proposal", "Run", "Timestamp"]:
-            column_index = self.data.columns.get_loc(column)
-            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
-        table_horizontal_layout.addWidget(
-            self.table_view.set_columns_visibility(
-                [self.column_title(c) for c in self.data.columns],
-                [True for _ in self.data.columns],
-            ),
-            stretch=1,
-        )
+        table_horizontal_layout.addWidget(self.table_view.create_column_widget(),
+                                          stretch=1)
 
         vertical_layout.addLayout(table_horizontal_layout)
 
