@@ -18,16 +18,28 @@ class UpdateReceiver(QtCore.QObject):
         self.kafka_cns = KafkaConsumer(
             UPDATE_TOPIC.format(db_id), bootstrap_servers=UPDATE_BROKERS
         )
+        self.running = False
 
     def loop(self) -> None:
-        for record in self.kafka_cns:
-            try:
-                msg = pickle.loads(record.value)
-            except Exception:
-                log.error("Kafka event could not be un-pickled.", exc_info=True)
-                continue
+        self.running = True
 
-            self.message.emit(msg)
+        while self.running:
+            # Note: this doesn't throw an exception on timeout, it just returns
+            # an empty dict.
+            topic_messages = self.kafka_cns.poll(timeout_ms=100)
+
+            for topic, messages in topic_messages.items():
+                for msg in messages:
+                    try:
+                        unpickled_msg = pickle.loads(msg.value)
+                    except Exception:
+                        log.error("Kafka event could not be un-pickled.", exc_info=True)
+                        continue
+
+                    self.message.emit(unpickled_msg)
+
+    def stop(self):
+        self.running = False
 
 
 if __name__ == "__main__":

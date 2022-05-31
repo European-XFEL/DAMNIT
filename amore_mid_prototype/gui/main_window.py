@@ -58,8 +58,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._canvas_inspect = []
 
     def closeEvent(self, event):
+        self.stop_update_listener_thread()
+
+    def stop_update_listener_thread(self):
         if self._updates_thread is not None:
+            self.update_receiver.stop()
             self._updates_thread.exit()
+            self._updates_thread.wait()
+            self._updates_thread = None
 
     def center_window(self):
         """
@@ -157,6 +163,7 @@ da-dev@xfel.eu"""
             self.db = open_db(sqlite_path)
 
             self.db_id = get_meta(self.db, 'db_id')
+            self.stop_update_listener_thread()
             self._updates_thread_launcher()
 
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
