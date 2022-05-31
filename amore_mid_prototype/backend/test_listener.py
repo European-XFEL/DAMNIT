@@ -15,11 +15,10 @@ class TestEventProcessor(EventProcessor):
     def run(self):
         while True:
             try:
-                line = input('proposal run: ')
-                prop, run = line.split()
-                path = glob(f'/gpfs/exfel/exp/*/*/p{prop:>06}/raw/r{run:>04}')[0]
+                run = input(f'Run for proposal {self.proposal}: ')
+                path = glob(f'/gpfs/exfel/exp/*/*/p{self.proposal:>06}/raw/r{run:>04}')[0]
                 inst, cycle = path.split('/')[4:6]
-                msg = {'proposal': prop, 'run': run, 'path': path,
+                msg = {'proposal': self.proposal, 'run': run, 'path': path,
                        'instrument': inst, 'cycle': cycle}
                 record = DummyRecord(timestamp=int(datetime.utcnow().timestamp() * 1000))
                 self.handle_migration_complete(record, msg)
@@ -29,9 +28,9 @@ class TestEventProcessor(EventProcessor):
                 log.error("Error processing event", exc_info=True)
 
 
-def listen_migrated():
+def listen(topics):
     try:
-        with TestEventProcessor() as processor:
+        with TestEventProcessor(topics) as processor:
             processor.run()
     except KeyboardInterrupt:
         print("Stopping on Ctrl-C")
@@ -39,4 +38,4 @@ def listen_migrated():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    listen_migrated()
+    listen(["correction_complete"])

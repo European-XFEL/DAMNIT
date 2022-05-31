@@ -23,6 +23,14 @@ def main():
         help="Manually enter 'migrated' runs for testing"
     )
     listen_ap.add_argument(
+        '--migration', action='store_true',
+        help="Enable listening for migration events"
+    )
+    listen_ap.add_argument(
+        '--calibration', action='store_true',
+        help="Enable listening for calibration events"
+    )
+    listen_ap.add_argument(
         'context_dir', type=Path, nargs='?', default='.',
         help="Directory to store summarised results"
     )
@@ -59,12 +67,21 @@ def main():
         return run_app(args.context_dir)
 
     elif args.subcmd == 'listen':
+        if not args.migration and not args.calibration:
+            sys.exit("At least one of --calibration or --migration must be passed")
+
+        topics = []
+        if args.migration:
+            topics.append("xfel-test-r2d2")
+        if args.calibration:
+            topics.append("xfel-test-offline-cal")
+
         if args.test:
-            from .backend.test_listener import listen_migrated
+            from .backend.test_listener import listen
         else:
-            from .backend.listener import listen_migrated
+            from .backend.listener import listen
         os.chdir(args.context_dir)
-        return listen_migrated()
+        return listen(topics)
 
     elif args.subcmd == 'reprocess':
         from .backend.extract_data import extract_and_ingest

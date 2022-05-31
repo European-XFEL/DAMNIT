@@ -1,3 +1,4 @@
+import pickle
 import os
 import logging
 import sys
@@ -11,11 +12,13 @@ import numpy as np
 import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+from kafka.errors import NoBrokersAvailable
 
 from extra_data.read_machinery import find_proposal
 
 from ..backend.db import open_db, get_meta
 from ..context import ContextFile
+from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
@@ -38,7 +41,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._received_update = False
         self._attributi = {}
 
-        self.setWindowTitle("Automated Metadata annOtation Reconstruction Environment")
+        self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
         self._create_status_bar()
         self._create_menu_bar()
@@ -46,12 +49,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
 
+        self.center_window()
+
         if context_dir is not None:
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
-
-        self.center_window()
 
     def closeEvent(self, event):
         if self._updates_thread is not None:
@@ -117,16 +120,24 @@ da-dev@xfel.eu"""
                 try:
                     proposal_dir = find_proposal(proposal)
                     prompt = False
-                except Exception as e:
+                except Exception:
                     button = QtWidgets.QMessageBox.warning(self, "Bad proposal number",
                                                            "Could not find a proposal with this number, try again?",
                                                            buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
                     if button != QtWidgets.QMessageBox.Yes:
                         prompt = False
 
-        path = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Select context directory", proposal_dir
-        )
+        # By convention the AMORE directory is often stored at usr/Shared/amore,
+        # so if this directory exists, then we use it.
+        standard_path = Path(proposal_dir) / "usr/Shared/amore"
+        if standard_path.is_dir():
+            path = standard_path
+        else:
+            # Otherwise, we prompt the user
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select context directory", proposal_dir
+            )
+
         if path:
             self.autoconfigure(Path(path))
 
@@ -151,6 +162,14 @@ da-dev@xfel.eu"""
             df.insert(0, "Status", True)
             df.insert(len(df.columns), "comment_id", pd.NA)
             df.pop("added_at")
+
+            # Unpickle serialized objects. First we select all columns that
+            # might need deserializing.
+            object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
+            # Then we check each element and unpickle it if necessary, and
+            # finally update the main DataFrame.
+            unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
+            df.update(unpickled_cols)
 
             # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
@@ -305,13 +324,30 @@ da-dev@xfel.eu"""
                     ix = len(self.data)
                 log.debug("New row in table at index %d", ix)
 
+                # Extract the high-rank arrays from the messages, because
+                # DataFrames can only handle 1D cell elements by default. The
+                # way around this is to create a column manually with a dtype of
+                # 'object'.
+                ndarray_cols = { }
+                for key, value in message.copy().items():
+                    if isinstance(value, np.ndarray) and value.ndim > 1:
+                        ndarray_cols[key] = value
+                        del message[key]
+
+                # Create a DataFrame with the new data to insert into the main table
+                new_entries = pd.DataFrame({**message, **{"Comment": ""}},
+                                           index=[self.table.rowCount()])
+
+                # Insert columns with 'object' dtype for the special columns
+                # with arrays that are >1D.
+                for col_name, value in ndarray_cols.items():
+                    col = pd.Series([value], index=[self.table.rowCount()], dtype="object")
+                    new_entries.insert(len(new_entries.columns), col_name, col)
+
                 new_df = pd.concat(
                     [
                         self.data.iloc[:ix],
-                        pd.DataFrame(
-                            {**message, **{"Comment": ""}},
-                            index=[self.table.rowCount()],
-                        ),
+                        new_entries,
                         self.data.iloc[ix:],
                     ],
                     ignore_index=True,
@@ -329,8 +365,16 @@ da-dev@xfel.eu"""
 
     def _updates_thread_launcher(self) -> None:
         assert self.db_id is not None
+
+        try:
+            self.update_receiver = UpdateReceiver(self.db_id)
+        except NoBrokersAvailable:
+            QtWidgets.QMessageBox.warning(self, "Broker connection failed",
+                                          f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
+                                          "DAMNIT can operate offline, but it will not receive any updates from new or reprocessed runs.")
+            return
+
         self._updates_thread = QtCore.QThread()
-        self.update_receiver = UpdateReceiver(self.db_id)
         self.update_receiver.moveToThread(self._updates_thread)
 
         self._updates_thread.started.connect(self.update_receiver.loop)
@@ -419,13 +463,19 @@ da-dev@xfel.eu"""
             )
         )
 
+        cell_data = self.data.iloc[index.row(), index.column()]
+        is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 2)
+
         try:
             file_name, dataset = self.get_run_file(proposal, run)
         except:
             return
 
         try:
-            x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+            if is_image:
+                image = dataset[quantity]["data"][:]
+            else:
+                x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
@@ -435,8 +485,9 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[self.make_finite(x)],
-                y=[self.make_finite(y)],
+                x=[self.make_finite(x)] if not is_image else [],
+                y=[self.make_finite(y)] if not is_image else [],
+                image=image if is_image else None,
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="ro",
