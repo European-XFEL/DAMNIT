@@ -343,9 +343,24 @@ class Plot:
     def update_columns(self):
         keys = list(self._main_window.data.columns)
 
-        for ki in ["Comment", "Status"]:
-            keys.remove(ki)
-        self.update_combo_box(keys)
+        current_x = self._combo_box_x_axis.currentText()
+        current_y = self._combo_box_y_axis.currentText()
+        self._combo_box_x_axis.clear()
+        self._combo_box_y_axis.clear()
+
+        for ki in keys:
+            # We don't want to plot these columns
+            if ki in ["Comment", "Status", "comment_id"]:
+                continue
+
+            self._combo_box_x_axis.addItem(ki)
+            self._combo_box_y_axis.addItem(ki)
+
+        # Restore previous selection
+        if current_x in keys:
+            self._combo_box_x_axis.setCurrentText(current_x)
+        if current_y in keys:
+            self._combo_box_y_axis.setCurrentText(current_y)
 
     def swap_plot_axes(self):
         new_x = self._combo_box_y_axis.currentText()
@@ -355,11 +370,6 @@ class Plot:
     @property
     def _data(self):
         return self._main_window.data
-
-    def update_combo_box(self, keys):
-        for ki in keys:
-            self._combo_box_x_axis.addItem(ki)
-            self._combo_box_y_axis.addItem(ki)
 
     def _button_plot_clicked(self, runs_as_series):
         selected_rows = self._main_window.table_view.selectionModel().selectedRows()

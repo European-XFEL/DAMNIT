@@ -208,9 +208,14 @@ da-dev@xfel.eu"""
                 column_index = self.data.columns.get_loc(column)
                 header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
+            # Update the column widget and plotting controls with the new columns
             self.table_view.set_columns([self.column_title(c) for c in self.data.columns],
                                         [True for _ in self.data.columns])
             self.plot.update_columns()
+
+            # Hide the comment_id column
+            comment_id_col = self.data.columns.get_loc("comment_id")
+            self.table_view.setColumnHidden(comment_id_col, True)
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
 
@@ -305,9 +310,7 @@ da-dev@xfel.eu"""
                     self.data.insert(len(self.data.columns), col_name, np.nan)
                 self.table.endInsertColumns()
 
-                self.plot.update_combo_box(new_cols)
-
-                self.table_view.set_item_columns_visibility(
+                self.table_view.add_new_columns(
                     list(new_cols), [True for _ in list(new_cols)]
                 )
 
@@ -369,7 +372,8 @@ da-dev@xfel.eu"""
                 self.data = new_df
                 self.table.endInsertRows()
 
-        # update plots
+        # update plots and plotting controls
+        self.plot.update_columns()
         self.plot.update()
 
         # (over)write down metadata

@@ -57,13 +57,13 @@ class TableView(QtWidgets.QTableView):
 
         self.horizontalHeader().moveSection(col_from, col_to)
 
-    def set_item_columns_visibility(self, columns, status):
-        if "Status" in columns:
-            columns.remove("Status")
+    def add_new_columns(self, columns, statuses):
+        for column, status in zip(columns, statuses):
+            if column in ["Status", "comment_id"]:
+                continue
 
-        for i in range(len(columns)):
-            item = QtWidgets.QListWidgetItem(columns[i])
-            item.setCheckState(Qt.Checked if status[i] else Qt.Unchecked)
+            item = QtWidgets.QListWidgetItem(column)
+            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
             self._columns_widget.addItem(item)
 
@@ -92,6 +92,9 @@ class TableView(QtWidgets.QTableView):
         return group
 
     def set_columns(self, columns, statuses):
+        self._columns_widget.clear()
+        self._static_columns_widget.clear()
+
         static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
         for column, status in zip(columns, statuses):
             if column in static_columns:
@@ -105,7 +108,7 @@ class TableView(QtWidgets.QTableView):
         # Remove the static columns
         columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
                                             if x[0] not in static_columns]))
-        self.set_item_columns_visibility(columns, statuses)
+        self.add_new_columns(columns, statuses)
 
     def style_comment_rows(self, *_):
         self.clearSpans()
