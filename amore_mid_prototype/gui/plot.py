@@ -30,6 +30,7 @@ class Canvas(QtWidgets.QDialog):
         fmt="o",
         legend=None,
         plot_type="default",
+        strongly_correlated=False,
         autoscale=True,
     ):
         super().__init__()
@@ -76,6 +77,21 @@ class Canvas(QtWidgets.QDialog):
         )
 
         layout.addWidget(self._canvas)
+
+        if not strongly_correlated:
+            correlation_warning = "Note: the variables being plotted are not strongly correlated. " \
+                "AMORE currently expects that all arrays are train-resolved; and when plotting " \
+                "two arrays against each other that have train ID information, AMORE will use the " \
+                "train IDs to properly correlate the values in the arrays." \
+                "\n\n" \
+                "If train ID information is not stored, then the arrays will be plotted directly " \
+                "against each other. If your data is not train-resolved that's fine and you can " \
+                "probably ignore this warning, otherwise make sure you use .xarray() to load data " \
+                "in your context file with train IDs."
+
+            warning_label = QtWidgets.QLabel(correlation_warning)
+            warning_label.setWordWrap(True)
+            layout.addWidget(warning_label)
 
         self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
         self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
@@ -420,20 +436,22 @@ class Plot:
 
         selected_runs = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
 
-        run = []
-        x, y = [], []
+        runs = []
+        xs, ys = [], []
+        strongly_correlated = True
         if runs_as_series:
             for p, r in zip(proposals, selected_runs):
                 try:
-                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                    correlated, xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                    strongly_correlated = strongly_correlated and correlated
                 except Exception:
                     pass
                 else:
-                    run.append(r)
-                    x.append(xi)
-                    y.append(yi)
+                    runs.append(r)
+                    xs.append(xi)
+                    ys.append(yi)
 
-        if runs_as_series and (len(x) == 0 or len(y) == 0):
+        if runs_as_series and (len(xs) == 0 or len(ys) == 0):
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
                 self._main_window,
@@ -442,18 +460,30 @@ class Plot:
             )
             return
 
+        if runs_as_series:
+            # Check that each X/Y pair has the same length
+            for run, x, y in zip(runs, xs, ys):
+                if len(x) != len(y):
+                    QMessageBox.warning(self._main_window,
+                                        "X and Y have different lengths",
+                                        f"'{xlabel}' and '{ylabel}' have different lengths for run {run}, they " \
+                                        "must be the same to be plotted.\n\n" \
+                                        f"'{xlabel}' has length {len(x)} and '{ylabel}' has length {len(y)}.")
+                    return
+
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
             self._main_window,
-            x=x,
-            y=y,
+            x=xs,
+            y=ys,
             xlabel=xlabel,
             ylabel=ylabel,
-            legend=run,
+            legend=runs,
             plot_type=self.plot_type,
+            strongly_correlated=strongly_correlated
         )
         if runs_as_series:
-            canvas.setWindowTitle(f"Run: {run}")
+            canvas.setWindowTitle(f"Runs: {runs}")
 
         self._canvas["key.x"].append(xlabel)
         self._canvas["key.y"].append(ylabel)
@@ -498,7 +528,7 @@ class Plot:
                 run = [index.siblingAtColumn(2).data() for index in runs_as_series]
 
                 for pi, ri in zip(proposal, run):
-                    x, y = self.get_run_series_data(pi, ri, xi, yi)
+                    strongly_correlated, x, y = self.get_run_series_data(pi, ri, xi, yi)
                     xs.append(self._main_window.make_finite(x))
                     ys.append(self._main_window.make_finite(y))
             else:
@@ -519,17 +549,25 @@ class Plot:
         x_quantity = self._main_window.ds_name(xlabel)
         y_quantity = self._main_window.ds_name(ylabel)
 
+        strongly_correlated = False
         try:
             x_ds, y_ds = dataset[x_quantity], dataset[y_quantity]
-            x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
-            tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
 
-            x = x_ds["data"][x_idxs]
-            y = y_ds["data"][y_idxs]
+            # If these variables are train-resolved, correlate by train ID
+            if "trainId" in x_ds and "trainId" in y_ds:
+                x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
+                tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
+
+                x = x_ds["data"][x_idxs]
+                y = y_ds["data"][y_idxs]
+                strongly_correlated = True
+            else:
+                x = x_ds["data"][:]
+                y = y_ds["data"][:]
         except KeyError as e:
             log.warning(f"{xlabel} or {ylabel} could not be found in {file_name}")
             raise e
         finally:
             dataset.close()
 
-        return x, y
+        return strongly_correlated, x, y

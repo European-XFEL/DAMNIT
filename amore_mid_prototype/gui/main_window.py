@@ -12,6 +12,7 @@ import numpy as np
 import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QMessageBox
 from kafka.errors import NoBrokersAvailable
 
 from extra_data.read_machinery import find_proposal
@@ -498,7 +499,20 @@ da-dev@xfel.eu"""
             if is_image:
                 image = dataset[quantity]["data"][:]
             else:
-                x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+                y_ds = dataset[quantity]["data"]
+                if len(y_ds.shape) == 0:
+                    # If this is a scalar value, then we can't plot it
+                    QMessageBox.warning(self, "Can't inspect variable",
+                                        f"'{quantity}' is a scalar, there's nothing more to plot.")
+                    return
+                else:
+                    y = y_ds[:]
+
+                # Use the train ID if it's been saved, otherwise generate an X axis
+                if "trainId" in dataset[quantity]:
+                    x = dataset[quantity]["trainId"][:]
+                else:
+                    x = np.arange(len(y))
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
@@ -515,6 +529,7 @@ da-dev@xfel.eu"""
                 ylabel=quantity_title,
                 fmt="ro",
                 autoscale=False,
+                strongly_correlated=True
             )
         )
         self._canvas_inspect[-1].show()
