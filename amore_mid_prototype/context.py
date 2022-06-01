@@ -5,10 +5,14 @@ log = logging.getLogger(__name__)
 
 
 class Variable:
-    def __init__(self, title=None, summary=None):
+    def __init__(self, title=None, summary=None, data="raw"):
         self.func = None
         self.title = title
         self.summary = summary
+
+        if data not in ["raw", "proc"]:
+            raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
+        self.data = data
 
     def __call__(self, func):
         self.func = func

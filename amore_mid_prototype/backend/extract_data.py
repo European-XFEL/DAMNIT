@@ -4,6 +4,7 @@ import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 import extra_data
@@ -19,6 +20,11 @@ from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
 
+
+class RunData(Enum):
+    RAW = "raw"
+    PROC = "proc"
+    ALL = "all"
 
 def get_start_time(xd_run):
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
@@ -93,10 +99,16 @@ class Results:
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), path)
 
-        with h5py.File(path, 'w') as f:
+        # We need to open the files in append mode so that when proc Variable's
+        # are processed after raw ones, the raw ones won't be lost.
+        with h5py.File(path, 'a') as f:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
+                # Delete the existing datasets so we can overwrite them
+                if path in f:
+                    del f[path]
+
                 if isinstance(arr, str):
                     f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
                 else:
@@ -106,10 +118,18 @@ class Results:
                 f[path][()] = arr
 
 
-def run_and_save(proposal, run, out_path):
+def run_and_save(proposal, run, out_path, run_data=RunData.ALL):
     run_dc = extra_data.open_run(proposal, run, data="all")
 
     ctx_file = ContextFile.from_py_file(Path('context.py'))
+
+    # If we are passed an explicit request for raw or proc data, filter the
+    # variables accordingly.
+    if run_data in [RunData.RAW, RunData.PROC]:
+        for name in list(ctx_file.vars.keys()):
+            if ctx_file.vars[name].data != run_data.value:
+                del ctx_file.vars[name]
+
     res = Results.create(ctx_file, run_dc)
     res.save_hdf5(out_path)
 
@@ -165,7 +185,7 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
         """, db_data)
 
 
-def extract_and_ingest(proposal, run):
+def extract_and_ingest(proposal, run, run_data=RunData.ALL):
     db = open_db()
     if proposal is None:
         proposal = get_meta(db, 'proposal')
@@ -180,7 +200,7 @@ def extract_and_ingest(proposal, run):
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    run_and_save(proposal, run, out_path)
+    run_and_save(proposal, run, out_path, run_data)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
@@ -202,4 +222,5 @@ if __name__ == '__main__':
 
     proposal = int(sys.argv[1])
     run = int(sys.argv[2])
-    extract_and_ingest(proposal, run)
+    run_data = RunData(sys.argv[3])
+    extract_and_ingest(proposal, run, run_data)

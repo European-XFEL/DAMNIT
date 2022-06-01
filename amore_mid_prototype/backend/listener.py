@@ -52,7 +52,7 @@ def watch_processes_finish(q: queue.Queue):
 class EventProcessor:
     EXPECTED_EVENTS = ["migration_complete", "correction_complete"]
 
-    def __init__(self, topics, context_dir=Path('.')):
+    def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
         self.db = open_db(context_dir / 'runs.sqlite')
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
@@ -61,9 +61,9 @@ class EventProcessor:
         log.info(f"Will watch for events from proposal {self.proposal}")
 
         consumer_id = CONSUMER_ID.format(get_meta(self.db, 'db_id'))
-        self.kafka_cns = KafkaConsumer(
-            *topics, bootstrap_servers=BROKERS_IN, group_id=consumer_id
-        )
+        self.kafka_cns = KafkaConsumer("xfel-test-r2d2", "xfel-test-offline-cal",
+                                       bootstrap_servers=BROKERS_IN,
+                                       group_id=consumer_id)
 
         self.extract_procs_queue = queue.Queue()
         self.extract_procs_watcher = Thread(
@@ -113,7 +113,7 @@ class EventProcessor:
 
         extract_proc = subprocess.Popen([
             sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
-            str(proposal), str(run),
+            str(proposal), str(run), "raw"
         ], cwd=self.context_dir)
         self.extract_procs_queue.put((proposal, run, extract_proc))
 
@@ -121,19 +121,8 @@ class EventProcessor:
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
-        if msg.get('detector') != 'agipd' or proposal != self.proposal:
+        if proposal != self.proposal:
             return
-
-        with self.db:
-            run_count = self.db.execute("""
-                SELECT COUNT(runnr)
-                FROM runs
-                WHERE proposal = ? AND runnr = ?
-            """, (proposal, run)).fetchone()[0]
-
-            if run_count > 0:
-                log.info(f"Already processed run {run}, skipping re-processing")
-                return
 
         with self.db:
             self.db.execute("""
@@ -143,14 +132,15 @@ class EventProcessor:
         log.info("Added p%d r%d to database", proposal, run)
 
         extract_proc = subprocess.Popen([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', str(proposal), str(run)
+            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
+            str(proposal), str(run), "proc"
         ], cwd=self.context_dir)
         self.extract_procs_queue.put((proposal, run, extract_proc))
 
 
-def listen(topics):
+def listen():
     try:
-        with EventProcessor(topics) as processor:
+        with EventProcessor() as processor:
             processor.run()
     except KeyboardInterrupt:
         print("Stopping on Ctrl-C")
@@ -158,4 +148,4 @@ def listen(topics):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    listen(["correction_complete"])
+    listen()
