@@ -1,3 +1,4 @@
+import os
 import logging
 import sqlite3
 from secrets import token_hex
@@ -36,6 +37,10 @@ def open_db(path='runs.sqlite') -> sqlite3.Connection:
         # secure, but the secrets module is convenient to get a random string.
         default=lambda: token_hex(20)
     )
+
+    # Ensure the database is writable by everyone
+    os.chmod(path, 0o666)
+
     return conn
 
 def get_meta(conn, key, default: Any =KeyError, set_default=False):

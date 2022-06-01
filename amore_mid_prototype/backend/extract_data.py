@@ -1,3 +1,4 @@
+import os
 import logging
 import pickle
 import re
@@ -88,7 +89,7 @@ class Results:
                 return None
             return getattr(np, summary_method)(data)
 
-    def save_hdf5(self, path):
+    def save_hdf5(self, hdf5_path):
         dsets = []
         for name, arr in self.data.items():
             reduced = self.summarise(name)
@@ -97,11 +98,11 @@ class Results:
             dsets.extend(self._datasets_for_arr(name, arr))
 
         log.info("Writing %d variables to %d datasets in %s",
-                 len(self.data), len(dsets), path)
+                 len(self.data), len(dsets), hdf5_path)
 
         # We need to open the files in append mode so that when proc Variable's
         # are processed after raw ones, the raw ones won't be lost.
-        with h5py.File(path, 'a') as f:
+        with h5py.File(hdf5_path, 'a') as f:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
@@ -116,6 +117,8 @@ class Results:
 
             for path, arr in dsets:
                 f[path][()] = arr
+
+        os.chmod(hdf5_path, 0o666)
 
 
 def run_and_save(proposal, run, out_path, run_data=RunData.ALL):
@@ -199,6 +202,7 @@ def extract_and_ingest(proposal, run, run_data=RunData.ALL):
 
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(out_path.parent, 0o777)
 
     run_and_save(proposal, run, out_path, run_data)
     reduced_data = load_reduced_data(out_path)
