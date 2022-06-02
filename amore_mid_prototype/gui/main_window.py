@@ -516,14 +516,15 @@ da-dev@xfel.eu"""
 
         self.comment.clear()
 
-    def get_run_file(self, proposal, run):
+    def get_run_file(self, proposal, run, log=True):
         file_name = self.extracted_data_template.format(proposal, run)
 
         try:
             run_file = h5py.File(file_name)
             return file_name, run_file
         except FileNotFoundError as e:
-            log.warning("{} not found...".format(file_name))
+            if log:
+                log.warning("{} not found...".format(file_name))
             raise e
 
     def ds_name(self, quantity):

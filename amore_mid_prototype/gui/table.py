@@ -189,13 +189,46 @@ class Table(QtCore.QAbstractTableModel):
         return QtGui.QPixmap(image).scaled(QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
                                            Qt.KeepAspectRatio)
 
+    @lru_cache(maxsize=1000)
+    def variable_is_constant(self, index):
+        """
+        Check if the variable at the given index is constant throughout the run.
+        """
+        is_constant = True
+        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+        quantity = self._main_window.ds_name(self._data.columns[index.column()])
+
+        try:
+            file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
+        except:
+            return is_constant
+
+        if quantity in run_file and "trainId" in run_file[quantity]:
+            ds = run_file[quantity]["data"]
+            # If it's an array
+            if len(ds.shape) == 1:
+                data = ds[:]
+                if not np.all(np.isclose(data, data[0])):
+                    is_constant = False
+
+        run_file.close()
+        return is_constant
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return
 
         value = self._data.iloc[index.row(), index.column()]
 
-        if role == Qt.DecorationRole:
+        if role == Qt.FontRole:
+            # If the variable is not constant, make it bold
+            if not self.variable_is_constant(index):
+                font = QtGui.QFont()
+                font.setBold(True)
+                return font
+
+        elif role == Qt.DecorationRole:
             if isinstance(value, np.ndarray):
                 return self.generateThumbnail(index)
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
