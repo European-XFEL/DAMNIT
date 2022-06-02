@@ -50,6 +50,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_menu_bar()
 
         self._view_widget = QtWidgets.QWidget(self)
+        # Disable the main window at first since we haven't loaded any database yet
+        self._view_widget.setEnabled(False)
         self.setCentralWidget(self._view_widget)
 
         self._create_view()
@@ -293,6 +295,7 @@ da-dev@xfel.eu"""
         self.table_view.setColumnHidden(comment_id_col, True)
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        self._view_widget.setEnabled(True)
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
