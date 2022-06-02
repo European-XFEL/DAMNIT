@@ -1,5 +1,8 @@
+import getpass
 import json
 import logging
+import os
+import platform
 import queue
 import subprocess
 import sys
@@ -9,6 +12,7 @@ from threading import Thread
 from kafka import KafkaConsumer
 
 from .db import open_db, get_meta
+from .extract_data import RunData
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -98,26 +102,12 @@ class EventProcessor:
             log.debug("Unexpected %s event from Kafka", event)
 
     def handle_migration_complete(self, record, msg: dict):
-        proposal = int(msg['proposal'])
-        run = int(msg['run'])
-
-        if proposal != self.proposal:
-            return
-
-        with self.db:
-            self.db.execute("""
-                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
-                ON CONFLICT (proposal, runnr) DO NOTHING
-            """, (proposal, run, record.timestamp / 1000))
-        log.info("Added p%d r%d to database", proposal, run)
-
-        extract_proc = subprocess.Popen([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
-            str(proposal), str(run), "raw"
-        ], cwd=self.context_dir)
-        self.extract_procs_queue.put((proposal, run, extract_proc))
+        self.handle_event(record, msg, RunData.RAW)
 
     def handle_correction_complete(self, record, msg: dict):
+        self.handle_event(record, msg, RunData.PROC)
+
+    def handle_event(self, record, msg: dict, run_data: RunData):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
@@ -129,23 +119,56 @@ class EventProcessor:
                 INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
                 ON CONFLICT (proposal, runnr) DO NOTHING
             """, (proposal, run, record.timestamp / 1000))
-        log.info("Added p%d r%d to database", proposal, run)
+        log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
+        # Create subprocess to process the run
         extract_proc = subprocess.Popen([
             sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
-            str(proposal), str(run), "proc"
-        ], cwd=self.context_dir)
+            str(proposal), str(run), run_data.value
+        ], cwd=self.context_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.extract_procs_queue.put((proposal, run, extract_proc))
 
+        # Create thread to log the subprocess's output
+        logger_thread = Thread(target=self.log_subprocess,
+                               args=(extract_proc.stdout, run, run_data))
+        logger_thread.start()
+
+    def log_subprocess(self, stdout_pipe, run, run_data):
+        with stdout_pipe:
+            for line_bytes in iter(stdout_pipe.readline, b""):
+                # Bytes to string, and remove trailing newline
+                line = line_bytes.decode().rstrip("\n")
+                log.info(f"r{run} ({run_data.value}): {line}")
 
 def listen():
+    # Set up logging to a file
+    file_handler = logging.FileHandler("amore.log")
+    formatter = logging.root.handlers[0].formatter
+    file_handler.setFormatter(formatter)
+    logging.root.addHandler(file_handler)
+
+    log.info(f"Running on {platform.node()} under user {getpass.getuser()}, PID {os.getpid()}")
     try:
         with EventProcessor() as processor:
             processor.run()
     except KeyboardInterrupt:
-        print("Stopping on Ctrl-C")
+        log.error("Stopping on Ctrl + C")
+    except Exception:
+        log.error("Stopping on unexpected error", exc_info=True)
 
+    # Always delete the tmux socket so we know the backend is not
+    # running. Is it safe to delete the socket before tmux has closed?
+    # Probably not. Do I care? lolno.
+    tmux_socket_path = Path.cwd() / "amore-tmux.sock"
+    if tmux_socket_path.exists():
+        tmux_socket_path.unlink()
+
+    # Flush all logs
+    logging.shutdown()
+
+    # Ensure that the log file is writable by everyone (so that different users
+    # can start the backend).
+    os.chmod("amore.log", 0o666)
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
     listen()

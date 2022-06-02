@@ -14,6 +14,7 @@ dynamic = ["version", "description"]
 dependencies = [
     "EXtra-data",
     "kafka-python",
+    "libtmux",
     "matplotlib",
     "mplcursors",
     "mpl-interactions",

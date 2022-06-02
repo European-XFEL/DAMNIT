@@ -50,7 +50,9 @@ def main():
     )
 
     args = ap.parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
+                        format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
 
     if args.subcmd == 'gui':
         if args.context_dir is not None and not args.context_dir.is_dir():
