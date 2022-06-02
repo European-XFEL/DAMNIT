@@ -210,12 +210,12 @@ class Table(QtCore.QAbstractTableModel):
                 return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
 
             elif pd.api.types.is_float(value):
-                if value % 1 == 0:
+                if value % 1 == 0 and abs(value) < 10_000:
                     # If it has no decimal places, display it as an int
                     return f"{int(value)}"
-                elif 0.1 < value < 10_000:
+                elif 0.0001 < abs(value) < 10_000:
                     # If it's an easily-recognized range for numbers, display as a float
-                    return f"{value:.3f}"
+                    return f"{value:.4f}"
                 else:
                     # Otherwise, display in scientific notation
                     return f"{value:.3e}"
