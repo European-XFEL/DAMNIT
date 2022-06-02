@@ -17,7 +17,7 @@ def open_db(path='runs.sqlite') -> sqlite3.Connection:
     More columns may be added later (by executing ALTER TABLE runs ADD COLUMN)
     """
     log.info("Opening database at %s", path)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=30)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment)"
     )
