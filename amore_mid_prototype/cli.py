@@ -36,6 +36,10 @@ def main():
         help="Proposal number, e.g. 1234"
     )
     reprocess_ap.add_argument(
+        '--match', type=str, action="append", default=[],
+        help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
+    )
+    reprocess_ap.add_argument(
         'run', nargs='+', type=int,
         help="Run number, e.g. 96. Multiple runs can be specified at once."
     )
@@ -71,7 +75,7 @@ def main():
     elif args.subcmd == 'reprocess':
         from .backend.extract_data import extract_and_ingest
         for run in args.run:
-            extract_and_ingest(args.proposal, run)
+            extract_and_ingest(args.proposal, run, match=args.match)
 
     elif args.subcmd == 'proposal':
         from .backend.db import open_db, get_meta, set_meta

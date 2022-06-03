@@ -131,17 +131,24 @@ class Results:
         os.chmod(hdf5_path, 0o666)
 
 
-def run_and_save(proposal, run, out_path, run_data=RunData.ALL):
+def run_and_save(proposal, run, out_path, run_data=RunData.ALL, match=[]):
     run_dc = extra_data.open_run(proposal, run, data="all")
 
     ctx_file = ContextFile.from_py_file(Path('context.py'))
 
-    # If we are passed an explicit request for raw or proc data, filter the
-    # variables accordingly.
-    if run_data in [RunData.RAW, RunData.PROC]:
-        for name in list(ctx_file.vars.keys()):
-            if ctx_file.vars[name].data != run_data.value:
-                del ctx_file.vars[name]
+    # Filter variables
+    for name in list(ctx_file.vars.keys()):
+        title = ctx_file.vars[name].title
+        var_data = ctx_file.vars[name].data
+
+        # If this is being triggered by a migration/calibration message for
+        # raw/proc data, then only process the Variable's that require that data.
+        data_mismatch = run_data != RunData.ALL and var_data != run_data.value
+        # Skip Variable's that don't match the match list
+        name_mismatch = len(match) > 0 and not any(m.lower() in title.lower() for m in match)
+
+        if data_mismatch or name_mismatch:
+            del ctx_file.vars[name]
 
     res = Results.create(ctx_file, run_dc)
     res.save_hdf5(out_path)
@@ -198,7 +205,7 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
         """, db_data)
 
 
-def extract_and_ingest(proposal, run, run_data=RunData.ALL):
+def extract_and_ingest(proposal, run, run_data=RunData.ALL, match=[]):
     db = open_db()
     if proposal is None:
         proposal = get_meta(db, 'proposal')
@@ -214,7 +221,7 @@ def extract_and_ingest(proposal, run, run_data=RunData.ALL):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(out_path.parent, 0o777)
 
-    run_and_save(proposal, run, out_path, run_data)
+    run_and_save(proposal, run, out_path, run_data, match)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
