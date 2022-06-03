@@ -14,6 +14,7 @@ import numpy as np
 import xarray
 from scipy import ndimage
 from kafka import KafkaProducer
+from natsort import natsorted
 
 from ..context import ContextFile
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
@@ -29,8 +30,18 @@ class RunData(Enum):
 
 def get_start_time(xd_run):
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
-    # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-    return np.datetime64(ts, 'us').item().timestamp()
+
+    if np.isnan(ts):
+        # If the timestamp information is not present (i.e. on old files), then
+        # we take the timestamp from the oldest raw file as an approximation.
+        files = natsorted([f.filename for f in xd_run.files if "raw" in f.filename])
+        first_file = Path(files[0])
+
+        # Use the modified timestamp
+        return first_file.stat().st_mtime
+    else:
+        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
+        return np.datetime64(ts, 'us').item().timestamp()
 
 
 class Results:
