@@ -21,8 +21,10 @@ dependencies = [
     "numpy",
     "pandas",
     "PyQt5",
+    "PyYAML",
     "xarray",
     "scipy",
+    "tomli",
     "pasha",
     "extra_geom"
 ]
