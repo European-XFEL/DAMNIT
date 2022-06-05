@@ -559,6 +559,11 @@ da-dev@xfel.eu"""
         )
 
         cell_data = self.data.iloc[index.row(), index.column()]
+        if not pd.api.types.is_number(cell_data) and not isinstance(cell_data, np.ndarray):
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
+            return
+
         is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 2)
 
         try:
