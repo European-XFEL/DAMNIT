@@ -1,5 +1,5 @@
-import time
 from functools import lru_cache
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -240,7 +240,9 @@ class Table(QtCore.QAbstractTableModel):
                 return None
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
-                return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
+                dt_naive = datetime.fromtimestamp(value)
+                dt_local = dt_naive.replace(tzinfo=timezone.utc).astimezone()
+                return dt_local.strftime("%H:%M:%S %d/%m/%Y")
 
             elif pd.api.types.is_float(value):
                 if value % 1 == 0 and abs(value) < 10_000:
