@@ -18,7 +18,6 @@ dependencies = [
     "matplotlib",
     "mplcursors",
     "mpl-interactions",
-    "natsort",
     "numpy",
     "pandas",
     "PyQt5",

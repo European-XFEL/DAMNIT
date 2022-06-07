@@ -14,7 +14,6 @@ import numpy as np
 import xarray
 from scipy import ndimage
 from kafka import KafkaProducer
-from natsort import natsorted
 
 from ..context import ContextFile
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
@@ -34,7 +33,7 @@ def get_start_time(xd_run):
     if np.isnan(ts):
         # If the timestamp information is not present (i.e. on old files), then
         # we take the timestamp from the oldest raw file as an approximation.
-        files = natsorted([f.filename for f in xd_run.files if "raw" in f.filename])
+        files = sorted([f.filename for f in xd_run.files if "raw" in f.filename])
         first_file = Path(files[0])
 
         # Use the modified timestamp
