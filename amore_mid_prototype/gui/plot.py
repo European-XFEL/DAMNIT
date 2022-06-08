@@ -352,11 +352,13 @@ class Plot:
         self._button_plot = QtWidgets.QPushButton(main_window)
         self._button_plot.setEnabled(True)
         self._button_plot.setText("All runs")
+        self._button_plot.setToolTip("Plot a summary for all runs.")
         self._button_plot.clicked.connect(lambda: self._button_plot_clicked(False))
 
         self._button_plot_runs = QtWidgets.QPushButton(
             "Selected runs", main_window
         )
+        self._button_plot_runs.setToolTip("Plot only for selected runs.")
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
         self._toggle_probability_density = QtWidgets.QCheckBox(
@@ -370,7 +372,10 @@ class Plot:
         )
 
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
+        #self._combo_box_x_axis.setToolTips("x-axis.")
+        
         self._combo_box_y_axis = CheckableComboBox(self._main_window, maximum_items=2)
+        #self._combo_box_y_axis.setToolTips("y-axis: Select up to two variables.")
 
         self.vs_label = QtWidgets.QLabel("versus")
 
@@ -535,6 +540,7 @@ class Plot:
                 xs.append(
                     self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
+                print("->", self.plot_type, yi, self._data.keys())
                 ys.append(
                     self._main_window.make_finite(self._data[yi[0] if self.plot_type == "default" else yi])[
                         self._data["Status"]
