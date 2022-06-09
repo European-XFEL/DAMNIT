@@ -410,7 +410,15 @@ class Plot:
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentData()
 
-        if len(ylabel) == 0:
+        #if not len(ylabel):
+        #    log.info("Selected row %d", index.row())
+
+        if len(ylabel) == 0 and self.plot_type == "default":
+            QMessageBox.warning(
+                    self._main_window,
+                    "No quantitity selected",
+                    "Select the quantities you want to plot.",
+                )
             return
 
         # multiple rows can be selected
@@ -502,11 +510,12 @@ class Plot:
             self.plot_type = "default"
 
     def update(self):
-        for index, (xi, yi, ci, runs_as_series) in enumerate(
+        for index, (xi, yi, ci, plot_type, runs_as_series) in enumerate(
             zip(
                 self._canvas["key.x"].copy(),
                 self._canvas["key.y"].copy(),
                 self._canvas["canvas"].copy(),
+                self._canvas["type"].copy(),
                 self._canvas["runs_as_series"].copy(),
             )
         ):
@@ -535,20 +544,18 @@ class Plot:
                     xs.append(self._main_window.make_finite(x))
                     ys.append(self._main_window.make_finite(y))
             else:
-                print("qui", xi, yi)
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
                     self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
-                print("->", self.plot_type, yi, self._data.keys())
                 ys.append(
-                    self._main_window.make_finite(self._data[yi[0] if self.plot_type == "default" else yi])[
+                    self._main_window.make_finite(self._data[yi[0] if plot_type == "default" else yi])[
                         self._data["Status"]
                     ]
                 )
                 if len(yi) > 1:
                     y1s.append(
-                        self._main_window.make_finite(self._data[yi[1] if self.plot_type == "default" else yi])[
+                        self._main_window.make_finite(self._data[yi[1] if plot_type == "default" else yi])[
                             self._data["Status"]
                         ]
                     )
@@ -563,7 +570,6 @@ class Plot:
         y_quantity = self._main_window.ds_name(ylabel)
 
         try:
-            print(x_quantity, y_quantity, proposal, run, xlabel, ylabel)
             x_ds, y_ds = dataset[x_quantity], dataset[y_quantity]
             x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
             tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
