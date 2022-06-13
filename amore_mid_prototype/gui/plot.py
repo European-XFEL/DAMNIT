@@ -129,6 +129,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
+        print(x, y)
         self.update_canvas(x, y, plot_type=self.plot_type)
         self.figure.tight_layout()
 
@@ -176,6 +177,7 @@ class Canvas(QtWidgets.QDialog):
     ):
         # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
+        print(xs, ys)
 
         if xs is None and ys is None:
             xs, ys = [], []
@@ -337,6 +339,14 @@ class Plot:
         self._button_plot_runs.setToolTip("Plot only for selected runs.")
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
+        self._toggle_plot_table = QtWidgets.QCheckBox("Use Table values", main_window)
+        self._toggle_plot_table.setCheckable(True)
+        self._toggle_plot_table.setChecked(True)
+        self._toggle_plot_table.toggle()
+        #self._toggle_plot_table.clicked.connect(
+        #    self._toggle_plot_table_clicked
+        #)
+
         self._toggle_probability_density = QtWidgets.QCheckBox("Histogram", main_window)
         self._toggle_probability_density.setCheckable(True)
         self._toggle_probability_density.setChecked(True)
@@ -404,8 +414,7 @@ class Plot:
                 )
                 return
 
-        for ri in non_data_field["Run"]:
-            log.info("Selected run %d", ri)
+        log.info("Selected runs {}".format(non_data_field["Run"]))
 
         # Find the proposals of currently selected runs
         non_data_field["Proposal"] = [
@@ -501,6 +510,7 @@ class Plot:
         self._canvas["canvas"].append(canvas)
         self._canvas["type"].append(self.plot_type)
         self._canvas["runs_as_series"].append(selected_rows if runs_as_series else None)
+        self._canvas["table_summary"].append(self._toggle_plot_table.isChecked())
 
         self.update()
 
@@ -515,6 +525,7 @@ class Plot:
             self.plot_type = "default"
 
     def update(self):
+        print(">>>", self._canvas["runs_as_series"])
         for index, (xi, yi, ci, plot_type, runs_as_series) in enumerate(
             zip(
                 self._canvas["key.x"].copy(),
@@ -528,6 +539,11 @@ class Plot:
             ys = []
 
             if runs_as_series:
+                runs_as_series_index = [index.row() for index in runs_as_series]
+            else:
+                runs_as_series_index = [i for i in range(self._data["Run"].size)]
+
+            if runs_as_series:
                 # Plots with runs as series don't need to be updated (unless the
                 # variables have been changed by re-running the backend on a
                 # modified context file, but luckily this hasn't been
@@ -538,25 +554,30 @@ class Plot:
                 # Find the proposals of currently selected runs
                 # proposal = [index.siblingAtColumn(1).data() for index in runs_as_series]
                 # run = [index.siblingAtColumn(2).data() for index in runs_as_series]
+                runs_as_series_index = [index.row() for index in runs_as_series]
+
                 proposal = [
-                    self._data.iloc[index.row()]["Proposal"] for index in runs_as_series
+                    self._data.iloc[index]["Proposal"] for index in runs_as_series_index
                 ]
-                run = [self._data.iloc[index.row()]["Run"] for index in runs_as_series]
+                run = [self._data.iloc[index]["Run"] for index in runs_as_series_index]
 
                 for pi, ri in zip(proposal, run):
                     x, y = self.get_run_series_data(pi, ri, xi, yi)
                     xs.append(self._main_window.make_finite(x))
                     ys.append(self._main_window.make_finite(y))
             else:
+                mask = [True if i in runs_as_series_index else False for i in range(self._data["Run"].size)]
+                print(mask, runs_as_series_index)
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
-                    self._main_window.make_finite(self._data[xi])[self._data["Status"]]
+                    self._main_window.make_finite(self._data[xi][mask])[self._data["Status"]]
                 )
                 ys.append(
-                    self._main_window.make_finite(self._data[xi])[self._data["Status"]]
+                    self._main_window.make_finite(self._data[xi][mask])[self._data["Status"]]
                 )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
+            print(">>>", xs, ys)
             ci.update_canvas(xs, ys, plot_type=plot_type)
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
