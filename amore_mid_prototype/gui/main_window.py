@@ -282,12 +282,12 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        #action_connect = QtWidgets.QAction(
+        # action_connect = QtWidgets.QAction(
         #    QtGui.QIcon("connect.png"), "Connect with &endpoint", self
-        #)
-        #action_connect.setShortcut("Shift+E")
-        #action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
-        #action_connect.triggered.connect(self._menu_bar_connect)
+        # )
+        # action_connect.setShortcut("Shift+E")
+        # action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
+        # action_connect.triggered.connect(self._menu_bar_connect)
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
@@ -303,7 +303,7 @@ da-dev@xfel.eu"""
             QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        #fileMenu.addAction(action_connect)
+        # fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
@@ -312,25 +312,29 @@ da-dev@xfel.eu"""
         tags_menu_editor = QtWidgets.QAction(QtGui.QIcon("tags.png"), "&Editor", self)
         tags_menu_editor.setShortcut("Shift+T")
         tags_menu_editor.setStatusTip("Add, edit or delete tags.")
-        #tags_menu_editor.triggered.connect(self._menu_bar_help)
+        # tags_menu_editor.triggered.connect(self._menu_bar_help)
 
         tags_menu.addAction(tags_menu_editor)
 
         columns_menu = menu_bar.addMenu("&Columns")
 
-        action_column_editor= QtWidgets.QAction(QtGui.QIcon("column_add.png"), "&Editor", self)
+        action_column_editor = QtWidgets.QAction(
+            QtGui.QIcon("column_add.png"), "&Editor", self
+        )
         action_column_editor.setShortcut("Shift+C")
         action_column_editor.setStatusTip("Add or modify columns.")
-        #action_column_add.triggered.connect(self._menu_bar_help)
+        # action_column_add.triggered.connect(self._menu_bar_help)
 
         columns_menu.addAction(action_column_editor)
 
         groups_menu = menu_bar.addMenu("&Groups")
 
-        groups_menu_editor = QtWidgets.QAction(QtGui.QIcon("groups.png"), "&Editor", self)
+        groups_menu_editor = QtWidgets.QAction(
+            QtGui.QIcon("groups.png"), "&Editor", self
+        )
         groups_menu_editor.setShortcut("Shift+G")
         groups_menu_editor.setStatusTip("Add, modify or delete groups.")
-        #groups_menu_add.triggered.connect(self._menu_bar_help)
+        # groups_menu_add.triggered.connect(self._menu_bar_help)
 
         groups_menu.addAction(groups_menu_editor)
 
@@ -566,13 +570,13 @@ da-dev@xfel.eu"""
         filter_button = QtWidgets.QPushButton("Filter data")
         filter_button.setEnabled(True)
         filter_button.setMinimumWidth(175)
-        #filter_button.clicked.connect(self._comment_button_clicked)
+        # filter_button.clicked.connect(self._comment_button_clicked)
 
         self.filter = QtWidgets.QLineEdit(self)
         self.filter.setToolTip("Filter results.")
 
         filter_horizontal_layout.addWidget(filter_button)
-        filter_horizontal_layout.addWidget(self.filter )
+        filter_horizontal_layout.addWidget(self.filter)
 
         vertical_layout.addLayout(filter_horizontal_layout)
 
@@ -594,35 +598,35 @@ da-dev@xfel.eu"""
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
-        table_horizontal_layout.addWidget(self.table_view) #, stretch=6)
+        table_horizontal_layout.addWidget(self.table_view)  # , stretch=6)
 
-        #table_horizontal_layout.addWidget(
+        # table_horizontal_layout.addWidget(
         #    self.table_view.set_columns_visibility(
         #        [self.column_title(c) for c in self.data.columns],
         #        [True for _ in self.data.columns],
         #    ),
         #    stretch=1,
-        #)
+        # )
 
         vertical_layout.addLayout(table_horizontal_layout)
 
         # plotting control
         self.plot = Plot(self)
-        plotting_group = QtWidgets.QGroupBox("Plot (double-click on a cell to inspect results)")
+        plotting_group = QtWidgets.QGroupBox(
+            "Plot (double-click on a cell to inspect results)"
+        )
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        plot_horizontal_layout.addWidget(self.plot._button_plot)
         self.plot._button_plot_runs.setMinimumWidth(150)
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot)
+        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
         self.plot._button_plot.setMinimumWidth(150)
         plot_horizontal_layout.addStretch()
 
-        plot_horizontal_layout.addWidget(
-            self.plot._toggle_probability_density
-        )
+        plot_horizontal_layout.addWidget(self.plot._toggle_probability_density)
 
         self.plot._combo_box_x_axis.setFixedWidth(300)
         self.plot._combo_box_y_axis.setFixedWidth(300)
@@ -632,9 +636,9 @@ da-dev@xfel.eu"""
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
 
-        #plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        #self.plot._button_plot.setMinimumWidth(150)
-        #plot_parameters_horizontal_layout.addStretch()
+        # plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
+        # self.plot._button_plot.setMinimumWidth(150)
+        # plot_parameters_horizontal_layout.addStretch()
 
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
@@ -643,7 +647,7 @@ da-dev@xfel.eu"""
         vertical_layout.addWidget(plotting_group)
 
         # comments
-        #comment_group = QtWidgets.QGroupBox("Additional comment (time can be edited)")
+        # comment_group = QtWidgets.QGroupBox("Additional comment (time can be edited)")
 
         self.comment = QtWidgets.QLineEdit(self)
         self.comment.setToolTip("Time can be edited in the field on the right.")
@@ -669,9 +673,9 @@ da-dev@xfel.eu"""
         comment_timer.timeout.connect(self._set_comment_date)
         comment_timer.start()
 
-        #comment_group.setLayout(comment_horizontal_layout)
+        # comment_group.setLayout(comment_horizontal_layout)
 
-        #vertical_layout.addWidget(comment_group)
+        # vertical_layout.addWidget(comment_group)
 
         vertical_layout.addWidget(self.logger.widget)
 

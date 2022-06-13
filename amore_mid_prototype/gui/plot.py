@@ -171,11 +171,11 @@ class Canvas(QtWidgets.QDialog):
         # self._axis.set_xlim((x_min, x_max))
         # self._axis.set_ylim((y_min, y_max))
 
-    def update_canvas(
-        self, xs=None, ys=None, y1s=None, series_names=["default"]
-    ):
+    def update_canvas(self, xs=None, ys=None, y1s=None, series_names=["default"]):
         # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
+
+        # ("qqq", xs, ys, y1s)
 
         if xs is None and ys is None:  # and self.plot_type == "histogram1D":
             xs, ys, y1s = [], [], []
@@ -201,6 +201,11 @@ class Canvas(QtWidgets.QDialog):
             xs_max, ys_max = np.asarray(xs[0]).max(), 1
 
             if self._autoscale_checkbox.isChecked():
+                # print("-----")
+                # self._axis.legend().set_visible(False)
+                # self._axis.legend().remove()
+                # self.figure.canvas.draw()
+                # print("-----")
                 for x, y in zip(xs, ys):
                     xs_min = min(xs_min, x.min())
                     xs_max = max(xs_max, x.max())
@@ -256,7 +261,14 @@ class Canvas(QtWidgets.QDialog):
                     if len(y1s) > 0:
                         self._lines1[series].append(
                             self._axis1.plot(
-                                [], [], fmt1, color=color1, label=label if len(xs) > 1 else self._legend[1], alpha=0.5
+                                [],
+                                [],
+                                fmt1,
+                                color=color1,
+                                label=self._legend[len(xs) + 1]
+                                if len(self._legend) > len(xs) + 1
+                                else self._legend[1],
+                                alpha=0.5,
                             )[0]
                         )
 
@@ -284,8 +296,10 @@ class Canvas(QtWidgets.QDialog):
                 ys_max = min(ys_max, y.max())
 
         if self._legend is not None:
-            self._axis.legend()
-        
+            self._axis.legend(loc=0)
+            if "_axis1" in self.__dict__:
+                self._axis1.legend(loc=1)
+
         self.figure.canvas.draw()
 
         if len(xs):
@@ -356,14 +370,12 @@ class Plot:
         self._button_plot.clicked.connect(lambda: self._button_plot_clicked(False))
 
         self._button_plot_runs = QtWidgets.QPushButton(
-            "Selected runs", main_window
+            "Data for selected runs", main_window
         )
         self._button_plot_runs.setToolTip("Plot only for selected runs.")
         self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
 
-        self._toggle_probability_density = QtWidgets.QCheckBox(
-            "Histogram", main_window
-        )
+        self._toggle_probability_density = QtWidgets.QCheckBox("Histogram", main_window)
         self._toggle_probability_density.setCheckable(True)
         self._toggle_probability_density.setChecked(True)
         self._toggle_probability_density.toggle()
@@ -372,10 +384,10 @@ class Plot:
         )
 
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        #self._combo_box_x_axis.setToolTips("x-axis.")
-        
+        # self._combo_box_x_axis.setToolTips("x-axis.")
+
         self._combo_box_y_axis = CheckableComboBox(self._main_window, maximum_items=2)
-        #self._combo_box_y_axis.setToolTips("y-axis: Select up to two variables.")
+        # self._combo_box_y_axis.setToolTips("y-axis: Select up to two variables.")
 
         self.vs_label = QtWidgets.QLabel("versus")
 
@@ -406,27 +418,34 @@ class Plot:
             self._combo_box_y_axis.addItem(ki)
 
     def _button_plot_clicked(self, runs_as_series):
+        non_data_field = {"Timestamp": None, "Proposal": None, "Run": None}
+
         selected_rows = self._main_window.table_view.selectionModel().selectedRows()
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentData()
 
-        #if not len(ylabel):
-        #    log.info("Selected row %d", index.row())
-
         if len(ylabel) == 0 and self.plot_type == "default":
             QMessageBox.warning(
-                    self._main_window,
-                    "No quantitity selected",
-                    "Select the quantities you want to plot.",
-                )
+                self._main_window,
+                "No quantitity selected",
+                "Select the quantities you want to plot.",
+            )
             return
 
         # multiple rows can be selected
-        for index in selected_rows:
-            log.info("Selected row %d", index.row())
+        run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
+        status = [self._data.iloc[index.row()]["Status"] for index in selected_rows]
+        selected_rows = [
+            selected_rows[i]
+            for i, ri, si in zip(range(len(run)), run, status)
+            if (ri is not pd.NA and si == True)
+        ]
+        non_data_field["Run"] = [
+            self._data.iloc[index.row()]["Run"] for index in selected_rows
+        ]
 
         if runs_as_series:
-            if len(selected_rows) == 0:
+            if len(non_data_field["Run"]) == 0:
                 QMessageBox.warning(
                     self._main_window,
                     "No runs selected",
@@ -434,13 +453,15 @@ class Plot:
                 )
                 return
 
+        for ri in non_data_field["Run"]:
+            log.info("Selected run %d", ri)
+
         # Find the proposals of currently selected runs
-        proposals = [
+        non_data_field["Proposal"] = [
             self._data.iloc[index.row()]["Proposal"] for index in selected_rows
         ]
-        proposals = [pi for pi in proposals if pi is not pd.NA]
 
-        if len(set(proposals)) > 1:
+        if len(set(non_data_field["Proposal"])) > 1:
             QMessageBox.warning(
                 self._main_window,
                 "Multiple proposals selected",
@@ -450,20 +471,75 @@ class Plot:
 
         try:
             if self.plot_type == "histogram1D":
+                # lazy workaround, one of the two should be None
                 ylabel = xlabel
 
-            run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
+            non_data_field["Timestamp"] = [
+                self._data.iloc[index.row()]["Timestamp"] for index in selected_rows
+            ]
 
             x, y, y1 = [], [], []
             if runs_as_series:
-                for p, r in zip(proposals, run):
-                    xi, yi = self.get_run_series_data(p, r, xlabel, ylabel[0] if self.plot_type == "default" else ylabel)
-                    x.append(xi)
-                    y.append(yi)
 
-                    if len(ylabel) > 1:
-                        _, yi = self.get_run_series_data(p, r, xlabel, ylabel[1] if self.plot_type == "default" else ylabel)
-                        y1.append(yi)
+                # it is annoying that run series can not be a function of Run or Timestamp
+                # here's an ugly workaround:
+                x_fake, y_fake = None, None
+                if xlabel in non_data_field.keys():
+                    x_fake = xlabel
+                    xlabel = ylabel[0] if self.plot_type == "default" else ylabel
+                if any([yi in non_data_field.keys() for yi in ylabel]):
+                    y_fake = ylabel
+                    ylabel = [xlabel] if self.plot_type == "default" else xlabel
+
+                if x_fake is None or y_fake is None:
+                    for p, r in zip(non_data_field["Proposal"], non_data_field["Run"]):
+                        xi, yi = self.get_run_series_data(
+                            p,
+                            r,
+                            xlabel,
+                            ylabel[0] if self.plot_type == "default" else ylabel,
+                        )
+                        x.append(xi)
+                        y.append(yi)
+
+                        if len(ylabel) > 1:
+                            _, yi = self.get_run_series_data(
+                                p,
+                                r,
+                                xlabel,
+                                ylabel[1] if self.plot_type == "default" else ylabel,
+                            )
+                            y1.append(yi)
+                else:
+                    x, y, y1 = [0], [0], [0]
+
+                if x_fake is not None:
+                    for ki, vi in non_data_field.items():
+                        if x_fake == ki:
+                            if xlabel not in non_data_field.keys():
+                                x = vi * len(x)
+                            else:
+                                x = [[i] for i in vi] * len(x)
+                    xlabel = x_fake
+
+                if y_fake is not None:
+                    ylabel = y_fake
+
+                    for ki, vi in non_data_field.items():
+                        if y_fake[0] == ki:
+                            y = [[i] for i in vi] * len(y)
+                    if len(y_fake) > 1:
+                        if y_fake[1] in non_data_field.keys():
+                            for ki, vi in non_data_field.items():
+                                if y_fake[1] == ki:
+                                    y1 = [[i] for i in vi] * len(y)
+                        else:
+                            log.warning(
+                                "Heterogeneous plot not implemented", exc_info=True
+                            )
+                            y1 = None
+                            ylabel = [y_fake[0]]
+
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
@@ -473,23 +549,33 @@ class Plot:
             )
             return
 
-        if not runs_as_series:
-            run=ylabel
-
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
+        legend = None
+        if not runs_as_series:
+            legend = ylabel
+        else:
+            if len(ylabel) == 1 or self.plot_type == "histogram1D":
+                legend = ["Run {}".format(ri) for ri in non_data_field["Run"]]
+            else:
+                legend = [
+                    "Run {}. {}".format(ri, yi)
+                    for yi in ylabel
+                    for ri in non_data_field["Run"]
+                ]
+
         canvas = Canvas(
             self._main_window,
             x=x,
             y=y,
-            y1=None if len(ylabel) == 1 else y1,
+            y1=None if (len(ylabel) == 1 or self.plot_type == "histogram1D") else y1,
             xlabel=xlabel,
             ylabel=ylabel[0],
-            ylabel1=None if len(ylabel) == 1 else ylabel[1],
-            legend=run,
+            ylabel1=None
+            if (len(ylabel) == 1 or self.plot_type == "histogram1D")
+            else ylabel[1],
+            legend=legend,
             plot_type=self.plot_type,
         )
-        # if runs_as_series:
-        #    canvas.setWindowTitle(f"Run: {run}")
 
         self._canvas["key.x"].append(xlabel)
         self._canvas["key.y"].append(ylabel)
@@ -549,15 +635,15 @@ class Plot:
                     self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
                 ys.append(
-                    self._main_window.make_finite(self._data[yi[0] if plot_type == "default" else yi])[
-                        self._data["Status"]
-                    ]
+                    self._main_window.make_finite(
+                        self._data[yi[0] if plot_type == "default" else yi]
+                    )[self._data["Status"]]
                 )
                 if len(yi) > 1:
                     y1s.append(
-                        self._main_window.make_finite(self._data[yi[1] if plot_type == "default" else yi])[
-                            self._data["Status"]
-                        ]
+                        self._main_window.make_finite(
+                            self._data[yi[1] if plot_type == "default" else yi]
+                        )[self._data["Status"]]
                     )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
