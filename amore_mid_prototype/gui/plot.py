@@ -223,12 +223,15 @@ class Canvas(QtWidgets.QDialog):
 
         self._lines[series_names[0]] = []
         self._kwargs[series_names[0]] = []
+
         for i, x, y, series, label in zip(
             range(len(xs)),
             xs,
             ys,
             len(xs) * series_names,
-            self._legend if not isinstance(self._legend, str) else len(xs) * [self._legend],
+            self._legend
+            if not isinstance(self._legend, str) and self._legend is not None
+            else len(xs) * [self._legend],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
             color = (
@@ -441,12 +444,7 @@ class Plot:
 
                 if x_fake is None or y_fake is None:
                     for p, r in zip(non_data_field["Proposal"], non_data_field["Run"]):
-                        xi, yi = self.get_run_series_data(
-                            p,
-                            r,
-                            xlabel,
-                            ylabel,
-                        )
+                        xi, yi = self.get_run_series_data(p, r, xlabel, ylabel,)
                         x.append(xi)
                         y.append(yi)
 
@@ -471,8 +469,6 @@ class Plot:
                                 y = [[i] for i in vi] * len(y)
                             else:
                                 y = vi
-                
-
 
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
