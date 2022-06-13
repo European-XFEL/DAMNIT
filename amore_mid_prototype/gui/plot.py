@@ -35,6 +35,7 @@ class Canvas(QtWidgets.QDialog):
         legend=None,
         plot_type="default",
         autoscale=True,
+        show_legend=False,
     ):
         super().__init__()
         self.setStyleSheet("background-color: white")
@@ -93,6 +94,10 @@ class Canvas(QtWidgets.QDialog):
             QtCore.Qt.LayoutDirection.RightToLeft
         )
 
+        self._legend_checkbox = QtWidgets.QCheckBox("Legend", self)
+        self._legend_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
+        self._legend_checkbox.stateChanged.connect(self.show_legend)
+
         self._display_annotations_checkbox = QtWidgets.QCheckBox(
             "Display hover annotations", self
         )
@@ -110,6 +115,7 @@ class Canvas(QtWidgets.QDialog):
             )
 
         h1_layout = QtWidgets.QHBoxLayout()
+        h1_layout.addWidget(self._legend_checkbox)
         h1_layout.addStretch()
         h1_layout.addWidget(self._autoscale_checkbox)
 
@@ -130,7 +136,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, y1s=y1)
+        self.update_canvas(x, y, y1s=y1, plot_type=self.plot_type)
         self.figure.tight_layout()
 
     def toggle_panhandler(self, enabled):
@@ -155,7 +161,7 @@ class Canvas(QtWidgets.QDialog):
 
     def probability_density_bins_changed(self):
         self.histogram1D_bins = self._probability_density_bins.value()
-        self.update_canvas()
+        self.update_canvas(plot_type="histogram1D")
 
     def autoscale(self, x_min, x_max, y_min, y_max, margin=0.05):
         x_range = np.abs(x_max - x_min)
@@ -167,26 +173,27 @@ class Canvas(QtWidgets.QDialog):
         y_max = y_max + y_range * margin
 
         return x_min, x_max, y_min, y_max
+    
+    def show_legend(self):
+        self._axis.legend().set_visible(self._legend_checkbox.isChecked())
+        if "_axis1" in self.__dict__:
+            self._axis1.legend().set_visible(self._legend_checkbox.isChecked())
+        self.figure.canvas.draw()
 
-        # self._axis.set_xlim((x_min, x_max))
-        # self._axis.set_ylim((y_min, y_max))
-
-    def update_canvas(self, xs=None, ys=None, y1s=None, series_names=["default"]):
+    def update_canvas(self, xs=None, ys=None, y1s=None, plot_type="default", series_names=["default"]):
         # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
 
-        # ("qqq", xs, ys, y1s)
-
-        if xs is None and ys is None:  # and self.plot_type == "histogram1D":
+        if xs is None and ys is None:
             xs, ys, y1s = [], [], []
 
             for series in self._lines.keys():
                 for i in range(len(self.data_x)):
                     x, y = self.data_x[i], self.data_y[i]
 
-                    if self.plot_type == "default":
+                    if plot_type == "default":
                         self._lines[series][i].set_data(x, y)
-                    if self.plot_type == "histogram1D":
+                    if plot_type == "histogram1D":
                         _ = [b.remove() for b in self._lines[series][i]]
                         y, x, patches = self._axis.hist(
                             x, bins=self.histogram1D_bins, **self._kwargs[series][i]
@@ -201,11 +208,6 @@ class Canvas(QtWidgets.QDialog):
             xs_max, ys_max = np.asarray(xs[0]).max(), 1
 
             if self._autoscale_checkbox.isChecked():
-                # print("-----")
-                # self._axis.legend().set_visible(False)
-                # self._axis.legend().remove()
-                # self.figure.canvas.draw()
-                # print("-----")
                 for x, y in zip(xs, ys):
                     xs_min = min(xs_min, x.min())
                     xs_max = max(xs_max, x.max())
@@ -252,7 +254,7 @@ class Canvas(QtWidgets.QDialog):
 
             plot_exists = len(self._lines[series_names[0]]) == len(xs)
             if not plot_exists:
-                if self.plot_type == "default":
+                if plot_type == "default":
                     self._lines[series].append(
                         self._axis.plot(
                             [], [], fmt, color=color, label=label, alpha=0.5
@@ -265,18 +267,20 @@ class Canvas(QtWidgets.QDialog):
                                 [],
                                 fmt1,
                                 color=color1,
-                                label=self._legend[len(xs) + 1]
-                                if len(self._legend) > len(xs) + 1
+                                label=self._legend[len(ys) + i]
+                                if len(self._legend) != 2
                                 else self._legend[1],
                                 alpha=0.5,
                             )[0]
                         )
 
-            if self.plot_type == "default":
+            if plot_type == "default":
                 self._lines[series][-1].set_data(x, y)
                 if len(y1s) > 0:
                     self._lines1[series][-1].set_data(x, y1s[i])
-            if self.plot_type == "histogram1D":
+            elif plot_type == "histogram1D":
+                print("[{}/{}/{}] {}: y = {}, y1 = {}".format(i, len(ys), plot_type, self._legend, label, self._legend[i]))
+                print(self._kwargs[series])
                 self._kwargs[series].append(
                     {
                         "color": color,
@@ -305,7 +309,7 @@ class Canvas(QtWidgets.QDialog):
         if len(xs):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
 
-                if self.plot_type != "histogram1D":
+                if plot_type != "histogram1D":
                     xs_min = min([np.asarray(xi).min() for xi in xs])
                     ys_min = min([np.asarray(yi).min() for yi in ys])
                     xs_max = max([np.asarray(xi).max() for xi in xs])
@@ -314,7 +318,7 @@ class Canvas(QtWidgets.QDialog):
                 x_min, x_max, y_min, y_max = self.autoscale(
                     xs_min,
                     xs_max,
-                    ys_min if not self.plot_type == "histogram1D" else 0,
+                    ys_min if not plot_type == "histogram1D" else 0,
                     ys_max,
                     margin=0.05,
                 )
@@ -327,7 +331,7 @@ class Canvas(QtWidgets.QDialog):
                     x_min, x_max, y_min, y_max = self.autoscale(
                         xs_min,
                         xs_max,
-                        y1s_min if not self.plot_type == "histogram1D" else 0,
+                        y1s_min if not plot_type == "histogram1D" else 0,
                         y1s_max,
                         margin=0.05,
                     )
@@ -563,6 +567,7 @@ class Plot:
                     for yi in ylabel
                     for ri in non_data_field["Run"]
                 ]
+        print(legend)
 
         canvas = Canvas(
             self._main_window,
@@ -648,7 +653,7 @@ class Plot:
                     )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
-            ci.update_canvas(xs, ys, y1s=y1s)
+            ci.update_canvas(xs, ys, y1s=y1s, plot_type=plot_type)
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
         file_name, dataset = self._main_window.get_run_file(proposal, run)
