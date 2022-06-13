@@ -6,7 +6,6 @@ import numpy as np
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
-from .PyQt_elements import CheckableComboBox
 
 import mplcursors
 from matplotlib.backends.backend_qtagg import (
@@ -26,10 +25,8 @@ class Canvas(QtWidgets.QDialog):
         parent=None,
         x=[],
         y=[],
-        y1=None,
         xlabel="",
         ylabel="",
-        ylabel1=None,
         fmt="o",
         color=None,
         legend=None,
@@ -53,9 +50,6 @@ class Canvas(QtWidgets.QDialog):
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel if not is_histogram else "Probability density")
-        if y1 is not None:
-            self._axis1 = self._axis.twinx()
-            self._axis1.set_ylabel(ylabel1)
         # self._axis.set_title(
         #    f"{ylabel} vs. {xlabel}"
         #    if not is_histogram
@@ -67,7 +61,6 @@ class Canvas(QtWidgets.QDialog):
         self._color = color
         self._legend = legend
         self._lines = {}
-        self._lines1 = {}
         self._kwargs = {}
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
@@ -136,7 +129,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, y1s=y1, plot_type=self.plot_type)
+        self.update_canvas(x, y, plot_type=self.plot_type)
         self.figure.tight_layout()
 
     def toggle_panhandler(self, enabled):
@@ -147,7 +140,7 @@ class Canvas(QtWidgets.QDialog):
 
     def toggle_annotations(self, state):
         if state == QtCore.Qt.Checked:
-            for line in list(self._lines.values()) + list(self._lines1.values()):
+            for line in self._lines.values():
                 self._cursors.append(mplcursors.cursor(line, hover=True))
         else:
             for cursor in self._cursors:
@@ -173,19 +166,19 @@ class Canvas(QtWidgets.QDialog):
         y_max = y_max + y_range * margin
 
         return x_min, x_max, y_min, y_max
-    
+
     def show_legend(self):
         self._axis.legend().set_visible(self._legend_checkbox.isChecked())
-        if "_axis1" in self.__dict__:
-            self._axis1.legend().set_visible(self._legend_checkbox.isChecked())
         self.figure.canvas.draw()
 
-    def update_canvas(self, xs=None, ys=None, y1s=None, plot_type="default", series_names=["default"]):
+    def update_canvas(
+        self, xs=None, ys=None, plot_type="default", series_names=["default"]
+    ):
         # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
 
         if xs is None and ys is None:
-            xs, ys, y1s = [], [], []
+            xs, ys = [], []
 
             for series in self._lines.keys():
                 for i in range(len(self.data_x)):
@@ -228,21 +221,16 @@ class Canvas(QtWidgets.QDialog):
             xs_min, ys_min = np.asarray(xs[0]).min(), 0
             xs_max, ys_max = np.asarray(xs[0]).max(), 1
 
-        if y1s is None:
-            y1s = []
-
         self._lines[series_names[0]] = []
-        self._lines1[series_names[0]] = []
         self._kwargs[series_names[0]] = []
         for i, x, y, series, label in zip(
             range(len(xs)),
             xs,
             ys,
             len(xs) * series_names,
-            self._legend if self._legend is not None else len(xs) * [None],
+            self._legend if not isinstance(self._legend, str) else len(xs) * [self._legend],
         ):
             fmt = self._fmt if len(xs) == 1 else "o"
-            fmt1 = "s"
             color = (
                 cmap(i / len(xs))
                 if len(ys) == 0
@@ -250,7 +238,6 @@ class Canvas(QtWidgets.QDialog):
                 if self._color is None
                 else self._color
             )
-            color1 = cmap((i + len(xs)) / len(xs) / 2)
 
             plot_exists = len(self._lines[series_names[0]]) == len(xs)
             if not plot_exists:
@@ -260,27 +247,10 @@ class Canvas(QtWidgets.QDialog):
                             [], [], fmt, color=color, label=label, alpha=0.5
                         )[0]
                     )
-                    if len(y1s) > 0:
-                        self._lines1[series].append(
-                            self._axis1.plot(
-                                [],
-                                [],
-                                fmt1,
-                                color=color1,
-                                label=self._legend[len(ys) + i]
-                                if len(self._legend) != 2
-                                else self._legend[1],
-                                alpha=0.5,
-                            )[0]
-                        )
 
             if plot_type == "default":
                 self._lines[series][-1].set_data(x, y)
-                if len(y1s) > 0:
-                    self._lines1[series][-1].set_data(x, y1s[i])
             elif plot_type == "histogram1D":
-                print("[{}/{}/{}] {}: y = {}, y1 = {}".format(i, len(ys), plot_type, self._legend, label, self._legend[i]))
-                print(self._kwargs[series])
                 self._kwargs[series].append(
                     {
                         "color": color,
@@ -300,9 +270,7 @@ class Canvas(QtWidgets.QDialog):
                 ys_max = min(ys_max, y.max())
 
         if self._legend is not None:
-            self._axis.legend(loc=0)
-            if "_axis1" in self.__dict__:
-                self._axis1.legend(loc=1)
+            self._axis.legend(loc="best")
 
         self.figure.canvas.draw()
 
@@ -324,20 +292,6 @@ class Canvas(QtWidgets.QDialog):
                 )
                 self._axis.set_xlim((x_min, x_max))
                 self._axis.set_ylim((y_min, y_max))
-
-                if len(y1s) > 0:
-                    y1s_min = min([np.asarray(yi).min() for yi in y1s])
-                    y1s_max = max([np.asarray(yi).max() for yi in y1s])
-                    x_min, x_max, y_min, y_max = self.autoscale(
-                        xs_min,
-                        xs_max,
-                        y1s_min if not plot_type == "histogram1D" else 0,
-                        y1s_max,
-                        margin=0.05,
-                    )
-                    if "_axis1" in self.__dict__:
-                        self._axis1.set_xlim((x_min, x_max))
-                        self._axis1.set_ylim((y_min, y_max))
 
         if self._zoom_factory is not None:
             self._zoom_factory()
@@ -389,10 +343,7 @@ class Plot:
         )
 
         self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        # self._combo_box_x_axis.setToolTips("x-axis.")
-
-        self._combo_box_y_axis = CheckableComboBox(self._main_window, maximum_items=2)
-        # self._combo_box_y_axis.setToolTips("y-axis: Select up to two variables.")
+        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
 
         self.vs_label = QtWidgets.QLabel("versus")
 
@@ -427,15 +378,7 @@ class Plot:
 
         selected_rows = self._main_window.table_view.selectionModel().selectedRows()
         xlabel = self._combo_box_x_axis.currentText()
-        ylabel = self._combo_box_y_axis.currentData()
-
-        if len(ylabel) == 0 and self.plot_type == "default":
-            QMessageBox.warning(
-                self._main_window,
-                "No quantitity selected",
-                "Select the quantities you want to plot.",
-            )
-            return
+        ylabel = self._combo_box_y_axis.currentText()
 
         # multiple rows can be selected
         run = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
@@ -483,7 +426,7 @@ class Plot:
                 self._data.iloc[index.row()]["Timestamp"] for index in selected_rows
             ]
 
-            x, y, y1 = [], [], []
+            x, y = [], []
             if runs_as_series:
 
                 # it is annoying that run series can not be a function of Run or Timestamp
@@ -491,10 +434,10 @@ class Plot:
                 x_fake, y_fake = None, None
                 if xlabel in non_data_field.keys():
                     x_fake = xlabel
-                    xlabel = ylabel[0] if self.plot_type == "default" else ylabel
-                if any([yi in non_data_field.keys() for yi in ylabel]):
+                    xlabel = ylabel
+                if ylabel in non_data_field.keys():
                     y_fake = ylabel
-                    ylabel = [xlabel] if self.plot_type == "default" else xlabel
+                    ylabel = xlabel
 
                 if x_fake is None or y_fake is None:
                     for p, r in zip(non_data_field["Proposal"], non_data_field["Run"]):
@@ -502,48 +445,34 @@ class Plot:
                             p,
                             r,
                             xlabel,
-                            ylabel[0] if self.plot_type == "default" else ylabel,
+                            ylabel,
                         )
                         x.append(xi)
                         y.append(yi)
 
-                        if len(ylabel) > 1:
-                            _, yi = self.get_run_series_data(
-                                p,
-                                r,
-                                xlabel,
-                                ylabel[1] if self.plot_type == "default" else ylabel,
-                            )
-                            y1.append(yi)
                 else:
-                    x, y, y1 = [0], [0], [0]
+                    x, y = [0], [0]
 
                 if x_fake is not None:
                     for ki, vi in non_data_field.items():
                         if x_fake == ki:
                             if xlabel not in non_data_field.keys():
-                                x = vi * len(x)
-                            else:
                                 x = [[i] for i in vi] * len(x)
+                            else:
+                                x = vi
                     xlabel = x_fake
 
                 if y_fake is not None:
                     ylabel = y_fake
 
                     for ki, vi in non_data_field.items():
-                        if y_fake[0] == ki:
-                            y = [[i] for i in vi] * len(y)
-                    if len(y_fake) > 1:
-                        if y_fake[1] in non_data_field.keys():
-                            for ki, vi in non_data_field.items():
-                                if y_fake[1] == ki:
-                                    y1 = [[i] for i in vi] * len(y)
-                        else:
-                            log.warning(
-                                "Heterogeneous plot not implemented", exc_info=True
-                            )
-                            y1 = None
-                            ylabel = [y_fake[0]]
+                        if y_fake == ki:
+                            if ylabel not in non_data_field.keys():
+                                y = [[i] for i in vi] * len(y)
+                            else:
+                                y = vi
+                
+
 
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
@@ -559,26 +488,14 @@ class Plot:
         if not runs_as_series:
             legend = ylabel
         else:
-            if len(ylabel) == 1 or self.plot_type == "histogram1D":
-                legend = ["Run {}".format(ri) for ri in non_data_field["Run"]]
-            else:
-                legend = [
-                    "Run {}. {}".format(ri, yi)
-                    for yi in ylabel
-                    for ri in non_data_field["Run"]
-                ]
-        print(legend)
+            legend = ["Run {}".format(ri) for ri in non_data_field["Run"]]
 
         canvas = Canvas(
             self._main_window,
             x=x,
             y=y,
-            y1=None if (len(ylabel) == 1 or self.plot_type == "histogram1D") else y1,
             xlabel=xlabel,
-            ylabel=ylabel[0],
-            ylabel1=None
-            if (len(ylabel) == 1 or self.plot_type == "histogram1D")
-            else ylabel[1],
+            ylabel=ylabel,
             legend=legend,
             plot_type=self.plot_type,
         )
@@ -613,7 +530,6 @@ class Plot:
         ):
             xs = []
             ys = []
-            y1s = []
 
             if runs_as_series:
                 # Plots with runs as series don't need to be updated (unless the
@@ -641,19 +557,11 @@ class Plot:
                     self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
                 ys.append(
-                    self._main_window.make_finite(
-                        self._data[yi[0] if plot_type == "default" else yi]
-                    )[self._data["Status"]]
+                    self._main_window.make_finite(self._data[xi])[self._data["Status"]]
                 )
-                if len(yi) > 1:
-                    y1s.append(
-                        self._main_window.make_finite(
-                            self._data[yi[1] if plot_type == "default" else yi]
-                        )[self._data["Status"]]
-                    )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
-            ci.update_canvas(xs, ys, y1s=y1s, plot_type=plot_type)
+            ci.update_canvas(xs, ys, plot_type=plot_type)
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
         file_name, dataset = self._main_window.get_run_file(proposal, run)
