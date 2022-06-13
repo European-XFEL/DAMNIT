@@ -331,8 +331,9 @@ class Canvas(QtWidgets.QDialog):
                         y1s_max,
                         margin=0.05,
                     )
-                    self._axis1.set_xlim((x_min, x_max))
-                    self._axis1.set_ylim((y_min, y_max))
+                    if "_axis1" in self.__dict__:
+                        self._axis1.set_xlim((x_min, x_max))
+                        self._axis1.set_ylim((y_min, y_max))
 
         if self._zoom_factory is not None:
             self._zoom_factory()
