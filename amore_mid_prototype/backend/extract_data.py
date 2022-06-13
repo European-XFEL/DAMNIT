@@ -1,4 +1,5 @@
 import os
+import functools
 import logging
 import pickle
 import re
@@ -42,6 +43,11 @@ def get_start_time(xd_run):
         # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
         return np.datetime64(ts, 'us').item().timestamp()
 
+def get_proposal_path(xd_run):
+    files = [f.filename for f in xd_run.files]
+    p = Path(files[0])
+
+    return Path(*p.parts[:7])
 
 class Results:
     def __init__(self, data, ctx):
@@ -49,11 +55,34 @@ class Results:
         self.ctx = ctx
 
     @classmethod
-    def create(cls, ctx_file: ContextFile, xd_run):
+    def create(cls, ctx_file: ContextFile, xd_run, run_number, proposal):
         res = {'start_time': np.asarray(get_start_time(xd_run))}
-        for name, var in ctx_file.vars.items():
+
+        for name in ctx_file.ordered_vars():
+            var = ctx_file.vars[name]
+
             try:
-                data = var.func(xd_run)
+                # Add all variable dependencies
+                kwargs = { arg_name: res[dep_name]
+                           for arg_name, dep_name in var.dependencies().items() }
+
+                # And all meta dependencies
+                for arg_name, annotation in var.annotations().items():
+                    if not annotation.startswith("meta#"):
+                        continue
+
+                    if annotation == "meta#run_number":
+                        kwargs[arg_name] = run_number
+                    elif annotation == "meta#proposal":
+                        kwargs[arg_name] = proposal
+                    elif annotation == "meta#proposal_path":
+                        kwargs[arg_name] = get_proposal_path(xd_run)
+                    else:
+                        raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
+
+                func = functools.partial(var.func, **kwargs)
+
+                data = func(xd_run)
                 if not isinstance(data, (xarray.DataArray, str)):
                     data = np.asarray(data)
             except Exception:
@@ -136,21 +165,31 @@ def run_and_save(proposal, run, out_path, run_data=RunData.ALL, match=[]):
 
     ctx_file = ContextFile.from_py_file(Path('context.py'))
 
-    # Filter variables
-    for name in list(ctx_file.vars.keys()):
-        title = ctx_file.vars[name].title or name
-        var_data = ctx_file.vars[name].data
+    # Find variables that match the run data and match patterns
+    filtered_vars = []
+    for var in ctx_file.vars.values():
+        title = var.title or var.name
 
         # If this is being triggered by a migration/calibration message for
         # raw/proc data, then only process the Variable's that require that data.
-        data_mismatch = run_data != RunData.ALL and var_data != run_data.value
+        data_mismatch = run_data != RunData.ALL and var.data != run_data.value
         # Skip Variable's that don't match the match list
         name_mismatch = len(match) > 0 and not any(m.lower() in title.lower() for m in match)
 
-        if data_mismatch or name_mismatch:
+        if not data_mismatch and not name_mismatch:
+            filtered_vars.append(var)
+
+    # Create a set of variables to execute from the filtered variables, and
+    # their dependencies.
+    final_vars = set(v.name for v in filtered_vars)
+    final_vars |= ctx_file.all_dependencies(*filtered_vars)
+
+    # Remove the unwanted ones from the context
+    for name in list(ctx_file.vars.keys()):
+        if name not in final_vars:
             del ctx_file.vars[name]
 
-    res = Results.create(ctx_file, run_dc)
+    res = Results.create(ctx_file, run_dc, run, proposal)
     res.save_hdf5(out_path)
 
 
