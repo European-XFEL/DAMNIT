@@ -1,10 +1,11 @@
-import json
+import os
 import logging
 import pickle
 import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 import extra_data
@@ -21,10 +22,25 @@ from .db import open_db, get_meta
 log = logging.getLogger(__name__)
 
 
+class RunData(Enum):
+    RAW = "raw"
+    PROC = "proc"
+    ALL = "all"
+
 def get_start_time(xd_run):
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
-    # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-    return np.datetime64(ts, 'us').item().timestamp()
+
+    if np.isnan(ts):
+        # If the timestamp information is not present (i.e. on old files), then
+        # we take the timestamp from the oldest raw file as an approximation.
+        files = sorted([f.filename for f in xd_run.files if "raw" in f.filename])
+        first_file = Path(files[0])
+
+        # Use the modified timestamp
+        return first_file.stat().st_mtime
+    else:
+        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
+        return np.datetime64(ts, 'us').item().timestamp()
 
 
 class Results:
@@ -83,7 +99,7 @@ class Results:
                 return None
             return getattr(np, summary_method)(data)
 
-    def save_hdf5(self, path):
+    def save_hdf5(self, hdf5_path):
         dsets = []
         for name, arr in self.data.items():
             reduced = self.summarise(name)
@@ -92,13 +108,18 @@ class Results:
             dsets.extend(self._datasets_for_arr(name, arr))
 
         log.info("Writing %d variables to %d datasets in %s",
-                 len(self.data), len(dsets), path)
+                 len(self.data), len(dsets), hdf5_path)
 
-        with h5py.File(path, 'w') as f:
+        # We need to open the files in append mode so that when proc Variable's
+        # are processed after raw ones, the raw ones won't be lost.
+        with h5py.File(hdf5_path, 'a') as f:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
-                print(path, arr, type(arr))
+                # Delete the existing datasets so we can overwrite them
+                if path in f:
+                    del f[path]
+
                 if isinstance(arr, str):
                     f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
                 else:
@@ -107,11 +128,28 @@ class Results:
             for path, arr in dsets:
                 f[path][()] = arr
 
+        os.chmod(hdf5_path, 0o666)
 
-def run_and_save(proposal, run, out_path):
+
+def run_and_save(proposal, run, out_path, run_data=RunData.ALL, match=[]):
     run_dc = extra_data.open_run(proposal, run, data="all")
 
     ctx_file = ContextFile.from_py_file(Path('context.py'))
+
+    # Filter variables
+    for name in list(ctx_file.vars.keys()):
+        title = ctx_file.vars[name].title
+        var_data = ctx_file.vars[name].data
+
+        # If this is being triggered by a migration/calibration message for
+        # raw/proc data, then only process the Variable's that require that data.
+        data_mismatch = run_data != RunData.ALL and var_data != run_data.value
+        # Skip Variable's that don't match the match list
+        name_mismatch = len(match) > 0 and not any(m.lower() in title.lower() for m in match)
+
+        if data_mismatch or name_mismatch:
+            del ctx_file.vars[name]
+
     res = Results.create(ctx_file, run_dc)
     res.save_hdf5(out_path)
 
@@ -167,7 +205,7 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
         """, db_data)
 
 
-def extract_and_ingest(proposal, run):
+def extract_and_ingest(proposal, run, run_data=RunData.ALL, match=[]):
     db = open_db()
     if proposal is None:
         proposal = get_meta(db, 'proposal')
@@ -181,8 +219,9 @@ def extract_and_ingest(proposal, run):
 
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(out_path.parent, 0o777)
 
-    run_and_save(proposal, run, out_path)
+    run_and_save(proposal, run, out_path, run_data, match)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
@@ -204,4 +243,5 @@ if __name__ == '__main__':
 
     proposal = int(sys.argv[1])
     run = int(sys.argv[2])
-    extract_and_ingest(proposal, run)
+    run_data = RunData(sys.argv[3])
+    extract_and_ingest(proposal, run, run_data)

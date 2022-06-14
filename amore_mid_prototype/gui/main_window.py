@@ -1,22 +1,25 @@
 import pickle
 import os
 import logging
+import shutil
 import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 
+import libtmux
 import pandas as pd
 import numpy as np
 import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from kafka.errors import NoBrokersAvailable
 
 from extra_data.read_machinery import find_proposal
 
-from ..backend.db import open_db, get_meta
+from ..backend.db import open_db, get_meta, set_meta
 from ..context import ContextFile
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
@@ -47,8 +50,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_menu_bar()
 
         self._view_widget = QtWidgets.QWidget(self)
+        # Disable the main window at first since we haven't loaded any database yet
+        self._view_widget.setEnabled(False)
         self.setCentralWidget(self._view_widget)
 
+        self._create_view()
         self.center_window()
 
         if context_dir is not None:
@@ -57,8 +63,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._canvas_inspect = []
 
     def closeEvent(self, event):
+        self.stop_update_listener_thread()
+
+    def stop_update_listener_thread(self):
         if self._updates_thread is not None:
+            self.update_receiver.stop()
             self._updates_thread.exit()
+            self._updates_thread.wait()
+            self._updates_thread = None
 
     def center_window(self):
         """
@@ -108,7 +120,7 @@ da-dev@xfel.eu"""
 
         # If we're on a system with access to GPFS, prompt for the proposal
         # number so we can preset the prompt for the AMORE directory.
-        if os.path.isdir("/gpfs/exfel/exp"):
+        if self.gpfs_accessible():
             prompt = True
             while prompt:
                 prop_no, prompt = QtWidgets.QInputDialog.getInt(self, "Select proposal",
@@ -126,22 +138,88 @@ da-dev@xfel.eu"""
                                                            buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
                     if button != QtWidgets.QMessageBox.Yes:
                         prompt = False
+        else:
+            prop_no = None
 
         # By convention the AMORE directory is often stored at usr/Shared/amore,
         # so if this directory exists, then we use it.
         standard_path = Path(proposal_dir) / "usr/Shared/amore"
-        if standard_path.is_dir():
+        if standard_path.is_dir() and self.db_path(standard_path).is_file():
             path = standard_path
         else:
-            # Otherwise, we prompt the user
-            path = QtWidgets.QFileDialog.getExistingDirectory(
-                self, "Select context directory", proposal_dir
-            )
+            # Helper lambda to open a prompt for the user
+            prompt_for_path = lambda: QFileDialog.getExistingDirectory(self,
+                                                                       "Select context directory",
+                                                                       proposal_dir)
 
+            if self.gpfs_accessible() and prop_no is not None:
+                button = QMessageBox.question(self, "Database not found",
+                                              f"Proposal {prop_no} does not have an AMORE database, " \
+                                              "would you like to create one and start the backend?")
+                if button == QMessageBox.Yes:
+                    self.initialize_database(standard_path, prop_no)
+                    path = standard_path
+                else:
+                    # Otherwise, we prompt the user
+                    path = prompt_for_path()
+            else:
+                path = prompt_for_path()
+
+        # If we found a database, make sure we're working with a Path object
         if path:
-            self.autoconfigure(Path(path))
+            path = Path(path)
+        else:
+            # Otherwise just return
+            return
 
-    def autoconfigure(self, path: Path):
+        # Check if the backend is running
+        tmux_socket_path = self.get_tmux_socket_path(path)
+        if not tmux_socket_path.exists():
+            button = QMessageBox.question(self, "Backend not running",
+                                          "The AMORE backend is not running, would you like to start it? " \
+                                          "This is only necessary if new runs are expected.")
+            if button == QMessageBox.Yes:
+                self.start_backend(path)
+
+        self.autoconfigure(Path(path), proposal=prop_no)
+
+    def gpfs_accessible(self):
+        return os.path.isdir("/gpfs/exfel/exp")
+
+    def db_path(self, root_path: Path):
+        return root_path / "runs.sqlite"
+
+    def get_tmux_socket_path(self, root_path: Path):
+        return root_path / "amore-tmux.sock"
+
+    def initialize_database(self, path, proposal):
+        # Ensure the directory exists
+        path.mkdir(parents=True, exist_ok=True)
+        os.chmod(path, 0o777)
+
+        # Initialize database
+        db = open_db(self.db_path(path))
+        set_meta(db, 'proposal', proposal)
+
+        # Copy initial context file
+        context_path = path / "context.py"
+        shutil.copyfile(Path(__file__).parents[1] / "base_context_file.py", context_path)
+        os.chmod(context_path, 0o666)
+
+        self.start_backend(path)
+
+    def start_backend(self, path: Path):
+        # Create tmux session
+        server = libtmux.Server(socket_path=self.get_tmux_socket_path(path))
+        server.new_session(session_name="AMORE",
+                           window_name="listen",
+                           # Unfortunately Maxwell's default tmux is too old to
+                           # support '-c' to change directory, so we have to
+                           # manually change directory instead of using the
+                           # 'start_directory' argument.
+                           window_command=f"cd {str(path)}; amore-proto listen .")
+
+    def autoconfigure(self, path: Path, proposal=None):
         context_path = path / "context.py"
         if context_path.is_file():
             log.info("Reading context file %s", context_path)
@@ -150,57 +228,74 @@ da-dev@xfel.eu"""
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
-        sqlite_path = path / "runs.sqlite"
-        if sqlite_path.is_file():
-            log.info("Reading data from database")
-            self.db = open_db(sqlite_path)
+        sqlite_path = self.db_path(path)
+        log.info("Reading data from database")
+        self.db = open_db(sqlite_path)
 
-            self.db_id = get_meta(self.db, 'db_id')
-            self._updates_thread_launcher()
+        self.db_id = get_meta(self.db, 'db_id')
+        self.stop_update_listener_thread()
+        self._updates_thread_launcher()
 
-            df = pd.read_sql_query("SELECT * FROM runs", self.db)
-            df.insert(0, "Status", True)
-            df.insert(len(df.columns), "comment_id", pd.NA)
-            df.pop("added_at")
+        df = pd.read_sql_query("SELECT * FROM runs", self.db)
+        df.insert(0, "Status", True)
+        df.insert(len(df.columns), "comment_id", pd.NA)
+        df.pop("added_at")
 
-            # Unpickle serialized objects. First we select all columns that
-            # might need deserializing.
-            object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
-            # Then we check each element and unpickle it if necessary, and
-            # finally update the main DataFrame.
-            unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
-            df.update(unpickled_cols)
+        # Unpickle serialized objects. First we select all columns that
+        # might need deserializing.
+        object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
+        # Then we check each element and unpickle it if necessary, and
+        # finally update the main DataFrame.
+        unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
+        df.update(unpickled_cols)
 
-            # Read the comments and prepare them for merging with the main data
-            comments_df = pd.read_sql_query(
-                "SELECT rowid as comment_id, * FROM time_comments", self.db
-            )
-            comments_df.insert(0, "Run", pd.NA)
-            comments_df.insert(1, "Proposal", pd.NA)
-            # Don't try to plot comments
-            comments_df.insert(2, "Status", False)
+        # Read the comments and prepare them for merging with the main data
+        comments_df = pd.read_sql_query(
+            "SELECT rowid as comment_id, * FROM time_comments", self.db
+        )
+        comments_df.insert(0, "Run", pd.NA)
+        comments_df.insert(1, "Proposal", pd.NA)
+        # Don't try to plot comments
+        comments_df.insert(2, "Status", False)
 
-            self.data = pd.concat(
-                [
-                    df.rename(
-                        columns={
-                            "runnr": "Run",
-                            "proposal": "Proposal",
-                            "start_time": "Timestamp",
-                            "comment": "Comment",
-                            **self.column_renames(),
-                        }
-                    ),
-                    comments_df.rename(
-                        columns={"timestamp": "Timestamp", "comment": "Comment",}
-                    ),
-                ]
-            )
-            self._create_view()
-            self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
-                                         Qt.SortOrder.AscendingOrder)
+        self.data = pd.concat(
+            [
+                df.rename(
+                    columns={
+                        "runnr": "Run",
+                        "proposal": "Proposal",
+                        "start_time": "Timestamp",
+                        "comment": "Comment",
+                        **self.column_renames(),
+                    }
+                ),
+                comments_df.rename(
+                    columns={"timestamp": "Timestamp", "comment": "Comment",}
+                ),
+            ]
+        )
+
+        self.table_view.setModel(self.table)
+        self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
+                                     Qt.SortOrder.AscendingOrder)
+
+        # Always keep these columns as small as possible to save space
+        header = self.table_view.horizontalHeader()
+        for column in ["Status", "Proposal", "Run", "Timestamp"]:
+            column_index = self.data.columns.get_loc(column)
+            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+
+        # Update the column widget and plotting controls with the new columns
+        self.table_view.set_columns([self.column_title(c) for c in self.data.columns],
+                                    [True for _ in self.data.columns])
+        self.plot.update_columns()
+
+        # Hide the comment_id column
+        comment_id_col = self.data.columns.get_loc("comment_id")
+        self.table_view.setColumnHidden(comment_id_col, True)
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        self._view_widget.setEnabled(True)
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -293,9 +388,7 @@ da-dev@xfel.eu"""
                     self.data.insert(len(self.data.columns), col_name, np.nan)
                 self.table.endInsertColumns()
 
-                self.plot.update_combo_box(new_cols)
-
-                self.table_view.set_item_columns_visibility(
+                self.table_view.add_new_columns(
                     list(new_cols), [True for _ in list(new_cols)]
                 )
 
@@ -357,7 +450,8 @@ da-dev@xfel.eu"""
                 self.data = new_df
                 self.table.endInsertRows()
 
-        # update plots
+        # update plots and plotting controls
+        self.plot.update_columns()
         self.plot.update()
 
         # (over)write down metadata
@@ -422,14 +516,15 @@ da-dev@xfel.eu"""
 
         self.comment.clear()
 
-    def get_run_file(self, proposal, run):
+    def get_run_file(self, proposal, run, log=True):
         file_name = self.extracted_data_template.format(proposal, run)
 
         try:
             run_file = h5py.File(file_name)
             return file_name, run_file
         except FileNotFoundError as e:
-            log.warning("{} not found...".format(file_name))
+            if log:
+                log.warning("{} not found...".format(file_name))
             raise e
 
     def ds_name(self, quantity):
@@ -464,6 +559,11 @@ da-dev@xfel.eu"""
         )
 
         cell_data = self.data.iloc[index.row(), index.column()]
+        if not pd.api.types.is_number(cell_data) and not isinstance(cell_data, np.ndarray):
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
+            return
+
         is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 2)
 
         try:
@@ -475,7 +575,20 @@ da-dev@xfel.eu"""
             if is_image:
                 image = dataset[quantity]["data"][:]
             else:
-                x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+                y_ds = dataset[quantity]["data"]
+                if len(y_ds.shape) == 0:
+                    # If this is a scalar value, then we can't plot it
+                    QMessageBox.warning(self, "Can't inspect variable",
+                                        f"'{quantity}' is a scalar, there's nothing more to plot.")
+                    return
+                else:
+                    y = y_ds[:]
+
+                # Use the train ID if it's been saved, otherwise generate an X axis
+                if "trainId" in dataset[quantity]:
+                    x = dataset[quantity]["trainId"][:]
+                else:
+                    x = np.arange(len(y))
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
@@ -492,6 +605,7 @@ da-dev@xfel.eu"""
                 ylabel=quantity_title,
                 fmt="ro",
                 autoscale=False,
+                strongly_correlated=True
             )
         )
         self._canvas_inspect[-1].show()
@@ -507,24 +621,12 @@ da-dev@xfel.eu"""
         self.table.comment_changed.connect(self.save_comment)
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
-        self.table_view.setModel(self.table)
-
-        # Always keep these columns as small as possible to save space
-        header = self.table_view.horizontalHeader()
-        for column in ["Status", "Proposal", "Run", "Timestamp"]:
-            column_index = self.data.columns.get_loc(column)
-            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
-        table_horizontal_layout.addWidget(
-            self.table_view.set_columns_visibility(
-                [self.column_title(c) for c in self.data.columns],
-                [True for _ in self.data.columns],
-            ),
-            stretch=1,
-        )
+        table_horizontal_layout.addWidget(self.table_view.create_column_widget(),
+                                          stretch=1)
 
         vertical_layout.addLayout(table_horizontal_layout)
 

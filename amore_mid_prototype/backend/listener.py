@@ -1,5 +1,8 @@
+import getpass
 import json
 import logging
+import os
+import platform
 import queue
 import subprocess
 import sys
@@ -9,6 +12,7 @@ from threading import Thread
 from kafka import KafkaConsumer
 
 from .db import open_db, get_meta
+from .extract_data import RunData
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -52,7 +56,7 @@ def watch_processes_finish(q: queue.Queue):
 class EventProcessor:
     EXPECTED_EVENTS = ["migration_complete", "correction_complete"]
 
-    def __init__(self, topics, context_dir=Path('.')):
+    def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
         self.db = open_db(context_dir / 'runs.sqlite')
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
@@ -61,9 +65,9 @@ class EventProcessor:
         log.info(f"Will watch for events from proposal {self.proposal}")
 
         consumer_id = CONSUMER_ID.format(get_meta(self.db, 'db_id'))
-        self.kafka_cns = KafkaConsumer(
-            *topics, bootstrap_servers=BROKERS_IN, group_id=consumer_id
-        )
+        self.kafka_cns = KafkaConsumer("xfel-test-r2d2", "xfel-test-offline-cal",
+                                       bootstrap_servers=BROKERS_IN,
+                                       group_id=consumer_id)
 
         self.extract_procs_queue = queue.Queue()
         self.extract_procs_watcher = Thread(
@@ -98,6 +102,12 @@ class EventProcessor:
             log.debug("Unexpected %s event from Kafka", event)
 
     def handle_migration_complete(self, record, msg: dict):
+        self.handle_event(record, msg, RunData.RAW)
+
+    def handle_correction_complete(self, record, msg: dict):
+        self.handle_event(record, msg, RunData.PROC)
+
+    def handle_event(self, record, msg: dict, run_data: RunData):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
@@ -109,53 +119,56 @@ class EventProcessor:
                 INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
                 ON CONFLICT (proposal, runnr) DO NOTHING
             """, (proposal, run, record.timestamp / 1000))
-        log.info("Added p%d r%d to database", proposal, run)
+        log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
+        # Create subprocess to process the run
         extract_proc = subprocess.Popen([
             sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
-            str(proposal), str(run),
-        ], cwd=self.context_dir)
+            str(proposal), str(run), run_data.value
+        ], cwd=self.context_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.extract_procs_queue.put((proposal, run, extract_proc))
 
-    def handle_correction_complete(self, record, msg: dict):
-        proposal = int(msg['proposal'])
-        run = int(msg['run'])
+        # Create thread to log the subprocess's output
+        logger_thread = Thread(target=self.log_subprocess,
+                               args=(extract_proc.stdout, run, run_data))
+        logger_thread.start()
 
-        if msg.get('detector') != 'agipd' or proposal != self.proposal:
-            return
+    def log_subprocess(self, stdout_pipe, run, run_data):
+        with stdout_pipe:
+            for line_bytes in iter(stdout_pipe.readline, b""):
+                # Bytes to string, and remove trailing newline
+                line = line_bytes.decode().rstrip("\n")
+                log.info(f"r{run} ({run_data.value}): {line}")
 
-        with self.db:
-            run_count = self.db.execute("""
-                SELECT COUNT(runnr)
-                FROM runs
-                WHERE proposal = ? AND runnr = ?
-            """, (proposal, run)).fetchone()[0]
+def listen():
+    # Set up logging to a file
+    file_handler = logging.FileHandler("amore.log")
+    formatter = logging.root.handlers[0].formatter
+    file_handler.setFormatter(formatter)
+    logging.root.addHandler(file_handler)
 
-            if run_count > 0:
-                log.info(f"Already processed run {run}, skipping re-processing")
-                return
-
-        with self.db:
-            self.db.execute("""
-                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
-                ON CONFLICT (proposal, runnr) DO NOTHING
-            """, (proposal, run, record.timestamp / 1000))
-        log.info("Added p%d r%d to database", proposal, run)
-
-        extract_proc = subprocess.Popen([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data', str(proposal), str(run)
-        ], cwd=self.context_dir)
-        self.extract_procs_queue.put((proposal, run, extract_proc))
-
-
-def listen(topics):
+    log.info(f"Running on {platform.node()} under user {getpass.getuser()}, PID {os.getpid()}")
     try:
-        with EventProcessor(topics) as processor:
+        with EventProcessor() as processor:
             processor.run()
     except KeyboardInterrupt:
-        print("Stopping on Ctrl-C")
+        log.error("Stopping on Ctrl + C")
+    except Exception:
+        log.error("Stopping on unexpected error", exc_info=True)
 
+    # Always delete the tmux socket so we know the backend is not
+    # running. Is it safe to delete the socket before tmux has closed?
+    # Probably not. Do I care? lolno.
+    tmux_socket_path = Path.cwd() / "amore-tmux.sock"
+    if tmux_socket_path.exists():
+        tmux_socket_path.unlink()
+
+    # Flush all logs
+    logging.shutdown()
+
+    # Ensure that the log file is writable by everyone (so that different users
+    # can start the backend).
+    os.chmod("amore.log", 0o666)
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    listen(["correction_complete"])
+    listen()

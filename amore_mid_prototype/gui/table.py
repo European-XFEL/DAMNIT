@@ -1,5 +1,5 @@
-import time
 from functools import lru_cache
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -57,36 +57,23 @@ class TableView(QtWidgets.QTableView):
 
         self.horizontalHeader().moveSection(col_from, col_to)
 
-    def set_item_columns_visibility(self, columns, status):
-        if "Status" in columns:
-            columns.remove("Status")
+    def add_new_columns(self, columns, statuses):
+        for column, status in zip(columns, statuses):
+            if column in ["Status", "comment_id"]:
+                continue
 
-        for i in range(len(columns)):
-            item = QtWidgets.QListWidgetItem(columns[i])
-            item.setCheckState(Qt.Checked if status[i] else Qt.Unchecked)
+            item = QtWidgets.QListWidgetItem(column)
+            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
             self._columns_widget.addItem(item)
 
-    def set_columns_visibility(self, columns, statuses):
+    def create_column_widget(self):
         group = QtWidgets.QGroupBox("Column settings")
 
         layout = QtWidgets.QVBoxLayout()
 
         # Add the widget for static columns
         self._static_columns_widget = QtWidgets.QListWidget()
-        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
-        for column, status in zip(columns, statuses):
-            if column in static_columns:
-                item = QtWidgets.QListWidgetItem(column)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-                self._static_columns_widget.addItem(item)
-        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-                                            QtWidgets.QSizePolicy.Minimum)
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
-
-        # Remove the static columns
-        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
-                                            if x[0] not in static_columns]))
 
         self._columns_widget = QtWidgets.QListWidget()
         self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
@@ -96,8 +83,6 @@ class TableView(QtWidgets.QTableView):
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
-        self.set_item_columns_visibility(columns, statuses)
-
         layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
         layout.addWidget(self._static_columns_widget)
         layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
@@ -105,6 +90,25 @@ class TableView(QtWidgets.QTableView):
         group.setLayout(layout)
 
         return group
+
+    def set_columns(self, columns, statuses):
+        self._columns_widget.clear()
+        self._static_columns_widget.clear()
+
+        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
+        for column, status in zip(columns, statuses):
+            if column in static_columns:
+                item = QtWidgets.QListWidgetItem(column)
+                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
+                self._static_columns_widget.addItem(item)
+        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+                                                  QtWidgets.QSizePolicy.Minimum)
+        self._static_columns_widget.itemChanged.connect(self.item_changed)
+
+        # Remove the static columns
+        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
+                                            if x[0] not in static_columns]))
+        self.add_new_columns(columns, statuses)
 
     def style_comment_rows(self, *_):
         self.clearSpans()
@@ -185,13 +189,46 @@ class Table(QtCore.QAbstractTableModel):
         return QtGui.QPixmap(image).scaled(QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
                                            Qt.KeepAspectRatio)
 
+    @lru_cache(maxsize=1000)
+    def variable_is_constant(self, index):
+        """
+        Check if the variable at the given index is constant throughout the run.
+        """
+        is_constant = True
+        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+        quantity = self._main_window.ds_name(self._data.columns[index.column()])
+
+        try:
+            file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
+        except:
+            return is_constant
+
+        if quantity in run_file and "trainId" in run_file[quantity]:
+            ds = run_file[quantity]["data"]
+            # If it's an array
+            if len(ds.shape) == 1:
+                data = ds[:]
+                if not np.all(np.isclose(data, data[0])):
+                    is_constant = False
+
+        run_file.close()
+        return is_constant
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return
 
         value = self._data.iloc[index.row(), index.column()]
 
-        if role == Qt.DecorationRole:
+        if role == Qt.FontRole:
+            # If the variable is not constant, make it bold
+            if not self.variable_is_constant(index):
+                font = QtGui.QFont()
+                font.setBold(True)
+                return font
+
+        elif role == Qt.DecorationRole:
             if isinstance(value, np.ndarray):
                 return self.generateThumbnail(index)
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
@@ -203,15 +240,17 @@ class Table(QtCore.QAbstractTableModel):
                 return None
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
-                return time.strftime("%H:%M:%S %d/%m/%Y", time.localtime(value))
+                dt_naive = datetime.fromtimestamp(value)
+                dt_local = dt_naive.replace(tzinfo=timezone.utc).astimezone()
+                return dt_local.strftime("%H:%M:%S %d/%m/%Y")
 
             elif pd.api.types.is_float(value):
-                if value % 1 == 0:
+                if value % 1 == 0 and abs(value) < 10_000:
                     # If it has no decimal places, display it as an int
                     return f"{int(value)}"
-                elif 0.1 < value < 10_000:
+                elif 0.0001 < abs(value) < 10_000:
                     # If it's an easily-recognized range for numbers, display as a float
-                    return f"{value:.3f}"
+                    return f"{value:.4f}"
                 else:
                     # Otherwise, display in scientific notation
                     return f"{value:.3e}"
