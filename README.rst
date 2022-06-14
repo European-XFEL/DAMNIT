@@ -40,11 +40,13 @@ Managing the backend
 The GUI is capable of initializing a database for a proposal and starting the
 backend automatically. We do this by abusing tmux as a service manager, which is
 possible because:
+
 - tmux servers support Unix sockets.
 - tmux is designed to run 'asynchronously', without a user having to be logged
   in with a terminal open.
 
 So the rules are:
+
 - The backend is run inside a tmux session named ``AMORE``.
 - The tmux server is bound to a socket named ``amore-tmux.sock`` inside the
   database directory.
