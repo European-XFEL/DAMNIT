@@ -619,11 +619,9 @@ da-dev@xfel.eu"""
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot)
-        self.plot._button_plot_runs.setMinimumWidth(150)
-
         plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        self.plot._button_plot.setMinimumWidth(150)
+        #self.plot._button_plot_runs.setMinimumWidth(150)
+        plot_horizontal_layout.addWidget(self.plot._toggle_plot_summary_table)
         plot_horizontal_layout.addStretch()
 
         plot_horizontal_layout.addWidget(self.plot._toggle_probability_density)
@@ -634,9 +632,8 @@ da-dev@xfel.eu"""
         plot_horizontal_layout.addWidget(self.plot.vs_label)
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
 
-        plot_parameters_horizontal_layout.addWidget(self.plot._toggle_plot_table)
-        #self.plot._button_plot.setMinimumWidth(300)
-        #plot_parameters_horizontal_layout.addStretch()
+        plot_parameters_horizontal_layout.addWidget(self.plot._toggle_plot_select_all_entries)
+        plot_parameters_horizontal_layout.addStretch()
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
