@@ -551,7 +551,7 @@ class Plot:
 
     def update(self):
         for i in range(len(self._canvas["canvas"])):
-            if not self._canvas["indices"][i]:
+            if not self._canvas["canvas"][i]._is_open:
                 continue
 
             indices = self._canvas["indices"][i]
