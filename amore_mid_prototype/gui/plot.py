@@ -36,6 +36,8 @@ class Canvas(QtWidgets.QDialog):
         super().__init__()
         self.setStyleSheet("background-color: white")
 
+        self._is_open = True
+
         self.data_x, self.data_y = None, None
         self.histogram1D_bins = 10
 
@@ -129,6 +131,11 @@ class Canvas(QtWidgets.QDialog):
 
         self.update_canvas(x, y, plot_type=self.plot_type)
         self.figure.tight_layout()
+    
+    def closeEvent(self, event):
+        self._is_open = False
+        
+        event.accept()
 
     def toggle_panhandler(self, enabled):
         if enabled:
@@ -544,6 +551,9 @@ class Plot:
 
     def update(self):
         for i in range(len(self._canvas["canvas"])):
+            if not self._canvas["indices"][i]:
+                continue
+
             indices = self._canvas["indices"][i]
 
             if self._canvas["select_all"][i]:
