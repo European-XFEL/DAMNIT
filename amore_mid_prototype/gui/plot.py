@@ -224,8 +224,19 @@ class Canvas(QtWidgets.QDialog):
         self.data_y = ys
 
         if len(xs):
-            xs_min, ys_min = min([xi.min() for xi in xs]), min([yi.min() for yi in ys])
-            xs_max, ys_max = max([xi.max() for xi in xs]), max([yi.max() for yi in ys])
+            if hasattr(xs[0], "__len__"):
+                xs_min, xs_max = min([min(xi) for xi in xs]), max([max(xi) for xi in xs])
+            else:
+                xs_min, xs_max = min(xs), max(xs)
+            if hasattr(ys[0], "__len__"):
+                ys_min, ys_max = min([min(yi) for yi in ys]), max([max(yi) for yi in ys])
+            else:
+                ys_min, ys_max = min(ys), max(ys)
+
+            #xs_min, ys_min = min([xi.min() for xi in xs if hasattr(xs[0], "__len__")]), min([yi.min() for yi in ys if hasattr(ys[0], "__len__")])
+            #xs_max, ys_max = max([xi.max() for xi in xs if hasattr(xs[0], "__len__")]), max([yi.max() for yi in ys if hasattr(ys[0], "__len__")])
+            if plot_type == "histogram1D":
+                ys_min, ys_max = 0, 1
 
         self._lines[series_names[0]] = []
         self._kwargs[series_names[0]] = []
@@ -278,9 +289,6 @@ class Canvas(QtWidgets.QDialog):
                 xs_max = max(xs_max, x.max())
                 ys_max = min(ys_max, y.max())
 
-        if self._legend is not None:
-            self._axis.legend(loc="best")
-
         self._axis.legend().set_visible(self._show_legend)
         self.figure.canvas.draw()
 
@@ -327,7 +335,7 @@ class Plot:
         self._main_window = main_window
         keys = list(main_window.data.columns)
 
-        for ki in ["Comment", "Status"] + [xi for xi in keys if xi.startswith("_")]:
+        for ki in ["Comment", "Use"] + [xi for xi in keys if xi.startswith("_")]:
             keys.remove(ki)
 
         self.plot_type = "default"
@@ -447,7 +455,7 @@ class Plot:
 
     def _button_plot_clicked(self, runs_as_series, select_all):
         non_data_field = {
-            "Status": None,
+            "Use": None,
             "Timestamp": None,
             "Proposal": None,
             "Run": None,
@@ -462,7 +470,7 @@ class Plot:
         else:
             indices = [i for i in range(self._data["Run"].size)]
 
-        status = [self._data.iloc[index]["Status"] for index in indices]
+        status = [self._data.iloc[index]["Use"] for index in indices]
         run = [self._data.iloc[index]["Run"] for index in indices]
 
         indices = [
@@ -568,7 +576,7 @@ class Plot:
                     for j, ri, si in zip(
                         range(len(self._canvas["non_data_field"][i]["Run"])),
                         self._canvas["non_data_field"][i]["Run"],
-                        self._canvas["non_data_field"][i]["Status"],
+                        self._canvas["non_data_field"][i]["Use"],
                     )
                     if (ri is not pd.NA and si == True)
                 ]
