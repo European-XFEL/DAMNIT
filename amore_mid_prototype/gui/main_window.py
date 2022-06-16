@@ -86,7 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         for ci in range(len(self.plot._canvas["canvas"])):
-            self.plot._canvas["canvas"][ci].closeEvent()
+            self.plot._canvas["canvas"][ci].close()
 
         if self._zmq_thread is not None:
             self._zmq_thread.exit()
@@ -623,7 +623,7 @@ da-dev@xfel.eu"""
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
 
         plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        #self.plot._button_plot_runs.setMinimumWidth(150)
+        # self.plot._button_plot_runs.setMinimumWidth(150)
         plot_horizontal_layout.addWidget(self.plot._toggle_plot_summary_table)
         plot_horizontal_layout.addStretch()
 
@@ -635,12 +635,14 @@ da-dev@xfel.eu"""
         plot_horizontal_layout.addWidget(self.plot.vs_label)
         plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
 
-        plot_parameters_horizontal_layout.addWidget(self.plot._toggle_plot_select_all_entries)
+        plot_parameters_horizontal_layout.addWidget(
+            self.plot._toggle_plot_select_all_entries
+        )
         plot_parameters_horizontal_layout.addStretch()
 
         plot_vertical_layout.addLayout(plot_horizontal_layout)
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
-        
+
         plotting_group.setLayout(plot_vertical_layout)
 
         vertical_layout.addWidget(plotting_group)
