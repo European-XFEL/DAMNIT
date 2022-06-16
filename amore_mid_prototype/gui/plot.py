@@ -131,10 +131,10 @@ class Canvas(QtWidgets.QDialog):
 
         self.update_canvas(x, y, plot_type=self.plot_type)
         self.figure.tight_layout()
-    
+
     def closeEvent(self, event):
         self._is_open = False
-        
+
         event.accept()
 
     def toggle_panhandler(self, enabled):
@@ -225,16 +225,20 @@ class Canvas(QtWidgets.QDialog):
 
         if len(xs):
             if hasattr(xs[0], "__len__"):
-                xs_min, xs_max = min([min(xi) for xi in xs]), max([max(xi) for xi in xs])
+                xs_min, xs_max = (
+                    min([min(xi) for xi in xs]),
+                    max([max(xi) for xi in xs]),
+                )
             else:
                 xs_min, xs_max = min(xs), max(xs)
             if hasattr(ys[0], "__len__"):
-                ys_min, ys_max = min([min(yi) for yi in ys]), max([max(yi) for yi in ys])
+                ys_min, ys_max = (
+                    min([min(yi) for yi in ys]),
+                    max([max(yi) for yi in ys]),
+                )
             else:
                 ys_min, ys_max = min(ys), max(ys)
 
-            #xs_min, ys_min = min([xi.min() for xi in xs if hasattr(xs[0], "__len__")]), min([yi.min() for yi in ys if hasattr(ys[0], "__len__")])
-            #xs_max, ys_max = max([xi.max() for xi in xs if hasattr(xs[0], "__len__")]), max([yi.max() for yi in ys if hasattr(ys[0], "__len__")])
             if plot_type == "histogram1D":
                 ys_min, ys_max = 0, 1
 
@@ -419,8 +423,8 @@ class Plot:
         if x_fake is None or y_fake is None:
             for pi, ri in zip(non_data_field["Proposal"], non_data_field["Run"]):
                 xi, yi = self.get_run_series_data(pi, ri, xlabel, ylabel,)
-                #x = self._main_window.make_finite(xi)
-                #y = self._main_window.make_finite(yi)
+                # x = self._main_window.make_finite(xi)
+                # y = self._main_window.make_finite(yi)
                 x.append(self._main_window.make_finite(xi))
                 y.append(self._main_window.make_finite(yi))
 
@@ -430,7 +434,7 @@ class Plot:
                     if xlabel not in non_data_field.keys():
                         _x = []
                         for sx in range(len(x)):
-                            _x.append([vi[sx]]*len(x[sx]))
+                            _x.append([vi[sx]] * len(x[sx]))
                         x = _x
                         continue
                     else:
@@ -445,7 +449,7 @@ class Plot:
                     if ylabel not in non_data_field.keys():
                         _y = []
                         for sy in range(len(y)):
-                            _y.append([vi[sy]]*len(x[sy]))
+                            _y.append([vi[sy]] * len(x[sy]))
                         y = _y
                         continue
                     else:
@@ -491,7 +495,18 @@ class Plot:
                 )
                 return
 
-        log.info("Selected runs {}".format(non_data_field["Run"]))
+        formatted_array = [
+            "{}...{}".format(i, j) if i != j else "{}".format(i)
+            for i, j in zip(
+                np.array(non_data_field["Run"])[
+                    [True] + list(np.diff(non_data_field["Run"]) != 1)
+                ],
+                np.array(non_data_field["Run"])[
+                    list(np.diff(non_data_field["Run"]) != 1) + [True]
+                ],
+            )
+        ]
+        log.info("Selected runs {}".format(formatted_array))
 
         if len(set(non_data_field["Proposal"])) > 1:
             QMessageBox.warning(
@@ -505,7 +520,7 @@ class Plot:
             if self.plot_type == "histogram1D":
                 # lazy workaround, one of the two should be None
                 # reason: get_run_series_data
-                ylabel = xlabel
+                xlabel = ylabel
 
         except Exception:
             log.warning("Error getting data for plot", exc_info=True)
@@ -551,10 +566,10 @@ class Plot:
 
     def _toggle_probability_density_clicked(self):
         if self._toggle_probability_density.isChecked():
-            self._combo_box_y_axis.setEnabled(False)
+            self._combo_box_x_axis.setEnabled(False)
             self.plot_type = "histogram1D"
         else:
-            self._combo_box_y_axis.setEnabled(True)
+            self._combo_box_x_axis.setEnabled(True)
             self.plot_type = "default"
 
     def update(self):
@@ -583,23 +598,42 @@ class Plot:
 
             # Find the proposals of currently selected runs
             for ki in self._canvas["non_data_field"][i].keys():
-                self._canvas["non_data_field"][i][ki] = [self._data.iloc[index][ki] for index in indices]
+                self._canvas["non_data_field"][i][ki] = [
+                    self._data.iloc[index][ki] for index in indices
+                ]
 
             if len(self._canvas["runs_as_series"][i]):
                 if self._canvas["updatable"]:
-                    xi, yi = self._plot_runs_as_series(self._canvas["key.x"][i], self._canvas["key.y"][i], self._canvas["non_data_field"][i])
-
+                    xi, yi = self._plot_runs_as_series(
+                        self._canvas["key.x"][i],
+                        self._canvas["key.y"][i],
+                        self._canvas["non_data_field"][i],
+                    )
 
             else:
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
-                xi = [self._main_window.make_finite(self._data[self._canvas["key.x"][i]])[indices]]
-                yi = [self._main_window.make_finite(self._data[self._canvas["key.y"][i]])[indices]]
+                xi = [
+                    self._main_window.make_finite(self._data[self._canvas["key.x"][i]])[
+                        indices
+                    ]
+                ]
+                yi = [
+                    self._main_window.make_finite(self._data[self._canvas["key.y"][i]])[
+                        indices
+                    ]
+                ]
 
             if not self._canvas["select_all"][i]:
                 self._canvas["updatable"][i] = False
 
-            log.debug("Updating plot for x=%s, y=%s", self._canvas["key.x"], self._canvas["key.y"])
-            self._canvas["canvas"][i].update_canvas(xi, yi, plot_type=self._canvas["type"][i])
+            log.debug(
+                "Updating plot for x=%s, y=%s",
+                self._canvas["key.x"],
+                self._canvas["key.y"],
+            )
+            self._canvas["canvas"][i].update_canvas(
+                xi, yi, plot_type=self._canvas["type"][i]
+            )
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
         file_name, dataset = self._main_window.get_run_file(proposal, run)
