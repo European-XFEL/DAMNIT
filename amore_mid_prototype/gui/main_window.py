@@ -85,6 +85,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.center_window()
 
     def closeEvent(self, event):
+        for ci in range(len(self.plot._canvas["canvas"])):
+            self.plot._canvas["canvas"][ci].closeEvent()
+
         if self._zmq_thread is not None:
             self._zmq_thread.exit()
 
@@ -191,7 +194,7 @@ da-dev@xfel.eu"""
             log.info("Reading data from database")
             self.db = open_db(sqlite_path)
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
-            df.insert(0, "Status", True)
+            df.insert(0, "Use", True)
             df.insert(len(df.columns), "_comment_id", pd.NA)
 
             # Read the comments and prepare them for merging with the main data
@@ -201,7 +204,7 @@ da-dev@xfel.eu"""
             comments_df.insert(0, "Run", pd.NA)
             comments_df.insert(1, "Proposal", pd.NA)
             # Don't try to plot comments
-            comments_df.insert(2, "Status", False)
+            comments_df.insert(2, "Use", False)
 
             self.data = pd.concat(
                 [
@@ -228,8 +231,8 @@ da-dev@xfel.eu"""
             if "Timestamp" in self.data.columns:
                 self.data.insert(0, "Timestamp", self.data.pop("Timestamp"))
 
-            if "Status" in self.data.columns:
-                self.data.insert(2, "Status", self.data.pop("Status"))
+            if "Use" in self.data.columns:
+                self.data.insert(2, "Use", self.data.pop("Use"))
 
             if "Run" in self.data.columns:
                 self.data.insert(3, "Run", self.data.pop("Run"))
@@ -353,7 +356,7 @@ da-dev@xfel.eu"""
             **self.column_renames(),
         }
         message = {
-            "Status": True,
+            "Use": True,
             **{renames.get(k, k): v for (k, v) in message.items()},
         }
 
@@ -467,7 +470,7 @@ da-dev@xfel.eu"""
                 self.data,
                 pd.DataFrame(
                     {
-                        "Status": False,
+                        "Use": False,
                         "Timestamp": ts,
                         "Run": pd.NA,
                         "Proposal": pd.NA,
@@ -524,7 +527,7 @@ da-dev@xfel.eu"""
         quantity = self.ds_name(quantity_title)
 
         # Don't try to plot comments
-        if quantity in ["Comment", "Status"]:
+        if quantity in ["Comment", "Use"]:
             return
 
         log.info(
@@ -590,7 +593,7 @@ da-dev@xfel.eu"""
 
         # Always keep these columns as small as possible to save space
         header = self.table_view.horizontalHeader()
-        for column in ["Status", "Run", "Timestamp"]:
+        for column in ["Use", "Run", "Timestamp"]:
             column_index = self.data.columns.get_loc(column)
             header.setSectionResizeMode(
                 column_index, QtWidgets.QHeaderView.ResizeToContents

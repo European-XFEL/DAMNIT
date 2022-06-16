@@ -170,7 +170,7 @@ class Table(QtCore.QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             value = self._data.iloc[index.row(), index.column()]
 
-            if pd.isna(value) or index.column() == self._data.columns.get_loc("Status"):
+            if pd.isna(value) or index.column() == self._data.columns.get_loc("Use"):
                 return None
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
@@ -192,10 +192,10 @@ class Table(QtCore.QAbstractTableModel):
 
         elif (
             role == Qt.ItemDataRole.CheckStateRole
-            and index.column() == self._data.columns.get_loc("Status")
+            and index.column() == self._data.columns.get_loc("Use")
             and not self.isCommentRow(index.row())
         ):
-            if self._data["Status"].iloc[index.row()]:
+            if self._data["Use"].iloc[index.row()]:
                 return QtCore.Qt.Checked
             else:
                 return QtCore.Qt.Unchecked
@@ -230,8 +230,8 @@ class Table(QtCore.QAbstractTableModel):
                         self.time_comment_changed.emit(comment_id, value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
-            new_state = not self._data["Status"].iloc[index.row()]
-            self._data["Status"].values[index.row()] = new_state
+            new_state = not self._data["Use"].iloc[index.row()]
+            self._data["Use"].values[index.row()] = new_state
             self.run_visibility_changed.emit(index.row(), new_state)
 
         return True
@@ -249,7 +249,7 @@ class Table(QtCore.QAbstractTableModel):
 
         if index.column() == self._data.columns.get_loc("Comment"):
             item_flags |= Qt.ItemIsEditable
-        elif index.column() == self._data.columns.get_loc("Status"):
+        elif index.column() == self._data.columns.get_loc("Use"):
             item_flags |= Qt.ItemIsUserCheckable
 
         return item_flags
