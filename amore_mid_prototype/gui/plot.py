@@ -524,7 +524,7 @@ class Plot:
             xlabel = ylabel
 
             log.info("New histogram plot for x=%r", xlabel)
-        
+
         else:
             log.info("New plot for x=%r, y=%r", xlabel, ylabel)
 
@@ -532,8 +532,6 @@ class Plot:
             legend = ylabel
         else:
             legend = ["Run {}".format(ri) for ri in non_data_field["Run"]]
-        
-        print(runs_as_series, indices)
 
         canvas = Canvas(
             self._main_window,

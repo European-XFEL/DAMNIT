@@ -72,21 +72,9 @@ class TableView(QtWidgets.QTableView):
             self._columns_widget.addItem(item)
 
     def set_columns_visibility(self, columns, statuses):
-        group = QtWidgets.QGroupBox("Column settings")
+        # group = QtWidgets.QGroupBox("Column settings")
 
         layout = QtWidgets.QVBoxLayout()
-
-        # Add the widget for static columns
-        # self._static_columns_widget = QtWidgets.QListWidget()
-
-        # for column, status in zip(columns, statuses):
-        #    if column in static_columns:
-        #        item = QtWidgets.QListWidgetItem(column)
-        #        item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-        #        self._static_columns_widget.addItem(item)
-        # self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-        #                                    QtWidgets.QSizePolicy.Minimum)
-        # self._static_columns_widget.itemChanged.connect(self.item_changed)
 
         # Remove the static columns
         columns, statuses = map(
@@ -105,20 +93,17 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
 
-        # self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet(
             "QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }"
         )
 
         self.set_item_columns_visibility(columns, statuses)
 
-        # layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
-        # layout.addWidget(self._static_columns_widget)
         layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
         layout.addWidget(self._columns_widget)
-        group.setLayout(layout)
+        # group.setLayout(layout)
 
-        return group
+        return layout
 
     def style_comment_rows(self, *_):
         self.clearSpans()

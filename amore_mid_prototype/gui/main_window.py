@@ -5,6 +5,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime, timezone
 from pathlib import Path
+from tkinter import dialog
 
 import pandas as pd
 import numpy as np
@@ -55,15 +56,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
+
         self._create_status_bar()
         self._create_menu_bar()
 
-        self.tabs = QtWidgets.QTabWidget()
-        self.tab1 = QtWidgets.QWidget()
-        self.tab2 = QtWidgets.QWidget()
+        # self.tabs = QtWidgets.QTabWidget()
+        # self.tab1 = QtWidgets.QWidget()
+        # self.tab2 = QtWidgets.QWidget()
 
-        self.tabs.addTab(self.tab1, "Inspector")
-        self.tabs.addTab(self.tab2, "Editor")
+        # self.tabs.addTab(self.tab1, "Inspector")
+        # self.tabs.addTab(self.tab2, "Editor")
 
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
@@ -250,11 +252,11 @@ da-dev@xfel.eu"""
                     )
 
                     # to avoid tweaking the sorting, hidden columns should be the last ones
-                    self.data.insert(
-                        len(self.data.columns) - 1, column, self.data.pop(column)
-                    )
+                    # self.data.insert(
+                    #    len(self.data.columns) - 1, column, self.data.pop(column)
+                    # )
 
-        self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        self._status_bar.showMessage("Double-click on a cell to inspect data.")
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -310,6 +312,7 @@ da-dev@xfel.eu"""
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
+        """
         tags_menu = menu_bar.addMenu("&Tags")
 
         tags_menu_editor = QtWidgets.QAction(QtGui.QIcon("tags.png"), "&Editor", self)
@@ -326,7 +329,7 @@ da-dev@xfel.eu"""
         )
         action_column_editor.setShortcut("Shift+V")
         action_column_editor.setStatusTip("Add or modify columns.")
-        # action_column_editor.triggered.connect(self.table_view.set_columns_visibility)
+        #action_column_editor.triggered.connect(self.table_settings.show)
 
         columns_menu.addAction(action_column_editor)
 
@@ -340,6 +343,7 @@ da-dev@xfel.eu"""
         # groups_menu_add.triggered.connect(self._menu_bar_help)
 
         groups_menu.addAction(groups_menu_editor)
+        """
 
     def zmq_get_data_and_update(self, message):
 
@@ -459,6 +463,17 @@ da-dev@xfel.eu"""
             time.strftime("%H:%M %d/%m/%Y", time.localtime(time.time()))
         )
 
+    def _table_settings_button_clicked(self):
+        dialog = QtWidgets.QDialog(self)
+
+        layout = self.table_view.set_columns_visibility(
+            [self.column_title(c) for c in self.data.columns],
+            [True for _ in self.data.columns],
+        )
+
+        dialog.setLayout(layout)
+        dialog.show()
+
     def _comment_button_clicked(self):
         ts = (
             datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y")
@@ -569,22 +584,23 @@ da-dev@xfel.eu"""
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
-        filter_horizontal_layout = QtWidgets.QHBoxLayout()
+        # filter_horizontal_layout = QtWidgets.QHBoxLayout()
+        settings_horizontal_layout = QtWidgets.QHBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # filter
-        filter_button = QtWidgets.QPushButton("Filter data")
-        filter_button.setEnabled(True)
-        filter_button.setMinimumWidth(175)
+        # filter_button = QtWidgets.QPushButton("Filter data")
+        # filter_button.setEnabled(True)
+        # filter_button.setMinimumWidth(175)
         # filter_button.clicked.connect(self._comment_button_clicked)
 
-        self.filter = QtWidgets.QLineEdit(self)
-        self.filter.setToolTip("Filter results.")
+        # self.filter = QtWidgets.QLineEdit(self)
+        # self.filter.setToolTip("Filter results.")
 
-        filter_horizontal_layout.addWidget(filter_button)
-        filter_horizontal_layout.addWidget(self.filter)
+        # filter_horizontal_layout.addWidget(filter_button)
+        # filter_horizontal_layout.addWidget(self.filter)
 
-        vertical_layout.addLayout(filter_horizontal_layout)
+        # vertical_layout.addLayout(filter_horizontal_layout)
 
         # the table
         self.table_view = TableView()
@@ -604,22 +620,37 @@ da-dev@xfel.eu"""
 
         self.table_view.doubleClicked.connect(self.inspect_data)
 
-        table_horizontal_layout.addWidget(self.table_view)  # , stretch=6)
-
-        # table_horizontal_layout.addWidget(
-        #    self.table_view.set_columns_visibility(
-        #        [self.column_title(c) for c in self.data.columns],
-        #        [True for _ in self.data.columns],
-        #    ),
-        #    stretch=1,
-        # )
+        table_horizontal_layout.addWidget(self.table_view)
 
         vertical_layout.addLayout(table_horizontal_layout)
+
+        # groups and table settings
+        # table_settings_button = QtWidgets.QPushButton("Groups settings")
+        # table_settings_button.setEnabled(True)
+        # table_settings_button.setMinimumWidth(175)
+        # table_settings_button.clicked.connect(self._table_settings_button_clicked)
+
+        settings_horizontal_layout.addStretch()
+
+        table_settings_button = QtWidgets.QPushButton("Table settings")
+        table_settings_button.setEnabled(True)
+        table_settings_button.setMinimumWidth(175)
+        table_settings_button.clicked.connect(self._table_settings_button_clicked)
+
+        settings_horizontal_layout.addWidget(table_settings_button)
+
+        # self.filter = QtWidgets.QLineEdit(self)
+        # self.filter.setToolTip("Filter results.")
+
+        # filter_horizontal_layout.addWidget(filter_button)
+        # filter_horizontal_layout.addWidget(self.filter)
+
+        vertical_layout.addLayout(settings_horizontal_layout)
 
         # plotting control
         self.plot = Plot(self)
         plotting_group = QtWidgets.QGroupBox(
-            "Plot (double-click on a cell to inspect results)"
+            "Plot (double-click on a cell to inspect data)"
         )
 
         plot_grid_layout = QtWidgets.QGridLayout()
