@@ -3,7 +3,7 @@ import logging
 import sys
 import time
 from argparse import ArgumentParser
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -322,11 +322,11 @@ da-dev@xfel.eu"""
         columns_menu = menu_bar.addMenu("&Columns")
 
         action_column_editor = QtWidgets.QAction(
-            QtGui.QIcon("column_add.png"), "&Editor", self
+            QtGui.QIcon("column_add.png"), "&View", self
         )
-        action_column_editor.setShortcut("Shift+C")
+        action_column_editor.setShortcut("Shift+V")
         action_column_editor.setStatusTip("Add or modify columns.")
-        # action_column_add.triggered.connect(self._menu_bar_help)
+        # action_column_editor.triggered.connect(self.table_view.set_columns_visibility)
 
         columns_menu.addAction(action_column_editor)
 
@@ -460,7 +460,11 @@ da-dev@xfel.eu"""
         )
 
     def _comment_button_clicked(self):
-        ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
+        ts = (
+            datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y")
+            .astimezone(timezone.utc)
+            .timestamp()
+        )
         text = self.comment.text()
         with self.db:
             cur = self.db.execute("INSERT INTO time_comments VALUES (?, ?)", (ts, text))
@@ -554,11 +558,10 @@ da-dev@xfel.eu"""
                 self,
                 x=[self.make_finite(x)],
                 y=[self.make_finite(y)],
-                xlabel="Event (run {})".format(run),
+                xlabel="Event in run {}".format(run),
                 ylabel=quantity_title,
                 fmt="o-",
                 color="red",
-                autoscale=False,
             )
         )
         self._canvas_inspect[-1].show()
@@ -618,10 +621,10 @@ da-dev@xfel.eu"""
         plotting_group = QtWidgets.QGroupBox(
             "Plot (double-click on a cell to inspect results)"
         )
-        
+
         plot_grid_layout = QtWidgets.QGridLayout()
         plotting_group.setLayout(plot_grid_layout)
-        
+
         plot_grid_layout.addWidget(self.plot._button_plot_runs, *(0, 0))
         plot_grid_layout.addWidget(self.plot._toggle_plot_summary_table, *(0, 1))
         plot_grid_layout.setColumnStretch(2, 1)
