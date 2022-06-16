@@ -465,12 +465,12 @@ class Plot:
             "Run": None,
         }
 
-        selected_rows = self._main_window.table_view.selectionModel().selectedRows()
+        indices = self._main_window.table_view.selectionModel().selectedRows()
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
 
         if not select_all:
-            indices = [index.row() for index in selected_rows]
+            indices = [index.row() for index in indices]
         else:
             indices = [i for i in range(self._data["Run"].size)]
 
@@ -482,6 +482,8 @@ class Plot:
             for i, ri, si in zip(range(len(run)), run, status)
             if (ri is not pd.NA and si == True)
         ]
+
+        print(indices)
 
         for ki in non_data_field.keys():
             non_data_field[ki] = [self._data.iloc[index][ki] for index in indices]
@@ -516,27 +518,22 @@ class Plot:
             )
             return
 
-        try:
-            if self.plot_type == "histogram1D":
-                # lazy workaround, one of the two should be None
-                # reason: get_run_series_data
-                xlabel = ylabel
+        if self.plot_type == "histogram1D":
+            # lazy workaround, one of the two should be None
+            # reason: get_run_series_data
+            xlabel = ylabel
 
-        except Exception:
-            log.warning("Error getting data for plot", exc_info=True)
-            QMessageBox.warning(
-                self._main_window,
-                "Plotting failed",
-                f"Cannot plot {ylabel} against {xlabel}, some data is missing for the run",
-            )
-            return
-
-        log.info("New plot for x=%r, y=%r", xlabel, ylabel)
+            log.info("New histogram plot for x=%r", xlabel)
+        
+        else:
+            log.info("New plot for x=%r, y=%r", xlabel, ylabel)
 
         if not runs_as_series:
             legend = ylabel
         else:
             legend = ["Run {}".format(ri) for ri in non_data_field["Run"]]
+        
+        print(runs_as_series, indices)
 
         canvas = Canvas(
             self._main_window,
@@ -556,7 +553,7 @@ class Plot:
         self._canvas["non_data_field"].append(non_data_field)
         self._canvas["legend"].append(legend)
         self._canvas["type"].append(self.plot_type)
-        self._canvas["runs_as_series"].append(selected_rows if runs_as_series else [])
+        self._canvas["runs_as_series"].append(indices if runs_as_series else [])
         self._canvas["select_all"].append(select_all)
         self._canvas["updatable"].append(True)
 
