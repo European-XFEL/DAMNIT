@@ -7,6 +7,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
+from subprocess import Popen
 
 import libtmux
 import pandas as pd
@@ -32,8 +33,11 @@ pd.options.mode.use_inf_as_na = True
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    context_path = None
     db = None
     db_id = None
+
+    context_dir_changed = QtCore.pyqtSignal(str)
 
     def __init__(self, context_dir: Path = None):
         super().__init__()
@@ -97,6 +101,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+    def _menu_bar_edit_context(self):
+        Popen(['xdg-open', self.context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -220,10 +227,10 @@ da-dev@xfel.eu"""
                            window_command=f"cd {str(path)}; amore-proto listen .")
 
     def autoconfigure(self, path: Path, proposal=None):
-        context_path = path / "context.py"
-        if context_path.is_file():
-            log.info("Reading context file %s", context_path)
-            ctx_file = ContextFile.from_py_file(context_path)
+        self.context_path = path / "context.py"
+        if self.context_path.is_file():
+            log.info("Reading context file %s", self.context_path)
+            ctx_file = ContextFile.from_py_file(self.context_path)
             self._attributi = ctx_file.vars
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
@@ -296,6 +303,7 @@ da-dev@xfel.eu"""
 
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
         self._view_widget.setEnabled(True)
+        self.context_dir_changed.emit(str(path))
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -318,6 +326,14 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
+        action_edit_ctx = QtWidgets.QAction(
+            QtGui.QIcon.fromTheme("accessories-text-editor"), "Edit context file", self
+        )
+        action_edit_ctx.setStatusTip("Open the Python context file in a text editor")
+        action_edit_ctx.triggered.connect(self._menu_bar_edit_context())
+        action_edit_ctx.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: action_edit_ctx.setEnabled(True))
+
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -332,6 +348,7 @@ da-dev@xfel.eu"""
             QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
+        fileMenu.addAction(action_edit_ctx)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
