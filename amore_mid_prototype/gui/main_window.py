@@ -330,7 +330,7 @@ da-dev@xfel.eu"""
             QtGui.QIcon.fromTheme("accessories-text-editor"), "Edit context file", self
         )
         action_edit_ctx.setStatusTip("Open the Python context file in a text editor")
-        action_edit_ctx.triggered.connect(self._menu_bar_edit_context())
+        action_edit_ctx.triggered.connect(self._menu_bar_edit_context)
         action_edit_ctx.setEnabled(False)
         self.context_dir_changed.connect(lambda _: action_edit_ctx.setEnabled(True))
 
