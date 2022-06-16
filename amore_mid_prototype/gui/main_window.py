@@ -618,38 +618,26 @@ da-dev@xfel.eu"""
         plotting_group = QtWidgets.QGroupBox(
             "Plot (double-click on a cell to inspect results)"
         )
-        plot_vertical_layout = QtWidgets.QVBoxLayout()
-        plot_horizontal_layout = QtWidgets.QHBoxLayout()
-        plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
+        
+        plot_grid_layout = QtWidgets.QGridLayout()
+        plotting_group.setLayout(plot_grid_layout)
+        
+        plot_grid_layout.addWidget(self.plot._button_plot_runs, *(0, 0))
+        plot_grid_layout.addWidget(self.plot._toggle_plot_summary_table, *(0, 1))
+        plot_grid_layout.setColumnStretch(2, 1)
 
-        plot_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        # self.plot._button_plot_runs.setMinimumWidth(150)
-        plot_horizontal_layout.addWidget(self.plot._toggle_plot_summary_table)
-        plot_horizontal_layout.addStretch()
-
-        plot_horizontal_layout.addWidget(self.plot._toggle_probability_density)
+        plot_grid_layout.addWidget(self.plot._toggle_probability_density, *(0, 3))
 
         self.plot._combo_box_x_axis.setFixedWidth(300)
         self.plot._combo_box_y_axis.setFixedWidth(300)
-        plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
-        plot_horizontal_layout.addWidget(self.plot.vs_label)
-        plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
+        plot_grid_layout.addWidget(self.plot._combo_box_y_axis, *(0, 4))
+        plot_grid_layout.addWidget(self.plot.vs_label, *(0, 5))
+        plot_grid_layout.addWidget(self.plot._combo_box_x_axis, *(0, 6))
 
-        plot_parameters_horizontal_layout.addWidget(
-            self.plot._toggle_plot_select_all_entries
-        )
-        plot_parameters_horizontal_layout.addStretch()
-
-        plot_vertical_layout.addLayout(plot_horizontal_layout)
-        plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
-
-        plotting_group.setLayout(plot_vertical_layout)
-
+        plot_grid_layout.addWidget(self.plot._toggle_plot_select_all_entries, *(1, 1))
         vertical_layout.addWidget(plotting_group)
 
         # comments
-        # comment_group = QtWidgets.QGroupBox("Additional comment (time can be edited)")
-
         self.comment = QtWidgets.QLineEdit(self)
         self.comment.setToolTip("Time can be edited in the field on the right.")
 
