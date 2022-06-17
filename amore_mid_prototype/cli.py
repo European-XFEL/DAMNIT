@@ -74,6 +74,9 @@ def main():
         return listen()
 
     elif args.subcmd == 'reprocess':
+        # Hide some logging from Kafka to make things more readable
+        logging.getLogger('kafka').setLevel(logging.WARNING)
+
         from .backend.extract_data import extract_and_ingest
         if args.run == ['all']:
             from .backend.db import open_db
