@@ -138,7 +138,7 @@ def run_and_save(proposal, run, out_path, run_data=RunData.ALL, match=[]):
 
     # Filter variables
     for name in list(ctx_file.vars.keys()):
-        title = ctx_file.vars[name].title
+        title = ctx_file.vars[name].title or name
         var_data = ctx_file.vars[name].data
 
         # If this is being triggered by a migration/calibration message for
