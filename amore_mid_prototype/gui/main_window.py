@@ -71,6 +71,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
 
+        # logging
+        self.logger = QLogger(self)
+        self.logger.setFormatter(
+            logging.Formatter("%(asctime)s: %(levelname)s: %(message)s")
+        )
+        logging.getLogger().addHandler(self.logger)
+
         self.center_window()
 
         if context_dir is not None:

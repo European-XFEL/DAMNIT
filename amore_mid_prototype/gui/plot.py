@@ -511,11 +511,6 @@ class Plot:
                 dtype_warn(label)
                 return
 
-        # multiple rows can be selected
-        # we could even merge multiple runs here
-        for index in selected_rows:
-            log.info("Selected row %d", index.row())
-
         status = [self._data.iloc[index]["Use"] for index in indices]
         run = [self._data.iloc[index]["Run"] for index in indices]
 
@@ -524,8 +519,6 @@ class Plot:
             for i, ri, si in zip(range(len(run)), run, status)
             if (ri is not pd.NA and si == True)
         ]
-
-        print(indices)
 
         for ki in non_data_field.keys():
             non_data_field[ki] = [self._data.iloc[index][ki] for index in indices]
