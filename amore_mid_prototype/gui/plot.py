@@ -384,7 +384,6 @@ class Plot:
         self._button_plot_runs.clicked.connect(
             lambda: self._button_plot_clicked(
                 not self._toggle_plot_summary_table.isChecked(),
-                self._toggle_plot_select_all_entries.isChecked(),
             )
         )
 
@@ -393,12 +392,6 @@ class Plot:
         )
         self._toggle_plot_summary_table.setCheckable(True)
         self._toggle_plot_summary_table.setChecked(True)
-
-        self._toggle_plot_select_all_entries = QtWidgets.QCheckBox(
-            "Use all entries", main_window
-        )
-        self._toggle_plot_select_all_entries.setCheckable(True)
-        self._toggle_plot_select_all_entries.setChecked(False)
 
         self._toggle_probability_density = QtWidgets.QCheckBox("Histogram", main_window)
         self._toggle_probability_density.setCheckable(True)
@@ -491,7 +484,7 @@ class Plot:
 
         return x, y
 
-    def _button_plot_clicked(self, runs_as_series, select_all):
+    def _button_plot_clicked(self, runs_as_series):
         non_data_field = {
             "Use": None,
             "Timestamp": None,
@@ -503,10 +496,11 @@ class Plot:
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
 
-        if not select_all:
-            indices = [index.row() for index in indices]
-        else:
-            indices = [i for i in range(self._data["Run"].size)]
+        select_all = len(indices) == self._data["Run"].size
+        print(select_all)
+
+        indices = [index.row() for index in indices]
+        
         # Don't try to plot columns with non-numeric types, which might include
         # e.g. images or strings. Note that the run and proposal columns are
         # special cases, since we definitely might want to plot against those
@@ -523,6 +517,7 @@ class Plot:
                 dtype_warn(label)
                 return
 
+        # get rid of deselected runs and comments
         status = [self._data.iloc[index]["Use"] for index in indices]
         run = [self._data.iloc[index]["Run"] for index in indices]
 
@@ -534,15 +529,14 @@ class Plot:
 
         for ki in non_data_field.keys():
             non_data_field[ki] = [self._data.iloc[index][ki] for index in indices]
-
-        if not select_all:
-            if len(non_data_field["Run"]) == 0:
-                QMessageBox.warning(
-                    self._main_window,
-                    "No runs selected",
-                    "When plotting runs as series, you must select some runs in the table.",
-                )
-                return
+     
+        if len(non_data_field["Run"]) == 0:
+            QMessageBox.warning(
+                self._main_window,
+                "No runs selected",
+                "When plotting runs as series, you must select some runs in the table.",
+            )
+            return
 
         formatted_array = [
             "{}...{}".format(i, j) if i != j else "{}".format(i)
