@@ -40,8 +40,9 @@ def main():
         help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
     )
     reprocess_ap.add_argument(
-        'run', nargs='+', type=int,
-        help="Run number, e.g. 96. Multiple runs can be specified at once."
+        'run', nargs='+',
+        help="Run number, e.g. 96. Multiple runs can be specified at once, "
+             "or pass 'all' to reprocess all runs in the database."
     )
 
     proposal_ap = subparsers.add_parser(
@@ -74,8 +75,20 @@ def main():
 
     elif args.subcmd == 'reprocess':
         from .backend.extract_data import extract_and_ingest
-        for run in args.run:
-            extract_and_ingest(args.proposal, run, match=args.match)
+        if args.run == ['all']:
+            from .backend.db import open_db
+            db = open_db()
+            rows = db.execute("SELECT proposal, runnr FROM runs").fetchall()
+            print(f"Reprocessing {len(rows)} runs already recorded...")
+            for proposal, run in rows:
+                extract_and_ingest(proposal, run, match=args.match)
+        else:
+            try:
+                runs = [int(r) for r in args.run]
+            except ValueError as e:
+                sys.exit(f"Run numbers must be integers ({e})")
+            for run in runs:
+                extract_and_ingest(args.proposal, run, match=args.match)
 
     elif args.subcmd == 'proposal':
         from .backend.db import open_db, get_meta, set_meta
