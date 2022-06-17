@@ -205,37 +205,48 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
         """, db_data)
 
 
-def extract_and_ingest(proposal, run, run_data=RunData.ALL, match=[]):
-    db = open_db()
-    if proposal is None:
-        proposal = get_meta(db, 'proposal')
+class Extractor:
+    _proposal = None
 
-    with db:
-        db.execute("""
-            INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
-            ON CONFLICT (proposal, runnr) DO NOTHING
-        """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
-    log.info("Ensured p%d r%d in database", proposal, run)
+    def __init__(self):
+        self.db = open_db()
+        self.kafka_prd = KafkaProducer(
+            bootstrap_servers=UPDATE_BROKERS,
+            value_serializer=lambda d: pickle.dumps(d),
+        )
+        self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
 
-    out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(out_path.parent, 0o777)
+    @property
+    def proposal(self):
+        if self._proposal is None:
+            self._proposal = get_meta(self.db, 'proposal')
+        return self._proposal
 
-    run_and_save(proposal, run, out_path, run_data, match)
-    reduced_data = load_reduced_data(out_path)
-    log.info("Reduced data has %d fields", len(reduced_data))
-    add_to_db(reduced_data, db, proposal, run)
+    def extract_and_ingest(self, proposal, run, run_data=RunData.ALL, match=[]):
+        if proposal is None:
+            proposal = self.proposal
 
-    # Send update via Kafka
-    kafka_prd = KafkaProducer(
-        bootstrap_servers=UPDATE_BROKERS,
-        value_serializer=lambda d: pickle.dumps(d),
-    )
-    update_topic = UPDATE_TOPIC.format(get_meta(db, 'db_id'))
-    reduced_data['Proposal'] = proposal
-    reduced_data['Run'] = run
-    kafka_prd.send(update_topic, reduced_data)
-    log.info("Sent Kafka update")
+        with self.db:
+            self.db.execute("""
+                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, runnr) DO NOTHING
+            """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
+        log.info("Ensured p%d r%d in database", proposal, run)
+
+        out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(out_path.parent, 0o777)
+
+        run_and_save(proposal, run, out_path, run_data, match)
+        reduced_data = load_reduced_data(out_path)
+        log.info("Reduced data has %d fields", len(reduced_data))
+        add_to_db(reduced_data, self.db, proposal, run)
+
+        # Send update via Kafka
+        reduced_data['Proposal'] = proposal
+        reduced_data['Run'] = run
+        self.kafka_prd.send(self.update_topic, reduced_data)
+        log.info("Sent Kafka update")
 
 
 if __name__ == '__main__':
@@ -244,4 +255,4 @@ if __name__ == '__main__':
     proposal = int(sys.argv[1])
     run = int(sys.argv[2])
     run_data = RunData(sys.argv[3])
-    extract_and_ingest(proposal, run, run_data)
+    Extractor().extract_and_ingest(proposal, run, run_data)

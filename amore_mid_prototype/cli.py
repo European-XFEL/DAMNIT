@@ -77,21 +77,20 @@ def main():
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
-        from .backend.extract_data import extract_and_ingest
+        from .backend.extract_data import Extractor
+        extr = Extractor()
         if args.run == ['all']:
-            from .backend.db import open_db
-            db = open_db()
-            rows = db.execute("SELECT proposal, runnr FROM runs").fetchall()
+            rows = extr.db.execute("SELECT proposal, runnr FROM runs").fetchall()
             print(f"Reprocessing {len(rows)} runs already recorded...")
             for proposal, run in rows:
-                extract_and_ingest(proposal, run, match=args.match)
+                extr.extract_and_ingest(proposal, run, match=args.match)
         else:
             try:
                 runs = [int(r) for r in args.run]
             except ValueError as e:
                 sys.exit(f"Run numbers must be integers ({e})")
             for run in runs:
-                extract_and_ingest(args.proposal, run, match=args.match)
+                extr.extract_and_ingest(args.proposal, run, match=args.match)
 
     elif args.subcmd == 'proposal':
         from .backend.db import open_db, get_meta, set_meta
