@@ -1,17 +1,21 @@
+import json
 import logging
+import pickle
 import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
-from glob import glob
 from pathlib import Path
 
 import extra_data
 import h5py
 import numpy as np
 import xarray
+from scipy import ndimage
+from kafka import KafkaProducer
 
 from ..context import ContextFile
+from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
@@ -34,7 +38,7 @@ class Results:
         for name, var in ctx_file.vars.items():
             try:
                 data = var.func(xd_run)
-                if not isinstance(data, xarray.DataArray):
+                if not isinstance(data, (xarray.DataArray, str)):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
@@ -52,13 +56,26 @@ class Results:
                 for dim, coords in arr.coords.items()
             ]
         else:
+            value = arr if isinstance(arr, str) else np.asarray(arr)
             return [
-                (f'{name}/data', np.asarray(arr))
+                (f'{name}/data', value)
             ]
 
     def summarise(self, name):
         data = self.data[name]
-        if data.ndim == 0:
+
+        if isinstance(data, str):
+            return data
+        elif data.ndim == 0:
+            return data
+        elif data.ndim == 2 and self.ctx.vars[name].summary is None:
+            # For the sake of space and memory we downsample images to a
+            # resolution of 150x150.
+            zoom_ratio = 150 / max(data.shape)
+            if zoom_ratio < 1:
+                data = ndimage.zoom(np.nan_to_num(data),
+                                    zoom_ratio)
+
             return data
         else:
             summary_method = self.ctx.vars[name].summary
@@ -81,7 +98,11 @@ class Results:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
-                f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
+                print(path, arr, type(arr))
+                if isinstance(arr, str):
+                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
+                else:
+                    f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
 
             for path, arr in dsets:
                 f[path][()] = arr
@@ -96,10 +117,18 @@ def run_and_save(proposal, run, out_path):
 
 
 def load_reduced_data(h5_path):
+    def get_dset_value(ds):
+        # If it's a string, extract the string
+        if h5py.check_string_dtype(ds.dtype) is not None:
+            return ds.asstr()[0]
+        else:
+            value = ds[()]
+            # SQlite doesn't like np.float32; .item() converts to Python numbers
+            return value.item() if np.isscalar(value) else value
+
     with h5py.File(h5_path, 'r') as f:
-        # SQlite doesn't like np.float32; .item() converts to Python numbers
         return {
-            name: dset[()].item() for name, dset in f['.reduced'].items()
+            name: get_dset_value(dset) for name, dset in f['.reduced'].items()
         }
 
 def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
@@ -125,6 +154,11 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
     db_data = reduced_data.copy()
     db_data.update({'proposal': proposal, 'run': run})
 
+    # Serialize non-SQLite-supported types
+    for key, value in db_data.items():
+        if not isinstance(value, (type(None), int, float, str, bytes)):
+            db_data[key] = pickle.dumps(value)
+
     with db:
         db.execute(f"""
             INSERT INTO runs (proposal, runnr, {cols_sql})
@@ -148,11 +182,21 @@ def extract_and_ingest(proposal, run):
     out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # run_dir = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
     run_and_save(proposal, run, out_path)
     reduced_data = load_reduced_data(out_path)
     log.info("Reduced data has %d fields", len(reduced_data))
     add_to_db(reduced_data, db, proposal, run)
+
+    # Send update via Kafka
+    kafka_prd = KafkaProducer(
+        bootstrap_servers=UPDATE_BROKERS,
+        value_serializer=lambda d: pickle.dumps(d),
+    )
+    update_topic = UPDATE_TOPIC.format(get_meta(db, 'db_id'))
+    reduced_data['Proposal'] = proposal
+    reduced_data['Run'] = run
+    kafka_prd.send(update_topic, reduced_data)
+    log.info("Sent Kafka update")
 
 
 if __name__ == '__main__':
@@ -160,5 +204,4 @@ if __name__ == '__main__':
 
     proposal = int(sys.argv[1])
     run = int(sys.argv[2])
-    out_path = sys.argv[3]
-    run_and_save(proposal, run, out_path)
+    extract_and_ingest(proposal, run)

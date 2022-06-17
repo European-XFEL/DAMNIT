@@ -3,6 +3,8 @@ import logging
 from unittest.mock import patch
 import pandas as pd
 import numpy as np
+import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
@@ -25,6 +27,7 @@ class Canvas(QtWidgets.QDialog):
         parent=None,
         x=[],
         y=[],
+        image=None,
         xlabel="",
         ylabel="",
         fmt="o",
@@ -61,6 +64,7 @@ class Canvas(QtWidgets.QDialog):
         self._legend = legend
         self._show_legend = show_legend
         self._lines = {}
+        self._image = None
         self._kwargs = {}
 
         self._navigation_toolbar = NavigationToolbar(self._canvas, self)
@@ -129,7 +133,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, plot_type=self.plot_type)
+        self.update_canvas(x, y, image, legend=legend, plot_type=self.plot_type)
         self.figure.tight_layout()
 
     def closeEvent(self, event):
@@ -177,7 +181,13 @@ class Canvas(QtWidgets.QDialog):
         self.figure.canvas.draw()
 
     def update_canvas(
-        self, xs=None, ys=None, plot_type="default", series_names=["default"]
+        self,
+        xs=None,
+        ys=None,
+        image=None,
+        legend=None,
+        plot_type="default",
+        series_names=["default"],
     ):
         # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
@@ -220,8 +230,20 @@ class Canvas(QtWidgets.QDialog):
 
             return
 
-        self.data_x = xs
-        self.data_y = ys
+        elif image is not None:
+            if self._image is None:
+                self._image = self._axis.imshow(image, interpolation="nearest")
+                self.figure.colorbar(self._image, ax=self._axis)
+            else:
+                self._image.set_array(image)
+
+            vmin = np.nanquantile(image, 0.01, interpolation="nearest")
+            vmax = np.nanquantile(image, 0.99, interpolation="nearest")
+            self._image.set_clim(vmin, vmax)
+        else:
+            self._axis.grid(visible=True)
+            self.data_x = xs
+            self.data_y = ys
 
         if len(xs):
             if hasattr(xs[0], "__len__"):
@@ -473,6 +495,26 @@ class Plot:
             indices = [index.row() for index in indices]
         else:
             indices = [i for i in range(self._data["Run"].size)]
+        # Don't try to plot columns with non-numeric types, which might include
+        # e.g. images or strings. Note that the run and proposal columns are
+        # special cases, since we definitely might want to plot against those
+        # columns but they may have pd.NA's from comment rows (which are only
+        # given a timestamp).
+        dtype_warn = lambda col: QtWidgets.QMessageBox.warning(
+            self._main_window,
+            "Plotting failed",
+            f"'{col}' could not be plotted, its column has non-numeric data.",
+        )
+        safe_cols = ["Proposal", "Run"]
+        for label in [xlabel, ylabel]:
+            if not label in safe_cols and not is_numeric_dtype(self._data[label].dtype):
+                dtype_warn(label)
+                return
+
+        # multiple rows can be selected
+        # we could even merge multiple runs here
+        for index in selected_rows:
+            log.info("Selected row %d", index.row())
 
         status = [self._data.iloc[index]["Use"] for index in indices]
         run = [self._data.iloc[index]["Run"] for index in indices]

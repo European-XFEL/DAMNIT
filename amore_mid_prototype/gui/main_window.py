@@ -1,3 +1,4 @@
+import pickle
 import os
 import logging
 import sys
@@ -12,12 +13,14 @@ import numpy as np
 import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
+from kafka.errors import NoBrokersAvailable
 
 from extra_data.read_machinery import find_proposal
 
-from ..backend.db import open_db
+from ..backend.db import open_db, get_meta
 from ..context import ContextFile
-from .zmq import ZmqStreamReceiver
+from ..definitions import UPDATE_BROKERS
+from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
 
@@ -41,17 +44,15 @@ class QLogger(logging.Handler):
 
 class MainWindow(QtWidgets.QMainWindow):
     db = None
+    db_id = None
 
-    def __init__(
-        self, zmq_endpoint: str = None, context_dir: Path = None,
-    ):
+    def __init__(self, context_dir: Path = None):
         super().__init__()
 
         self.data = None
-        self._zmq_thread = None
-        self.zmq_endpoint = zmq_endpoint
-        self._zmq_thread = None
-        self._is_zmq_receiving_data = False
+        self._updates_thread = None
+        self._updates_thread = None
+        self._received_update = False
         self._attributi = {}
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
@@ -70,28 +71,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self._view_widget)
 
-        # logging
-        self.logger = QLogger(self)
-        self.logger.setFormatter(
-            logging.Formatter("%(asctime)s: %(levelname)s: %(message)s")
-        )
-        logging.getLogger().addHandler(self.logger)
+        self.center_window()
 
         if context_dir is not None:
             self.autoconfigure(context_dir)
-        elif self.zmq_endpoint is not None:
-            self._zmq_thread_launcher()
 
         self._canvas_inspect = []
-
-        self.center_window()
 
     def closeEvent(self, event):
         for ci in range(len(self.plot._canvas["canvas"])):
             self.plot._canvas["canvas"][ci].close()
 
-        if self._zmq_thread is not None:
-            self._zmq_thread.exit()
+        if self._updates_thread is not None:
+            self._updates_thread.exit()
 
     def center_window(self):
         """
@@ -154,7 +146,7 @@ da-dev@xfel.eu"""
                 try:
                     proposal_dir = find_proposal(proposal)
                     prompt = False
-                except Exception as e:
+                except Exception:
                     button = QtWidgets.QMessageBox.warning(
                         self,
                         "Bad proposal number",
@@ -164,9 +156,17 @@ da-dev@xfel.eu"""
                     if button != QtWidgets.QMessageBox.Yes:
                         prompt = False
 
-        path = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Select context directory", proposal_dir
-        )
+        # By convention the AMORE directory is often stored at usr/Shared/amore,
+        # so if this directory exists, then we use it.
+        standard_path = Path(proposal_dir) / "usr/Shared/amore"
+        if standard_path.is_dir():
+            path = standard_path
+        else:
+            # Otherwise, we prompt the user
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select context directory", proposal_dir
+            )
+
         if path:
             self.autoconfigure(Path(path))
 
@@ -177,27 +177,31 @@ da-dev@xfel.eu"""
             ctx_file = ContextFile.from_py_file(context_path)
             self._attributi = ctx_file.vars
 
-        zmq_addr_path = path / ".zmq_extraction_events"
-        if zmq_addr_path.is_file():
-            self.zmq_endpoint = zmq_addr_path.read_text().strip()
-            log.info("Connecting to %s (ZMQ)", self.zmq_endpoint)
-            self._zmq_thread_launcher()
-        else:
-            log.warning("No .zmq_extraction_events file in context folder")
-            self._status_bar_connection_status.setStyleSheet(
-                "color:red;font-weight:bold;"
-            )
-            self._status_bar_connection_status.setText("No ZMQ socket found in folder")
-
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
         sqlite_path = path / "runs.sqlite"
         if sqlite_path.is_file():
             log.info("Reading data from database")
             self.db = open_db(sqlite_path)
+
+            self.db_id = get_meta(self.db, "db_id")
+            self._updates_thread_launcher()
+
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Use", True)
             df.insert(len(df.columns), "_comment_id", pd.NA)
+
+            # Unpickle serialized objects. First we select all columns that
+            # might need deserializing.
+            object_cols = df.select_dtypes(include=["object"]).drop(
+                ["comment", "comment_id"], axis=1
+            )
+            # Then we check each element and unpickle it if necessary, and
+            # finally update the main DataFrame.
+            unpickled_cols = object_cols.applymap(
+                lambda x: pickle.loads(x) if isinstance(x, bytes) else x
+            )
+            df.update(unpickled_cols)
 
             # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
@@ -266,14 +270,6 @@ da-dev@xfel.eu"""
             return self._attributi[name].title or name
         return name
 
-    def _menu_bar_connect(self) -> None:
-        text, status_ok = QtWidgets.QInputDialog.getText(
-            self, "Connect to AMORE backend", "Endpoint (e.g. tcp://localhost:5555):"
-        )
-        if status_ok:
-            self.zmq_endpoint = str(text)
-            self._zmq_thread_launcher()
-
     def _create_menu_bar(self) -> None:
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
@@ -286,13 +282,6 @@ da-dev@xfel.eu"""
             "Autoconfigure AMORE by selecting the proposal folder."
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
-
-        # action_connect = QtWidgets.QAction(
-        #    QtGui.QIcon("connect.png"), "Connect with &endpoint", self
-        # )
-        # action_connect.setShortcut("Shift+E")
-        # action_connect.setStatusTip("Connect to AMORE server using a 0mq endpoint.")
-        # action_connect.triggered.connect(self._menu_bar_connect)
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
@@ -308,50 +297,16 @@ da-dev@xfel.eu"""
             QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        # fileMenu.addAction(action_connect)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
-        """
-        tags_menu = menu_bar.addMenu("&Tags")
-
-        tags_menu_editor = QtWidgets.QAction(QtGui.QIcon("tags.png"), "&Editor", self)
-        tags_menu_editor.setShortcut("Shift+T")
-        tags_menu_editor.setStatusTip("Add, edit or delete tags.")
-        # tags_menu_editor.triggered.connect(self._menu_bar_help)
-
-        tags_menu.addAction(tags_menu_editor)
-
-        columns_menu = menu_bar.addMenu("&Columns")
-
-        action_column_editor = QtWidgets.QAction(
-            QtGui.QIcon("column_add.png"), "&View", self
-        )
-        action_column_editor.setShortcut("Shift+V")
-        action_column_editor.setStatusTip("Add or modify columns.")
-        #action_column_editor.triggered.connect(self.table_settings.show)
-
-        columns_menu.addAction(action_column_editor)
-
-        groups_menu = menu_bar.addMenu("&Groups")
-
-        groups_menu_editor = QtWidgets.QAction(
-            QtGui.QIcon("groups.png"), "&Editor", self
-        )
-        groups_menu_editor.setShortcut("Shift+G")
-        groups_menu_editor.setStatusTip("Add, modify or delete groups.")
-        # groups_menu_add.triggered.connect(self._menu_bar_help)
-
-        groups_menu.addAction(groups_menu_editor)
-        """
-
-    def zmq_get_data_and_update(self, message):
+    def handle_update(self, message):
 
         # is the message OK?
         if "Run" not in message.keys():
             raise ValueError("Malformed message.")
 
-        log.debug("Updating for ZMQ message: %s", message)
+        # log.info("Updating for message: %s", message)
 
         # Rename:
         #  start_time -> Timestamp
@@ -365,12 +320,14 @@ da-dev@xfel.eu"""
         }
 
         # initialize the view
-        if not self._is_zmq_receiving_data:
-            self._is_zmq_receiving_data = True
+        if not self._received_update:
+            self._received_update = True
             self._status_bar_connection_status.setStyleSheet(
                 "color:green;font-weight:bold;"
             )
-            self._status_bar_connection_status.setText(self.zmq_endpoint)
+            self._status_bar_connection_status.setText(
+                f"Getting updates ({self.db_id})"
+            )
 
         if self.data is None:
             # ingest data
@@ -427,15 +384,31 @@ da-dev@xfel.eu"""
                     ix = len(self.data)
                 log.debug("New row in table at index %d", ix)
 
+                # Extract the high-rank arrays from the messages, because
+                # DataFrames can only handle 1D cell elements by default. The
+                # way around this is to create a column manually with a dtype of
+                # 'object'.
+                ndarray_cols = {}
+                for key, value in message.copy().items():
+                    if isinstance(value, np.ndarray) and value.ndim > 1:
+                        ndarray_cols[key] = value
+                        del message[key]
+
+                # Create a DataFrame with the new data to insert into the main table
+                new_entries = pd.DataFrame(
+                    {**message, **{"Comment": ""}}, index=[self.table.rowCount()]
+                )
+
+                # Insert columns with 'object' dtype for the special columns
+                # with arrays that are >1D.
+                for col_name, value in ndarray_cols.items():
+                    col = pd.Series(
+                        [value], index=[self.table.rowCount()], dtype="object"
+                    )
+                    new_entries.insert(len(new_entries.columns), col_name, col)
+
                 new_df = pd.concat(
-                    [
-                        self.data.iloc[:ix],
-                        pd.DataFrame(
-                            {**message, **{"Comment": ""}},
-                            index=[self.table.rowCount()],
-                        ),
-                        self.data.iloc[ix:],
-                    ],
+                    [self.data.iloc[:ix], new_entries, self.data.iloc[ix:],],
                     ignore_index=True,
                 )
 
@@ -449,14 +422,26 @@ da-dev@xfel.eu"""
         # (over)write down metadata
         self.data.to_json("AMORE.json")
 
-    def _zmq_thread_launcher(self) -> None:
-        self._zmq_thread = QtCore.QThread()
-        self.zeromq_listener = ZmqStreamReceiver(self.zmq_endpoint)
-        self.zeromq_listener.moveToThread(self._zmq_thread)
+    def _updates_thread_launcher(self) -> None:
+        assert self.db_id is not None
 
-        self._zmq_thread.started.connect(self.zeromq_listener.loop)
-        self.zeromq_listener.message.connect(self.zmq_get_data_and_update)
-        QtCore.QTimer.singleShot(0, self._zmq_thread.start)
+        try:
+            self.update_receiver = UpdateReceiver(self.db_id)
+        except NoBrokersAvailable:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Broker connection failed",
+                f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n"
+                + "DAMNIT can operate offline, but it will not receive any updates from new or reprocessed runs.",
+            )
+            return
+
+        self._updates_thread = QtCore.QThread()
+        self.update_receiver.moveToThread(self._updates_thread)
+
+        self._updates_thread.started.connect(self.update_receiver.loop)
+        self.update_receiver.message.connect(self.handle_update)
+        QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
     def _set_comment_date(self):
         self.comment_time.setText(
@@ -555,13 +540,19 @@ da-dev@xfel.eu"""
             )
         )
 
+        cell_data = self.data.iloc[index.row(), index.column()]
+        is_image = isinstance(cell_data, np.ndarray) and cell_data.ndim == 2
+
         try:
             file_name, dataset = self.get_run_file(proposal, run)
         except:
             return
 
         try:
-            x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
+            if is_image:
+                image = dataset[quantity]["data"][:]
+            else:
+                x, y = dataset[quantity]["trainId"][:], dataset[quantity]["data"][:]
         except KeyError:
             log.warning("'{}' not found in {}...".format(quantity, file_name))
             return
@@ -571,9 +562,10 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[self.make_finite(x)],
-                y=[self.make_finite(y)],
-                xlabel="Event in run {}".format(run),
+                x=[self.make_finite(x)] if not is_image else [],
+                y=[self.make_finite(y)] if not is_image else [],
+                image=image if is_image else None,
+                xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
                 fmt="o-",
                 color="red",
