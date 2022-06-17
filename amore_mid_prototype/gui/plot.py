@@ -248,15 +248,15 @@ class Canvas(QtWidgets.QDialog):
         if len(xs):
             if hasattr(xs[0], "__len__"):
                 xs_min, xs_max = (
-                    min([min(xi) for xi in xs]),
-                    max([max(xi) for xi in xs]),
+                    min([min(xi) for xi in xs if len(xi)]),
+                    max([max(xi) for xi in xs if len(xi)]),
                 )
             else:
                 xs_min, xs_max = min(xs), max(xs)
             if hasattr(ys[0], "__len__"):
                 ys_min, ys_max = (
-                    min([min(yi) for yi in ys]),
-                    max([max(yi) for yi in ys]),
+                    min([min(yi) for yi in ys if len(yi)]),
+                    max([max(yi) for yi in ys if len(yi)]),
                 )
             else:
                 ys_min, ys_max = min(ys), max(ys)
@@ -276,6 +276,13 @@ class Canvas(QtWidgets.QDialog):
             if not isinstance(self._legend, str) and self._legend is not None
             else len(xs) * [self._legend],
         ):
+            if hasattr(x, "__len__"):
+                if not len(x):
+                    continue
+            if hasattr(y, "__len__"):
+                if not len(y):
+                    continue
+
             fmt = self._fmt if len(xs) == 1 else "o"
             color = (
                 cmap(i / len(xs))
@@ -318,14 +325,20 @@ class Canvas(QtWidgets.QDialog):
         self._axis.legend().set_visible(self._show_legend)
         self.figure.canvas.draw()
 
+        print(">>", xs, ys)
+
         if len(xs):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
 
                 if plot_type != "histogram1D":
-                    xs_min = min([np.asarray(xi).min() for xi in xs])
-                    ys_min = min([np.asarray(yi).min() for yi in ys])
-                    xs_max = max([np.asarray(xi).max() for xi in xs])
-                    ys_max = max([np.asarray(yi).max() for yi in ys])
+                    if hasattr(xs[0], "__len__"):
+                        xs_min, xs_max = np.min([np.nanmin(xi) for xi in xs if len(xi)]), np.max([np.nanmax(xi) for xi in xs if len(xi)])
+                    else:
+                        xs_min, xs_max = np.nanmin(xs), np.nanmax(xs)
+                    if hasattr(ys[0], "__len__"):
+                        ys_min, ys_max = np.min([np.nanmin(yi) for yi in ys if len(yi)]), np.max([np.nanmax(yi) for yi in ys if len(yi)])
+                    else:
+                        ys_min, ys_max = np.nanmin(ys), np.nanmax(ys)
 
                 x_min, x_max, y_min, y_max = self.autoscale(
                     xs_min,
@@ -445,8 +458,7 @@ class Plot:
         if x_fake is None or y_fake is None:
             for pi, ri in zip(non_data_field["Proposal"], non_data_field["Run"]):
                 xi, yi = self.get_run_series_data(pi, ri, xlabel, ylabel,)
-                # x = self._main_window.make_finite(xi)
-                # y = self._main_window.make_finite(yi)
+                
                 x.append(self._main_window.make_finite(xi))
                 y.append(self._main_window.make_finite(yi))
 
@@ -666,7 +678,13 @@ class Plot:
             )
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
+        x, y = [], []
+
         file_name, dataset = self._main_window.get_run_file(proposal, run)
+
+        if file_name is None:
+            log.warning(f"No dataset for run {run}...")
+            return x, y
 
         x_quantity = self._main_window.ds_name(xlabel)
         y_quantity = self._main_window.ds_name(ylabel)
@@ -678,9 +696,9 @@ class Plot:
 
             x = x_ds["data"][x_idxs]
             y = y_ds["data"][y_idxs]
-        except KeyError as e:
+        except KeyError: #as e:
             log.warning(f"{xlabel} or {ylabel} could not be found in {file_name}")
-            raise e
+            #raise e
         finally:
             dataset.close()
 

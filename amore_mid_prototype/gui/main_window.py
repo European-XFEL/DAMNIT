@@ -512,9 +512,10 @@ da-dev@xfel.eu"""
         try:
             run_file = h5py.File(file_name)
             return file_name, run_file
-        except FileNotFoundError as e:
+        except FileNotFoundError: #as e:
             log.warning("{} not found...".format(file_name))
-            raise e
+            return None, None
+            #raise e
 
     def ds_name(self, quantity):
         # a LUT would be better
