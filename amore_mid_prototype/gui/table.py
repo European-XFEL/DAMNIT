@@ -124,7 +124,7 @@ class TableView(QtWidgets.QTableView):
 
         comment_col = data.columns.get_loc("Comment")
 
-        for row in data["_comment_id"].dropna().index:
+        for row in data["comment_id"].dropna().index:
             self.setSpan(row, comment_col, 1, 100)
 
     def resize_new_rows(self, parent, first, last):
@@ -247,11 +247,11 @@ class Table(QtCore.QAbstractTableModel):
                 return self.data(index)
 
         elif role == QtCore.Qt.BackgroundRole:
-            if index.row() in self._data["_comment_id"].dropna().index:
+            if index.row() in self._data["comment_id"].dropna().index:
                 return QtGui.QBrush(Qt.yellow)
 
     def isCommentRow(self, row):
-        return row in self._data["_comment_id"].dropna()
+        return row in self._data["comment_id"].dropna()
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
@@ -267,7 +267,7 @@ class Table(QtCore.QAbstractTableModel):
                 if not (pd.isna(prop) or pd.isna(run)):
                     self.comment_changed.emit(int(prop), int(run), value)
                 else:
-                    comment_id = self._data.iloc[index.row()]["_comment_id"]
+                    comment_id = self._data.iloc[index.row()]["comment_id"]
                     if not pd.isna(comment_id):
                         self.time_comment_changed.emit(comment_id, value)
 

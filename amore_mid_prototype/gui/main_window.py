@@ -189,7 +189,7 @@ da-dev@xfel.eu"""
 
             df = pd.read_sql_query("SELECT * FROM runs", self.db)
             df.insert(0, "Use", True)
-            df.insert(len(df.columns), "_comment_id", pd.NA)
+            df.insert(len(df.columns), "comment_id", pd.NA)
 
             # Unpickle serialized objects. First we select all columns that
             # might need deserializing.
@@ -205,7 +205,7 @@ da-dev@xfel.eu"""
 
             # Read the comments and prepare them for merging with the main data
             comments_df = pd.read_sql_query(
-                "SELECT rowid as _comment_id, * FROM time_comments", self.db
+                "SELECT rowid as comment_id, * FROM time_comments", self.db
             )
             comments_df.insert(0, "Run", pd.NA)
             comments_df.insert(1, "Proposal", pd.NA)
@@ -479,7 +479,7 @@ da-dev@xfel.eu"""
                         "Run": pd.NA,
                         "Proposal": pd.NA,
                         "Comment": text,
-                        "_comment_id": comment_id,
+                        "comment_id": comment_id,
                     },
                     index=[0],
                 ),
