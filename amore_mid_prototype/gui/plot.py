@@ -34,6 +34,7 @@ class Canvas(QtWidgets.QDialog):
         color=None,
         legend=None,
         show_legend=False,
+        autoupdate=False,
         plot_type="default",
     ):
         super().__init__()
@@ -48,6 +49,7 @@ class Canvas(QtWidgets.QDialog):
 
         self.plot_type = plot_type
         is_histogram = self.plot_type != "default"
+        self._autoupdate = autoupdate
 
         self.figure = Figure(figsize=(6, 4))
         self._canvas = FigureCanvas(self.figure)
@@ -83,15 +85,19 @@ class Canvas(QtWidgets.QDialog):
             lambda checked: self.toggle_panhandler(not checked)
         )
 
+        if self._autoupdate:
+            self._autoupdate_label = QtWidgets.QLabel("Plot auto-update is enabled", self)
+            layout.addWidget(self._autoupdate_label)
+
         layout.addWidget(self._canvas)
 
-        self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
+        self._autoscale_checkbox = QtWidgets.QCheckBox("Auto-scale", self)
         self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
         self._autoscale_checkbox.setLayoutDirection(
             QtCore.Qt.LayoutDirection.RightToLeft
         )
 
-        self._legend_checkbox = QtWidgets.QCheckBox("Legend", self)
+        self._legend_checkbox = QtWidgets.QCheckBox("Show legend", self)
         self._legend_checkbox.setCheckState(QtCore.Qt.CheckState.Unchecked)
         self._legend_checkbox.stateChanged.connect(self.show_legend)
 
@@ -133,7 +139,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, image, legend=legend, plot_type=self.plot_type)
+        self.update_canvas(x, y, image, legend=legend, plot_type=self.plot_type, autoupdate=self._autoupdate)
         self.figure.tight_layout()
 
     def closeEvent(self, event):
@@ -188,9 +194,14 @@ class Canvas(QtWidgets.QDialog):
         legend=None,
         plot_type="default",
         series_names=["default"],
+        autoupdate=False,
     ):
         # this should be a "generate" (see "plot_exists") and "update" function
         cmap = mpl_cm.get_cmap("tab20")
+
+        # plot is not meant to automatically update
+        if autoupdate == False:
+            self._autoupdate_label.setText("")
 
         if xs is None and ys is None:
             xs, ys = [], []
@@ -324,8 +335,6 @@ class Canvas(QtWidgets.QDialog):
 
         self._axis.legend().set_visible(self._show_legend)
         self.figure.canvas.draw()
-
-        print(">>", xs, ys)
 
         if len(xs):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
@@ -497,8 +506,6 @@ class Plot:
         ylabel = self._combo_box_y_axis.currentText()
 
         select_all = len(indices) == self._data["Run"].size
-        print(select_all)
-
         indices = [index.row() for index in indices]
         
         # Don't try to plot columns with non-numeric types, which might include
@@ -534,7 +541,9 @@ class Plot:
             QMessageBox.warning(
                 self._main_window,
                 "No runs selected",
-                "When plotting runs as series, you must select some runs in the table.",
+                """You must select some entries in the table,
+or all of them using the keys combination Ctrl+A.
+If all the entries are selected, the plot will update itself on new data.""",
             )
             return
 
@@ -583,6 +592,7 @@ class Plot:
             legend=legend,
             show_legend=False,
             plot_type=self.plot_type,
+            autoupdate=True
         )
 
         self._canvas["key.x"].append(xlabel)
@@ -668,7 +678,7 @@ class Plot:
                 self._canvas["key.y"],
             )
             self._canvas["canvas"][i].update_canvas(
-                xi, yi, plot_type=self._canvas["type"][i]
+                xi, yi, plot_type=self._canvas["type"][i], autoupdate=self._canvas["updatable"][i]
             )
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
