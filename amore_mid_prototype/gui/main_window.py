@@ -232,7 +232,10 @@ da-dev@xfel.eu"""
                         }
                     ),
                     comments_df.rename(
-                        columns={"timestamp": "Timestamp", "comment": "Comment",}
+                        columns={
+                            "timestamp": "Timestamp",
+                            "comment": "Comment",
+                        }
                     ),
                 ]
             )
@@ -267,7 +270,9 @@ da-dev@xfel.eu"""
                     #    len(self.data.columns) - 1, column, self.data.pop(column)
                     # )
 
-        self._status_bar.showMessage("Double-click on a cell to inspect data.")
+        self._status_bar.showMessage(
+            "Select some entries in the table, all of them using Ctrl+A. Double-click on a cell to inspect data."
+        )
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -415,7 +420,11 @@ da-dev@xfel.eu"""
                     new_entries.insert(len(new_entries.columns), col_name, col)
 
                 new_df = pd.concat(
-                    [self.data.iloc[:ix], new_entries, self.data.iloc[ix:],],
+                    [
+                        self.data.iloc[:ix],
+                        new_entries,
+                        self.data.iloc[ix:],
+                    ],
                     ignore_index=True,
                 )
 
@@ -466,6 +475,13 @@ da-dev@xfel.eu"""
         dialog.setLayout(layout)
         dialog.show()
 
+    def _log_show_button_clicked(self):
+        if self.log_show_button.isChecked():
+            self.logger.widget.show()
+            self.log_show_button.setText("Hide log")
+        else:
+            self.logger.widget.hide()
+
     def _comment_button_clicked(self):
         ts = (
             datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y")
@@ -512,10 +528,10 @@ da-dev@xfel.eu"""
         try:
             run_file = h5py.File(file_name)
             return file_name, run_file
-        except FileNotFoundError: #as e:
+        except FileNotFoundError:  # as e:
             log.warning("{} not found...".format(file_name))
             return None, None
-            #raise e
+            # raise e
 
     def ds_name(self, quantity):
         # a LUT would be better
@@ -630,14 +646,20 @@ da-dev@xfel.eu"""
         # table_settings_button.setMinimumWidth(175)
         # table_settings_button.clicked.connect(self._table_settings_button_clicked)
 
-        settings_horizontal_layout.addStretch()
-
         table_settings_button = QtWidgets.QPushButton("Table settings")
         table_settings_button.setEnabled(True)
         table_settings_button.setMinimumWidth(175)
         table_settings_button.clicked.connect(self._table_settings_button_clicked)
 
+        self.log_show_button = QtWidgets.QPushButton("Show log")
+        self.log_show_button.setEnabled(True)
+        self.log_show_button.setCheckable(True)
+        self.log_show_button.setMinimumWidth(175)
+        self.log_show_button.clicked.connect(self._log_show_button_clicked)
+
         settings_horizontal_layout.addWidget(table_settings_button)
+        settings_horizontal_layout.addStretch()
+        settings_horizontal_layout.addWidget(self.log_show_button)
 
         # self.filter = QtWidgets.QLineEdit(self)
         # self.filter.setToolTip("Filter results.")
@@ -655,12 +677,12 @@ da-dev@xfel.eu"""
 
         # plotting control
         self.plot = Plot(self)
-        #plotting_group = QtWidgets.QGroupBox(
+        # plotting_group = QtWidgets.QGroupBox(
         #    "Plot (double-click on a cell to inspect data)"
-        #)
+        # )
 
         plot_grid_layout = QtWidgets.QGridLayout()
-        #plotting_group.setLayout(plot_grid_layout)
+        # plotting_group.setLayout(plot_grid_layout)
 
         plot_grid_layout.addWidget(self.plot._button_plot_runs, *(0, 0))
         plot_grid_layout.addWidget(self.plot._toggle_plot_summary_table, *(0, 1))
@@ -684,10 +706,12 @@ da-dev@xfel.eu"""
 
         # comments
         self.comment = QtWidgets.QLineEdit(self)
-        self.comment.setToolTip("Time can be edited in the field on the right.")
+        self.comment.setToolTip("Time can be edited in the field on the left.")
 
         self.comment_time = QtWidgets.QLineEdit(self)
         self.comment_time.setStyleSheet("width: 25px;")
+        self.comment_time.setAlignment(QtCore.Qt.AlignRight)
+        self.comment_time.setFixedWidth(175)
 
         comment_button = QtWidgets.QPushButton("Additional comment")
         comment_button.setEnabled(True)
@@ -695,9 +719,8 @@ da-dev@xfel.eu"""
         comment_button.clicked.connect(self._comment_button_clicked)
 
         comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=5)
-        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
-        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
+        comment_horizontal_layout.addWidget(self.comment_time)
+        comment_horizontal_layout.addWidget(self.comment)
 
         vertical_layout.addLayout(comment_horizontal_layout)
 
@@ -707,10 +730,7 @@ da-dev@xfel.eu"""
         comment_timer.timeout.connect(self._set_comment_date)
         comment_timer.start()
 
-        # comment_group.setLayout(comment_horizontal_layout)
-
-        # vertical_layout.addWidget(comment_group)
-
+        self.logger.widget.hide()
         vertical_layout.addWidget(self.logger.widget)
 
         self._view_widget.setLayout(vertical_layout)

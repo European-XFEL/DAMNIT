@@ -96,10 +96,17 @@ class TableView(QtWidgets.QTableView):
                 *[
                     x
                     for x in zip(columns, statuses)
-                    if (x[0] not in self.static_columns and not x[0].startswith("_"))
+                    if (
+                        x[0] not in self.static_columns
+                    )  # and not x[0].startswith("_"))
                 ]
             ),
         )
+
+        # default hidden columns to unchecked
+        for i, ci in enumerate(columns):
+            if ci.startswith("_"):
+                statuses[i] = False
 
         self._columns_widget = QtWidgets.QListWidget()
         self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)

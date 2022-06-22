@@ -85,9 +85,9 @@ class Canvas(QtWidgets.QDialog):
             lambda checked: self.toggle_panhandler(not checked)
         )
 
-        if self._autoupdate:
-            self._autoupdate_label = QtWidgets.QLabel("Plot auto-update is enabled", self)
-            layout.addWidget(self._autoupdate_label)
+        # if self._autoupdate:
+        self._autoupdate_label = QtWidgets.QLabel("Plot auto-update is enabled", self)
+        layout.addWidget(self._autoupdate_label)
 
         layout.addWidget(self._canvas)
 
@@ -139,7 +139,14 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panhandler = panhandler(self.figure, button=1)
 
-        self.update_canvas(x, y, image, legend=legend, plot_type=self.plot_type, autoupdate=self._autoupdate)
+        self.update_canvas(
+            x,
+            y,
+            image,
+            legend=legend,
+            plot_type=self.plot_type,
+            autoupdate=self._autoupdate,
+        )
         self.figure.tight_layout()
 
     def closeEvent(self, event):
@@ -258,6 +265,7 @@ class Canvas(QtWidgets.QDialog):
 
         if len(xs):
             if hasattr(xs[0], "__len__"):
+                print("<<<", xs, ys, len(xs))
                 xs_min, xs_max = (
                     min([min(xi) for xi in xs if len(xi)]),
                     max([max(xi) for xi in xs if len(xi)]),
@@ -324,14 +332,16 @@ class Canvas(QtWidgets.QDialog):
                         "alpha": 0.5,
                     }
                 )
+                print("Ciauuu", y, x)
                 y, x, patches = self._axis.hist(
                     x, bins=self.histogram1D_bins, **self._kwargs[series][-1]
                 )
                 self._lines[series].append(patches)
 
-                xs_min = min(xs_min, x.min())
-                xs_max = max(xs_max, x.max())
-                ys_max = min(ys_max, y.max())
+                print("Ciao", xs_min, x.min())
+                xs_min = np.nanmin((xs_min, x.min()))
+                xs_max = np.nanmax((xs_max, x.max()))
+                ys_max = np.nanmin((ys_max, y.max()))
 
         self._axis.legend().set_visible(self._show_legend)
         self.figure.canvas.draw()
@@ -339,15 +349,25 @@ class Canvas(QtWidgets.QDialog):
         if len(xs):
             if self._autoscale_checkbox.isChecked() or not plot_exists:
 
+                print("lll", plot_type)
+
                 if plot_type != "histogram1D":
                     if hasattr(xs[0], "__len__"):
-                        xs_min, xs_max = np.min([np.nanmin(xi) for xi in xs if len(xi)]), np.max([np.nanmax(xi) for xi in xs if len(xi)])
+                        print("qui")
+                        xs_min, xs_max = np.nanmin(
+                            [np.nanmin(xi) for xi in xs if len(xi)]
+                        ), np.nanmax([np.nanmax(xi) for xi in xs if len(xi)])
                     else:
                         xs_min, xs_max = np.nanmin(xs), np.nanmax(xs)
+                        print("1qui", xs)
                     if hasattr(ys[0], "__len__"):
-                        ys_min, ys_max = np.min([np.nanmin(yi) for yi in ys if len(yi)]), np.max([np.nanmax(yi) for yi in ys if len(yi)])
+                        print("quo")
+                        ys_min, ys_max = np.nanmin(
+                            [np.nanmin(yi) for yi in ys if len(yi)]
+                        ), np.nanmax([np.nanmax(yi) for yi in ys if len(yi)])
                     else:
                         ys_min, ys_max = np.nanmin(ys), np.nanmax(ys)
+                        print("1quo")
 
                 x_min, x_max, y_min, y_max = self.autoscale(
                     xs_min,
@@ -355,6 +375,14 @@ class Canvas(QtWidgets.QDialog):
                     ys_min if not plot_type == "histogram1D" else 0,
                     ys_max,
                     margin=0.05,
+                )
+                print(
+                    ">>",
+                    xs_min,
+                    xs_max,
+                    ys_min,
+                    ys_max,
+                    [np.nanmin(yi) for yi in ys if len(yi)],
                 )
                 self._axis.set_xlim((x_min, x_max))
                 self._axis.set_ylim((y_min, y_max))
@@ -390,6 +418,7 @@ class Plot:
 
         self._button_plot_runs = QtWidgets.QPushButton("Plot", main_window)
         self._button_plot_runs.setToolTip("Plot data.")
+        self._button_plot_runs.setMinimumWidth(175)
         self._button_plot_runs.clicked.connect(
             lambda: self._button_plot_clicked(
                 not self._toggle_plot_summary_table.isChecked(),
@@ -459,8 +488,13 @@ class Plot:
 
         if x_fake is None or y_fake is None:
             for pi, ri in zip(non_data_field["Proposal"], non_data_field["Run"]):
-                xi, yi = self.get_run_series_data(pi, ri, xlabel, ylabel,)
-                
+                xi, yi = self.get_run_series_data(
+                    pi,
+                    ri,
+                    xlabel,
+                    ylabel,
+                )
+
                 x.append(self._main_window.make_finite(xi))
                 y.append(self._main_window.make_finite(yi))
 
@@ -507,7 +541,7 @@ class Plot:
 
         select_all = len(indices) == self._data["Run"].size
         indices = [index.row() for index in indices]
-        
+
         # Don't try to plot columns with non-numeric types, which might include
         # e.g. images or strings. Note that the run and proposal columns are
         # special cases, since we definitely might want to plot against those
@@ -536,16 +570,32 @@ class Plot:
 
         for ki in non_data_field.keys():
             non_data_field[ki] = [self._data.iloc[index][ki] for index in indices]
-     
+
         if len(non_data_field["Run"]) == 0:
-            QMessageBox.warning(
-                self._main_window,
-                "No runs selected",
-                """You must select some entries in the table,
-or all of them using the keys combination Ctrl+A.
-If all the entries are selected, the plot will update itself on new data.""",
-            )
-            return
+            select_all = True
+
+            indices = range(self._data["Run"].size)
+
+            status = [self._data.iloc[index]["Use"] for index in indices]
+            run = [self._data.iloc[index]["Run"] for index in indices]
+
+            indices = [
+                indices[i]
+                for i, ri, si in zip(range(len(run)), run, status)
+                if (ri is not pd.NA and si == True)
+            ]
+
+            for ki in non_data_field.keys():
+                non_data_field[ki] = [self._data.iloc[index][ki] for index in indices]
+
+            # QMessageBox.warning(
+            #    self._main_window,
+            #    "No items selected",
+            #    """You must select some entries in the table,
+            # or all of them using the keys combination Ctrl+A.
+            # If all the entries are selected, the plot will update itself on new data.""",
+            # )
+            # return
 
         formatted_array = [
             "{}...{}".format(i, j) if i != j else "{}".format(i)
@@ -592,7 +642,7 @@ If all the entries are selected, the plot will update itself on new data.""",
             legend=legend,
             show_legend=False,
             plot_type=self.plot_type,
-            autoupdate=True
+            autoupdate=True,
         )
 
         self._canvas["key.x"].append(xlabel)
@@ -612,10 +662,12 @@ If all the entries are selected, the plot will update itself on new data.""",
 
     def _toggle_probability_density_clicked(self):
         if self._toggle_probability_density.isChecked():
-            self._combo_box_x_axis.setEnabled(False)
+            self._combo_box_x_axis.hide()  # setEnabled(False)
+            self.vs_label.hide()  # setStyleSheet("color: gray")
             self.plot_type = "histogram1D"
         else:
-            self._combo_box_x_axis.setEnabled(True)
+            self._combo_box_x_axis.show()  # setEnabled(True)
+            self.vs_label.show()  # setStyleSheet("color: black")
             self.plot_type = "default"
 
     def update(self):
@@ -678,7 +730,10 @@ If all the entries are selected, the plot will update itself on new data.""",
                 self._canvas["key.y"],
             )
             self._canvas["canvas"][i].update_canvas(
-                xi, yi, plot_type=self._canvas["type"][i], autoupdate=self._canvas["updatable"][i]
+                xi,
+                yi,
+                plot_type=self._canvas["type"][i],
+                autoupdate=self._canvas["updatable"][i],
             )
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
@@ -700,9 +755,9 @@ If all the entries are selected, the plot will update itself on new data.""",
 
             x = x_ds["data"][x_idxs]
             y = y_ds["data"][y_idxs]
-        except KeyError: #as e:
+        except KeyError:  # as e:
             log.warning(f"{xlabel} or {ylabel} could not be found in {file_name}")
-            #raise e
+            # raise e
         finally:
             dataset.close()
 
