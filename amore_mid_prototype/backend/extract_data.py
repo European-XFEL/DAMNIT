@@ -7,7 +7,6 @@ import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 
 import extra_data
@@ -17,17 +16,12 @@ import xarray
 from scipy import ndimage
 from kafka import KafkaProducer
 
-from ..context import ContextFile
+from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
 
-
-class RunData(Enum):
-    RAW = "raw"
-    PROC = "proc"
-    ALL = "all"
 
 def get_start_time(xd_run):
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
@@ -180,6 +174,7 @@ class Results:
         os.chmod(hdf5_path, 0o666)
 
 
+<<<<<<< HEAD
 def run_and_save(proposal: int, run: int, out_path: Path, run_data=RunData.ALL,
                  heavy=False, match=(), context_path=Path("context.py")):
     run_dc = extra_data.open_run(proposal, run, data="all")
@@ -217,6 +212,8 @@ def run_and_save(proposal: int, run: int, out_path: Path, run_data=RunData.ALL,
     return res.reduced()
 
 
+=======
+>>>>>>> 4d5d3d4 (Initial structure for deferring variables to Slurm job)
 def load_reduced_data(h5_path):
     def get_dset_value(ds):
         # If it's a string, extract the string
@@ -278,6 +275,7 @@ class Extractor:
             value_serializer=lambda d: pickle.dumps(d),
         )
         self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
+        self.ctx_whole = ContextFile.from_py_file(Path('context.py'))
 
     @property
     def proposal(self):
@@ -300,8 +298,12 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        reduced_data = run_and_save(proposal, run, out_path,
-                                    run_data=run_data, match=match)
+        ctx = self.ctx_whole.filter(run_data=run_data, name_matches=match)
+
+        run_dc = extra_data.open_run(proposal, run, data="all")
+        res = Results.create(ctx, run_dc)
+        res.save_hdf5(out_path)
+        reduced_data = res.reduced()
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
 
@@ -310,6 +312,12 @@ class Extractor:
         reduced_data['Run'] = run
         self.kafka_prd.send(self.update_topic, reduced_data)
         log.info("Sent Kafka update")
+
+        # Launch a Slurm job if there are any 'heavy' variables to evaluate
+        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, heavy=True)
+        if set(ctx_slurm.vars) > set(ctx.vars):
+            log.info("Launching Slurm job to calculate heavy variables")
+            # TODO ...
 
 
 if __name__ == '__main__':
