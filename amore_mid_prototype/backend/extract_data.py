@@ -5,6 +5,7 @@ import pickle
 import re
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -49,10 +50,21 @@ def get_proposal_path(xd_run):
 
     return Path(*p.parts[:7])
 
+def add_to_h5_file(path) -> h5py.File:
+    """Open the file with exponential backoff if it's locked"""
+    for i in range(6):
+        try:
+            return h5py.File(path, 'a')
+        except BlockingIOError as e:
+            # File is locked for writing; wait 1, 2, 4, ... seconds
+            time.sleep(2 ** i)
+    raise e
+
 class Results:
     def __init__(self, data, ctx):
         self.data = data
         self.ctx = ctx
+        self._reduced = None
 
     @classmethod
     def create(cls, ctx_file: ContextFile, xd_run, run_number, proposal):
@@ -106,6 +118,17 @@ class Results:
                 (f'{name}/data', value)
             ]
 
+    @property
+    def reduced(self):
+        if self._reduced is None:
+            r = {}
+            for name in self.data:
+                v = self.summarise(name)
+                if v is not None:
+                    r[name] = v
+            self._reduced = r
+        return self._reduced
+
     def summarise(self, name):
         data = self.data[name]
 
@@ -129,11 +152,8 @@ class Results:
             return getattr(np, summary_method)(data)
 
     def save_hdf5(self, hdf5_path):
-        dsets = []
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
         for name, arr in self.data.items():
-            reduced = self.summarise(name)
-            if reduced is not None:
-                dsets.append((f'.reduced/{name}', reduced))
             dsets.extend(self._datasets_for_arr(name, arr))
 
         log.info("Writing %d variables to %d datasets in %s",
@@ -141,7 +161,7 @@ class Results:
 
         # We need to open the files in append mode so that when proc Variable's
         # are processed after raw ones, the raw ones won't be lost.
-        with h5py.File(hdf5_path, 'a') as f:
+        with add_to_h5_file(hdf5_path) as f:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
@@ -192,6 +212,7 @@ def run_and_save(proposal: int, run: int, out_path: Path,
 
     res = Results.create(ctx_file, run_dc, run, proposal)
     res.save_hdf5(out_path)
+    return res.reduced()
 
 
 def load_reduced_data(h5_path):
@@ -277,8 +298,7 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        run_and_save(proposal, run, out_path, run_data, match)
-        reduced_data = load_reduced_data(out_path)
+        reduced_data = run_and_save(proposal, run, out_path, run_data, match)
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
 
