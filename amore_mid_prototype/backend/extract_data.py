@@ -180,8 +180,8 @@ class Results:
         os.chmod(hdf5_path, 0o666)
 
 
-def run_and_save(proposal: int, run: int, out_path: Path,
-                 run_data=RunData.ALL, match=[], context_path=Path("context.py")):
+def run_and_save(proposal: int, run: int, out_path: Path, run_data=RunData.ALL,
+                 heavy=False, match=(), context_path=Path("context.py")):
     run_dc = extra_data.open_run(proposal, run, data="all")
 
     ctx_file = ContextFile.from_py_file(context_path)
@@ -194,10 +194,12 @@ def run_and_save(proposal: int, run: int, out_path: Path,
         # If this is being triggered by a migration/calibration message for
         # raw/proc data, then only process the Variable's that require that data.
         data_mismatch = run_data != RunData.ALL and var.data != run_data.value
+        # Skip data tagged heavy unless we're in a dedicated Slurm job
+        heavy_mismatch = (not heavy) and ctx_file.vars[var.name].heavy
         # Skip Variable's that don't match the match list
         name_mismatch = len(match) > 0 and not any(m.lower() in title.lower() for m in match)
 
-        if not data_mismatch and not name_mismatch:
+        if not data_mismatch and not name_mismatch and not heavy_mismatch:
             filtered_vars.append(var)
 
     # Create a set of variables to execute from the filtered variables, and
@@ -283,7 +285,7 @@ class Extractor:
             self._proposal = get_meta(self.db, 'proposal')
         return self._proposal
 
-    def extract_and_ingest(self, proposal, run, run_data=RunData.ALL, match=[]):
+    def extract_and_ingest(self, proposal, run, run_data=RunData.ALL, match=()):
         if proposal is None:
             proposal = self.proposal
 
@@ -298,7 +300,8 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        reduced_data = run_and_save(proposal, run, out_path, run_data, match)
+        reduced_data = run_and_save(proposal, run, out_path,
+                                    run_data=run_data, match=match)
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
 
