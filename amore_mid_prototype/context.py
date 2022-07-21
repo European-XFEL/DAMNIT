@@ -120,7 +120,7 @@ class ContextFile:
             name_match = (len(name_matches) == 0
                           or any(m.lower() in title.lower() for m in name_matches))
 
-            if data_match or heavy_match or name_match:
+            if data_match and heavy_match and name_match:
                 new_vars[name] = var
 
         return ContextFile(new_vars, self.code)
