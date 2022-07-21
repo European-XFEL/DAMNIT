@@ -307,7 +307,7 @@ class Extractor:
         run_dc = extra_data.open_run(proposal, run, data="all")
         res = Results.create(ctx, run_dc)
         res.save_hdf5(out_path)
-        reduced_data = res.reduced()
+        reduced_data = res.reduced
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
 
