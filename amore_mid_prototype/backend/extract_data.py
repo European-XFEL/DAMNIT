@@ -1,9 +1,12 @@
+import argparse
 import os
 import functools
 import logging
 import pickle
 import re
+import shlex
 import sqlite3
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -283,7 +286,8 @@ class Extractor:
             self._proposal = get_meta(self.db, 'proposal')
         return self._proposal
 
-    def extract_and_ingest(self, proposal, run, run_data=RunData.ALL, match=()):
+    def extract_and_ingest(self, proposal, run, heavy=False,
+                           run_data=RunData.ALL, match=()):
         if proposal is None:
             proposal = self.proposal
 
@@ -298,7 +302,7 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        ctx = self.ctx_whole.filter(run_data=run_data, name_matches=match)
+        ctx = self.ctx_whole.filter(run_data=run_data, heavy=heavy, name_matches=match)
 
         run_dc = extra_data.open_run(proposal, run, data="all")
         res = Results.create(ctx, run_dc)
@@ -316,14 +320,23 @@ class Extractor:
         # Launch a Slurm job if there are any 'heavy' variables to evaluate
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, heavy=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
-            log.info("Launching Slurm job to calculate heavy variables")
-            # TODO ...
-
+            python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
+                          '--cluster-job', str(proposal), str(run), run_data.value]
+            res = subprocess.run([
+                'sbatch', '--parsable', '-p', 'exfel','--wrap', shlex.join(python_cmd)
+            ], stdout=subprocess.PIPE, text=True)
+            job_id = res.stdout.partition(';')[0]
+            log.info("Launched Slurm job %s to calculate heavy variables", job_id)
 
 if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('proposal', type=int)
+    ap.add_argument('run', type=int)
+    ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    ap.add_argument('--cluster-job')
+    args = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    proposal = int(sys.argv[1])
-    run = int(sys.argv[2])
-    run_data = RunData(sys.argv[3])
-    Extractor().extract_and_ingest(proposal, run, run_data)
+    Extractor().extract_and_ingest(args.proposal, args.run,
+                                   heavy=args.cluster_job,
+                                   run_data=RunData(args.run_data))
