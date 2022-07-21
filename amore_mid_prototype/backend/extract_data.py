@@ -333,7 +333,7 @@ if __name__ == '__main__':
     ap.add_argument('proposal', type=int)
     ap.add_argument('run', type=int)
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
-    ap.add_argument('--cluster-job')
+    ap.add_argument('--cluster-job', action="store_true")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
 
