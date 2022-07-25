@@ -29,6 +29,11 @@ dependencies = [
     "extra_geom"
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
 [project.urls]
 Home = "https://git.xfel.eu/amore/mid-2833"
 
