@@ -3,13 +3,13 @@ AMORE prototype for MID
 
 Installation::
 
-    # Make a virtualenv
-    module load exfel exfel_anaconda3
+    # Make an environment for AMORE
     git clone https://git.xfel.eu/amore/mid-2832.git
     cd mid-2832
-    python3 -m venv env
+    conda create -n amore python
 
-    env/bin/pip install .
+    conda activate amore
+    pip install .
 
 Usage:
 
@@ -19,7 +19,7 @@ to define what data is interesting.
 
 To listen for new runs and extract data::
 
-    source env/bin/activate
+    conda activate amore
     cd /path/to/proposal/scratch/amore  # Context directory
     amore-proto proposal 1234
     amore-proto listen .
@@ -29,7 +29,7 @@ in the same directory.
 
 To launch the GUI overview (e.g. on `max-display <https://max-display.desy.de:3443/>`_)::
 
-    source env/bin/activate
+    conda activate amore
     amore-proto gui
 
 You can open the context dir inside the GUI ('autoconfiguration'), or pass it
