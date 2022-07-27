@@ -64,7 +64,7 @@ class Results:
             try:
                 # Add all variable dependencies
                 kwargs = { arg_name: res[dep_name]
-                           for arg_name, dep_name in var.dependencies().items() }
+                           for arg_name, dep_name in var.arg_dependencies().items() }
 
                 # And all meta dependencies
                 for arg_name, annotation in var.annotations().items():
@@ -160,10 +160,11 @@ class Results:
         os.chmod(hdf5_path, 0o666)
 
 
-def run_and_save(proposal, run, out_path, run_data=RunData.ALL, match=[]):
+def run_and_save(proposal: int, run: int, out_path: Path,
+                 run_data=RunData.ALL, match=[], context_path=Path("context.py")):
     run_dc = extra_data.open_run(proposal, run, data="all")
 
-    ctx_file = ContextFile.from_py_file(Path('context.py'))
+    ctx_file = ContextFile.from_py_file(context_path)
 
     # Find variables that match the run data and match patterns
     filtered_vars = []
