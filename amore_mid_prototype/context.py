@@ -1,10 +1,6 @@
 import inspect
 import logging
-<<<<<<< HEAD
-
-=======
 from enum import Enum
->>>>>>> 4d5d3d4 (Initial structure for deferring variables to Slurm job)
 from pathlib import Path
 from graphlib import CycleError, TopologicalSorter
 

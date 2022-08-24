@@ -177,46 +177,6 @@ class Results:
         os.chmod(hdf5_path, 0o666)
 
 
-<<<<<<< HEAD
-def run_and_save(proposal: int, run: int, out_path: Path, run_data=RunData.ALL,
-                 heavy=False, match=(), context_path=Path("context.py")):
-    run_dc = extra_data.open_run(proposal, run, data="all")
-
-    ctx_file = ContextFile.from_py_file(context_path)
-
-    # Find variables that match the run data and match patterns
-    filtered_vars = []
-    for var in ctx_file.vars.values():
-        title = var.title or var.name
-
-        # If this is being triggered by a migration/calibration message for
-        # raw/proc data, then only process the Variable's that require that data.
-        data_mismatch = run_data != RunData.ALL and var.data != run_data.value
-        # Skip data tagged heavy unless we're in a dedicated Slurm job
-        heavy_mismatch = (not heavy) and ctx_file.vars[var.name].heavy
-        # Skip Variable's that don't match the match list
-        name_mismatch = len(match) > 0 and not any(m.lower() in title.lower() for m in match)
-
-        if not data_mismatch and not name_mismatch and not heavy_mismatch:
-            filtered_vars.append(var)
-
-    # Create a set of variables to execute from the filtered variables, and
-    # their dependencies.
-    final_vars = set(v.name for v in filtered_vars)
-    final_vars |= ctx_file.all_dependencies(*filtered_vars)
-
-    # Remove the unwanted ones from the context
-    for name in list(ctx_file.vars.keys()):
-        if name not in final_vars:
-            del ctx_file.vars[name]
-
-    res = Results.create(ctx_file, run_dc, run, proposal)
-    res.save_hdf5(out_path)
-    return res.reduced()
-
-
-=======
->>>>>>> 4d5d3d4 (Initial structure for deferring variables to Slurm job)
 def load_reduced_data(h5_path):
     def get_dset_value(ds):
         # If it's a string, extract the string
