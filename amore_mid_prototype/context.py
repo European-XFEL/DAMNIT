@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 
 class Variable:
-    def __init__(self, title=None, summary=None, data="raw", heavy=False):
+    def __init__(self, title=None, summary=None, data="raw", cluster=False):
         self.func = None
         self.title = title
         self.summary = summary
@@ -16,7 +16,7 @@ class Variable:
         if data not in ["raw", "proc"]:
             raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
         self.data = data
-        self.heavy = heavy
+        self.cluster = cluster
 
     def __call__(self, func):
         self.func = func
@@ -102,7 +102,7 @@ class ContextFile:
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
 
-    def filter(self, run_data=RunData.ALL, heavy=True, name_matches=()):
+    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
         new_vars = {}
         for name, var in self.vars.items():
             title = var.title or name
@@ -110,13 +110,13 @@ class ContextFile:
             # If this is being triggered by a migration/calibration message for
             # raw/proc data, then only process the Variable's that require that data.
             data_match = run_data == RunData.ALL or var.data == run_data.value
-            # Skip data tagged heavy unless we're in a dedicated Slurm job
-            heavy_match = heavy or not var.heavy
+            # Skip data tagged cluster unless we're in a dedicated Slurm job
+            cluster_match = cluster or not var.cluster
             # Skip Variables that don't match the match list
             name_match = (len(name_matches) == 0
                           or any(m.lower() in title.lower() for m in name_matches))
 
-            if data_match and heavy_match and name_match:
+            if data_match and cluster_match and name_match:
                 new_vars[name] = var
 
         # Add back any dependencies of the selected variables

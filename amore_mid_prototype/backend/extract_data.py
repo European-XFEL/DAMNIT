@@ -246,7 +246,7 @@ class Extractor:
             self._proposal = get_meta(self.db, 'proposal')
         return self._proposal
 
-    def extract_and_ingest(self, proposal, run, heavy=False,
+    def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=()):
         if proposal is None:
             proposal = self.proposal
@@ -262,7 +262,7 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        ctx = self.ctx_whole.filter(run_data=run_data, heavy=heavy, name_matches=match)
+        ctx = self.ctx_whole.filter(run_data=run_data, cluster=cluster, name_matches=match)
 
         run_dc = extra_data.open_run(proposal, run, data="all")
         res = Results.create(ctx, run_dc)
@@ -277,8 +277,8 @@ class Extractor:
         self.kafka_prd.send(self.update_topic, reduced_data)
         log.info("Sent Kafka update")
 
-        # Launch a Slurm job if there are any 'heavy' variables to evaluate
-        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, heavy=True)
+        # Launch a Slurm job if there are any 'cluster' variables to evaluate
+        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
             python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]
@@ -286,7 +286,7 @@ class Extractor:
                 'sbatch', '--parsable', '-p', 'exfel','--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
-            log.info("Launched Slurm job %s to calculate heavy variables", job_id)
+            log.info("Launched Slurm job %s to calculate cluster variables", job_id)
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -298,5 +298,5 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     Extractor().extract_and_ingest(args.proposal, args.run,
-                                   heavy=args.cluster_job,
+                                   cluster=args.cluster_job,
                                    run_data=RunData(args.run_data))
