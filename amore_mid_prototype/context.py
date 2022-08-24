@@ -109,7 +109,7 @@ class ContextFile:
 
             # If this is being triggered by a migration/calibration message for
             # raw/proc data, then only process the Variable's that require that data.
-            data_match = run_data == RunData.ALL or var.data != run_data.value
+            data_match = run_data == RunData.ALL or var.data == run_data.value
             # Skip data tagged heavy unless we're in a dedicated Slurm job
             heavy_match = heavy or not var.heavy
             # Skip Variables that don't match the match list
@@ -118,5 +118,8 @@ class ContextFile:
 
             if data_match and heavy_match and name_match:
                 new_vars[name] = var
+
+        # Add back any dependencies of the selected variables
+        new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
         return ContextFile(new_vars, self.code)
