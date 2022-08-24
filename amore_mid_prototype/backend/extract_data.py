@@ -1,4 +1,5 @@
 import argparse
+import getpass
 import os
 import functools
 import logging
@@ -9,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from ctypes import CDLL
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +27,19 @@ from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
 
+
+# Python innetgr wrapper after https://github.com/wcooley/netgroup-python/
+def innetgr(netgroup: bytes, host=None, user=None, domain=None):
+    libc = CDLL("libc.so.6")
+    return bool(libc.innetgr(netgroup, host, user, domain))
+
+def default_slurm_partition():
+    username = getpass.getuser().encode()
+    if innetgr(b'exfel-wgs-users', user=username):
+        return 'exfel'
+    elif innetgr(b'upex-users', user=username):
+        return 'upex'
+    return 'all'
 
 def get_start_time(xd_run):
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
@@ -283,7 +298,9 @@ class Extractor:
             python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]
             res = subprocess.run([
-                'sbatch', '--parsable', '-p', 'exfel','--wrap', shlex.join(python_cmd)
+                'sbatch', '--parsable',
+                '-p', default_slurm_partition(),
+                '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
             log.info("Launched Slurm job %s to calculate cluster variables", job_id)
