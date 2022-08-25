@@ -497,6 +497,7 @@ class Plot:
         self.update()
 
         dock_widget = QtAds.CDockWidget(f"{ylabel} vs. {xlabel}" if self.plot_type == 'default' else f"Density of {xlabel}")
+        dock_widget.setFeature(QtAds.CDockWidget.DockWidgetDeleteOnClose, True)
         dock_widget.setWidget(canvas)
 
         self._dock_manager.addDockWidget(QtAds.CenterDockWidgetArea, dock_widget, self._dock_area)
