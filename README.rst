@@ -9,6 +9,8 @@ Installation::
     conda create -n amore python
 
     conda activate amore
+    conda env update --file environment.yml
+    # To install the amore-proto command
     pip install .
 
 Usage:
