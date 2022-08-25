@@ -261,6 +261,12 @@ class Extractor:
             self._proposal = get_meta(self.db, 'proposal')
         return self._proposal
 
+    def slurm_options(self):
+        if reservation := get_meta(self.db, 'slurm_reservation', ''):
+            return ['--reservation', reservation]
+        partition = get_meta(self.db, 'slurm_partition', '') or default_slurm_partition()
+        return ['--partition', partition]
+
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=()):
         if proposal is None:
@@ -299,7 +305,7 @@ class Extractor:
                           '--cluster-job', str(proposal), str(run), run_data.value]
             res = subprocess.run([
                 'sbatch', '--parsable',
-                '-p', default_slurm_partition(),
+                *self.slurm_options(),
                 '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
