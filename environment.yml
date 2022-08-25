@@ -1,0 +1,25 @@
+channels:
+- conda-forge
+dependencies:
+- pip:
+  - flit
+  - EXtra-data
+  - libtmux
+  - pasha
+  - extra_geom
+- python
+- pip
+- kafka-python
+- matplotlib-base
+- mplcursors
+- mpl-interactions
+- numpy
+- pandas
+- pyqt
+- pyqtads
+- pyyaml
+- xarray
+- scipy
+- tomli
+#name: amore_mid_prototype
+

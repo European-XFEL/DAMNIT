@@ -16,6 +16,7 @@ import h5py
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQtAds import QtAds
 from kafka.errors import NoBrokersAvailable
 
 from extra_data.read_machinery import find_proposal
@@ -50,6 +51,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
+
+        self._dock_manager = QtAds.CDockManager()
+
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -625,7 +629,14 @@ da-dev@xfel.eu"""
                 strongly_correlated=True
             )
         )
-        self._canvas_inspect[-1].show()
+
+        #self._canvas_inspect[-1].show()
+
+        dock_widget = QtAds.CDockWidget("Event (run {})".format(run))
+        dock_widget.setFeature(QtAds.CDockWidget.DockWidgetDeleteOnClose, True)
+        dock_widget.setWidget(self._canvas_inspect[-1])
+
+        self._dock_manager.addDockWidget(QtAds.CenterDockWidgetArea, dock_widget, self._dock_area)
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
@@ -671,8 +682,16 @@ da-dev@xfel.eu"""
         comment_timer.timeout.connect(self._set_comment_date)
         comment_timer.start()
 
+        # docking widget for plots
+        label = QtWidgets.QLabel("Plots will show here")
+        label.setAlignment(Qt.AlignCenter);
+        dock_widget = QtAds.CDockWidget("Plots dock")
+        dock_widget.setFeature(QtAds.CDockWidget.NoTab, True)
+        dock_widget.setWidget(label)
+        self._dock_area = self._dock_manager.setCentralWidget(dock_widget)
+
         # plotting control
-        self.plot = Plot(self)
+        self.plot = Plot(self, self._dock_manager, self._dock_area)
         plotting_group = QtWidgets.QGroupBox("Plotting controls")
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -701,6 +720,8 @@ da-dev@xfel.eu"""
         plotting_group.setLayout(plot_vertical_layout)
 
         vertical_layout.addWidget(plotting_group)
+
+        vertical_layout.addWidget(self._dock_manager)
 
         self._view_widget.setLayout(vertical_layout)
 

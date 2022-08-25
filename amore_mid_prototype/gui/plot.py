@@ -5,6 +5,7 @@ from pandas.api.types import is_numeric_dtype
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
+from PyQtAds import QtAds
 
 import mplcursors
 from matplotlib.backends.backend_qtagg import (
@@ -312,8 +313,10 @@ class Canvas(QtWidgets.QDialog):
 
 
 class Plot:
-    def __init__(self, main_window) -> None:
-        self._main_window = main_window
+    def __init__(self, main_window, dock_manager, dock_area) -> None:
+        self._main_window  = main_window
+        self._dock_manager = dock_manager
+        self._dock_area    = dock_area
 
         self.plot_type = "default"
 
@@ -493,7 +496,12 @@ class Plot:
 
         self.update()
 
-        canvas.show()
+        dock_widget = QtAds.CDockWidget(f"{ylabel} vs. {xlabel}" if self.plot_type == 'default' else f"Density of {xlabel}")
+        dock_widget.setWidget(canvas)
+
+        self._dock_manager.addDockWidget(QtAds.CenterDockWidgetArea, dock_widget, self._dock_area)
+
+        #canvas.show()
 
     def _toggle_probability_density_clicked(self):
         if self._toggle_probability_density.isChecked():
