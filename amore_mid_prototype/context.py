@@ -1,6 +1,6 @@
 import inspect
 import logging
-
+from enum import Enum
 from pathlib import Path
 from graphlib import CycleError, TopologicalSorter
 
@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 
 class Variable:
-    def __init__(self, title=None, summary=None, data="raw"):
+    def __init__(self, title=None, summary=None, data="raw", cluster=False):
         self.func = None
         self.title = title
         self.summary = summary
@@ -16,6 +16,7 @@ class Variable:
         if data not in ["raw", "proc"]:
             raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
         self.data = data
+        self.cluster = cluster
 
     def __call__(self, func):
         self.func = func
@@ -42,6 +43,12 @@ class Variable:
             raise RuntimeError(f"Variable '{self.title}' is not initialized with a function")
 
         return inspect.get_annotations(self.func)
+
+class RunData(Enum):
+    RAW = "raw"
+    PROC = "proc"
+    ALL = "all"
+
 
 class ContextFile:
     def __init__(self, vars, code):
@@ -94,3 +101,25 @@ class ContextFile:
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
+
+    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
+        new_vars = {}
+        for name, var in self.vars.items():
+            title = var.title or name
+
+            # If this is being triggered by a migration/calibration message for
+            # raw/proc data, then only process the Variable's that require that data.
+            data_match = run_data == RunData.ALL or var.data == run_data.value
+            # Skip data tagged cluster unless we're in a dedicated Slurm job
+            cluster_match = cluster or not var.cluster
+            # Skip Variables that don't match the match list
+            name_match = (len(name_matches) == 0
+                          or any(m.lower() in title.lower() for m in name_matches))
+
+            if data_match and cluster_match and name_match:
+                new_vars[name] = var
+
+        # Add back any dependencies of the selected variables
+        new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
+
+        return ContextFile(new_vars, self.code)

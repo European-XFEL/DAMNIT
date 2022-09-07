@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 
 from amore_mid_prototype.context import ContextFile
-from amore_mid_prototype.backend.extract_data import Results, RunData, run_and_save, get_proposal_path
+from amore_mid_prototype.backend.extract_data import Results, RunData, get_proposal_path
 
 
 def test_dag(mock_ctx):
@@ -74,18 +74,23 @@ def test_create_context_file():
 
     assert len(ctx.vars) == 1
 
-def test_results(mock_ctx, mock_run, caplog):
-    run_number = 1000
-    proposal = 1234
-
+def run_ctx_helper(context, run, run_number, proposal, caplog):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = Results.create(mock_ctx, mock_run, run_number, proposal)
+        results = Results.create(context, run, run_number, proposal)
 
-    # Check that there were no errors and all variables were executed
-    assert len(caplog.records) == 0
+    # Check that there were no errors
+    assert caplog.records == []
+    return results
+
+
+def test_results(mock_ctx, mock_run, caplog):
+    run_number = 1000
+    proposal = 1234
+
+    results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
     assert set(mock_ctx.ordered_vars()) <= results.data.keys()
 
     # Check the result values
@@ -95,48 +100,33 @@ def test_results(mock_ctx, mock_run, caplog):
     np.testing.assert_equal(results.data["meta_array"], [run_number, proposal])
     assert results.data["string"] == str(get_proposal_path(mock_run))
 
-def test_run_and_save(mock_ctx, mock_run):
+def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000
     proposal = 1234
 
-    ed_module_path = "amore_mid_prototype.backend.extract_data"
-    with (patch(f"{ed_module_path}.extra_data.open_run", side_effect=lambda *_, **__: mock_run),
-          tempfile.NamedTemporaryFile() as hdf5_file,
-          tempfile.NamedTemporaryFile() as ctx_file):
-        # Save the context code
-        ctx_file.write(mock_ctx.code.encode())
-        ctx_file.flush()
+    # First run with raw data and a filter so only one Variable is executed
+    ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["string"])
+    assert set(ctx.vars) == { "string" }
+    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    assert set(results.data) == { "string", "start_time" }
 
-        def var_datasets():
-            with h5py.File(hdf5_file.name) as f:
-                datasets = set(f.keys()) - { "start_time", ".reduced" }
-            return datasets
+    # Now select a Variable with dependencies
+    ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["scalar2", "timestamp"])
+    assert set(ctx.vars) == { "scalar1", "scalar2", "timestamp" }
+    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    assert set(results.data) == { "scalar1", "scalar2", "timestamp", "start_time" }
+    ts = results.data["timestamp"]
 
-        def var_data(ds_name):
-            with h5py.File(hdf5_file.name) as f:
-                data = f[ds_name]["data"][()]
-            return data
+    # Requesting a Variable that requires proc data with only raw data
+    # should not execute anything.
+    ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["meta_array"])
+    assert set(ctx.vars) == set()
+    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    assert set(results.data) == {"start_time"}
 
-        # Helper function that sets a bunch of default arguments
-        run_and_save_helper = partial(run_and_save, proposal, run_number,
-                                      Path(hdf5_file.name), context_path=Path(ctx_file.name))
-
-        # First run with raw data and a filter so only one Variable is executed
-        run_and_save_helper(run_data=RunData.RAW, match=["string"])
-        assert var_datasets() == { "string" }
-
-        # Now select a Variable with dependencies
-        run_and_save_helper(run_data=RunData.RAW, match=["scalar2", "timestamp"])
-        assert var_datasets() == { "string", "scalar1", "scalar2", "timestamp" }
-        ts = var_data("timestamp")
-
-        # Requesting a Variable that requires proc data with only raw data
-        # should not execute anything.
-        run_and_save_helper(run_data=RunData.RAW, match=["meta_array"])
-        assert var_datasets() == { "string", "scalar1", "scalar2", "timestamp" }
-        assert var_data("timestamp") == ts
-
-        # But with proc data all dependencies should be executed
-        run_and_save_helper(run_data=RunData.PROC, match=["meta_array"])
-        assert var_datasets() == { "string", "scalar1", "scalar2", "timestamp", "array", "meta_array" }
-        assert var_data("timestamp") > ts
+    # But with proc data all dependencies should be executed
+    ctx = mock_ctx.filter(run_data=RunData.PROC, name_matches=["meta_array"])
+    assert set(ctx.vars) == { "scalar1", "scalar2", "timestamp", "array", "meta_array" }
+    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    assert set(results.data) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
+    assert results.data["timestamp"] > ts
