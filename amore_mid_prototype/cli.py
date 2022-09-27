@@ -23,14 +23,6 @@ def main():
         help="Manually enter 'migrated' runs for testing"
     )
     listen_ap.add_argument(
-        '--migration', action='store_true',
-        help="Enable listening for migration events"
-    )
-    listen_ap.add_argument(
-        '--calibration', action='store_true',
-        help="Enable listening for calibration events"
-    )
-    listen_ap.add_argument(
         'context_dir', type=Path, nargs='?', default='.',
         help="Directory to store summarised results"
     )
@@ -44,8 +36,13 @@ def main():
         help="Proposal number, e.g. 1234"
     )
     reprocess_ap.add_argument(
-        'run', nargs='+', type=int,
-        help="Run number, e.g. 96. Multiple runs can be specified at once."
+        '--match', type=str, action="append", default=[],
+        help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
+    )
+    reprocess_ap.add_argument(
+        'run', nargs='+',
+        help="Run number, e.g. 96. Multiple runs can be specified at once, "
+             "or pass 'all' to reprocess all runs in the database."
     )
 
     proposal_ap = subparsers.add_parser(
@@ -58,7 +55,9 @@ def main():
     )
 
     args = ap.parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
+                        format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
 
     if args.subcmd == 'gui':
         if args.context_dir is not None and not args.context_dir.is_dir():
@@ -67,26 +66,31 @@ def main():
         return run_app(args.context_dir)
 
     elif args.subcmd == 'listen':
-        if not args.migration and not args.calibration:
-            sys.exit("At least one of --calibration or --migration must be passed")
-
-        topics = []
-        if args.migration:
-            topics.append("xfel-test-r2d2")
-        if args.calibration:
-            topics.append("xfel-test-offline-cal")
-
         if args.test:
             from .backend.test_listener import listen
         else:
             from .backend.listener import listen
         os.chdir(args.context_dir)
-        return listen(topics)
+        return listen()
 
     elif args.subcmd == 'reprocess':
-        from .backend.extract_data import extract_and_ingest
-        for run in args.run:
-            extract_and_ingest(args.proposal, run)
+        # Hide some logging from Kafka to make things more readable
+        logging.getLogger('kafka').setLevel(logging.WARNING)
+
+        from .backend.extract_data import Extractor
+        extr = Extractor()
+        if args.run == ['all']:
+            rows = extr.db.execute("SELECT proposal, runnr FROM runs").fetchall()
+            print(f"Reprocessing {len(rows)} runs already recorded...")
+            for proposal, run in rows:
+                extr.extract_and_ingest(proposal, run, match=args.match)
+        else:
+            try:
+                runs = [int(r) for r in args.run]
+            except ValueError as e:
+                sys.exit(f"Run numbers must be integers ({e})")
+            for run in runs:
+                extr.extract_and_ingest(args.proposal, run, match=args.match)
 
     elif args.subcmd == 'proposal':
         from .backend.db import open_db, get_meta, set_meta

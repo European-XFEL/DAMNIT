@@ -332,7 +332,9 @@ class Canvas(QtWidgets.QDialog):
                         "alpha": 0.5,
                     }
                 )
-                print("Ciauuu", y, x)
+                if np.all(np.isnan(x)) or np.all(np.isnan(y)):
+                    continue
+
                 y, x, patches = self._axis.hist(
                     x, bins=self.histogram1D_bins, **self._kwargs[series][-1]
                 )
@@ -359,7 +361,7 @@ class Canvas(QtWidgets.QDialog):
                         ), np.nanmax([np.nanmax(xi) for xi in xs if len(xi)])
                     else:
                         xs_min, xs_max = np.nanmin(xs), np.nanmax(xs)
-                        print("1qui", xs)
+                        print("1qui", xs, xs_min, xs_max)
                     if hasattr(ys[0], "__len__"):
                         print("quo")
                         ys_min, ys_max = np.nanmin(
@@ -367,7 +369,7 @@ class Canvas(QtWidgets.QDialog):
                         ), np.nanmax([np.nanmax(yi) for yi in ys if len(yi)])
                     else:
                         ys_min, ys_max = np.nanmin(ys), np.nanmax(ys)
-                        print("1quo")
+                        print("1quo", ys, ys_min, ys_max)
 
                 x_min, x_max, y_min, y_max = self.autoscale(
                     xs_min,
@@ -381,8 +383,7 @@ class Canvas(QtWidgets.QDialog):
                     xs_min,
                     xs_max,
                     ys_min,
-                    ys_max,
-                    [np.nanmin(yi) for yi in ys if len(yi)],
+                    ys_max
                 )
                 self._axis.set_xlim((x_min, x_max))
                 self._axis.set_ylim((y_min, y_max))
@@ -409,10 +410,6 @@ class Canvas(QtWidgets.QDialog):
 class Plot:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
-        keys = list(main_window.data.columns)
-
-        for ki in ["Comment", "Use"] + [xi for xi in keys if xi.startswith("_")]:
-            keys.remove(ki)
 
         self.plot_type = "default"
 
@@ -443,7 +440,6 @@ class Plot:
 
         self.vs_label = QtWidgets.QLabel("versus")
 
-        self.update_combo_box(keys)
         self._combo_box_x_axis.setCurrentText("Run")
 
         self._canvas = {
@@ -468,10 +464,29 @@ class Plot:
     def _data(self):
         return self._main_window.data
 
-    def update_combo_box(self, keys):
+    def update_columns(self):
+        keys = list(self._main_window.data.columns)
+        to_drop = ["Comment", "Use"]
+
+        keys = [ki for ki in keys if not (ki in to_drop or ki.startswith("_"))]
+
+        current_x = self._combo_box_x_axis.currentText()
+        current_y = self._combo_box_y_axis.currentText()
+        self._combo_box_x_axis.clear()
+        self._combo_box_y_axis.clear()
+
         for ki in keys:
             self._combo_box_x_axis.addItem(ki)
             self._combo_box_y_axis.addItem(ki)
+
+        # Restore previous selection
+        if current_x in keys:
+            self._combo_box_x_axis.setCurrentText(current_x)
+        if current_y in keys:
+            self._combo_box_y_axis.setCurrentText(current_y)
+
+        if self._combo_box_x_axis.currentText() == self._combo_box_y_axis.currentText() and len(keys) > 1:
+            self._combo_box_x_axis.setCurrentText(keys[1])
 
     def _plot_runs_as_series(self, xlabel, ylabel, non_data_field):
         x, y = [], []
@@ -750,11 +765,15 @@ class Plot:
 
         try:
             x_ds, y_ds = dataset[x_quantity], dataset[y_quantity]
-            x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
-            tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
+            if "trainId" in x_ds and "trainId" in y_ds:
+                x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
+                tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
 
-            x = x_ds["data"][x_idxs]
-            y = y_ds["data"][y_idxs]
+                x = x_ds["data"][x_idxs]
+                y = y_ds["data"][y_idxs]
+            else:
+                x = x_ds["data"][()]
+                y = y_ds["data"][()]
         except KeyError:  # as e:
             log.warning(f"{xlabel} or {ylabel} could not be found in {file_name}")
             # raise e

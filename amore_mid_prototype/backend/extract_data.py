@@ -1,9 +1,16 @@
-import json
+import argparse
+import getpass
+import os
+import functools
 import logging
 import pickle
 import re
+import shlex
 import sqlite3
+import subprocess
 import sys
+import time
+from ctypes import CDLL
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,30 +21,92 @@ import xarray
 from scipy import ndimage
 from kafka import KafkaProducer
 
-from ..context import ContextFile
+from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
 log = logging.getLogger(__name__)
 
 
+# Python innetgr wrapper after https://github.com/wcooley/netgroup-python/
+def innetgr(netgroup: bytes, host=None, user=None, domain=None):
+    libc = CDLL("libc.so.6")
+    return bool(libc.innetgr(netgroup, host, user, domain))
+
+def default_slurm_partition():
+    username = getpass.getuser().encode()
+    if innetgr(b'exfel-wgs-users', user=username):
+        return 'exfel'
+    elif innetgr(b'upex-users', user=username):
+        return 'upex'
+    return 'all'
+
 def get_start_time(xd_run):
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
-    # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-    return np.datetime64(ts, 'us').item().timestamp()
 
+    if np.isnan(ts):
+        # If the timestamp information is not present (i.e. on old files), then
+        # we take the timestamp from the oldest raw file as an approximation.
+        files = sorted([f.filename for f in xd_run.files if "raw" in f.filename])
+        first_file = Path(files[0])
+
+        # Use the modified timestamp
+        return first_file.stat().st_mtime
+    else:
+        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
+        return np.datetime64(ts, 'us').item().timestamp()
+
+def get_proposal_path(xd_run):
+    files = [f.filename for f in xd_run.files]
+    p = Path(files[0])
+
+    return Path(*p.parts[:7])
+
+def add_to_h5_file(path) -> h5py.File:
+    """Open the file with exponential backoff if it's locked"""
+    for i in range(6):
+        try:
+            return h5py.File(path, 'a')
+        except BlockingIOError as e:
+            # File is locked for writing; wait 1, 2, 4, ... seconds
+            time.sleep(2 ** i)
+    raise e
 
 class Results:
     def __init__(self, data, ctx):
         self.data = data
         self.ctx = ctx
+        self._reduced = None
 
     @classmethod
-    def create(cls, ctx_file: ContextFile, xd_run):
+    def create(cls, ctx_file: ContextFile, xd_run, run_number, proposal):
         res = {'start_time': np.asarray(get_start_time(xd_run))}
-        for name, var in ctx_file.vars.items():
+
+        for name in ctx_file.ordered_vars():
+            var = ctx_file.vars[name]
+
             try:
-                data = var.func(xd_run)
+                # Add all variable dependencies
+                kwargs = { arg_name: res[dep_name]
+                           for arg_name, dep_name in var.arg_dependencies().items() }
+
+                # And all meta dependencies
+                for arg_name, annotation in var.annotations().items():
+                    if not annotation.startswith("meta#"):
+                        continue
+
+                    if annotation == "meta#run_number":
+                        kwargs[arg_name] = run_number
+                    elif annotation == "meta#proposal":
+                        kwargs[arg_name] = proposal
+                    elif annotation == "meta#proposal_path":
+                        kwargs[arg_name] = get_proposal_path(xd_run)
+                    else:
+                        raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
+
+                func = functools.partial(var.func, **kwargs)
+
+                data = func(xd_run)
                 if not isinstance(data, (xarray.DataArray, str)):
                     data = np.asarray(data)
             except Exception:
@@ -61,6 +130,17 @@ class Results:
                 (f'{name}/data', value)
             ]
 
+    @property
+    def reduced(self):
+        if self._reduced is None:
+            r = {}
+            for name in self.data:
+                v = self.summarise(name)
+                if v is not None:
+                    r[name] = v
+            self._reduced = r
+        return self._reduced
+
     def summarise(self, name):
         data = self.data[name]
 
@@ -83,22 +163,24 @@ class Results:
                 return None
             return getattr(np, summary_method)(data)
 
-    def save_hdf5(self, path):
-        dsets = []
+    def save_hdf5(self, hdf5_path):
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
         for name, arr in self.data.items():
-            reduced = self.summarise(name)
-            if reduced is not None:
-                dsets.append((f'.reduced/{name}', reduced))
             dsets.extend(self._datasets_for_arr(name, arr))
 
         log.info("Writing %d variables to %d datasets in %s",
-                 len(self.data), len(dsets), path)
+                 len(self.data), len(dsets), hdf5_path)
 
-        with h5py.File(path, 'w') as f:
+        # We need to open the files in append mode so that when proc Variable's
+        # are processed after raw ones, the raw ones won't be lost.
+        with add_to_h5_file(hdf5_path) as f:
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:
-                print(path, arr, type(arr))
+                # Delete the existing datasets so we can overwrite them
+                if path in f:
+                    del f[path]
+
                 if isinstance(arr, str):
                     f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
                 else:
@@ -107,13 +189,7 @@ class Results:
             for path, arr in dsets:
                 f[path][()] = arr
 
-
-def run_and_save(proposal, run, out_path):
-    run_dc = extra_data.open_run(proposal, run, data="all")
-
-    ctx_file = ContextFile.from_py_file(Path('context.py'))
-    res = Results.create(ctx_file, run_dc)
-    res.save_hdf5(out_path)
+        os.chmod(hdf5_path, 0o666)
 
 
 def load_reduced_data(h5_path):
@@ -167,41 +243,83 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
         """, db_data)
 
 
-def extract_and_ingest(proposal, run):
-    db = open_db()
-    if proposal is None:
-        proposal = get_meta(db, 'proposal')
+class Extractor:
+    _proposal = None
 
-    with db:
-        db.execute("""
-            INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
-            ON CONFLICT (proposal, runnr) DO NOTHING
-        """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
-    log.info("Ensured p%d r%d in database", proposal, run)
+    def __init__(self):
+        self.db = open_db()
+        self.kafka_prd = KafkaProducer(
+            bootstrap_servers=UPDATE_BROKERS,
+            value_serializer=lambda d: pickle.dumps(d),
+        )
+        self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
+        self.ctx_whole = ContextFile.from_py_file(Path('context.py'))
 
-    out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    @property
+    def proposal(self):
+        if self._proposal is None:
+            self._proposal = get_meta(self.db, 'proposal')
+        return self._proposal
 
-    run_and_save(proposal, run, out_path)
-    reduced_data = load_reduced_data(out_path)
-    log.info("Reduced data has %d fields", len(reduced_data))
-    add_to_db(reduced_data, db, proposal, run)
+    def slurm_options(self):
+        if reservation := get_meta(self.db, 'slurm_reservation', ''):
+            return ['--reservation', reservation]
+        partition = get_meta(self.db, 'slurm_partition', '') or default_slurm_partition()
+        return ['--partition', partition]
 
-    # Send update via Kafka
-    kafka_prd = KafkaProducer(
-        bootstrap_servers=UPDATE_BROKERS,
-        value_serializer=lambda d: pickle.dumps(d),
-    )
-    update_topic = UPDATE_TOPIC.format(get_meta(db, 'db_id'))
-    reduced_data['Proposal'] = proposal
-    reduced_data['Run'] = run
-    kafka_prd.send(update_topic, reduced_data)
-    log.info("Sent Kafka update")
+    def extract_and_ingest(self, proposal, run, cluster=False,
+                           run_data=RunData.ALL, match=()):
+        if proposal is None:
+            proposal = self.proposal
 
+        with self.db:
+            self.db.execute("""
+                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, runnr) DO NOTHING
+            """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
+        log.info("Ensured p%d r%d in database", proposal, run)
+
+        out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(out_path.parent, 0o777)
+
+        ctx = self.ctx_whole.filter(run_data=run_data, cluster=cluster, name_matches=match)
+
+        run_dc = extra_data.open_run(proposal, run, data="all")
+        res = Results.create(ctx, run_dc)
+        res.save_hdf5(out_path)
+        reduced_data = res.reduced
+        log.info("Reduced data has %d fields", len(reduced_data))
+        add_to_db(reduced_data, self.db, proposal, run)
+
+        # Send update via Kafka
+        reduced_data['Proposal'] = proposal
+        reduced_data['Run'] = run
+        self.kafka_prd.send(self.update_topic, reduced_data)
+        log.info("Sent Kafka update")
+
+        # Launch a Slurm job if there are any 'cluster' variables to evaluate
+        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
+        if set(ctx_slurm.vars) > set(ctx.vars):
+            python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
+                          '--cluster-job', str(proposal), str(run), run_data.value]
+            res = subprocess.run([
+                'sbatch', '--parsable',
+                *self.slurm_options(),
+                '--wrap', shlex.join(python_cmd)
+            ], stdout=subprocess.PIPE, text=True)
+            job_id = res.stdout.partition(';')[0]
+            log.info("Launched Slurm job %s to calculate cluster variables", job_id)
 
 if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('proposal', type=int)
+    ap.add_argument('run', type=int)
+    ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    ap.add_argument('--cluster-job', action="store_true")
+    args = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    proposal = int(sys.argv[1])
-    run = int(sys.argv[2])
-    extract_and_ingest(proposal, run)
+    Extractor().extract_and_ingest(args.proposal, args.run,
+                                   cluster=args.cluster_job,
+                                   run_data=RunData(args.run_data))

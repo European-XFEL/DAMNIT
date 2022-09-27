@@ -131,7 +131,7 @@ class TableView(QtWidgets.QTableView):
 
         comment_col = data.columns.get_loc("Comment")
 
-        for row in data["comment_id"].dropna().index:
+        for row in data["_comment_id"].dropna().index:
             self.setSpan(row, comment_col, 1, 100)
 
     def resize_new_rows(self, parent, first, last):
@@ -205,13 +205,47 @@ class Table(QtCore.QAbstractTableModel):
             QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE), Qt.KeepAspectRatio
         )
 
+    @lru_cache(maxsize=1000)
+    def variable_is_constant(self, index):
+        """
+        Check if the variable at the given index is constant throughout the run.
+        """
+        is_constant = True
+        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+        quantity = self._main_window.ds_name(self._data.columns[index.column()])
+
+        try:
+            file_name, run_file = self._main_window.get_run_file(proposal, run, write_to_log=False)
+        except:
+            return is_constant
+
+        if run_file is not None:
+            if quantity in run_file and "trainId" in run_file[quantity]:
+                ds = run_file[quantity]["data"]
+                # If it's an array
+                if len(ds.shape) == 1:
+                    data = ds[:]
+                    if not np.all(np.isclose(data, data[0])):
+                        is_constant = False
+
+            run_file.close()
+        return is_constant
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return
 
         value = self._data.iloc[index.row(), index.column()]
 
-        if role == Qt.DecorationRole:
+        if role == Qt.FontRole:
+            # If the variable is not constant, make it bold
+            if not self.variable_is_constant(index):
+                font = QtGui.QFont()
+                font.setBold(True)
+                return font
+
+        elif role == Qt.DecorationRole:
             if isinstance(value, np.ndarray):
                 return self.generateThumbnail(index)
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
@@ -254,11 +288,11 @@ class Table(QtCore.QAbstractTableModel):
                 return self.data(index)
 
         elif role == QtCore.Qt.BackgroundRole:
-            if index.row() in self._data["comment_id"].dropna().index:
+            if index.row() in self._data["_comment_id"].dropna().index:
                 return QtGui.QBrush(Qt.yellow)
 
     def isCommentRow(self, row):
-        return row in self._data["comment_id"].dropna()
+        return row in self._data["_comment_id"].dropna()
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
@@ -274,7 +308,7 @@ class Table(QtCore.QAbstractTableModel):
                 if not (pd.isna(prop) or pd.isna(run)):
                     self.comment_changed.emit(int(prop), int(run), value)
                 else:
-                    comment_id = self._data.iloc[index.row()]["comment_id"]
+                    comment_id = self._data.iloc[index.row()]["_comment_id"]
                     if not pd.isna(comment_id):
                         self.time_comment_changed.emit(comment_id, value)
 
