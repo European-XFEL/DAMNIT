@@ -9,9 +9,11 @@ DB_NAME = 'runs.sqlite'
 
 log = logging.getLogger(__name__)
 
-
 def db_path(root_path: Path):
     return root_path / DB_NAME
+
+def get_default_runs_columns():
+    return ["proposal", "runnr", "start_time", "added_at", "comment"]
 
 def open_db(path=DB_NAME) -> sqlite3.Connection:
     """ Initialize the sqlite run database
@@ -26,7 +28,7 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
     log.info("Opening database at %s", path)
     conn = sqlite3.connect(path, timeout=30)
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment)"
+        "CREATE TABLE IF NOT EXISTS runs({})".format(", ".join(get_default_runs_columns()))
     )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr)"

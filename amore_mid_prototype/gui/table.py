@@ -169,7 +169,7 @@ class TableView(QtWidgets.QTableView):
 
 
 class Table(QtCore.QAbstractTableModel):
-    comment_changed = QtCore.pyqtSignal(int, int, str)
+    value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
@@ -178,10 +178,21 @@ class Table(QtCore.QAbstractTableModel):
         self._main_window = main_window
         self.is_sorted_by = ""
         self.is_sorted_order = None
+        self.editable_columns = {"Comment"}
 
     @property
     def _data(self):
         return self._main_window.data
+
+    def add_editable_column(self, name):
+        if name == "Status":
+            return
+        self.editable_columns.add(name)
+
+    def remove_editable_column(self, name):
+        if name == "Comment":
+            return
+        self.editable_columns.remove(name)
 
     def rowCount(self, index=None) -> int:
         return self._data.shape[0]
@@ -324,15 +335,18 @@ class Table(QtCore.QAbstractTableModel):
             self._data.iloc[index.row(), index.column()] = value
             self.dataChanged.emit(index, index)
 
+            prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
+
+            if pd.isna(prop) and pd.isna(run) and index.column() == self._data.columns.get_loc("Comment"):
+                comment_id = self._data.iloc[index.row()]["comment_id"]
+                if not pd.isna(comment_id):
+                    self.time_comment_changed.emit(comment_id, value)
+                    return
+
             # Only comment column is editable
-            if index.column() == self._data.columns.get_loc("Comment"):
-                prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
+            if self._data.columns[index.column()] in self.editable_columns:
                 if not (pd.isna(prop) or pd.isna(run)):
-                    self.comment_changed.emit(int(prop), int(run), value)
-                else:
-                    comment_id = self._data.iloc[index.row()]["comment_id"]
-                    if not pd.isna(comment_id):
-                        self.time_comment_changed.emit(comment_id, value)
+                    self.value_changed.emit(int(prop), int(run), self._data.columns[index.column()], value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
             new_state = not self._data["Status"].iloc[index.row()]
@@ -352,7 +366,7 @@ class Table(QtCore.QAbstractTableModel):
     def flags(self, index) -> Qt.ItemFlag:
         item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
 
-        if index.column() == self._data.columns.get_loc("Comment"):
+        if self._data.columns[index.column()] in self.editable_columns:
             item_flags |= Qt.ItemIsEditable
         elif index.column() == self._data.columns.get_loc("Status"):
             item_flags |= Qt.ItemIsUserCheckable

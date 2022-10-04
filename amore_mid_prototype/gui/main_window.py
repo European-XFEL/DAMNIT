@@ -21,9 +21,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, open_db, get_meta
+from ..backend.db import db_path, open_db, get_meta, get_default_runs_columns
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile
+from ..context import ContextFile, Variable
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
@@ -244,6 +244,16 @@ da-dev@xfel.eu"""
             db[str(self._context_path)] = settings
 
     def autoconfigure(self, path: Path, proposal=None):
+
+        sqlite_path = db_path(path)
+        log.info("Reading data from database")
+        self.db = open_db(sqlite_path)
+
+        cursor = self.db.execute('PRAGMA table_info("runs")')
+        column_names = [cc[1] for cc in cursor]
+
+        cols_without_ctx = set(column_names) - set(get_default_runs_columns())
+
         context_path = path / "context.py"
         if not context_path.is_file():
             QMessageBox.critical(self, "No context file",
@@ -254,6 +264,15 @@ da-dev@xfel.eu"""
 
         log.info("Reading context file %s", self._context_path)
         ctx_file = ContextFile.from_py_file(self._context_path)
+
+        cols_without_ctx -= set(ctx_file.vars.keys())
+
+        for cc in cols_without_ctx:
+            variable = Variable(data = "user")
+            variable.name = cc
+            self.table.add_editable_column(cc)
+            ctx_file.add_variable(variable)
+
         self._attributi = ctx_file.vars
 
         self._editor.setText(ctx_file.code)
@@ -261,10 +280,6 @@ da-dev@xfel.eu"""
         self.mark_context_saved()
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
-
-        sqlite_path = db_path(path)
-        log.info("Reading data from database")
-        self.db = open_db(sqlite_path)
 
         self.db_id = get_meta(self.db, 'db_id')
         self.stop_update_listener_thread()
@@ -607,7 +622,7 @@ da-dev@xfel.eu"""
         quantity = self.ds_name(quantity_title)
 
         # Don't try to plot comments
-        if quantity in ["Comment", "Status"]:
+        if quantity in {"Status"} | self.table.editable_columns:
             return
 
         log.info(
@@ -676,7 +691,7 @@ da-dev@xfel.eu"""
         # the table
         self.table_view = TableView()
         self.table = Table(self)
-        self.table.comment_changed.connect(self.save_comment)
+        self.table.value_changed.connect(self.save_value)
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
@@ -838,19 +853,18 @@ da-dev@xfel.eu"""
         self._editor_status_message = str(self._context_path.resolve())
         self.on_tab_changed(self._tab_widget.currentIndex())
 
-    def save_comment(self, prop, run, value):
+    def save_value(self, prop, run, column_name, value):
         if self.db is None:
-            log.warning("No SQLite database in use, comment not saved")
+            log.warning("No SQLite database in use, value not saved")
             return
 
-        log.debug("Saving comment for prop %d run %d", prop, run)
+        log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
         with self.db:
-            self.db.execute(
-                """
-                UPDATE runs set comment=? WHERE proposal=? AND runnr=?
-                """,
-                (value, int(prop), int(run)),
-            )
+            if column_name in self.table.editable_columns:
+                self.db.execute(
+                    "UPDATE runs set {}=? WHERE proposal=? AND runnr=?".format(column_name),
+                    (value, int(prop), int(run)),
+                )
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:
