@@ -54,6 +54,15 @@ def main():
         help="Proposal number to set, e.g. 1234"
     )
 
+    new_id_ap = subparsers.add_parser(
+        'new-id',
+        help="Set a new (random) database ID. Useful if a copy has been made which should not share an ID with the original."
+    )
+    new_id_ap.add_argument(
+        'db_dir', type=Path, default=Path.cwd(), nargs='?',
+        help="Path to the database directory"
+    )
+
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
@@ -103,6 +112,13 @@ def main():
         else:
             set_meta(db, 'proposal', args.proposal)
             print(f"Changed proposal to {args.proposal} (was {currently_set})")
+
+    elif args.subcmd == 'new-id':
+        from secrets import token_hex
+        from .backend.db import open_db, set_meta, DB_NAME
+
+        db = open_db(args.db_dir / DB_NAME)
+        set_meta(db, "db_id", token_hex(20))
 
 
 

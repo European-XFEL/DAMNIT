@@ -4,9 +4,11 @@ import sqlite3
 from secrets import token_hex
 from typing import Any
 
+DB_NAME = 'runs.sqlite'
+
 log = logging.getLogger(__name__)
 
-def open_db(path='runs.sqlite') -> sqlite3.Connection:
+def open_db(path=DB_NAME) -> sqlite3.Connection:
     """ Initialize the sqlite run database
 
     A new database is created if no pre-existing one is present. A single
