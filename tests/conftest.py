@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 
 from amore_mid_prototype.context import ContextFile
+from amore_mid_prototype.backend.db import open_db, DB_NAME
 
 
 @pytest.fixture
@@ -62,3 +63,11 @@ def mock_run():
     run.files = [MagicMock(filename="/tmp/foo/bar.h5")]
 
     return run
+
+@pytest.fixture
+def mock_db(tmp_path):
+    db = open_db(tmp_path / DB_NAME)
+
+    yield tmp_path, db
+
+    db.close()
