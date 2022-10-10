@@ -3,10 +3,8 @@ import graphlib
 import textwrap
 import tempfile
 from pathlib import Path
-from functools import partial
 from unittest.mock import patch
 
-import h5py
 import pytest
 import numpy as np
 
