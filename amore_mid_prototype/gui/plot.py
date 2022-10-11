@@ -1,12 +1,15 @@
 from cProfile import label
 import logging
 from unittest.mock import patch
+import os
 import pandas as pd
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
+from pathlib import Path
+import tempfile
 
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
 
 import mplcursors
@@ -19,6 +22,89 @@ from matplotlib import cm as mpl_cm
 from mpl_interactions import zoom_factory, panhandler
 
 log = logging.getLogger(__name__)
+
+
+class Toolbar(NavigationToolbar):
+    def __init__(self, canvas, parent):
+        self._main_window = parent._main_window
+
+        if self._main_window.zulip_client is not None and len(self.toolitems) == 10:
+            self.zulip_stream = None
+            self.zulip_topic = None
+
+            # add a pulsant
+            self.toolitems += (
+                (None, None, None, None),
+                (
+                    "Z",
+                    "Post image to Zulip",
+                    os.path.join(Path(__file__).parent, "ico/AMORE.png"),
+                    "post_to_zulip",
+                ),
+                (
+                    "cZ",
+                    "Select Zulip stream and topic",
+                    os.path.join(Path(__file__).parent, "ico/AMORE.png"),
+                    "select_zulip_stream_and_topic",
+                ),
+            )
+        NavigationToolbar.__init__(self, canvas, parent)
+
+    def post_to_zulip(self):
+        if self.zulip_stream is None or self.zulip_topic is None:
+            self.select_zulip_stream_and_topic()
+
+        _, path_name = tempfile.mkstemp()
+        file_name = path_name + ".png"
+
+        self.canvas.figure.savefig(file_name)
+
+        # upload a file
+        with open(file_name, "rb") as fp:
+            result = self._main_window.zulip_client.upload_file(fp)
+
+        self._main_window.zulip_client.send_message(
+            {
+                "type": "stream",
+                "to": self.zulip_stream,
+                "topic": self.zulip_topic,
+                "content": "[{}]({})".format(
+                    self.canvas.figure.gca().get_title(), result["uri"]
+                ),
+            }
+        )
+        log.info("Zulip result:", result)
+
+    def select_zulip_stream_and_topic(self):
+        # all the streams the user has access to
+        zulip_streams = self._main_window.zulip_client.get_streams()
+        zulip_streams_name = [vi["name"] for vi in zulip_streams["streams"]]
+
+        dialog = QtWidgets.QDialog(self)
+        layout = QtWidgets.QGridLayout()
+
+        stream_name = QtWidgets.QComboBox(self)
+        stream_name.addItems(zulip_streams_name)
+        layout.addWidget(QtWidgets.QLabel("Stream"), *(0, 0))
+        layout.addWidget(stream_name, *(0, 1))
+
+        topic_name = QtWidgets.QLineEdit(self)
+        layout.addWidget(QtWidgets.QLabel("Topic"), *(1, 0))
+        layout.addWidget(topic_name, *(1, 1))
+
+        def button_confirm_clicked():
+            self.zulip_stream = stream_name.currentText()
+            self.zulip_topic = topic_name.text()
+
+            dialog.close()
+
+        button_confirm = QtWidgets.QPushButton(self)
+        button_confirm.setText("Apply")
+        button_confirm.clicked.connect(button_confirm_clicked)
+        layout.addWidget(button_confirm, *(2, 1))
+
+        dialog.setLayout(layout)
+        dialog.show()
 
 
 class Canvas(QtWidgets.QDialog):
@@ -39,6 +125,8 @@ class Canvas(QtWidgets.QDialog):
     ):
         super().__init__()
         self.setStyleSheet("background-color: white")
+
+        self._main_window = parent
 
         self._is_open = True
 
@@ -69,7 +157,7 @@ class Canvas(QtWidgets.QDialog):
         self._image = None
         self._kwargs = {}
 
-        self._navigation_toolbar = NavigationToolbar(self._canvas, self)
+        self._navigation_toolbar = Toolbar(self._canvas, self)
         self._navigation_toolbar.setIconSize(QtCore.QSize(20, 20))
         self._navigation_toolbar.layout().setSpacing(1)
 
@@ -378,13 +466,7 @@ class Canvas(QtWidgets.QDialog):
                     ys_max,
                     margin=0.05,
                 )
-                print(
-                    ">>",
-                    xs_min,
-                    xs_max,
-                    ys_min,
-                    ys_max
-                )
+                print(">>", xs_min, xs_max, ys_min, ys_max)
                 self._axis.set_xlim((x_min, x_max))
                 self._axis.set_ylim((y_min, y_max))
 
@@ -485,7 +567,10 @@ class Plot:
         if current_y in keys:
             self._combo_box_y_axis.setCurrentText(current_y)
 
-        if self._combo_box_x_axis.currentText() == self._combo_box_y_axis.currentText() and len(keys) > 1:
+        if (
+            self._combo_box_x_axis.currentText() == self._combo_box_y_axis.currentText()
+            and len(keys) > 1
+        ):
             self._combo_box_x_axis.setCurrentText(keys[1])
 
     def _plot_runs_as_series(self, xlabel, ylabel, non_data_field):
@@ -767,7 +852,9 @@ class Plot:
             x_ds, y_ds = dataset[x_quantity], dataset[y_quantity]
             if "trainId" in x_ds and "trainId" in y_ds:
                 x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
-                tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
+                tids, x_idxs, y_idxs = np.intersect1d(
+                    x_tids, y_tids, return_indices=True
+                )
 
                 x = x_ds["data"][x_idxs]
                 y = y_ds["data"][y_idxs]

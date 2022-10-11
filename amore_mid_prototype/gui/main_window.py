@@ -1,3 +1,4 @@
+import typing
 import pickle
 import os
 import logging
@@ -13,6 +14,7 @@ import libtmux
 import pandas as pd
 import numpy as np
 import h5py
+import zulip
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
@@ -44,7 +46,6 @@ class QLogger(logging.Handler):
         msg = self.format(record)
         self.widget.appendPlainText(msg)
 
-
 class MainWindow(QtWidgets.QMainWindow):
     context_path = None
     db = None
@@ -52,14 +53,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
 
-    def __init__(self, context_dir: Path = None):
+    def __init__(self, context_dir: Path = None, zulip_config: typing.Optional[str] = None):
         super().__init__()
 
         self.data = None
         self._updates_thread = None
-        self._updates_thread = None
         self._received_update = False
         self._attributi = {}
+
+        self.zulip_config = zulip_config
+        self.zulip_client = None
+        self.zulip_streams = None
+        if self.zulip_config is not None:
+            self.zulip_client = zulip.Client(config_file=zulip_config)
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
@@ -888,14 +894,16 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return super().styleHint(hint, option, widget, returnData)
 
 
-def run_app(context_dir):
+def run_app(context_dir, zulip_config=None):
+    # to avoid Mac messing everything
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
+    
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
 
-    window = MainWindow(context_dir=context_dir)
+    window = MainWindow(context_dir=context_dir, zulip_config=zulip_config)
     window.show()
     return application.exec()
 

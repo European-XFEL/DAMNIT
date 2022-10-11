@@ -1,3 +1,4 @@
+from bdb import GENERATOR_AND_COROUTINE_FLAGS
 import logging
 import os
 import sys
@@ -5,6 +6,14 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 def main():
+    def is_valid_file(parser, arg):
+        # adapted from
+        # https://stackoverflow.com/questions/11540854/file-as-command-line-argument-for-argparse-error-message-if-argument-is-not-va
+        if not os.path.exists(arg):
+            parser.error("{} does not exist.".format(arg))
+        else:
+            return arg
+    
     ap = ArgumentParser()
     ap.add_argument('--debug', action='store_true')
     subparsers = ap.add_subparsers(required=True, dest='subcmd')
@@ -13,6 +22,10 @@ def main():
     gui_ap.add_argument(
         'context_dir', type=Path, nargs='?',
         help="Directory storing summarised results"
+    )
+    gui_ap.add_argument(
+        '--zulip-config', type=lambda x: is_valid_file(gui_ap, x), metavar="FILE",
+        help="Zulip configuration"
     )
 
     listen_ap = subparsers.add_parser(
@@ -63,7 +76,7 @@ def main():
         if args.context_dir is not None and not args.context_dir.is_dir():
             sys.exit(f"{args.context_dir} is not a directory")
         from .gui.main_window import run_app
-        return run_app(args.context_dir)
+        return run_app(args.context_dir, args.zulip_config)
 
     elif args.subcmd == 'listen':
         if args.test:
