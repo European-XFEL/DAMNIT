@@ -161,6 +161,10 @@ class Results:
             summary_method = self.ctx.vars[name].summary
             if summary_method is None:
                 return None
+
+            if isinstance(data, xarray.DataArray):
+                data = data.data
+
             return getattr(np, summary_method)(data)
 
     def save_hdf5(self, hdf5_path):

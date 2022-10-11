@@ -3,10 +3,12 @@ import graphlib
 import textwrap
 import tempfile
 from pathlib import Path
+from numbers import Number
 from unittest.mock import patch
 
 import pytest
 import numpy as np
+import xarray as xr
 
 from amore_mid_prototype.context import ContextFile
 from amore_mid_prototype.backend.extract_data import (Results, RunData,
@@ -92,12 +94,16 @@ def test_results(mock_ctx, mock_run, caplog):
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
     assert set(mock_ctx.ordered_vars()) <= results.data.keys()
 
+    # Check that the summary of a DataArray is a single number
+    assert isinstance(results.data["meta_array"], xr.DataArray)
+    assert isinstance(results.reduced["meta_array"], Number)
+
     # Check the result values
     assert results.data["scalar1"] == 42
     assert results.data["scalar2"] == 3.14
     assert results.data["empty_string"] == ""
     np.testing.assert_equal(results.data["array"], [42, 3.14])
-    np.testing.assert_equal(results.data["meta_array"], [run_number, proposal])
+    np.testing.assert_equal(results.data["meta_array"].data, [run_number, proposal])
     assert results.data["string"] == str(get_proposal_path(mock_run))
 
 def test_filtering(mock_ctx, mock_run, caplog):

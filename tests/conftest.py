@@ -13,6 +13,7 @@ def mock_ctx():
     code = """
     import time
     import numpy as np
+    import xarray as xr
     from amore_mid_prototype.context import Variable
 
     @Variable(title="Scalar1")
@@ -35,10 +36,10 @@ def mock_ctx():
     def timestamp(run):
         return time.time()
 
-    @Variable(data="proc")
+    @Variable(data="proc", summary="mean")
     def meta_array(run, baz: "var#array", run_number: "meta#run_number",
                    proposal: "meta#proposal", ts: "var#timestamp"):
-        return np.array([run_number, proposal])
+        return xr.DataArray([run_number, proposal])
 
     @Variable(data="raw")
     def string(run, proposal_path: "meta#proposal_path"):
