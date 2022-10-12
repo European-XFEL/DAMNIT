@@ -286,7 +286,7 @@ class Extractor:
         ctx = self.ctx_whole.filter(run_data=run_data, cluster=cluster, name_matches=match)
 
         run_dc = extra_data.open_run(proposal, run, data="all")
-        res = Results.create(ctx, run_dc)
+        res = Results.create(ctx, run_dc, run, proposal)
         res.save_hdf5(out_path)
         reduced_data = res.reduced
         log.info("Reduced data has %d fields", len(reduced_data))

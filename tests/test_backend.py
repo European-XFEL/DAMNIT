@@ -3,15 +3,14 @@ import graphlib
 import textwrap
 import tempfile
 from pathlib import Path
-from functools import partial
 from unittest.mock import patch
 
-import h5py
 import pytest
 import numpy as np
 
 from amore_mid_prototype.context import ContextFile
-from amore_mid_prototype.backend.extract_data import Results, RunData, get_proposal_path
+from amore_mid_prototype.backend.extract_data import (Results, RunData,
+                                                      Extractor, get_proposal_path)
 
 
 def test_dag(mock_ctx):
@@ -130,3 +129,26 @@ def test_filtering(mock_ctx, mock_run, caplog):
     results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
     assert set(results.data) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
     assert results.data["timestamp"] > ts
+
+def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
+    # Change to the DB directory
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+    pkg = "amore_mid_prototype.backend.extract_data"
+
+    # Write context file
+    ctx_path = db_dir / "context.py"
+    ctx_path.write_text(mock_ctx.code)
+
+    # Create Extractor with a mock Kafka object
+    with patch(f"{pkg}.KafkaProducer"):
+        extractor = Extractor()
+
+    # Process run
+    with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
+        extractor.extract_and_ingest(1234, 42)
+
+    # Check that a file was created
+    assert (db_dir / "extracted_data" / "p1234_r42.h5").is_file()
+    # And that a Kafka message was sent
+    extractor.kafka_prd.send.assert_called_once()
