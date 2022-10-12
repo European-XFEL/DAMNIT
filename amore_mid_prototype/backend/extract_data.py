@@ -234,10 +234,19 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
     db_data = reduced_data.copy()
     db_data.update({'proposal': proposal, 'run': run})
 
-    # Serialize non-SQLite-supported types
     for key, value in db_data.items():
+        # For convenience, all returned values from Variables are stored in
+        # arrays. If a Variable returns a scalar then we'll end up with a
+        # zero-dimensional array here which will be pickled, so we unbox all
+        # zero-dimensional arrays first.
+        if isinstance(value, np.ndarray) and value.ndim == 0:
+            value = value.item()
+
+        # Serialize non-SQLite-supported types
         if not isinstance(value, (type(None), int, float, str, bytes)):
-            db_data[key] = pickle.dumps(value)
+            value = pickle.dumps(value)
+
+        db_data[key] = value
 
     with db:
         db.execute(f"""
