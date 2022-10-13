@@ -182,7 +182,7 @@ class Results:
                     del f[path]
 
                 if isinstance(arr, str):
-                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype(length=len(arr)))
+                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype())
                 else:
                     f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
 
