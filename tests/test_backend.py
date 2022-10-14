@@ -25,7 +25,7 @@ def test_dag(mock_ctx):
     assert { "array", "timestamp" } == var_deps("meta_array")
 
     # Check that the ordering is correct for execution
-    assert mock_ctx.ordered_vars() == ("scalar1", "timestamp", "string", "scalar2", "array", "meta_array")
+    assert mock_ctx.ordered_vars() == ("scalar1", "empty_string", "timestamp", "string", "scalar2", "array", "meta_array")
 
     # Check that we can retrieve direct and indirect dependencies
     assert set() == all_var_deps("scalar1")
