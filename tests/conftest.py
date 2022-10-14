@@ -23,7 +23,7 @@ def mock_ctx():
     def scalar2(run, foo: "var#scalar1"):
         return 3.14
 
-    @Variable(title="Empty string")
+    @Variable(title="Empty text")
     def empty_string(run):
         return ""
 
