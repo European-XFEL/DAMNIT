@@ -23,6 +23,10 @@ def mock_ctx():
     def scalar2(run, foo: "var#scalar1"):
         return 3.14
 
+    @Variable(title="Empty string")
+    def empty_string(run):
+        return ""
+
     @Variable(title="Array")
     def array(run, foo: "var#scalar1", bar: "var#scalar2"):
         return np.array([foo, bar])

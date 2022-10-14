@@ -95,6 +95,7 @@ def test_results(mock_ctx, mock_run, caplog):
     # Check the result values
     assert results.data["scalar1"] == 42
     assert results.data["scalar2"] == 3.14
+    assert results.data["empty_string"] == ""
     np.testing.assert_equal(results.data["array"], [42, 3.14])
     np.testing.assert_equal(results.data["meta_array"], [run_number, proposal])
     assert results.data["string"] == str(get_proposal_path(mock_run))
