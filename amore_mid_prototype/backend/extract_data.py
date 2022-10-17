@@ -141,6 +141,7 @@ class Extractor:
         )
         self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
         self.ctx_whole = ContextFile.from_py_file(Path('context.py'))
+        self.ctx_whole.merge_context_file(ContextFile.from_db(self.db))
 
     @property
     def proposal(self):

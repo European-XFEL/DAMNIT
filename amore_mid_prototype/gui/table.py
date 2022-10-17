@@ -1,6 +1,7 @@
 from functools import lru_cache
 from datetime import datetime, timezone
 
+import ast
 import numpy as np
 import pandas as pd
 
@@ -332,7 +333,22 @@ class Table(QtCore.QAbstractTableModel):
             return False
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            self._data.iloc[index.row(), index.column()] = value
+            try:
+                if value == '':
+                    value = None
+                else:
+                    try:
+                        value = ast.literal_eval(value)
+                    except:
+                        pass
+                self._data.iloc[index.row(), index.column()] = value
+                value = self._data.iloc[index.row(), index.column()].item()
+            except Exception as e:
+                self._main_window.show_status_message(
+                    f"Value {value} is not valid for the {self._data.columns[index.column()]} column.",
+                    timeout = 5000
+                )
+                return False
             self.dataChanged.emit(index, index)
 
             prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
@@ -343,10 +359,10 @@ class Table(QtCore.QAbstractTableModel):
                     self.time_comment_changed.emit(comment_id, value)
                     return
 
-            # Only comment column is editable
             if self._data.columns[index.column()] in self.editable_columns:
                 if not (pd.isna(prop) or pd.isna(run)):
-                    self.value_changed.emit(int(prop), int(run), self._data.columns[index.column()], value)
+                    changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
+                    self.value_changed.emit(int(prop), int(run), changed_column, value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
             new_state = not self._data["Status"].iloc[index.row()]

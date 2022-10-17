@@ -21,7 +21,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, open_db, get_meta, get_default_runs_columns
+from ..backend.db import db_path, open_db, get_meta, add_user_variable
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile, Variable
 from ..definitions import UPDATE_BROKERS
@@ -54,6 +54,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._context_path = None
         self._context_is_saved = True
         self._attributi = {}
+        self._title_to_name = {}
+        self._name_to_title = {}
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -142,12 +144,23 @@ class MainWindow(QtWidgets.QMainWindow):
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
 
+        self._status_bar.messageChanged.connect(lambda m: self.show_default_status_message() if m == "" else m)
+
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage("Autoconfigure AMORE.")
         self.setStatusBar(self._status_bar)
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+    def show_status_message(self, message, timeout = 0):
+        self._status_bar.showMessage(message, timeout)
+
+    def show_default_status_message(self):
+        self._status_bar.showMessage("Double-click on a cell to inspect results.")
+
+    def _menu_bar_edit_context(self):
+        Popen(['xdg-open', self.context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -265,15 +278,19 @@ da-dev@xfel.eu"""
         log.info("Reading context file %s", self._context_path)
         ctx_file = ContextFile.from_py_file(self._context_path)
 
-        cols_without_ctx -= set(ctx_file.vars.keys())
+        ctx_file_db = ContextFile.from_db(self.db)
+        ctx_file.merge_context_file(ctx_file_db)
 
-        for cc in cols_without_ctx:
-            variable = Variable(data = "user")
-            variable.name = cc
-            self.table.add_editable_column(cc)
-            ctx_file.add_variable(variable)
+        for kk, vv in ctx_file_db.vars.items():
+            add_user_variable(self.db, vv)
+            self.table.add_editable_column(vv.title or vv.name)
 
         self._attributi = ctx_file.vars
+
+        self._title_to_name = { "Comment" : "comment"} | {
+            (aa.title or kk) : kk for kk, aa in self._attributi.items()
+        }
+        self._name_to_title = {vv : kk for kk, vv in self._title_to_name.items()}
 
         self._editor.setText(ctx_file.code)
         self.test_context()
@@ -345,6 +362,14 @@ da-dev@xfel.eu"""
         sorted_cols.extend(saved_cols)
         self.data = self.data[sorted_cols]
 
+        for cc in self.data:
+            if cc not in self._title_to_name:
+                continue
+            col_name = self._title_to_name[cc]
+            if col_name in self._attributi and self._attributi[col_name].variable_type:
+                var_type = get_type_from_name(self._attributi[col_name].variable_type)
+                self.data[cc] = self.data[cc].astype(var_type)
+
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
                                      Qt.SortOrder.AscendingOrder)
@@ -366,6 +391,7 @@ da-dev@xfel.eu"""
             self.table_view.set_column_visibility(col, False, for_restore=True)
 
         self._tab_widget.setEnabled(True)
+        self.show_default_status_message()
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -601,12 +627,21 @@ da-dev@xfel.eu"""
             raise e
 
     def ds_name(self, quantity):
-        # a LUT would be better
-        for ki, vi in self._attributi.items():
-            if vi.title == quantity:
-                return ki
+        res = quantity
 
-        return quantity
+        if quantity in self._name_to_title:
+            res = self._name_to_title[quantity]
+
+        return res
+
+    def col_title_to_name(self, title):
+        res = title
+
+        if title in self._title_to_name:
+            res = self._title_to_name[title]
+
+        return res
+
 
     def make_finite(self, data):
         if not isinstance(data, pd.Series):
@@ -860,7 +895,8 @@ da-dev@xfel.eu"""
 
         log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
         with self.db:
-            if column_name in self.table.editable_columns:
+            column_title = self.ds_name(column_name)
+            if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
                 self.db.execute(
                     "UPDATE runs set {}=? WHERE proposal=? AND runnr=?".format(column_name),
                     (value, int(prop), int(run)),

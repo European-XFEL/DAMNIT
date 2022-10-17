@@ -5,15 +5,14 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
+from ..context import Variable
+
 DB_NAME = 'runs.sqlite'
 
 log = logging.getLogger(__name__)
 
 def db_path(root_path: Path):
     return root_path / DB_NAME
-
-def get_default_runs_columns():
-    return ["proposal", "runnr", "start_time", "added_at", "comment"]
 
 def open_db(path=DB_NAME) -> sqlite3.Connection:
     """ Initialize the sqlite run database
@@ -28,13 +27,16 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
     log.info("Opening database at %s", path)
     conn = sqlite3.connect(path, timeout=30)
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS runs({})".format(", ".join(get_default_runs_columns()))
+        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment)"
     )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr)"
     )
     conn.execute(  # data about metadata - metametadata?
         "CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY, code TEXT, type TEXT, title TEXT, description TEXT, attributes TEXT)"
     )
     conn.execute(
         "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
@@ -51,6 +53,15 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
     os.chmod(path, 0o666)
 
     return conn
+
+def add_user_variable(conn, variable: Variable):
+
+    num_cols = conn.execute(
+        "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
+    ).fetchone()[0]
+
+    if num_cols == 0:
+        conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
 
 def get_meta(conn, key, default: Any =KeyError, set_default=False):
     with conn:
