@@ -68,6 +68,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         self.stop_update_listener_thread()
+        super().closeEvent(event)
 
     def stop_update_listener_thread(self):
         if self._updates_thread is not None:
