@@ -32,6 +32,8 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest",
+    "pytest-qt",
+    "pytest-xvfb"
 ]
 
 [project.urls]

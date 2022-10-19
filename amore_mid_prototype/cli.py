@@ -14,6 +14,10 @@ def main():
         'context_dir', type=Path, nargs='?',
         help="Directory storing summarised results"
     )
+    gui_ap.add_argument(
+        '--no-kafka', action='store_true',
+        help="Don't try connecting to XFEL's Kafka broker"
+    )
 
     listen_ap = subparsers.add_parser(
         'listen', help="Watch for new runs & extract data from them"
@@ -72,7 +76,7 @@ def main():
         if args.context_dir is not None and not args.context_dir.is_dir():
             sys.exit(f"{args.context_dir} is not a directory")
         from .gui.main_window import run_app
-        return run_app(args.context_dir)
+        return run_app(args.context_dir, connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
         if args.test:

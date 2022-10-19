@@ -39,10 +39,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
 
-    def __init__(self, context_dir: Path = None):
+    def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
 
         self.data = None
+        self._connect_to_kafka = connect_to_kafka
         self._updates_thread = None
         self._updates_thread = None
         self._received_update = False
@@ -476,6 +477,9 @@ da-dev@xfel.eu"""
         self.data.to_json("AMORE.json")
 
     def _updates_thread_launcher(self) -> None:
+        if not self._connect_to_kafka:
+            return
+
         assert self.db_id is not None
 
         try:
@@ -744,14 +748,14 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return super().styleHint(hint, option, widget, returnData)
 
 
-def run_app(context_dir):
+def run_app(context_dir, connect_to_kafka=True):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
 
-    window = MainWindow(context_dir=context_dir)
+    window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()
     return application.exec()
 
