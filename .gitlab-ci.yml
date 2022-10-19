@@ -7,6 +7,9 @@ variables:
 
 # Cache the installed packages too
 cache:
+  key:
+    files:
+      - pyproject.toml
   paths:
     - .cache/pip
     - venv/
