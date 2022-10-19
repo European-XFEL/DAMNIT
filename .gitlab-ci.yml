@@ -24,13 +24,11 @@ before_script:
 
   # Need to install GCC for cfelpyutils
   - apt-get update
-  # We don't actually need qtbase5-dev, it's just the easiest to install the
+  # We don't actually need qtbase5-dev, it's just the easiest way to install the
   # system dependencies Qt needs (in particular for libxcb).
-  - apt-get install --no-install-suggests --no-install-recommends -y gcc g++ # xvfb qtbase5-dev
+  - apt-get install --no-install-suggests --no-install-recommends -y gcc g++ xvfb qtbase5-dev
 
 test:
   script:
     - pip install '.[test]'
-    # To enable the GUI tests, remove the -p and --ignore arguments and
-    # uncomment the line above to install xvfb and qtbase5-dev.
-    - python -m pytest . -s -p no:pytest-qt --ignore=tests/test_gui.py
+    - python -m pytest . -s
