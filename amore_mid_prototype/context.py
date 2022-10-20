@@ -124,7 +124,7 @@ class ContextFile:
 
     @classmethod
     def from_py_file(cls, path: Path):
-        code = path.read_bytes()
+        code = path.read_text()
         log.debug("Loading context from %s", path)
         return ContextFile.from_str(code)
 
