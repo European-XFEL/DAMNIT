@@ -860,17 +860,22 @@ da-dev@xfel.eu"""
         # If that worked, try pyflakes
         out_buffer = StringIO()
         reporter = Reporter(out_buffer, out_buffer)
-        num_warnings = pyflakes_check(self._editor.text(), "<ctx>", reporter)
+        pyflakes_check(self._editor.text(), "<ctx>", reporter)
+        # Disgusting hack to avoid getting warnings for "var#foo" type
+        # annotations. This needs some tweaking to avoid missing real errors.
+        pyflakes_output = "\n".join([line for line in out_buffer.getvalue().split("\n")
+                                     if not line.endswith("undefined name 'var'")])
 
         # Move the error widget down
         height = self.height()
         self._editor_parent_widget.setSizes([height, 1])
 
-        if num_warnings > 0:
+        if len(pyflakes_output) > 0:
+            self.set_error_widget_text(pyflakes_output)
+
             # We don't treat pyflakes warnings as fatal errors because sometimes
             # pyflakes reports valid but harmless problems, like unused
             # variables or unused imports.
-            self.set_error_widget_text(out_buffer.getvalue())
             self.set_error_icon("yellow")
             return True
         else:
