@@ -1,16 +1,20 @@
+import pickle
 import logging
 import graphlib
 import textwrap
 import tempfile
 from pathlib import Path
+from numbers import Number
 from unittest.mock import patch
 
 import pytest
 import numpy as np
+import xarray as xr
 
 from amore_mid_prototype.context import ContextFile
 from amore_mid_prototype.backend.extract_data import (Results, RunData,
-                                                      Extractor, get_proposal_path)
+                                                      Extractor, get_proposal_path,
+                                                      add_to_db)
 
 
 def test_dag(mock_ctx):
@@ -92,12 +96,16 @@ def test_results(mock_ctx, mock_run, caplog):
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
     assert set(mock_ctx.ordered_vars()) <= results.data.keys()
 
+    # Check that the summary of a DataArray is a single number
+    assert isinstance(results.data["meta_array"], xr.DataArray)
+    assert isinstance(results.reduced["meta_array"], Number)
+
     # Check the result values
     assert results.data["scalar1"] == 42
     assert results.data["scalar2"] == 3.14
     assert results.data["empty_string"] == ""
     np.testing.assert_equal(results.data["array"], [42, 3.14])
-    np.testing.assert_equal(results.data["meta_array"], [run_number, proposal])
+    np.testing.assert_equal(results.data["meta_array"].data, [run_number, proposal])
     assert results.data["string"] == str(get_proposal_path(mock_run))
 
 def test_filtering(mock_ctx, mock_run, caplog):
@@ -130,6 +138,28 @@ def test_filtering(mock_ctx, mock_run, caplog):
     results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
     assert set(results.data) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
     assert results.data["timestamp"] > ts
+
+def test_add_to_db(mock_db):
+    db_dir, db = mock_db
+
+    reduced_data = {
+        "none": None,
+        "string": "foo",
+        "scalar": 42,
+        "zero_dim_array": np.asarray(42),
+        "image": np.random.rand(10, 10)
+    }
+
+    add_to_db(reduced_data, db, 1234, 42)
+
+    cursor = db.execute("SELECT * FROM runs")
+    row = cursor.fetchone()
+
+    assert row["string"] == reduced_data["string"]
+    assert row["scalar"] == reduced_data["scalar"]
+    assert row["zero_dim_array"] == reduced_data["zero_dim_array"].item()
+    np.testing.assert_array_equal(pickle.loads(row["image"]), reduced_data["image"])
+    assert row["none"] == reduced_data["none"]
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
