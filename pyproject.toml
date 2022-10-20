@@ -22,6 +22,8 @@ dependencies = [
     "pandas",
     "PyQt5",
     "PyYAML",
+    "pyflakes",
+    "QScintilla",
     "xarray",
     "scipy",
     "tomli",

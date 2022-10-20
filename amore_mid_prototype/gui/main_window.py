@@ -13,12 +13,14 @@ import libtmux
 import pandas as pd
 import numpy as np
 import h5py
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from kafka.errors import NoBrokersAvailable
 
+from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
+
+from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import open_db, get_meta, set_meta
 from ..context import ContextFile
@@ -26,6 +28,7 @@ from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
+from .editor import Editor, ContextTestResult
 
 
 log = logging.getLogger(__name__)
@@ -47,6 +50,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._updates_thread = None
         self._updates_thread = None
         self._received_update = False
+        self._context_path = None
+        self._context_is_saved = True
         self._attributi = {}
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
@@ -55,11 +60,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_menu_bar()
 
         self._view_widget = QtWidgets.QWidget(self)
+        self._editor = Editor()
+        self._error_widget = QsciScintilla()
+        self._editor_parent_widget = QtWidgets.QSplitter(Qt.Vertical)
+
+        self._tab_widget = QTabWidget()
+        self._tabbar_style = TabBarStyle()
+        self._tab_widget.tabBar().setStyle(self._tabbar_style)
+        self._tab_widget.addTab(self._view_widget, "Run table")
+        self._tab_widget.addTab(self._editor_parent_widget, "Context file")
+        self._tab_widget.currentChanged.connect(self.on_tab_changed)
+
         # Disable the main window at first since we haven't loaded any database yet
-        self._view_widget.setEnabled(False)
-        self.setCentralWidget(self._view_widget)
+        self._tab_widget.setEnabled(False)
+        self.setCentralWidget(self._tab_widget)
 
         self._create_view()
+        self.configure_editor()
         self.center_window()
 
         if context_dir is not None:
@@ -67,7 +84,26 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._canvas_inspect = []
 
+    def on_tab_changed(self, index):
+        if index == 0:
+            self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        elif index == 1:
+            self._status_bar.showMessage(self._editor_status_message)
+
     def closeEvent(self, event):
+        if not self._context_is_saved:
+            dialog = QMessageBox(QMessageBox.Warning,
+                                 "Warning - unsaved changes",
+                                 "There are unsaved changes to the context, do you want to save before exiting?",
+                                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+            result = dialog.exec()
+
+            if result == QMessageBox.Yes:
+                self.save_context()
+            elif result == QMessageBox.Cancel:
+                event.ignore()
+                return
+
         self.stop_update_listener_thread()
         super().closeEvent(event)
 
@@ -105,7 +141,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
     def _menu_bar_edit_context(self):
-        Popen(['xdg-open', self.context_path])
+        Popen(['xdg-open', self._context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -229,11 +265,15 @@ da-dev@xfel.eu"""
                            window_command=f"cd {str(path)}; amore-proto listen .")
 
     def autoconfigure(self, path: Path, proposal=None):
-        self.context_path = path / "context.py"
-        if self.context_path.is_file():
-            log.info("Reading context file %s", self.context_path)
-            ctx_file = ContextFile.from_py_file(self.context_path)
+        self._context_path = path / "context.py"
+        if self._context_path.is_file():
+            log.info("Reading context file %s", self._context_path)
+            ctx_file = ContextFile.from_py_file(self._context_path)
             self._attributi = ctx_file.vars
+
+            self._editor.setText(ctx_file.code)
+            self.test_context()
+            self.mark_context_saved()
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
@@ -303,8 +343,7 @@ da-dev@xfel.eu"""
         comment_id_col = self.data.columns.get_loc("comment_id")
         self.table_view.setColumnHidden(comment_id_col, True)
 
-        self._status_bar.showMessage("Double-click on a cell to inspect results.")
-        self._view_widget.setEnabled(True)
+        self._tab_widget.setEnabled(True)
         self.context_dir_changed.emit(str(path))
 
     def column_renames(self):
@@ -709,6 +748,101 @@ da-dev@xfel.eu"""
 
         self._view_widget.setLayout(vertical_layout)
 
+    def configure_editor(self):
+        test_widget = QtWidgets.QWidget()
+
+        self._editor.textChanged.connect(self.on_context_changed)
+        self._editor.save_requested.connect(self.save_context)
+
+        vbox = QtWidgets.QGridLayout()
+        test_widget.setLayout(vbox)
+
+        test_btn = QtWidgets.QPushButton("Test")
+        test_btn.clicked.connect(self.test_context)
+
+        self._context_status_icon = QtSvg.QSvgWidget()
+
+        font = QtGui.QFont("Monospace", pointSize=9)
+        self._error_widget_lexer = QsciLexerPython()
+        self._error_widget_lexer.setDefaultFont(font)
+
+        self._error_widget.setReadOnly(True)
+        self._error_widget.setCaretWidth(0)
+        self._error_widget.setLexer(self._error_widget_lexer)
+
+        vbox.addWidget(test_btn, 0, 0)
+        vbox.addWidget(self._context_status_icon, 1, 0)
+        vbox.addWidget(self._error_widget, 0, 1, 2, 1)
+        vbox.setColumnStretch(0, 1)
+        vbox.setColumnStretch(1, 100)
+
+        self._editor_parent_widget.addWidget(self._editor)
+        self._editor_parent_widget.addWidget(test_widget)
+
+    def on_context_changed(self):
+        self._tabbar_style.enable_bold = True
+        self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("red"))
+        self._tab_widget.setTabText(1, " Context file* ")
+        self._editor_status_message = "Context file changed! Press Ctrl + S to save."
+        self.on_tab_changed(self._tab_widget.currentIndex())
+        self._context_is_saved = False
+
+    def test_context(self):
+        test_result, output = self._editor.test_context()
+
+        if test_result == ContextTestResult.ERROR:
+            self.set_error_widget_text(output)
+            self.set_error_icon("red")
+
+            # Resize the error window
+            height = self._editor_parent_widget.height()
+            self._editor_parent_widget.setSizes([2 * height // 3, height // 3])
+        else:
+            # Move the error widget down
+            height = self.height()
+            self._editor_parent_widget.setSizes([height, 1])
+
+            if test_result == ContextTestResult.WARNING:
+                self.set_error_widget_text(output)
+
+                # We don't treat pyflakes warnings as fatal errors because sometimes
+                # pyflakes reports valid but harmless problems, like unused
+                # variables or unused imports.
+                self.set_error_icon("yellow")
+            elif test_result == ContextTestResult.OK:
+                self.set_error_widget_text("Valid context.")
+                self.set_error_icon("green")
+
+        return test_result
+
+    def set_error_icon(self, icon):
+        self._context_status_icon.load(f"amore_mid_prototype/gui/ico/{icon}_circle.svg")
+        self._context_status_icon.renderer().setAspectRatioMode(Qt.KeepAspectRatio)
+
+    def set_error_widget_text(self, text):
+        # Clear the widget and wait for a bit to visually indicate to the
+        # user that something happened.
+        self._error_widget.setText("")
+        QtWidgets.QApplication.instance().processEvents()
+        time.sleep(0.1)
+
+        self._error_widget.setText(text)
+
+    def save_context(self):
+        if self.test_context() == ContextTestResult.ERROR:
+            return
+
+        self._context_path.write_text(self._editor.text())
+        self.mark_context_saved()
+
+    def mark_context_saved(self):
+        self._context_is_saved = True
+        self._tabbar_style.enable_bold = False
+        self._tab_widget.setTabText(1, "Context file")
+        self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("black"))
+        self._editor_status_message = str(self._context_path.resolve())
+        self.on_tab_changed(self._tab_widget.currentIndex())
+
     def save_comment(self, prop, run, value):
         if self.db is None:
             log.warning("No SQLite database in use, comment not saved")
@@ -746,6 +880,27 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return 0
         else:
             return super().styleHint(hint, option, widget, returnData)
+
+class TabBarStyle(QtWidgets.QProxyStyle):
+    """
+    Subclass that enables bold tab text for tab 1 (the editor tab).
+    """
+    def __init__(self):
+        super().__init__()
+        self.enable_bold = False
+
+    def drawControl(self, element, option, painter, widget=None):
+        if self.enable_bold and \
+           element == QtWidgets.QStyle.CE_TabBarTab and \
+           widget.tabRect(1) == option.rect:
+            font = widget.font()
+            font.setBold(True)
+            painter.save()
+            painter.setFont(font)
+            super().drawControl(element, option, painter, widget)
+            painter.restore()
+        else:
+            super().drawControl(element, option, painter, widget)
 
 
 def run_app(context_dir, connect_to_kafka=True):
