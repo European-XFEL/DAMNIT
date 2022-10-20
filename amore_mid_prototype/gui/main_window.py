@@ -55,7 +55,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._attributi = {}
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
-        self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
+        self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -83,6 +83,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
+
+    def icon_path(self, name):
+        """
+        Helper function to get the path to an icon file stored under ico/.
+        """
+        return str(Path(__file__).parent / "ico" / name)
 
     def on_tab_changed(self, index):
         if index == 0:
@@ -386,7 +392,7 @@ da-dev@xfel.eu"""
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
         fileMenu = menu_bar.addMenu(
-            QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
+            QtGui.QIcon(self.icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_edit_ctx)
@@ -816,7 +822,7 @@ da-dev@xfel.eu"""
         return test_result
 
     def set_error_icon(self, icon):
-        self._context_status_icon.load(f"amore_mid_prototype/gui/ico/{icon}_circle.svg")
+        self._context_status_icon.load(self.icon_path(f"{icon}_circle.svg"))
         self._context_status_icon.renderer().setAspectRatioMode(Qt.KeepAspectRatio)
 
     def set_error_widget_text(self, text):
