@@ -1,4 +1,5 @@
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import patch, ANY
 from contextlib import contextmanager
 
 import pytest
@@ -55,3 +56,32 @@ def test_debug_repl(mock_db, monkeypatch):
     with helper_patch(["--debug-repl", "new-id"]) as repl:
         assert main() == 0
         repl.assert_not_called()
+
+def test_gui():
+    @contextmanager
+    def helper_patch(args=[]):
+        with (patch("sys.argv", ["amore-proto", "gui", *args]),
+              patch("amore_mid_prototype.cli.find_proposal", return_value="/tmp"),
+              patch("amore_mid_prototype.gui.main_window.run_app") as run_app):
+            yield run_app
+
+    # Check passing neither a proposal number or directory
+    with helper_patch() as run_app:
+        main()
+        run_app.assert_called_with(None, connect_to_kafka=ANY)
+
+    # Check passing a proposal number
+    with helper_patch(["1234"]) as run_app:
+        main()
+        run_app.assert_called_with(Path("/tmp/usr/Shared/amore"), connect_to_kafka=ANY)
+
+    # Check passing a directory
+    with helper_patch(["/tmp"]) as run_app:
+        main()
+        run_app.assert_called_with(Path("/tmp"), connect_to_kafka=ANY)
+
+    # Check invalid argument
+    with helper_patch(["/nope"]) as run_app:
+        with pytest.raises(SystemExit):
+            main()
+        run_app.assert_not_called()
