@@ -10,6 +10,8 @@ from pathlib import Path
 from termcolor import colored
 from IPython.terminal.embed import InteractiveShellEmbed
 
+from extra_data.read_machinery import find_proposal
+
 
 def main():
     ap = ArgumentParser()
@@ -21,8 +23,8 @@ def main():
 
     gui_ap = subparsers.add_parser('gui', help="Launch application")
     gui_ap.add_argument(
-        'context_dir', type=Path, nargs='?',
-        help="Directory storing summarised results"
+        'proposal_or_dir', nargs='?',
+        help="Either a proposal number or a database directory."
     )
     gui_ap.add_argument(
         '--no-kafka', action='store_true',
@@ -84,10 +86,19 @@ def main():
 
     try:
         if args.subcmd == 'gui':
-            if args.context_dir is not None and not args.context_dir.is_dir():
-                sys.exit(f"{args.context_dir} is not a directory")
+            if args.proposal_or_dir is not None:
+                if (path := Path(args.proposal_or_dir)).is_dir():
+                    context_dir = path
+                elif args.proposal_or_dir.isdigit():
+                    proposal_name = f"p{int(args.proposal_or_dir):06d}"
+                    context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
+                else:
+                    sys.exit(f"{args.proposal_or_dir} is not a proposal number or directory")
+            else:
+                context_dir = None
+
             from .gui.main_window import run_app
-            return run_app(args.context_dir, connect_to_kafka=not args.no_kafka)
+            return run_app(context_dir, connect_to_kafka=not args.no_kafka)
 
         elif args.subcmd == 'listen':
             if args.test:
