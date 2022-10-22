@@ -113,3 +113,26 @@ And then set the ``AMORE_BROKER`` variable::
     export AMORE_BROKER=localhost:9102
 
 AMORE will then connect to the broker at that address.
+
+Deployment on Maxwell
+---------------------
+AMORE is deployed in a module on Maxwell::
+
+    $ module load exfel amore
+
+There was an idea in the beginning to potentially have multiple submodules for
+different instruments depending on how many people worked on features for
+instruments simultaneously, but so far we've just stuck with a single submodule
+for MID, ``exfel amore/mid``, which is loaded by default with ``exfel
+amore``. To update the module:
+
+..  code-block:: bash
+
+    $ ssh xsoft@max-exfl.desy.de
+
+    # Helper command to cd into the module directory and activate its environment
+    $ amoremod mid
+    $ git pull # Or whatever command is necessary to update the code
+
+    # Only necessary if updating dependencies since AMORE is installed in editable mode
+    $ pip install -e .
