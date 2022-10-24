@@ -1,9 +1,10 @@
-image: python:3.10-slim-bullseye
+image: continuumio/miniconda3 # python:slim-bullseye
 
 # Change pip's cache directory to be inside the project directory since we can
 # only cache local items.
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  QTWEBENGINE_DISABLE_SANDBOX: "1"
   # Enable this variable to help with debugging Qt issues
   # QT_DEBUG_PLUGINS: "1"
 
@@ -14,19 +15,26 @@ cache:
       - pyproject.toml
   paths:
     - .cache/pip
-    - venv/
+    -
 
 before_script:
-  - python -V
-  - pip install virtualenv
-  - virtualenv venv
-  - source venv/bin/activate
-
   # Need to install GCC for cfelpyutils
+  # - curl https://repo.anaconda.com/pkgs/misc/gpgkeys/anaconda.asc | gpg --dearmor > conda.gpg
+  # - install -o root -g root -m 644 conda.gpg /usr/share/keyrings/conda-archive-keyring.gpg
+  # - gpg --keyring /usr/share/keyrings/conda-archive-keyring.gpg --no-default-keyring --fingerprint 34161F5BF5EB1D4BFBBB8F0A8AEB4F8B29D82806
+  # - echo "deb [arch=amd64 signed-by=/usr/share/keyrings/conda-archive-keyring.gpg] https://repo.anaconda.com/pkgs/misc/debrepo/conda stable main" > /etc/apt/sources.list.d/conda.list
+
   - apt-get update
   # We don't actually need qtbase5-dev, it's just the easiest way to install the
-  # system dependencies Qt needs (in particular for libxcb).
-  - apt-get install --no-install-suggests --no-install-recommends -y gcc g++ xvfb qtbase5-dev
+  # system dependencies Qt needs (in particular for libxcb). libx* and libpci
+  # are for pyqtwebengine.
+  - apt-get install --no-install-suggests --no-install-recommends -y gcc g++ xvfb qtbase5-dev libxcomposite-dev libxrandr-dev libxtst-dev libpci-dev
+
+  - python -V
+  - conda env create -f environment.yml
+  - conda init bash
+  - source ~/.bashrc
+  - conda activate amore
 
 test:
   script:

@@ -1,6 +1,7 @@
 from functools import lru_cache
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from datetime import datetime, timezone
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,11 @@ from PyQt5.QtCore import Qt
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
+
+@dataclass
+class ZulipElogData:
+    html: str = None
+    link: str = None
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -170,6 +176,17 @@ class TableView(QtWidgets.QTableView):
         for row in range(first, last + 1):
             self.resizeRowToContents(row)
 
+    def mouseMoveEvent(self, event):
+        index = self.indexAt(event.pos())
+
+        if index.column() == self.model()._data.columns.get_loc("Comment"):
+            comment_id = self.model()._data.iloc[index.row()]["comment_id"]
+            if comment_id in self.model()._html_comments:
+                self.setCursor(Qt.PointingHandCursor)
+                return
+
+        self.setCursor(Qt.ArrowCursor)
+
 
 class Table(QtCore.QAbstractTableModel):
     comment_changed = QtCore.pyqtSignal(int, int, str)
@@ -181,6 +198,7 @@ class Table(QtCore.QAbstractTableModel):
         self._main_window = main_window
         self.is_sorted_by = ""
         self.is_sorted_order = None
+        self._html_comments = defaultdict(ZulipElogData)
 
     @property
     def _data(self):
@@ -277,7 +295,7 @@ class Table(QtCore.QAbstractTableModel):
         elif role == Qt.DecorationRole:
             if isinstance(value, np.ndarray):
                 return self.generateThumbnail(index)
-        elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+        elif role == Qt.DisplayRole or role == Qt.EditRole:
             if isinstance(value, np.ndarray):
                 # The image preview for this is taken care of by the DecorationRole
                 return None
@@ -304,7 +322,7 @@ class Table(QtCore.QAbstractTableModel):
             else:
                 return str(value)
 
-        elif role == Qt.ItemDataRole.CheckStateRole \
+        elif role == Qt.CheckStateRole \
              and index.column() == self._data.columns.get_loc("Status") \
              and not self.isCommentRow(index.row()):
             if self._data["Status"].iloc[index.row()]:
@@ -314,7 +332,9 @@ class Table(QtCore.QAbstractTableModel):
 
         elif role == Qt.ToolTipRole:
             if index.column() == self._data.columns.get_loc("Comment"):
-                return self.data(index)
+                comment_id = self._data.iloc[index.row()]["comment_id"]
+                if not pd.isna(comment_id):
+                    return self._html_comments[comment_id].html
 
     def isCommentRow(self, row):
         return row in self._data["comment_id"].dropna()
@@ -323,7 +343,7 @@ class Table(QtCore.QAbstractTableModel):
         if not index.isValid():
             return False
 
-        if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+        if role == Qt.DisplayRole or role == Qt.EditRole:
             self._data.iloc[index.row(), index.column()] = value
             self.dataChanged.emit(index, index)
 
@@ -337,10 +357,18 @@ class Table(QtCore.QAbstractTableModel):
                     if not pd.isna(comment_id):
                         self.time_comment_changed.emit(comment_id, value)
 
-        elif role == Qt.ItemDataRole.CheckStateRole:
+        elif role == Qt.CheckStateRole:
             new_state = not self._data["Status"].iloc[index.row()]
             self._data["Status"].values[index.row()] = new_state
             self.run_visibility_changed.emit(index.row(), new_state)
+        elif role == Qt.ToolTipRole:
+            if index.column() == self._data.columns.get_loc("Comment"):
+                comment_id = self._data.iloc[index.row()]["comment_id"]
+                self._html_comments[comment_id].html = value
+        elif role == Qt.UserRole:
+            if index.column() == self._data.columns.get_loc("Comment"):
+                comment_id = self._data.iloc[index.row()]["comment_id"]
+                self._html_comments[comment_id].link = value
 
         return True
 

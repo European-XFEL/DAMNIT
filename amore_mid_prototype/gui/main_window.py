@@ -17,6 +17,7 @@ import libtmux
 import pandas as pd
 import numpy as np
 import h5py
+import zulip
 
 from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
@@ -35,6 +36,7 @@ from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
+from .zulip_webview import ZulipWebView
 
 
 log = logging.getLogger(__name__)
@@ -77,11 +79,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._error_widget = QsciScintilla()
         self._editor_parent_widget = QtWidgets.QSplitter(Qt.Vertical)
 
+        self._zulip = ZulipWebView()
+        self._zulip.logged_in.connect(self.on_zulip_login)
+
         self._tab_widget = QTabWidget()
         self._tabbar_style = TabBarStyle()
         self._tab_widget.tabBar().setStyle(self._tabbar_style)
         self._tab_widget.addTab(self._view_widget, "Run table")
         self._tab_widget.addTab(self._editor_parent_widget, "Context file")
+        self._tab_widget.addTab(self._zulip, "Zulip")
         self._tab_widget.currentChanged.connect(self.on_tab_changed)
 
         # Disable the main window at first since we haven't loaded any database yet
@@ -96,6 +102,73 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
+
+    def on_zulip_login(self):
+        email, api_key = self._zulip.credentials()
+        self._zulip_client = zulip.Client(site=self._zulip.zulip_instance,
+                                          email=email, api_key=api_key)
+
+        # Find elog stream for current proposal
+        proposal = f"p{get_meta(self.db, 'proposal')}"
+        streams = self._zulip_client.get_subscriptions()["subscriptions"]
+        elog_streams = [stream for stream in streams
+                        if proposal in stream["name"] and "elog" in stream["name"]]
+        if len(elog_streams) != 1:
+            log.error("Couldn't automatically determine the right elog stream out of: {elog_stream}")
+            return
+
+        elog_stream = elog_streams[0]
+
+        elog_request = {
+            "anchor": "newest",
+            "num_before": 500,
+            "num_after": 0,
+            "apply_markdown": False,
+            "narrow": [
+                { "operator": "stream", "operand": elog_stream["name"] },
+                { "operator": "search", "operand": "lab_coat" }
+            ]
+        }
+        markdown_result = self._zulip_client.get_messages(elog_request)
+        if markdown_result["result"] != "success":
+            log.error(f"Couldn't retrieve markdown elog entries from '{elog_stream['name']}'")
+            return
+
+        elog_request["apply_markdown"] = True
+        html_result = self._zulip_client.get_messages(elog_request)
+        if html_result["result"] != "success":
+            log.error(f"Couldn't retrieve HTML elog entries from '{elog_stream['name']}'")
+            return
+
+        markdown_messages = markdown_result["messages"]
+        html_messages = html_result["messages"]
+        for markdown_msg, html_msg in zip(markdown_messages, html_messages):
+            # Insert comment with markdown text
+            self.insert_long_comment(markdown_msg["content"], markdown_msg["timestamp"], persist=False)
+
+            # Set HTML tooltip
+            comment_col = self.data.columns.get_loc("Comment")
+            comment_index = self.table.match(self.table.index(0, comment_col), Qt.DisplayRole,
+                                             markdown_msg["content"], flags=Qt.MatchExactly)[0]
+            self.table.setData(comment_index, html_msg["content"], Qt.ToolTipRole)
+            # self.table_view.indexWidget(comment_index).setCursor(Qt.PointingHandCursor)
+
+            # Set link
+            msg_id = markdown_msg["id"]
+            stream_id = elog_stream["stream_id"]
+            link = f"https://{self._zulip.zulip_instance}/#narrow/stream/{stream_id}-mid/near/{msg_id}"
+            self.table.setData(comment_index, link, Qt.UserRole)
+
+        self.table_view.setMouseTracking(True)
+        self.table_view.clicked.connect(self.cell_clicked)
+
+    def cell_clicked(self, index):
+        if index.column() == self.data.columns.get_loc("Comment"):
+            comment_id = self.data.iloc[index.row()]["comment_id"]
+            if not pd.isna(comment_id):
+                link = self.table._html_comments[comment_id].link
+                self._zulip.load(QtCore.QUrl(link))
+                self._tab_widget.setCurrentIndex(2)
 
     def icon_path(self, name):
         """
@@ -122,6 +195,11 @@ class MainWindow(QtWidgets.QMainWindow):
             elif result == QMessageBox.Cancel:
                 event.ignore()
                 return
+
+        profile = self._zulip.page().profile()
+        profile.cookieStore().deleteAllCookies()
+        profile.clearHttpCache()
+        profile.clearAllVisitedLinks()
 
         self.stop_update_listener_thread()
         super().closeEvent(event)
@@ -599,9 +677,17 @@ da-dev@xfel.eu"""
     def _comment_button_clicked(self):
         ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
         text = self.comment.text()
-        with self.db:
-            cur = self.db.execute("INSERT INTO time_comments VALUES (?, ?)", (ts, text))
-        comment_id = cur.lastrowid
+        self.insert_long_comment(text, ts)
+
+    def insert_long_comment(self, text, ts, persist=True):
+        if persist:
+            with self.db:
+                cur = self.db.execute("INSERT INTO time_comments VALUES (?, ?)", (ts, text))
+
+            comment_id = cur.lastrowid
+        else:
+            comment_id = (~self.data["comment_id"].isna()).sum()
+
         self.data = pd.concat(
             [
                 self.data,

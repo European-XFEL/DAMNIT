@@ -22,16 +22,16 @@ dependencies = [
     "mpl-interactions",
     "numpy",
     "pandas",
-    "PyQt5",
     "PyYAML",
     "pyflakes",
-    "QScintilla",
     "xarray",
+    "requests",
     "scipy",
     "termcolor",
     "tomli",
     "pasha",
-    "extra_geom"
+    "extra_geom",
+    "zulip"
 ]
 
 [project.optional-dependencies]

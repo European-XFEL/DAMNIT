@@ -6,7 +6,7 @@ Installation::
     # Make an environment for AMORE
     git clone https://git.xfel.eu/amore/mid-2832.git
     cd mid-2832
-    conda create -n amore python
+    conda env create -f environment.yml
 
     conda activate amore
     pip install .
