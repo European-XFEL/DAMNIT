@@ -7,21 +7,38 @@ from graphlib import CycleError, TopologicalSorter
 log = logging.getLogger(__name__)
 
 
+class RunData(Enum):
+    RAW = "raw"
+    PROC = "proc"
+    ALL = "all"
+
 class Variable:
-    def __init__(self, title=None, summary=None, data="raw", cluster=False):
+    def __init__(self, title=None, summary=None, data=None, cluster=False):
         self.func = None
         self.title = title
         self.summary = summary
 
-        if data not in ["raw", "proc"]:
+        if data is not None and data not in ["raw", "proc"]:
             raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
-        self.data = data
+        else:
+            # Store the users original setting, this is used later to determine
+            # whether raw-data variables that depend on proc-data variables can
+            # automatically be promoted.
+            self._data = data
+
         self.cluster = cluster
 
     def __call__(self, func):
         self.func = func
         self.name = func.__name__
         return self
+
+    @property
+    def data(self):
+        """
+        Return the RunData of the Variable.
+        """
+        return RunData.RAW if self._data is None else RunData(self._data)
 
     def arg_dependencies(self):
         """
@@ -44,22 +61,39 @@ class Variable:
 
         return inspect.get_annotations(self.func)
 
-class RunData(Enum):
-    RAW = "raw"
-    PROC = "proc"
-    ALL = "all"
-
-
 class ContextFile:
     def __init__(self, vars, code):
         self.vars = vars
         self.code = code
 
+        # Check for cycles
         try:
             self.ordered_vars()
         except CycleError as e:
             # Tweak the error message to make it clearer
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
+
+        # Check for raw-data variables that depend on proc-data variables
+        raw_vars = { name: var for name, var in self.vars.items()
+                     if var.data == RunData.RAW }
+        for name, var in raw_vars.items():
+            dependencies = self.all_dependencies(var)
+            proc_dependencies = [dep for dep in dependencies
+                                 if self.vars[dep].data == RunData.PROC]
+
+            if len(proc_dependencies) > 0:
+                # If we have a variable that depends on proc data but didn't
+                # explicitly set `data`, then promote this variable to use proc
+                # data.
+                if var._data == None:
+                    var._data = RunData.PROC.value
+                # Otherwise, if the user explicitly requested raw data but the
+                # variable depends on proc data, that's a problem with the
+                # context file and we raise an exception.
+                elif var._data == RunData.RAW.value:
+                    raise RuntimeError(f"Variable '{name}' is triggered by migration of raw data by data='raw', "
+                                       f"but depends on these Variables that require proc data: {', '.join(proc_dependencies)}\n"
+                                       f"Either remove data='raw' for '{name}' or change it to data='proc'")
 
     def ordered_vars(self):
         """
@@ -109,7 +143,7 @@ class ContextFile:
 
             # If this is being triggered by a migration/calibration message for
             # raw/proc data, then only process the Variable's that require that data.
-            data_match = run_data == RunData.ALL or var.data == run_data.value
+            data_match = run_data == RunData.ALL or var.data == run_data
             # Skip data tagged cluster unless we're in a dedicated Slurm job
             cluster_match = cluster or not var.cluster
             # Skip Variables that don't match the match list

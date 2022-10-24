@@ -87,8 +87,14 @@ class Results:
 
             try:
                 # Add all variable dependencies
-                kwargs = { arg_name: res[dep_name]
+                kwargs = { arg_name: res.get(dep_name)
                            for arg_name, dep_name in var.arg_dependencies().items() }
+
+                # If any are None, skip this variable since we're missing a dependency
+                missing_deps = [key for key, value in kwargs.items() if value is None]
+                if len(missing_deps) > 0:
+                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                    continue
 
                 # And all meta dependencies
                 for arg_name, annotation in var.annotations().items():
@@ -107,12 +113,14 @@ class Results:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(xd_run)
-                if not isinstance(data, (xarray.DataArray, str)):
+                if not isinstance(data, (xarray.DataArray, str, type(None))):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
-                res[name] = data
+                # Only save the result if it's not None
+                if data is not None:
+                    res[name] = data
         return Results(res, ctx_file)
 
     @staticmethod
