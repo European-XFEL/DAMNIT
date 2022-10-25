@@ -17,7 +17,42 @@ from amore_mid_prototype.backend.extract_data import (Results, RunData,
                                                       add_to_db)
 
 
-def test_dag(mock_ctx):
+def test_context_file(mock_ctx):
+    code = """
+    from amore_mid_prototype.context import Variable
+
+    @Variable(title="Foo")
+    def foo(run):
+        return 42
+    """
+    code = textwrap.dedent(code)
+
+    # Test creating from a string
+    ctx = ContextFile.from_str(code)
+    assert len(ctx.vars) == 1
+
+    # Test creating from a file
+    with tempfile.NamedTemporaryFile() as tmp:
+        tmp.write(code.encode())
+        tmp.flush()
+
+        ctx = ContextFile.from_py_file(Path(tmp.name))
+
+    assert len(ctx.vars) == 1
+
+    duplicate_titles_code = """
+    from amore_mid_prototype.context import Variable
+
+    @Variable(title="Foo")
+    def foo(run): return 42
+
+    @Variable(title="Foo")
+    def bar(run): return 43
+    """
+
+    with pytest.raises(RuntimeError):
+        ContextFile.from_str(textwrap.dedent(duplicate_titles_code))
+
     # Helper lambda to get the names of the direct dependencies of a variable
     var_deps = lambda name: set(mock_ctx.vars[name].arg_dependencies().values())
     # Helper lambda to get the names of all dependencies of a variable
@@ -87,29 +122,6 @@ def test_dag(mock_ctx):
     # `bar` should automatically be promoted to use proc data because it depends
     # on a proc variable.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
-
-def test_create_context_file():
-    code = """
-    from amore_mid_prototype.context import Variable
-
-    @Variable(title="Foo")
-    def foo(run):
-        return 42
-    """
-    code = textwrap.dedent(code)
-
-    # Test creating from a string
-    ctx = ContextFile.from_str(code)
-    assert len(ctx.vars) == 1
-
-    # Test creating from a file
-    with tempfile.NamedTemporaryFile() as tmp:
-        tmp.write(code.encode())
-        tmp.flush()
-
-        ctx = ContextFile.from_py_file(Path(tmp.name))
-
-    assert len(ctx.vars) == 1
 
 def run_ctx_helper(context, run, run_number, proposal, caplog):
     # Track all error messages during creation. This is necessary because a
