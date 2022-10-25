@@ -91,7 +91,7 @@ def main():
                     context_dir = path
                 elif args.proposal_or_dir.isdigit():
                     proposal_name = f"p{int(args.proposal_or_dir):06d}"
-                    context_dir = Path(find_proposal(proposal_name))
+                    context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
                 else:
                     sys.exit(f"{args.proposal_or_dir} is not a proposal number or directory")
             else:
