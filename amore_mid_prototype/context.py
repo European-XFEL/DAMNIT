@@ -95,6 +95,14 @@ class ContextFile:
                                        f"but depends on these Variables that require proc data: {', '.join(proc_dependencies)}\n"
                                        f"Either remove data='raw' for '{name}' or change it to data='proc'")
 
+        # Check that no variables have duplicate titles
+        titles = [var.title for var in self.vars.values() if var.title is not None]
+        duplicate_titles = set([title for title in titles if titles.count(title) > 1])
+        if len(duplicate_titles) > 0:
+            bad_variables = [name for name, var in self.vars.items()
+                             if var.title in duplicate_titles]
+            raise RuntimeError(f"These Variables have duplicate titles between them: {', '.join(bad_variables)}")
+
     def ordered_vars(self):
         """
         Return a tuple of variables in the context file, topologically sorted.
