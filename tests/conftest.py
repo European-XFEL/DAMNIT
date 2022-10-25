@@ -70,8 +70,10 @@ def mock_run():
     return run
 
 @pytest.fixture
-def mock_db(tmp_path):
+def mock_db(tmp_path, mock_ctx):
     db = open_db(tmp_path / DB_NAME)
+
+    (tmp_path / "context.py").write_text(mock_ctx.code)
 
     yield tmp_path, db
 
