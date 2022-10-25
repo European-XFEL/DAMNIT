@@ -275,15 +275,21 @@ da-dev@xfel.eu"""
                            window_command=f"cd {str(path)}; amore-proto listen .")
 
     def autoconfigure(self, path: Path, proposal=None):
-        self._context_path = path / "context.py"
-        if self._context_path.is_file():
-            log.info("Reading context file %s", self._context_path)
-            ctx_file = ContextFile.from_py_file(self._context_path)
-            self._attributi = ctx_file.vars
+        context_path = path / "context.py"
+        if not context_path.is_file():
+            QMessageBox.critical(self, "No context file",
+                                 "This database is missing a context file, it cannot be opened.")
+            return
+        else:
+            self._context_path = context_path
 
-            self._editor.setText(ctx_file.code)
-            self.test_context()
-            self.mark_context_saved()
+        log.info("Reading context file %s", self._context_path)
+        ctx_file = ContextFile.from_py_file(self._context_path)
+        self._attributi = ctx_file.vars
+
+        self._editor.setText(ctx_file.code)
+        self.test_context()
+        self.mark_context_saved()
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
