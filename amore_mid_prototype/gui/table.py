@@ -190,27 +190,24 @@ class Table(QtCore.QAbstractTableModel):
                                            Qt.KeepAspectRatio)
 
     @lru_cache(maxsize=1000)
-    def variable_is_constant(self, index):
+    def variable_is_constant(self, run, proposal, quantity):
         """
         Check if the variable at the given index is constant throughout the run.
         """
         is_constant = True
-        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
-        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
-        quantity = self._main_window.ds_name(self._data.columns[index.column()])
 
         try:
             file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
         except:
             return is_constant
 
-        if quantity in run_file and "trainId" in run_file[quantity]:
+        if quantity in run_file:
             ds = run_file[quantity]["data"]
+
             # If it's an array
-            if len(ds.shape) == 1:
+            if len(ds.shape) == 1 and ds.shape[0] > 1:
                 data = ds[:]
-                if not np.all(np.isclose(data, data[0])):
-                    is_constant = False
+                is_constant = np.all(np.isclose(data, data[0]))
 
         run_file.close()
         return is_constant
@@ -223,7 +220,11 @@ class Table(QtCore.QAbstractTableModel):
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
-            if not self.variable_is_constant(index):
+            run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+            proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+            quantity = self._main_window.ds_name(self._data.columns[index.column()])
+
+            if not self.variable_is_constant(run, proposal, quantity):
                 font = QtGui.QFont()
                 font.setBold(True)
                 return font
