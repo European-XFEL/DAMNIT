@@ -73,7 +73,7 @@ def test_gui():
     # Check passing a proposal number
     with helper_patch(["1234"]) as run_app:
         main()
-        run_app.assert_called_with(Path("/tmp"), connect_to_kafka=ANY)
+        run_app.assert_called_with(Path("/tmp/usr/Shared/amore"), connect_to_kafka=ANY)
 
     # Check passing a directory
     with helper_patch(["/tmp"]) as run_app:
