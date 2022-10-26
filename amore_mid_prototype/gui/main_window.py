@@ -1,6 +1,7 @@
 import pickle
 import os
 import logging
+import shelve
 import shutil
 import sys
 import time
@@ -10,6 +11,7 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from subprocess import Popen
+from enum import Enum
 
 import libtmux
 import pandas as pd
@@ -39,6 +41,10 @@ log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
 
+class Settings(Enum):
+    COLUMNS = "columns"
+
+
 class MainWindow(QtWidgets.QMainWindow):
     context_path = None
     db = None
@@ -57,6 +63,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._context_path = None
         self._context_is_saved = True
         self._attributi = {}
+
+        self._settings_db_path = Path.home() / ".damnit" / "settings.db"
+        self._restore_in_progress = False
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
@@ -247,6 +256,34 @@ da-dev@xfel.eu"""
     def get_tmux_socket_path(self, root_path: Path):
         return root_path / "amore-tmux.sock"
 
+    def save_settings(self):
+        if self._restore_in_progress:
+            return
+
+        self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with shelve.open(str(self._settings_db_path)) as db:
+            settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
+            db[str(self._context_path)] = settings
+
+    def restore_settings(self):
+        if not self._settings_db_path.parent.is_dir():
+            return
+
+        # Restoring the state will trigger signals that cause the settings to be
+        # saved, which could overwrite the database with the wrong settings. To
+        # avoid this we set the self._restore_in_progress flag.
+        self._restore_in_progress = True
+
+        with shelve.open(str(self._settings_db_path)) as db:
+            key = str(self._context_path)
+
+            if key in db:
+                settings = db[key]
+                self.table_view.set_column_states(settings[Settings.COLUMNS.value])
+
+        self._restore_in_progress = False
+
     def initialize_database(self, path, proposal):
         # Ensure the directory exists
         path.mkdir(parents=True, exist_ok=True)
@@ -361,6 +398,8 @@ da-dev@xfel.eu"""
 
         self._tab_widget.setEnabled(True)
         self.context_dir_changed.emit(str(path))
+
+        self.restore_settings()
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -700,6 +739,7 @@ da-dev@xfel.eu"""
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
         self.table_view.doubleClicked.connect(self.inspect_data)
+        self.table_view.settings_changed.connect(self.save_settings)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addWidget(self.table_view.create_column_widget(),
