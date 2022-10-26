@@ -244,6 +244,7 @@ def test_add_to_db(mock_db):
         "none": None,
         "string": "foo",
         "scalar": 42,
+        "np_scalar": np.float32(10),
         "zero_dim_array": np.asarray(42),
         "image": np.random.rand(10, 10)
     }
@@ -255,6 +256,7 @@ def test_add_to_db(mock_db):
 
     assert row["string"] == reduced_data["string"]
     assert row["scalar"] == reduced_data["scalar"]
+    assert row["np_scalar"] == reduced_data["np_scalar"].item()
     assert row["zero_dim_array"] == reduced_data["zero_dim_array"].item()
     np.testing.assert_array_equal(pickle.loads(row["image"]), reduced_data["image"])
     assert row["none"] == reduced_data["none"]
