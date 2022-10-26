@@ -1,4 +1,5 @@
 from functools import lru_cache
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 import numpy as np
@@ -15,6 +16,8 @@ ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
 
 class TableView(QtWidgets.QTableView):
+    settings_changed = QtCore.pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__()
         self.setAlternatingRowColors(False)
@@ -48,6 +51,8 @@ class TableView(QtWidgets.QTableView):
         else:
             self.setColumnHidden(column_index, True)
 
+        self.settings_changed.emit()
+
     def item_moved(self, parent, start, end, destination, row):
         # Take account of the static columns, and the Status column
         col_offset = self._static_columns_widget.count() + 1
@@ -56,6 +61,8 @@ class TableView(QtWidgets.QTableView):
         col_to = self._columns_widget.currentIndex().row() + col_offset
 
         self.horizontalHeader().moveSection(col_from, col_to)
+
+        self.settings_changed.emit()
 
     def add_new_columns(self, columns, statuses):
         for column, status in zip(columns, statuses):
@@ -109,6 +116,50 @@ class TableView(QtWidgets.QTableView):
         columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
                                             if x[0] not in static_columns]))
         self.add_new_columns(columns, statuses)
+
+    def get_column_states(self):
+        column_states = OrderedDict()
+
+        def add_columns(widget):
+            for row in range(widget.count()):
+                item = widget.item(row)
+                column_states[item.text()] = item.checkState() == Qt.Checked
+
+        add_columns(self._static_columns_widget)
+        add_columns(self._columns_widget)
+
+        return column_states
+
+    def set_column_states(self, column_states):
+        for i, column in enumerate(column_states.keys()):
+            enabled = column_states[column]
+
+            widget = self._columns_widget if \
+                len(self._columns_widget.findItems(column, Qt.MatchExactly)) == 1 else \
+                self._static_columns_widget
+
+            # Try to find the column
+            matching_items = widget.findItems(column, Qt.MatchExactly)
+            if len(matching_items) == 1:
+                item = matching_items[0]
+            else:
+                continue
+
+            # Enable/disable the column
+            item.setCheckState(Qt.Checked if enabled else Qt.Unchecked)
+
+            # Move it if necessary
+            row_offset = self._static_columns_widget.count() if widget == self._columns_widget else 0
+            row = i - row_offset
+
+            if (current_row := widget.row(item)) != row:
+                # We need to select the item because the item_moved() slot uses
+                # this to compute the new index of the column.
+                widget.setCurrentItem(item)
+
+                model = widget.model()
+                model.moveRow(model.index(current_row, 0).parent(), current_row,
+                              model.index(row, 0).parent(), row)
 
     def style_comment_rows(self, *_):
         self.clearSpans()
