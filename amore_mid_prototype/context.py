@@ -101,7 +101,7 @@ class ContextFile:
         if len(duplicate_titles) > 0:
             bad_variables = [name for name, var in self.vars.items()
                              if var.title in duplicate_titles]
-            raise RuntimeError(f"These Variables have duplicate titles between them:{', '.join(bad_variables)}")
+            raise RuntimeError(f"These Variables have duplicate titles between them: {', '.join(bad_variables)}")
 
     def ordered_vars(self):
         """
