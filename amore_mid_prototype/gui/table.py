@@ -81,21 +81,24 @@ class TableView(QtWidgets.QTableView):
         col_offset = self._static_columns_widget.count() + 1
 
         col_from = start + col_offset
-        col_to = self._columns_widget.currentIndex().row() + col_offset
+        col_to = row + col_offset
 
         self.horizontalHeader().moveSection(col_from, col_to)
 
         self.settings_changed.emit()
 
-    def add_new_columns(self, columns, statuses):
-        for column, status in zip(columns, statuses):
+    def add_new_columns(self, columns, statuses, positions = None):
+        if positions is None:
+            rows_count = self._columns_widget.count()
+            positions = [ii + rows_count for ii in range(len(columns))]
+        for column, status, position in zip(columns, statuses, positions):
             if column in ["Status", "comment_id"]:
                 continue
 
             item = QtWidgets.QListWidgetItem(column)
             item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
-            self._columns_widget.addItem(item)
+            self._columns_widget.insertItem(position, item)
 
     def create_column_widget(self):
         group = QtWidgets.QGroupBox("Column settings")
@@ -168,6 +171,24 @@ class TableView(QtWidgets.QTableView):
         for row in range(first, last + 1):
             self.resizeRowToContents(row)
 
+    def _get_columns_status(self, widget):
+        res = {}
+        for ii in range(widget.count()):
+            ci = widget.item(ii)
+            res[ci.text()] = ci.isSelected()
+        return res
+
+    def get_movable_columns(self):
+        return self._get_columns_status(self._columns_widget)
+
+    def get_movable_columns_count(self):
+        return self._columns_widget.count()
+
+    def get_static_columns(self):
+        return self._get_columns_status(self._static_columns_widget)
+
+    def get_static_columns_count(self):
+        return self._static_columns_widget.count()
 
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)

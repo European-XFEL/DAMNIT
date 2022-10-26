@@ -2,6 +2,7 @@ import pickle
 import os
 import logging
 import shelve
+import re
 import sys
 import time
 from argparse import ArgumentParser
@@ -21,9 +22,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, open_db, get_meta, add_user_variable
+from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile, Variable
+from ..context import ContextFile, Variable, types_map, get_type_from_name
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
@@ -34,10 +35,146 @@ from .editor import Editor, ContextTestResult
 log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
-
 class Settings(Enum):
     COLUMNS = "columns"
 
+class AddUserVariableDialog(QtWidgets.QDialog):
+
+    formStatusChanged = QtCore.pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self._field_status = {
+            'title' : False,
+            'name' : False
+        }
+        self._form_status = False
+        self.resize(300, 100)
+        self.setWindowTitle("Add user variable")
+        self.setModal(True)
+        self._load_icons()
+
+        self._main_window = parent
+
+        layout = QtWidgets.QGridLayout()
+        self.setLayout(layout)
+
+        self.variable_title = QtWidgets.QLineEdit()
+
+        self.variable_name = QtWidgets.QLineEdit()
+        self.variable_name.setValidator(QtGui.QRegularExpressionValidator(QtCore.QRegularExpression('[a-zA-Z_]\w*')))
+
+        def set_variable_name(text):
+            if self.variable_name.isReadOnly():
+                self.variable_name.setText(self._clean_string(text).lower())
+
+        self.variable_title.textChanged.connect(set_variable_name)
+
+        self.variable_title.textChanged.connect(lambda x: self._update_form_status('title', len(x) > 0))
+        self.variable_name.textChanged.connect(lambda x: self._update_form_status('name', self.variable_name.hasAcceptableInput() > 0))
+
+        name_action = self.variable_name.addAction(self._icons["closed"], QtWidgets.QLineEdit.TrailingPosition)
+        name_action.setToolTip("Set name manually")
+
+        def set_field_status(checked=None):
+            new_status = not self.variable_name.isReadOnly()
+            self.variable_name.setReadOnly(new_status)
+            name_action.setToolTip("Set name {}".format("manually" if new_status else "automatically"))
+            name_action.setIcon(self._icons["closed" if new_status else "open"])
+            self.variable_name.setStyleSheet("color: gray" if new_status else "")
+            if new_status:
+                set_variable_name(self.variable_title.text())
+
+        name_action.triggered.connect(set_field_status)
+        set_field_status()
+
+        self.variable_type = QtWidgets.QComboBox()
+        self.variable_type.addItems(types_map.keys())
+
+        self.variable_before = QtWidgets.QComboBox()
+        columns = self._main_window.table_view.get_movable_columns()
+        self.variable_before.addItems(list(columns.keys()) + ['<end>'])
+        self.variable_before.setCurrentIndex(len(columns))
+
+        self.variable_description = QtWidgets.QPlainTextEdit()
+
+        layout.addWidget(QtWidgets.QLabel("<span style='font-weight: bold'>Title</span>*"), 0, 0)
+        layout.addWidget(self.variable_title, 0, 1)
+        layout.addWidget(QtWidgets.QLabel("<span style='font-weight: bold'>Name</span>*"), 1, 0)
+        layout.addWidget(self.variable_name, 1, 1)
+        layout.addWidget(QtWidgets.QLabel("<span style='font-weight: bold'>Type</span>*"), 2, 0)
+        layout.addWidget(self.variable_type, 2, 1)
+        layout.addWidget(QtWidgets.QLabel("Before"), 3, 0)
+        layout.addWidget(self.variable_before, 3, 1)
+        layout.addWidget(QtWidgets.QLabel("Description"), 4, 0, 1, 2)
+        layout.addWidget(self.variable_description, 5, 0, 1, 2)
+
+        button_add_var = QtWidgets.QPushButton("Add variable")
+        button_add_var.setEnabled(False)
+        button_cancel = QtWidgets.QPushButton("Cancel")
+
+        self.formStatusChanged.connect(button_add_var.setEnabled)
+
+        layout.addWidget(button_add_var, 6, 0)
+        layout.addWidget(button_cancel, 6, 1)
+
+        button_add_var.clicked.connect(self.check_if_variable_is_unique)
+        button_cancel.clicked.connect(self.reject)
+
+    def _clean_string(self, string):
+        res = re.sub('\W+', '@', string, flags = re.A)
+        res = re.sub('^@|@$', '', res)
+        res = re.sub('^\d+', '', res)
+        return res.replace('@', '_')
+
+    def _update_form_status(self, name, is_ok):
+        self._field_status[name] = is_ok
+        self.update_form_status()
+
+    def update_form_status(self):
+        new_status = all(self._field_status.values())
+        new_status_different = self._form_status != new_status
+        if new_status_different:
+            self._form_status = new_status
+            self.formStatusChanged.emit(new_status)
+
+    def check_if_variable_is_unique(self, x):
+        name_already_exists = self._main_window.has_variable(self.variable_name.text())
+        title_already_exists = self._main_window.has_variable(self.variable_title.text(), by_title=True)
+        error_type = []
+
+        if name_already_exists:
+            error_type.append('name')
+
+        if title_already_exists:
+            error_type.append('title')
+
+        if len(error_type) > 0:
+
+            dialog = QtWidgets.QMessageBox(self)
+            dialog.setWindowTitle("Error adding variable")
+            dialog.setText(
+                "A variable with the same <span style = \"font-weight: bold\">{}</span> is already present.".format(' and '.join(error_type))
+            )
+            dialog.exec()
+
+            return
+
+        self._main_window.add_variable(
+            name=self.variable_name.text(),
+            title=self.variable_title.text(),
+            vtype=self.variable_type.currentText(),
+            description=self.variable_description.toPlainText(),
+            before=self.variable_before.currentIndex()
+        )
+
+        self.accept()
+
+    def _load_icons(self):
+        self._icons = {}
+        for ii in ["closed", "open"]:
+            self._icons[ii] = QtGui.QIcon(f"amore_mid_prototype/gui/ico/lock_{ii}_icon.png")
 
 class MainWindow(QtWidgets.QMainWindow):
     db = None
@@ -162,6 +299,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _menu_bar_edit_context(self):
         Popen(['xdg-open', self.context_path])
 
+    def _menu_create_user_var(self) -> None:
+        dialog = AddUserVariableDialog(self)
+        dialog.exec()
+
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
 
@@ -265,7 +406,9 @@ da-dev@xfel.eu"""
         cursor = self.db.execute('PRAGMA table_info("runs")')
         column_names = [cc[1] for cc in cursor]
 
-        cols_without_ctx = set(column_names) - set(get_default_runs_columns())
+        for kk, vv in ctx_file_db.vars.items():
+            create_user_column(self.db, vv)
+            self.table.add_editable_column(vv.title or vv.name)
 
         context_path = path / "context.py"
         if not context_path.is_file():
@@ -363,9 +506,7 @@ da-dev@xfel.eu"""
         self.data = self.data[sorted_cols]
 
         for cc in self.data:
-            if cc not in self._title_to_name:
-                continue
-            col_name = self._title_to_name[cc]
+            col_name = self.col_title_to_name(cc)
             if col_name in self._attributi and self._attributi[col_name].variable_type:
                 var_type = get_type_from_name(self._attributi[col_name].variable_type)
                 self.data[cc] = self.data[cc].astype(var_type)
@@ -396,6 +537,35 @@ da-dev@xfel.eu"""
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
 
+    def has_variable(self, name, by_title=False):
+        if by_title:
+            haystack = set(self._title_to_name.keys()) | set(self.data.columns.values)
+        else:
+            haystack = set(self._name_to_title.keys())
+
+        return name in haystack
+
+    def add_variable(self, name, title, vtype, description="", before=None):
+        n_static_cols = self.table_view.get_static_columns_count()
+        before_pos = n_static_cols + 1
+        if before == None:
+            before_pos += self.table_view.get_movable_columns_count()
+        else:
+            before_pos += before
+        variable = Variable(title=title, data="user", variable_type=vtype, description=description)
+        variable.name = name
+        with self.db:
+            add_user_variable(self.db, variable)
+            create_user_column(self.db, variable)
+        self._attributi[name] = variable
+        self._name_to_title[name] = title
+        self._title_to_name[title] = name
+        self.data.insert(before_pos, title, get_type_from_name(vtype).empty((len(self.data.index),)))
+        self.table.insertColumn(before_pos)
+        self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
+        self.table.add_editable_column(title)
+
+
     def column_title(self, name):
         if name in self._attributi:
             return self._attributi[name].title or name
@@ -414,6 +584,15 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
+        action_create_var = QtWidgets.QAction(
+            QtGui.QIcon.fromTheme("accessories-text-editor"),
+            "&Create user variable",
+            self
+        )
+        action_create_var.setShortcut("Shift+U")
+        action_create_var.setStatusTip("Create user editable variable")
+        action_create_var.triggered.connect(self._menu_create_user_var)
+
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -428,6 +607,7 @@ da-dev@xfel.eu"""
             QtGui.QIcon(self.icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
+        fileMenu.addAction(action_create_var)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 

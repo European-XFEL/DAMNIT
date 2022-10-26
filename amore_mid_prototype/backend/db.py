@@ -56,6 +56,19 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
 
 def add_user_variable(conn, variable: Variable):
 
+    conn.execute(
+        "INSERT INTO variables (name, code, type, title, description) VALUES(?, ?, ?, ?, ?)", 
+        (
+            variable.name,
+            variable.func,
+            variable.variable_type,
+            variable.title,
+            variable.description
+        )
+    )
+
+def create_user_column(conn, variable: Variable):
+
     num_cols = conn.execute(
         "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
     ).fetchone()[0]
