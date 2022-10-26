@@ -247,7 +247,7 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
         # arrays. If a Variable returns a scalar then we'll end up with a
         # zero-dimensional array here which will be pickled, so we unbox all
         # zero-dimensional arrays first.
-        if isinstance(value, np.ndarray) and value.ndim == 0:
+        if isinstance(value, (np.ndarray, np.generic)) and value.ndim == 0:
             value = value.item()
 
         # Serialize non-SQLite-supported types
