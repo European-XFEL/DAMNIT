@@ -276,8 +276,11 @@ da-dev@xfel.eu"""
         self._restore_in_progress = True
 
         with shelve.open(str(self._settings_db_path)) as db:
-            settings = db[str(self._context_path)]
-            self.table_view.set_column_states(settings[Settings.COLUMNS.value])
+            key = str(self._context_path)
+
+            if key in db:
+                settings = db[key]
+                self.table_view.set_column_states(settings[Settings.COLUMNS.value])
 
         self._restore_in_progress = False
 
