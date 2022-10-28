@@ -316,8 +316,8 @@ class Extractor:
         # Send update via Kafka
         reduced_data['Proposal'] = proposal
         reduced_data['Run'] = run
-        self.kafka_prd.send(self.update_topic, reduced_data)
-        log.info("Sent Kafka update")
+        self.kafka_prd.send(self.update_topic, reduced_data).get(timeout=30)
+        log.info("Sent Kafka update to topic %r", self.update_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
