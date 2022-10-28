@@ -399,7 +399,8 @@ class Plot:
         # given a timestamp).
         safe_cols = ["Proposal", "Run"]
         for label in [xlabel, ylabel]:
-            if not label in safe_cols and not is_numeric_dtype(self._data[label].dtype):
+            finite_data = self._main_window.make_finite(self._data[label])
+            if not label in safe_cols and not is_numeric_dtype(finite_data.dtype):
                 QMessageBox.warning(self._main_window,
                                     "Plotting failed",
                                     f"'{label}' could not be plotted, its column has non-numeric data.")
