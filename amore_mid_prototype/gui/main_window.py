@@ -1,17 +1,18 @@
+import configparser
 import pickle
 import os
 import logging
+import secrets
 import shelve
 import shutil
+import subprocess
 import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
-from subprocess import Popen
 from enum import Enum
 
-import libtmux
 import pandas as pd
 import numpy as np
 import h5py
@@ -24,6 +25,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
+from ..util import get_supervisord_address
 from ..backend.db import open_db, get_meta, set_meta
 from ..context import ContextFile
 from ..definitions import UPDATE_BROKERS
@@ -156,7 +158,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
     def _menu_bar_edit_context(self):
-        Popen(['xdg-open', self._context_path])
+        subprocess.Popen(['xdg-open', self._context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -218,6 +220,7 @@ da-dev@xfel.eu"""
                                               "would you like to create one and start the backend?")
                 if button == QMessageBox.Yes:
                     self.initialize_database(standard_path, prop_no)
+                    self.start_backend(standard_path)
                     path = standard_path
                 else:
                     # Otherwise, we prompt the user
@@ -233,8 +236,7 @@ da-dev@xfel.eu"""
             return
 
         # Check if the backend is running
-        tmux_socket_path = self.get_tmux_socket_path(path)
-        if not tmux_socket_path.exists():
+        if not self.backend_is_running(path):
             button = QMessageBox.question(self, "Backend not running",
                                           "The AMORE backend is not running, would you like to start it? " \
                                           "This is only necessary if new runs are expected.")
@@ -249,8 +251,26 @@ da-dev@xfel.eu"""
     def db_path(self, root_path: Path):
         return root_path / "runs.sqlite"
 
-    def get_tmux_socket_path(self, root_path: Path):
-        return root_path / "amore-tmux.sock"
+    def backend_is_running(self, root_path: Path, timeout=5):
+        config_path = root_path / "supervisord.conf"
+        supervisorctl_status = ["supervisorctl", "-c", str(config_path), "status", "damnit"]
+
+        # If supervisord isn't running or the program is stopped, the status
+        # will return something non-zero. Whereas if it's still starting it will
+        # return 0.
+        if subprocess.run(supervisorctl_status).returncode != 0:
+            return False
+
+        n_polls = 10 if timeout > 0 else 1
+        for _ in range(n_polls):
+            stdout = subprocess.run(supervisorctl_status,
+                                    text=True, capture_output=True).stdout
+            if "RUNNING" in stdout:
+                return True
+
+            time.sleep(timeout / n_polls)
+
+        return False
 
     def save_settings(self):
         if self._restore_in_progress:
@@ -294,18 +314,64 @@ da-dev@xfel.eu"""
         shutil.copyfile(Path(__file__).parents[1] / "base_context_file.py", context_path)
         os.chmod(context_path, 0o666)
 
-        self.start_backend(path)
+        # Copy supervisord config file
+        self.copy_supervisord_conf(path)
+
+    def copy_supervisord_conf(self, path):
+        # Find an open port
+        hostname, port = get_supervisord_address()
+        username = secrets.token_hex(32)
+        password = secrets.token_hex(32)
+
+        # Create supervisord.conf
+        config = configparser.ConfigParser()
+        config.read(Path(__file__).parent.parent.parent / "supervisord.conf")
+        config["inet_http_server"]["port"] = str(port)
+        config["inet_http_server"]["username"] = username
+        config["inet_http_server"]["password"] = password
+        config["program:damnit"]["directory"] = str(path)
+        config["supervisorctl"]["serverurl"] = f"http://{hostname}:{port}"
+        config["supervisorctl"]["username"] = username
+        config["supervisorctl"]["password"] = password
+
+        config_path = path / "supervisord.conf"
+        with open(config_path, "w") as f:
+            config.write(f)
+        os.chmod(config_path, 0o666)
 
     def start_backend(self, path: Path):
-        # Create tmux session
-        server = libtmux.Server(socket_path=self.get_tmux_socket_path(path))
-        server.new_session(session_name="AMORE",
-                           window_name="listen",
-                           # Unfortunately Maxwell's default tmux is too old to
-                           # support '-c' to change directory, so we have to
-                           # manually change directory instead of using the
-                           # 'start_directory' argument.
-                           window_command=f"cd {str(path)}; amore-proto listen .")
+        used_port_error = "Error: Another program is already listening on a port that one of our HTTP servers is configured to use"
+        config_path = path / "supervisord.conf"
+        if not config_path.is_file():
+            self.copy_supervisord_conf(path)
+
+        supervisorctl = ["supervisorctl", "-c", str(config_path)]
+
+        rc = subprocess.run([*supervisorctl, "status", "damnit"]).returncode
+
+        if rc == 4:
+            # 4 means that supervisorctl couldn't connect to supervisord and we
+            # need to start supervisord.
+            supervisord = subprocess.run(["supervisord", "-c", config_path],
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True)
+
+            if supervisord.returncode != 0:
+                if used_port_error in supervisord.stdout:
+                    # If the port is already in use, copy a new config with a free port
+                    self.copy_supervisord_conf(path)
+                    return self.start_backend(path)
+                else:
+                    log.error(f"Couldn't start supervisord, return code: {supervisord.returncode}")
+                    return False
+        elif rc == 3:
+            # 3 means it's stopped and we need to start the program
+            return subprocess.run([*supervisorctl, "start", "damnit"]).returncode == 0
+        else:
+            log.error(f"Unrecognized return code from supervisorctl: {rc}")
+            return False
+
+        return True
 
     def autoconfigure(self, path: Path, proposal=None):
         context_path = path / "context.py"

@@ -38,63 +38,38 @@ at the command line.
 Managing the backend
 --------------------
 The GUI is capable of initializing a database for a proposal and starting the
-backend automatically. We do this by abusing tmux as a service manager, which is
-possible because:
+backend automatically, using `supervisor <http://supervisord.org>`_ under the
+hood.
 
-- tmux servers support Unix sockets.
-- tmux is designed to run 'asynchronously', without a user having to be logged
-  in with a terminal open.
+In a nutshell:
 
-So the rules are:
+- ``supervisord`` will manage the backend using a configuration file named
+  ``supervisord.conf`` in the database directory. It's configured to listen for
+  commands over HTTP on a certain port with a certain
+  username/password. ``supervisord`` will save its logs to ``supervisord.log``.
+- It can be controlled with ``supervisorctl`` on any machine using the same
+  config file.
 
-- The backend is run inside a tmux session named ``AMORE``.
-- The tmux server is bound to a socket named ``amore-tmux.sock`` inside the
-  database directory.
-- If the socket exists, the GUI assumes that the backend is running. The backend
-  is responsible for deleting the socket when it closes (tmux does not support
-  that).
-- If the socket does not exist, the GUI starts a tmux session (on the machine it
-  is currently running on, this may be changed later) and runs the backend in
-  it.
-
-So lets say you're running the GUI on FastX, and the backend is now started on
-``max-exfl-display002``. If you open a terminal and ``cd`` to the database
-directory you'll see the tmux socket::
+So lets say you're running the GUI on FastX, and the backend is now started. If
+you open a terminal and ``cd`` to the database directory you'll see::
 
     $ cd /gpfs/path/to/proposal/usr/Shared/amore
     $ ls
-    amore.log  amore-tmux.sock  context.py  extracted_data  runs.sqlite
+    amore.log  context.py  extracted_data  runs.sqlite  supervisord.conf  supervisord.log
 
-You can list the sessions running under the socket::
+You could get the status of the backend with::
 
-    $ tmux -S amore-tmux.sock ls
-    AMORE: 1 windows (created Thu Jun  2 13:21:13 2022) [190x41]
+    $ supervisorctl -c supervisord.conf status damnit
+    damnit                           RUNNING   pid 3793870, uptime 0:00:20
 
-Or you can attach to the session (hit ``Ctrl + B, d`` to detach)::
+And you could restart it with::
 
-    $ tmux -S amore-tmux.sock a
+    $ supervisorctl -c supervisord.conf restart damnit
+    damnit: stopped
+    damnit: started
 
-Troubleshooting
-^^^^^^^^^^^^^^^
-If you run ``tmux -S amore-tmux.sock ls`` and see ``failed to connect to
-server``, the problem is likely that you're on the wrong machine. While the
-sockets are accessible from anywhere thanks to GPFS, you still need to be on the
-same machine as the tmux server process to communicate with it. The backend
-prints the hostname it's running on when it starts; so by looking at
-``amore.log`` for lines like ``Running on max-exfl-display002.desy.de under user
-wrigleyj, PID 67427``, you should be able to figure out the right machine.
-
-However, if you are on the right machine and the socket is still unusable (and
-you verified with e.g. ``ps -aux | grep tmux | grep amore`` that tmux is still
-running), then you probably need to tell tmux to recreate the socket. Why this
-happens `I don't know
-<https://stackoverflow.com/questions/9668763/why-am-i-getting-a-failed-to-connect-to-server-message-from-tmux-when-i-try-to>`_,
-but you can fix it by sending ``USR1`` to the tmux process::
-
-    kill -s USR1 <pid>
-
-Tmux will then recreate the socket and you should be able to access it as
-usual.
+    $ supervisorctl -c supervisord.conf status damnit
+    damnit                           RUNNING   pid 3793880, uptime 0:00:04
 
 Kafka
 -----
