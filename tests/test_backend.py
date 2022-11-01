@@ -1,8 +1,14 @@
+import os
+import stat
+import time
 import pickle
+import signal
 import logging
 import graphlib
 import textwrap
 import tempfile
+import subprocess
+import configparser
 from pathlib import Path
 from numbers import Number
 from unittest.mock import patch
@@ -11,10 +17,23 @@ import pytest
 import numpy as np
 import xarray as xr
 
-from amore_mid_prototype.context import ContextFile
-from amore_mid_prototype.backend.extract_data import (Results, RunData,
-                                                      Extractor, get_proposal_path,
-                                                      add_to_db)
+from amore_mid_prototype.util import wait_until
+from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
+from amore_mid_prototype.backend.db import open_db, get_meta
+from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
+from amore_mid_prototype.backend.extract_data import add_to_db, Extractor
+from amore_mid_prototype.backend.supervisord import write_supervisord_conf
+
+
+def kill_pid(pid):
+    """
+    Send SIGTERM to a process.
+    """
+    print(f"Killing {pid}")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        print(f"PID {pid} doesn't exist")
 
 
 def test_context_file(mock_ctx):
@@ -283,3 +302,137 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     assert (db_dir / "extracted_data" / "p1234_r42.h5").is_file()
     # And that a Kafka message was sent
     extractor.kafka_prd.send.assert_called_once()
+
+def test_initialize_and_start_backend(tmp_path, bound_port, request):
+    db_dir = tmp_path / "foo"
+    supervisord_config_path = db_dir / "supervisord.conf"
+    good_file_mode = "-rw-rw-rw-"
+    path_filemode = lambda p: stat.filemode(p.stat().st_mode)
+
+    def mock_write_supervisord_conf(root_path, port=None):
+        write_supervisord_conf(root_path)
+
+        # This is a dummy command for testing. The script will create a
+        # subprocess that creates a file named 'started' before it sleeps for
+        # 10s. A handler is configured to write a file named 'stopped' upon a
+        # SIGTERM before exiting. We need to test that child processes are
+        # killed because the listener creates subprocesses to process each run.
+        subprocess_code = """
+        import sys
+        import time
+        import signal
+        from pathlib import Path
+        from multiprocessing import Process
+
+        def handler(signum, frame):
+            (Path.cwd() / "stopped").write_text("")
+            sys.exit(0)
+
+        def subprocess_runner():
+            signal.signal(signal.SIGTERM, handler)
+            (Path.cwd() / "started").write_text("")
+            time.sleep(10)
+
+        p = Process(target=subprocess_runner)
+        p.start()
+        p.join()
+        """
+
+        dummy_command_path = root_path / "dummy.py"
+        dummy_command_path.write_text(textwrap.dedent(subprocess_code))
+        config = configparser.ConfigParser()
+        config.read(supervisord_config_path)
+
+        # Chage the command, and optionally the port
+        config["program:damnit"]["command"] = "python dummy.py"
+        if port is not None:
+            config["inet_http_server"]["port"] = str(bound_port)
+
+        with open(supervisord_config_path, "w") as f:
+            config.write(f)
+
+    pkg = "amore_mid_prototype.backend.supervisord"
+    with patch(f"{pkg}.write_supervisord_conf",
+               side_effect=mock_write_supervisord_conf):
+        assert initialize_and_start_backend(db_dir, 1234)
+
+    # The directory should be created if it doesn't exist
+    assert db_dir.is_dir()
+    # And be writable by everyone
+    assert path_filemode(db_dir) == "drwxrwxrwx"
+
+    # Check that the database was initialized correctly
+    db_path = db_dir / "runs.sqlite"
+    assert db_path.is_file()
+    assert path_filemode(db_path) == good_file_mode
+    db = open_db(db_path)
+    assert get_meta(db, "proposal") == 1234
+
+    # Check the context file
+    context_path = db_dir / "context.py"
+    assert context_path.is_file()
+    assert path_filemode(context_path) == good_file_mode
+
+    # Check the config file
+    assert supervisord_config_path.is_file()
+    assert path_filemode(supervisord_config_path) == good_file_mode
+
+    # We should have a log file and PID file. They aren't created immediately so
+    # we wait a bit for it.
+    pid_path = db_dir / "supervisord.pid"
+    log_path = db_dir / "supervisord.log"
+    wait_until(lambda: pid_path.is_file() and log_path.is_file())
+    pid = int(pid_path.read_text())
+
+    # Set a finalizer to kill supervisord at the end
+    request.addfinalizer(lambda: kill_pid(pid))
+
+    assert path_filemode(pid_path) == good_file_mode
+    assert path_filemode(log_path) == good_file_mode
+
+    # Check that it's running
+    assert backend_is_running(db_dir)
+
+    wait_until(lambda: (db_dir / "started").is_file(), timeout=1)
+
+    # Stop the program
+    supervisorctl = ["supervisorctl", "-c", str(supervisord_config_path)]
+    subprocess.run([*supervisorctl, "stop", "damnit"]).check_returncode()
+
+    # Check that the subprocess was also killed
+    wait_until(lambda: (db_dir / "stopped").is_file())
+    assert not backend_is_running(db_dir)
+
+    # Try starting it again. This time we don't pass the proposal number, it
+    # should be picked up from the existing database.
+    with patch(f"{pkg}.write_supervisord_conf",
+               side_effect=mock_write_supervisord_conf):
+        assert initialize_and_start_backend(db_dir)
+
+    assert backend_is_running(db_dir)
+
+    # Now kill supervisord
+    kill_pid(pid)
+    assert not backend_is_running(db_dir)
+
+    # Change the config to use the bound port
+    mock_write_supervisord_conf(db_dir, port=bound_port)
+
+    # And try starting it again
+    with patch(f"{pkg}.write_supervisord_conf",
+               side_effect=mock_write_supervisord_conf):
+        assert initialize_and_start_backend(db_dir)
+
+    wait_until(lambda: pid_path.is_file() and log_path.is_file())
+    pid = int(pid_path.read_text())
+    request.addfinalizer(lambda: kill_pid(pid))
+
+    # Check that the backend is running
+    assert backend_is_running(db_dir)
+
+    # Trying to start it again should do nothing
+    with patch(f"{pkg}.write_supervisord_conf",
+               side_effect=mock_write_supervisord_conf):
+        assert initialize_and_start_backend(db_dir)
+
+    assert backend_is_running(db_dir)

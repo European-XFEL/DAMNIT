@@ -2,16 +2,13 @@ import pickle
 import os
 import logging
 import shelve
-import shutil
 import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
-from subprocess import Popen
 from enum import Enum
 
-import libtmux
 import pandas as pd
 import numpy as np
 import h5py
@@ -24,7 +21,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import open_db, get_meta, set_meta
+from ..backend.db import db_path, open_db, get_meta
+from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
@@ -155,7 +153,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
     def _menu_bar_edit_context(self):
-        Popen(['xdg-open', self._context_path])
+        subprocess.Popen(['xdg-open', self._context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -203,7 +201,7 @@ da-dev@xfel.eu"""
         # By convention the AMORE directory is often stored at usr/Shared/amore,
         # so if this directory exists, then we use it.
         standard_path = Path(proposal_dir) / "usr/Shared/amore"
-        if standard_path.is_dir() and self.db_path(standard_path).is_file():
+        if standard_path.is_dir() and db_path(standard_path).is_file():
             path = standard_path
         else:
             # Helper lambda to open a prompt for the user
@@ -216,7 +214,7 @@ da-dev@xfel.eu"""
                                               f"Proposal {prop_no} does not have an AMORE database, " \
                                               "would you like to create one and start the backend?")
                 if button == QMessageBox.Yes:
-                    self.initialize_database(standard_path, prop_no)
+                    initialize_and_start_backend(standard_path, prop_no)
                     path = standard_path
                 else:
                     # Otherwise, we prompt the user
@@ -232,24 +230,17 @@ da-dev@xfel.eu"""
             return
 
         # Check if the backend is running
-        tmux_socket_path = self.get_tmux_socket_path(path)
-        if not tmux_socket_path.exists():
+        if not backend_is_running(path):
             button = QMessageBox.question(self, "Backend not running",
                                           "The AMORE backend is not running, would you like to start it? " \
                                           "This is only necessary if new runs are expected.")
             if button == QMessageBox.Yes:
-                self.start_backend(path)
+                initialize_and_start_backend(path)
 
         self.autoconfigure(Path(path), proposal=prop_no)
 
     def gpfs_accessible(self):
         return os.path.isdir("/gpfs/exfel/exp")
-
-    def db_path(self, root_path: Path):
-        return root_path / "runs.sqlite"
-
-    def get_tmux_socket_path(self, root_path: Path):
-        return root_path / "amore-tmux.sock"
 
     def save_settings(self):
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -257,33 +248,6 @@ da-dev@xfel.eu"""
         with shelve.open(str(self._settings_db_path)) as db:
             settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
             db[str(self._context_path)] = settings
-
-    def initialize_database(self, path, proposal):
-        # Ensure the directory exists
-        path.mkdir(parents=True, exist_ok=True)
-        os.chmod(path, 0o777)
-
-        # Initialize database
-        db = open_db(self.db_path(path))
-        set_meta(db, 'proposal', proposal)
-
-        # Copy initial context file
-        context_path = path / "context.py"
-        shutil.copyfile(Path(__file__).parents[1] / "base_context_file.py", context_path)
-        os.chmod(context_path, 0o666)
-
-        self.start_backend(path)
-
-    def start_backend(self, path: Path):
-        # Create tmux session
-        server = libtmux.Server(socket_path=self.get_tmux_socket_path(path))
-        server.new_session(session_name="AMORE",
-                           window_name="listen",
-                           # Unfortunately Maxwell's default tmux is too old to
-                           # support '-c' to change directory, so we have to
-                           # manually change directory instead of using the
-                           # 'start_directory' argument.
-                           window_command=f"cd {str(path)}; amore-proto listen .")
 
     def autoconfigure(self, path: Path, proposal=None):
         context_path = path / "context.py"
@@ -304,7 +268,7 @@ da-dev@xfel.eu"""
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
-        sqlite_path = self.db_path(path)
+        sqlite_path = db_path(path)
         log.info("Reading data from database")
         self.db = open_db(sqlite_path)
 

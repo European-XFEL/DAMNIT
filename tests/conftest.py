@@ -1,3 +1,4 @@
+import socket
 import textwrap
 from unittest.mock import MagicMock
 
@@ -80,3 +81,13 @@ def mock_db(tmp_path, mock_ctx):
     yield tmp_path, db
 
     db.close()
+
+@pytest.fixture
+def bound_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("0.0.0.0", 0))
+    port = s.getsockname()[1]
+
+    yield port
+
+    s.close()

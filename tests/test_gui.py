@@ -1,14 +1,26 @@
+import os
 import shelve
 import textwrap
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox, QInputDialog
 
+from amore_mid_prototype.backend.db import db_path
 from amore_mid_prototype.gui.editor import ContextTestResult
 from amore_mid_prototype.gui.main_window import MainWindow, Settings
+
+
+# Check if a PID exists by using `kill -0`
+def pid_dead(pid):
+    try:
+        os.kill(pid, 0)
+        return False
+    except ProcessLookupError:
+        return True
 
 
 def test_connect_to_kafka(mock_db, qtbot):
@@ -212,3 +224,43 @@ def test_handle_update(mock_db, qtbot):
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
+
+def test_autoconfigure(tmp_path, bound_port, request, qtbot):
+    db_dir = tmp_path / "usr/Shared/amore"
+    win = MainWindow(None, False)
+    pkg = "amore_mid_prototype.gui.main_window"
+
+    @contextmanager
+    def helper_patch():
+        # Patch things such that the GUI thinks we're on GPFS trying to open
+        # p1234, and the user always wants to create a database and start the
+        # backend.
+        with (patch.object(win, "gpfs_accessible", return_value=True),
+              patch.object(QInputDialog, "getInt", return_value=(1234, True)),
+              patch(f"{pkg}.find_proposal", return_value=tmp_path),
+              patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+              patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
+              patch.object(win, "autoconfigure")):
+            yield initialize_and_start_backend
+
+    # Autoconfigure from scratch
+    with (helper_patch() as initialize_and_start_backend,
+          patch(f"{pkg}.backend_is_running", return_value=True)):
+        win._menu_bar_autoconfigure()
+
+        # We expect the database to be initialized and the backend started
+        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
+
+    # Create the directory and database file to fake the database already existing
+    db_dir.mkdir(parents=True)
+    db_path(db_dir).touch()
+
+    # Autoconfigure again, the GUI should start the backend again
+    with (helper_patch() as initialize_and_start_backend,
+          patch(f"{pkg}.backend_is_running", return_value=False)):
+        win._menu_bar_autoconfigure()
+
+        # This time the database is already initialized
+        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        initialize_and_start_backend.assert_called_once_with(db_dir)

@@ -91,3 +91,41 @@ def test_gui():
         with pytest.raises(SystemExit):
             main()
         run_app.assert_not_called()
+
+def test_listen(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pkg = "amore_mid_prototype.backend"
+
+    # Helper context manager that mocks sys.argv
+    @contextmanager
+    def amore_proto(args):
+        with (patch("sys.argv", ["amore-proto", *args]),
+              patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend):
+            yield initialize_and_start_backend
+
+    with (amore_proto(["listen"]),
+          patch(f"{pkg}.listener.listen") as listen):
+        main()
+        listen.assert_called_once()
+
+    with (amore_proto(["listen", "--test"]),
+          patch(f"{pkg}.test_listener.listen") as listen):
+        main()
+        listen.assert_called_once()
+
+    # Should fail without an existing database
+    with (amore_proto(["listen", "--daemonize"]) as initialize_and_start_backend,
+          pytest.raises(SystemExit)):
+        main()
+        initialize_and_start_backend.assert_not_called()
+
+    # Should work with an existing database
+    (tmp_path / "runs.sqlite").touch()
+    with amore_proto(["listen", "--daemonize"]) as initialize_and_start_backend:
+        main()
+        initialize_and_start_backend.assert_called_once()
+
+    # Can't pass both --test and --daemonize
+    with (amore_proto(["listen", "--daemonize", "--test"]),
+          pytest.raises(SystemExit)):
+        main()
