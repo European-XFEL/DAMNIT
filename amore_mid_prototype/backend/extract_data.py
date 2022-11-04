@@ -18,11 +18,14 @@ import numpy as np
 
 from kafka import KafkaProducer
 
-from ..context import ContextFile, RunData
+PKG_DIR = Path(__file__).parent
+
+sys.path.insert(0, str(PKG_DIR.parent / 'ctxsupport'))
+from ctxrunner import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
-PKG_DIR = Path(__file__).parent
+
 
 log = logging.getLogger(__name__)
 
