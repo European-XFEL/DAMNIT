@@ -302,9 +302,9 @@ def main():
     ap.add_argument('run', type=int)
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
     ap.add_argument('--cluster-job', action="store_true")
-    ap.add_argument('--match', action="append")
-    ap.add_argument('--save', action='append')
-    ap.add_argument('--save-reduced', action='append')
+    ap.add_argument('--match', action="append", default=[])
+    ap.add_argument('--save', action='append', default=[])
+    ap.add_argument('--save-reduced', action='append', default=[])
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
 
