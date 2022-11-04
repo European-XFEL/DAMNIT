@@ -310,6 +310,7 @@ def main():
 
     ctx_whole = ContextFile.from_py_file(Path('context.py'))
     ctx = ctx_whole.filter(run_data=args.run_data, cluster=args.cluster_job, name_matches=args.match)
+    log.info("Using %d variables from context file")
 
     run_dc = extra_data.open_run(args.proposal, args.run, data="all")
     res = Results.create(ctx, run_dc, args.run, args.proposal)
