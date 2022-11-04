@@ -296,7 +296,7 @@ class Results:
 
         os.chmod(hdf5_path, 0o666)
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('proposal', type=int)
     ap.add_argument('run', type=int)
@@ -305,7 +305,7 @@ def main():
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--save', action='append', default=[])
     ap.add_argument('--save-reduced', action='append', default=[])
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
 
     ctx_whole = ContextFile.from_py_file(Path('context.py'))

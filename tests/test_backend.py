@@ -263,21 +263,21 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
-    pkg = "amore_mid_prototype.backend.extract_data"
+    pkg = "ctxrunner"
 
     # Write context file
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx.code)
 
-    # Create Extractor with a mock Kafka object
-    with patch(f"{pkg}.KafkaProducer"):
-        extractor = Extractor()
+    out_path = db_dir / "extracted_data" / "p1234_r42.h5"
+    out_path.parent.mkdir(exist_ok=True)
+
+    # This works because we loaded amore_mid_prototype.context above
+    from ctxrunner import main
 
     # Process run
     with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
-        extractor.extract_and_ingest(1234, 42)
+        main(['1234', '42', 'raw', '--save', str(out_path)])
 
     # Check that a file was created
-    assert (db_dir / "extracted_data" / "p1234_r42.h5").is_file()
-    # And that a Kafka message was sent
-    extractor.kafka_prd.send.assert_called_once()
+    assert out_path.is_file()
