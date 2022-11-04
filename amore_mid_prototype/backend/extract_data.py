@@ -52,7 +52,7 @@ def extract_in_subprocess(
     env['PYTHONPATH'] = ctxsupport_dir + (
         os.pathsep + env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
     )
-    args = [python_exe, '-m', 'ctxrunner', proposal, run, run_data.value,
+    args = [python_exe, '-m', 'ctxrunner', str(proposal), str(run), run_data.value,
             '--save', out_path]
     if cluster:
         args.append('--cluster-job')
