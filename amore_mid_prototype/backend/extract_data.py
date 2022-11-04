@@ -20,8 +20,7 @@ from kafka import KafkaProducer
 
 PKG_DIR = Path(__file__).parent
 
-sys.path.insert(0, str(PKG_DIR.parent / 'ctxsupport'))
-from ctxrunner import ContextFile, RunData
+from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
