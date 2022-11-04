@@ -11,10 +11,8 @@ import pytest
 import numpy as np
 import xarray as xr
 
-from amore_mid_prototype.context import ContextFile
-from amore_mid_prototype.backend.extract_data import (Results, RunData,
-                                                      Extractor, get_proposal_path,
-                                                      add_to_db)
+from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
+from amore_mid_prototype.backend.extract_data import Extractor, add_to_db
 
 
 def test_context_file(mock_ctx):
