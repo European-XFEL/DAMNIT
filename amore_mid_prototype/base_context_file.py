@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ctxsupport import Variable
+from damnit_ctx import Variable
 
 
 # If you have the Karabo device name of the XGM you're interested in, you can

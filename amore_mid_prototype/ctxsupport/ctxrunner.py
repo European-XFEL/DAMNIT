@@ -19,7 +19,7 @@ import numpy as np
 import xarray
 from scipy import ndimage
 
-from ctxsupport import RunData, Variable
+from damnit_ctx import RunData, Variable
 
 log = logging.getLogger(__name__)
 
