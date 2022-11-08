@@ -1,7 +1,6 @@
 import argparse
 import getpass
 import os
-import functools
 import logging
 import pickle
 import re
@@ -9,21 +8,23 @@ import shlex
 import sqlite3
 import subprocess
 import sys
-import time
 from ctypes import CDLL
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-import extra_data
 import h5py
 import numpy as np
-import xarray
-from scipy import ndimage
+
 from kafka import KafkaProducer
+
+PKG_DIR = Path(__file__).parent
 
 from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
+
+
 
 log = logging.getLogger(__name__)
 
@@ -41,167 +42,34 @@ def default_slurm_partition():
         return 'upex'
     return 'all'
 
-def get_start_time(xd_run):
-    ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
 
-    if np.isnan(ts):
-        # If the timestamp information is not present (i.e. on old files), then
-        # we take the timestamp from the oldest raw file as an approximation.
-        files = sorted([f.filename for f in xd_run.files if "raw" in f.filename])
-        first_file = Path(files[0])
+def extract_in_subprocess(
+        proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
+        python_exe=None,
+):
+    if not python_exe:
+        python_exe = sys.executable
+    env = os.environ.copy()
+    ctxsupport_dir = str(PKG_DIR.parent / 'ctxsupport')
+    env['PYTHONPATH'] = ctxsupport_dir + (
+        os.pathsep + env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
+    )
+    args = [python_exe, '-m', 'ctxrunner', str(proposal), str(run), run_data.value,
+            '--save', out_path]
+    if cluster:
+        args.append('--cluster-job')
+    for m in match:
+        args.extend(['--match', m])
 
-        # Use the modified timestamp
-        return first_file.stat().st_mtime
-    else:
-        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-        return np.datetime64(ts, 'us').item().timestamp()
+    with TemporaryDirectory() as td:
+        # Save a separate copy of the reduced data, so we can send an update
+        # with only the variables that we've extracted.
+        reduced_out_path = Path(td, 'reduced.h5')
+        args.extend(['--save-reduced', str(reduced_out_path)])
 
-def get_proposal_path(xd_run):
-    files = [f.filename for f in xd_run.files]
-    p = Path(files[0])
+        subprocess.run(args, env=env, check=True)
 
-    return Path(*p.parts[:7])
-
-def add_to_h5_file(path) -> h5py.File:
-    """Open the file with exponential backoff if it's locked"""
-    for i in range(6):
-        try:
-            return h5py.File(path, 'a')
-        except BlockingIOError as e:
-            # File is locked for writing; wait 1, 2, 4, ... seconds
-            time.sleep(2 ** i)
-    raise e
-
-class Results:
-    def __init__(self, data, ctx):
-        self.data = data
-        self.ctx = ctx
-        self._reduced = None
-
-    @classmethod
-    def create(cls, ctx_file: ContextFile, xd_run, run_number, proposal):
-        res = {'start_time': np.asarray(get_start_time(xd_run))}
-
-        for name in ctx_file.ordered_vars():
-            var = ctx_file.vars[name]
-
-            try:
-                # Add all variable dependencies
-                kwargs = { arg_name: res.get(dep_name)
-                           for arg_name, dep_name in var.arg_dependencies().items() }
-
-                # If any are None, skip this variable since we're missing a dependency
-                missing_deps = [key for key, value in kwargs.items() if value is None]
-                if len(missing_deps) > 0:
-                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
-                    continue
-
-                # And all meta dependencies
-                for arg_name, annotation in var.annotations().items():
-                    if not annotation.startswith("meta#"):
-                        continue
-
-                    if annotation == "meta#run_number":
-                        kwargs[arg_name] = run_number
-                    elif annotation == "meta#proposal":
-                        kwargs[arg_name] = proposal
-                    elif annotation == "meta#proposal_path":
-                        kwargs[arg_name] = get_proposal_path(xd_run)
-                    else:
-                        raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
-
-                func = functools.partial(var.func, **kwargs)
-
-                data = func(xd_run)
-                if not isinstance(data, (xarray.DataArray, str, type(None))):
-                    data = np.asarray(data)
-            except Exception:
-                log.error("Could not get data for %s", name, exc_info=True)
-            else:
-                # Only save the result if it's not None
-                if data is not None:
-                    res[name] = data
-        return Results(res, ctx_file)
-
-    @staticmethod
-    def _datasets_for_arr(name, arr):
-        if isinstance(arr, xarray.DataArray):
-            return [
-                (f'{name}/data', arr.values),
-            ] + [
-                (f'{name}/{dim}', coords.values)
-                for dim, coords in arr.coords.items()
-            ]
-        else:
-            value = arr if isinstance(arr, str) else np.asarray(arr)
-            return [
-                (f'{name}/data', value)
-            ]
-
-    @property
-    def reduced(self):
-        if self._reduced is None:
-            r = {}
-            for name in self.data:
-                v = self.summarise(name)
-                if v is not None:
-                    r[name] = v
-            self._reduced = r
-        return self._reduced
-
-    def summarise(self, name):
-        data = self.data[name]
-
-        if isinstance(data, str):
-            return data
-        elif data.ndim == 0:
-            return data
-        elif data.ndim == 2 and self.ctx.vars[name].summary is None:
-            # For the sake of space and memory we downsample images to a
-            # resolution of 150x150.
-            zoom_ratio = 150 / max(data.shape)
-            if zoom_ratio < 1:
-                data = ndimage.zoom(np.nan_to_num(data),
-                                    zoom_ratio)
-
-            return data
-        else:
-            summary_method = self.ctx.vars[name].summary
-            if summary_method is None:
-                return None
-
-            if isinstance(data, xarray.DataArray):
-                data = data.data
-
-            return getattr(np, summary_method)(data)
-
-    def save_hdf5(self, hdf5_path):
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
-        for name, arr in self.data.items():
-            dsets.extend(self._datasets_for_arr(name, arr))
-
-        log.info("Writing %d variables to %d datasets in %s",
-                 len(self.data), len(dsets), hdf5_path)
-
-        # We need to open the files in append mode so that when proc Variable's
-        # are processed after raw ones, the raw ones won't be lost.
-        with add_to_h5_file(hdf5_path) as f:
-            # Create datasets before filling them, so metadata goes near the
-            # start of the file.
-            for path, arr in dsets:
-                # Delete the existing datasets so we can overwrite them
-                if path in f:
-                    del f[path]
-
-                if isinstance(arr, str):
-                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype())
-                else:
-                    f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
-
-            for path, arr in dsets:
-                f[path][()] = arr
-
-        os.chmod(hdf5_path, 0o666)
+        return load_reduced_data(reduced_out_path)
 
 
 def load_reduced_data(h5_path):
@@ -304,12 +172,11 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        ctx = self.ctx_whole.filter(run_data=run_data, cluster=cluster, name_matches=match)
-
-        run_dc = extra_data.open_run(proposal, run, data="all")
-        res = Results.create(ctx, run_dc, run, proposal)
-        res.save_hdf5(out_path)
-        reduced_data = res.reduced
+        python_exe = get_meta(self.db, 'context_python', '')
+        reduced_data = extract_in_subprocess(
+            proposal, run, out_path, cluster=cluster, run_data=run_data,
+            match=match, python_exe=python_exe
+        )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
 
@@ -320,6 +187,7 @@ class Extractor:
         log.info("Sent Kafka update to topic %r", self.update_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
+        ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
             python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
