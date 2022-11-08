@@ -17,7 +17,6 @@ from mpl_interactions import zoom_factory, panhandler
 
 log = logging.getLogger(__name__)
 
-
 class Canvas(QtWidgets.QDialog):
     def __init__(
         self,
@@ -337,8 +336,8 @@ class Plot:
             self._toggle_probability_density_clicked
         )
 
-        self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
+        self._combo_box_x_axis = self._setup_combobox()
+        self._combo_box_y_axis = self._setup_combobox()
 
         self.vs_button = QtWidgets.QToolButton()
         self.vs_button.setText("vs.")
@@ -355,6 +354,50 @@ class Plot:
             "legend": [],
             "runs_as_series": [],
         }
+
+    def _setup_combobox(self):
+        res = QtWidgets.QComboBox(self._main_window)
+
+        res.setEditable(True)
+        res.setFocusPolicy(QtCore.Qt.StrongFocus)
+        res.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+
+        res.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+        res.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+        def on_filter_text_changed(txt):
+            if res.findText(txt) != -1:
+                res._text_to_select = txt
+                res._last_valid = True
+            else:
+                res._last_valid = False
+
+        res.currentTextChanged.connect(on_filter_text_changed)
+
+        def on_filter_editing_finished():
+            cur_completion = res.completer().currentCompletion()
+            text = res._text_to_select
+
+            if not res._last_valid and cur_completion != "":
+                text = cur_completion
+
+            res.setCurrentText(text)
+
+        res.lineEdit().editingFinished.connect(on_filter_editing_finished)
+
+        old_focus_in_function = res.focusInEvent
+
+        def on_focus_in_event(event):
+            old_focus_in_function(event)
+            r = event.reason()
+            if r == QtCore.Qt.MouseFocusReason or \
+               r == QtCore.Qt.TabFocusReason or \
+               r == QtCore.Qt.BacktabFocusReason:
+                QtCore.QTimer.singleShot(0, res.lineEdit().selectAll)
+
+        res.focusInEvent = on_focus_in_event
+
+        return res
 
     def update_columns(self):
         keys = list(self._main_window.data.columns)
