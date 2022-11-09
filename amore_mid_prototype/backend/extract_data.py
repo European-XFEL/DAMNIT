@@ -50,7 +50,7 @@ def extract_in_subprocess(
     if not python_exe:
         python_exe = sys.executable
     env = os.environ.copy()
-    ctxsupport_dir = str(PKG_DIR.parent / 'ctxsupport')
+    ctxsupport_dir = str(Path(__file__).parents[1] / 'ctxsupport')
     env['PYTHONPATH'] = ctxsupport_dir + (
         os.pathsep + env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
     )
