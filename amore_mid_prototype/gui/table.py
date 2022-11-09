@@ -138,8 +138,14 @@ class TableView(QtWidgets.QTableView):
                 len(self._columns_widget.findItems(column, Qt.MatchExactly)) == 1 else \
                 self._static_columns_widget
 
+            # Try to find the column
+            matching_items = widget.findItems(column, Qt.MatchExactly)
+            if len(matching_items) == 1:
+                item = matching_items[0]
+            else:
+                continue
+
             # Enable/disable the column
-            item = widget.findItems(column, Qt.MatchExactly)[0]
             item.setCheckState(Qt.Checked if enabled else Qt.Unchecked)
 
             # Move it if necessary
