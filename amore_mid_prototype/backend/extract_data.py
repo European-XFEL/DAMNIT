@@ -18,8 +18,6 @@ import numpy as np
 
 from kafka import KafkaProducer
 
-PKG_DIR = Path(__file__).parent
-
 from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
