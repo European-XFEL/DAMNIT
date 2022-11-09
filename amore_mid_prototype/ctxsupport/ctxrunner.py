@@ -267,7 +267,7 @@ class Results:
 
             return getattr(np, summary_method)(data)
 
-    def save_hdf5(self, hdf5_path, reduced_only=True):
+    def save_hdf5(self, hdf5_path, reduced_only=False):
         dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
         if not reduced_only:
             for name, arr in self.data.items():
