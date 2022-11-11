@@ -257,6 +257,8 @@ class Results:
                                     zoom_ratio)
 
             return data
+        elif data.ndim > 2:
+            return f"{data.dtype}: {data.shape}"
         else:
             summary_method = self.ctx.vars[name].summary
             if summary_method is None:
