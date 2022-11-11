@@ -226,6 +226,25 @@ def test_results(mock_ctx, mock_run, caplog):
         # There should be no computed variables since we treat None as a missing dependency
         assert tuple(results.data.keys()) == ("start_time",)
 
+    varception_code = """
+    import numpy as np
+    from amore_mid_prototype.context import Variable
+
+    @Variable(title="Foo")
+    def foo(run):
+        baz = np.random.rand(2, 2)
+        return [Variable.from_data("foo", title="bar"),
+                Variable.from_data(baz, title="baz")]
+    """
+    varception_ctx = ContextFile.from_str(textwrap.dedent(varception_code))
+
+    results = Results.create(varception_ctx, mock_run, run_number, proposal)
+    assert "foo_bar" in results.data
+    assert results.summarise("foo_bar") == "foo"
+
+    assert "foo_baz" in results.data
+    assert isinstance(results.summarise("foo_baz"), np.ndarray)
+
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000
     proposal = 1234

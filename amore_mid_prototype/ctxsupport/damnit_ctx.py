@@ -4,6 +4,7 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import re
 from enum import Enum
 
 class RunData(Enum):
@@ -31,6 +32,14 @@ class Variable:
         self.func = func
         self.name = func.__name__
         return self
+
+    @classmethod
+    def from_data(cls, var_data, title=None, **kwargs):
+        name = re.sub(r"[\W_]+", "_", title.lower()).strip("_")
+        var = cls(title=title, **kwargs)(lambda: var_data)
+        var.name = name
+
+        return var
 
     @property
     def data(self):
