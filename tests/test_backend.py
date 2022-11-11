@@ -7,12 +7,13 @@ from pathlib import Path
 from numbers import Number
 from unittest.mock import patch
 
+import h5py
 import pytest
 import numpy as np
 import xarray as xr
 
 from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
-from amore_mid_prototype.backend.extract_data import Extractor, add_to_db
+from amore_mid_prototype.backend.extract_data import add_to_db
 
 
 def test_context_file(mock_ctx):
@@ -252,12 +253,12 @@ def test_add_to_db(mock_db):
     cursor = db.execute("SELECT * FROM runs")
     row = cursor.fetchone()
 
+    assert row["none"] == reduced_data["none"]
     assert row["string"] == reduced_data["string"]
     assert row["scalar"] == reduced_data["scalar"]
     assert row["np_scalar"] == reduced_data["np_scalar"].item()
     assert row["zero_dim_array"] == reduced_data["zero_dim_array"].item()
     np.testing.assert_array_equal(pickle.loads(row["image"]), reduced_data["image"])
-    assert row["none"] == reduced_data["none"]
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
@@ -266,6 +267,14 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     pkg = "ctxrunner"
 
     # Write context file
+    four_dim_var = """
+    @Variable(title="4D array")
+    def four_dim_array(run):
+        return np.random.rand(2, 2, 2, 2)
+    """
+    mock_code = mock_ctx.code + "\n\n" + textwrap.dedent(four_dim_var)
+    mock_ctx = ContextFile.from_str(mock_code)
+
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx.code)
 
@@ -281,3 +290,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Check that a file was created
     assert out_path.is_file()
+
+    with h5py.File(out_path) as f:
+        assert f[".reduced"]["four_dim_array"].asstr()[0] == "float64: (2, 2, 2, 2)"
+        assert f["four_dim_array"]["data"].shape == (2, 2, 2, 2)
