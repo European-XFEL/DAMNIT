@@ -205,14 +205,26 @@ class Results:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(xd_run)
-                if not isinstance(data, (xarray.DataArray, str, type(None))):
-                    data = np.asarray(data)
+                outputs = { }
+                if isinstance(data, (list, tuple)) and all(isinstance(o, Variable) for o in data):
+                    for sub_var in data:
+                        sub_var_name = f"{name}_{sub_var.name}"
+                        outputs[sub_var_name] = sub_var.func()
+                        ctx_file.vars[sub_var_name] = sub_var
+                else:
+                    outputs[name] = data
+
+                for var_name, var_data in outputs.copy().items():
+                    if not isinstance(var_data, (xarray.DataArray, str, type(None))):
+                        outputs[var_name] = np.asarray(var_data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
-                # Only save the result if it's not None
-                if data is not None:
-                    res[name] = data
+                for var_name, var_data in outputs.items():
+                    # Only save the result if it's not None
+                    if var_data is not None:
+                        res[var_name] = var_data
+
         return Results(res, ctx_file)
 
     @staticmethod
