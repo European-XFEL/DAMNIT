@@ -124,7 +124,7 @@ def main():
                 proposal_name = f"p{int(args.proposal_or_dir):06d}"
                 context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
             else:
-                sys.exit(f"{args.proposal_or_dir} is not a proposal number or directory")
+                sys.exit(f"{args.proposal_or_dir} is not a proposal number or DAMNIT database directory")
         else:
             context_dir = None
 
