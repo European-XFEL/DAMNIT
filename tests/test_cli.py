@@ -1,10 +1,11 @@
+import sys
 from pathlib import Path
 from unittest.mock import patch, ANY
 from contextlib import contextmanager
 
 import pytest
 
-from amore_mid_prototype.cli import main
+from amore_mid_prototype.cli import main, excepthook as ipython_excepthook
 from amore_mid_prototype.backend.db import get_meta
 
 
@@ -26,36 +27,41 @@ def test_new_id(mock_db, monkeypatch):
     assert old_id != get_meta(db, "db_id")
 
 def test_debug_repl(mock_db, monkeypatch):
-    # Change directory so we can call new-id safely
-    db_dir, db = mock_db
-    monkeypatch.chdir(db_dir)
+    import IPython
 
-    # Helper context manager that mocks sys.argv, run_app() to raise an
-    # exception, and returns a mocked InteractiveShellEmbed from IPython.
+    # Helper context manager that mocks sys.argv, run_app(), and the sys module
     @contextmanager
-    def helper_patch(args):
+    def amore_proto(args):
+        pkg = "amore_mid_prototype"
         with (patch("sys.argv", ["amore-proto", *args]),
-              patch("amore_mid_prototype.gui.main_window.run_app", side_effect=RuntimeError),
-              patch("amore_mid_prototype.cli.InteractiveShellEmbed") as repl):
-            yield repl
+              patch(f"{pkg}.gui.main_window.run_app"),
+              patch(f"{pkg}.cli.sys") as mock_sys):
+            yield mock_sys
 
-    # Without --debug-repl, we should just get an exception
-    with helper_patch(["gui"]) as repl:
-        with pytest.raises(RuntimeError):
-            main()
+    # We use sys.excepthook, but this function is only used for unhandled
+    # exceptions, and pytest will always catch unhandled exceptions from our
+    # code, which means that our hook will never be called during tests. So
+    # instead, we check that the hook is not set when not asked for:
+    with amore_proto(["gui"]) as mock_sys:
+        old_excepthook = mock_sys.excepthook
+        main()
+        assert mock_sys.excepthook == old_excepthook
 
-        repl.assert_not_called()
+    # And that it is set when asked for:
+    with amore_proto(["--debug-repl", "gui"]) as mock_sys:
+        assert mock_sys.excepthook != ipython_excepthook
+        main()
+        assert mock_sys.excepthook == ipython_excepthook
 
-    # With --debug-repl, we should get a REPL
-    with helper_patch(["--debug-repl", "gui"]) as repl:
-        assert main() == 1
+    # And then test the hook separately
+    try:
+        raise RuntimeError("Foo")
+    except:
+        exc_type, value, tb = sys.exc_info()
 
+    with patch.object(IPython, "start_ipython") as repl:
+        ipython_excepthook(exc_type, value, tb)
         repl.assert_called_once()
-
-    # With --debug-repl and no exception, the REPL shouldn't be launched
-    with helper_patch(["--debug-repl", "new-id"]) as repl:
-        assert main() == 0
-        repl.assert_not_called()
 
 def test_gui():
     @contextmanager
