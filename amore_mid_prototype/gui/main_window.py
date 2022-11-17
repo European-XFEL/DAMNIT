@@ -44,11 +44,8 @@ class Settings(Enum):
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    context_path = None
     db = None
     db_id = None
-
-    context_dir_changed = QtCore.pyqtSignal(str)
 
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
@@ -155,9 +152,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
-
-    def _menu_bar_edit_context(self):
-        subprocess.Popen(['xdg-open', self._context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -459,7 +453,6 @@ da-dev@xfel.eu"""
             self.table_view.set_column_visibility(col, False, for_restore=True)
 
         self._tab_widget.setEnabled(True)
-        self.context_dir_changed.emit(str(path))
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -482,14 +475,6 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_edit_ctx = QtWidgets.QAction(
-            QtGui.QIcon.fromTheme("accessories-text-editor"), "Edit context file", self
-        )
-        action_edit_ctx.setStatusTip("Open the Python context file in a text editor")
-        action_edit_ctx.triggered.connect(self._menu_bar_edit_context)
-        action_edit_ctx.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: action_edit_ctx.setEnabled(True))
-
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -504,7 +489,6 @@ da-dev@xfel.eu"""
             QtGui.QIcon(self.icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        fileMenu.addAction(action_edit_ctx)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
