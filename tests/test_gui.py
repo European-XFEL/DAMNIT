@@ -1,4 +1,5 @@
 import os
+import shelve
 import signal
 import stat
 import textwrap
@@ -7,11 +8,13 @@ import configparser
 from contextlib import contextmanager
 from unittest.mock import patch, MagicMock, DEFAULT
 
+import numpy as np
+import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QInputDialog
 
 from amore_mid_prototype.backend.db import open_db, get_meta
-from amore_mid_prototype.gui.main_window import MainWindow
+from amore_mid_prototype.gui.main_window import MainWindow, Settings
 from amore_mid_prototype.gui.editor import ContextTestResult
 
 
@@ -164,6 +167,74 @@ def test_handle_update(mock_db, qtbot):
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
+
+def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
+    db_dir, db = mock_db
+
+    # Store fake data in the DB
+    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment"] + list(mock_ctx.vars.keys())
+    runs = pd.DataFrame(np.random.randint(100, size=(10, len(runs_cols))),
+                        columns=runs_cols)
+    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
+    runs.to_sql("runs", db, index=False, if_exists="replace")
+    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+
+    # Create the window with a mocked Path so that it saves the settings in the
+    # home directory.
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        win = MainWindow(db_dir, False)
+
+    settings_db_path = tmp_path / ".local/state/damnit/settings.db"
+    assert not settings_db_path.parent.is_dir()
+
+    columns_widget = win.table_view._columns_widget
+    static_columns_widget = win.table_view._static_columns_widget
+
+    last_col_item = columns_widget.item(columns_widget.count() - 1)
+    last_col = last_col_item.text()
+    last_static_col = static_columns_widget.item(static_columns_widget.count() - 1).text()
+
+    # Hide a column
+    last_col_item.setCheckState(Qt.Unchecked)
+
+    # This should have triggered a save, so the settings directory should now
+    # exist.
+    assert settings_db_path.parent.is_dir()
+
+    # Open the saved settings
+    with shelve.open(str(settings_db_path)) as settings_db:
+        db_key = list(settings_db.keys())[0]
+        settings = settings_db[db_key]
+    col_settings = settings[Settings.COLUMNS.value]
+
+    # Check that the visiblity has been saved
+    assert col_settings[last_col] == False
+    assert all(visible for col, visible in col_settings.items() if col != last_col)
+
+    # Check the order has been saved by calculating the differences between
+    # indices of each column in the saved settings. If they are all one after
+    # another then the difference should always be 1.
+    df_cols = win.data.columns.tolist()
+    np.testing.assert_array_equal(np.diff([df_cols.index(col) for col in col_settings.keys()]),
+                                  np.ones(len(col_settings) - 1))
+
+    # Change the settings manually
+    col_settings = dict(reversed(col_settings.items()))
+    col_settings[last_static_col] = False
+    with shelve.open(str(settings_db_path)) as settings_db:
+        settings_db[db_key] = {Settings.COLUMNS.value: col_settings}
+
+    # Reconfigure to load the new settings
+    win.autoconfigure(db_dir)
+
+    # Check the ordering
+    df_cols = win.data.columns.tolist()
+    np.testing.assert_array_equal(np.diff([df_cols.index(col) for col in col_settings.keys()]),
+                                  np.ones(len(col_settings) - 1))
+
+    # Check that last_static_col is hidden
+    last_static_col_idx = win.data.columns.get_loc(last_static_col)
+    assert win.table_view.isColumnHidden(last_static_col_idx)
 
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"

@@ -62,8 +62,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._context_is_saved = True
         self._attributi = {}
 
-        self._settings_db_path = Path.home() / ".damnit" / "settings.db"
-        self._restore_in_progress = False
+        self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
@@ -273,32 +272,11 @@ da-dev@xfel.eu"""
         return False
 
     def save_settings(self):
-        if self._restore_in_progress:
-            return
-
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with shelve.open(str(self._settings_db_path)) as db:
             settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
             db[str(self._context_path)] = settings
-
-    def restore_settings(self):
-        if not self._settings_db_path.parent.is_dir():
-            return
-
-        # Restoring the state will trigger signals that cause the settings to be
-        # saved, which could overwrite the database with the wrong settings. To
-        # avoid this we set the self._restore_in_progress flag.
-        self._restore_in_progress = True
-
-        with shelve.open(str(self._settings_db_path)) as db:
-            key = str(self._context_path)
-
-            if key in db:
-                settings = db[key]
-                self.table_view.set_column_states(settings[Settings.COLUMNS.value])
-
-        self._restore_in_progress = False
 
     def initialize_database(self, path, proposal):
         # Ensure the directory exists
@@ -407,7 +385,8 @@ da-dev@xfel.eu"""
 
         # Unpickle serialized objects. First we select all columns that
         # might need deserializing.
-        object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
+        object_cols = df.select_dtypes(include=["object"]).drop(columns=["comment", "comment_id"],
+                                                                errors="ignore")
         # Then we check each element and unpickle it if necessary, and
         # finally update the main DataFrame.
         unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
@@ -439,6 +418,26 @@ da-dev@xfel.eu"""
             ]
         )
 
+        # Load the users settings
+        if self._settings_db_path.parent.is_dir():
+            with shelve.open(str(self._settings_db_path)) as db:
+                key = str(self._context_path)
+                col_settings = db[key][Settings.COLUMNS.value]
+        else:
+            col_settings = { }
+
+        saved_cols = list(col_settings.keys())
+        df_cols = self.data.columns.tolist()
+
+        # Strip missing columns
+        saved_cols = [col for col in saved_cols if col in df_cols]
+
+        # Sort columns such that every column not saved is pushed to the
+        # beginning, and all saved columns are inserted afterwards.
+        sorted_cols = [col for col in df_cols if col not in saved_cols]
+        sorted_cols.extend(saved_cols)
+        self.data = self.data[sorted_cols]
+
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
                                      Qt.SortOrder.AscendingOrder)
@@ -454,14 +453,13 @@ da-dev@xfel.eu"""
                                     [True for _ in self.data.columns])
         self.plot.update_columns()
 
-        # Hide the comment_id column
-        comment_id_col = self.data.columns.get_loc("comment_id")
-        self.table_view.setColumnHidden(comment_id_col, True)
+        # Hide the comment_id column and all columns hidden by the user
+        hidden_columns = ["comment_id"] + [col for col in saved_cols if not col_settings[col]]
+        for col in hidden_columns:
+            self.table_view.set_column_visibility(col, False, for_restore=True)
 
         self._tab_widget.setEnabled(True)
         self.context_dir_changed.emit(str(path))
-
-        self.restore_settings()
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}

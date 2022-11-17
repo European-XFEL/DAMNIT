@@ -1,5 +1,4 @@
 from functools import lru_cache
-from collections import OrderedDict
 from datetime import datetime, timezone
 
 import numpy as np
@@ -44,14 +43,37 @@ class TableView(QtWidgets.QTableView):
 
     def item_changed(self, item):
         state = item.checkState()
-        column_index = self.model()._data.columns.get_loc(item.text())
+        self.set_column_visibility(item.text(), state == Qt.Checked)
 
-        if Qt.Checked == state:
-            self.setColumnHidden(column_index, False)
+    def set_column_visibility(self, name, visible, for_restore=False):
+        """
+        Make a column visible or not. This function should be used instead of the lower-level
+        setColumnHidden().
+
+        The main use-cases are hiding/showing a column when the user clicks a
+        checkbox, and hiding a column programmatically when loading the users
+        settings. In the first case we want to emit a signal to save the
+        settings, and in the second we want the checkbox for that column to be
+        deselected. The `for_restore` argument lets you specify which behaviour
+        you want.
+        """
+        column_index = self.model()._data.columns.get_loc(name)
+
+        self.setColumnHidden(column_index, not visible)
+
+        if for_restore:
+            widget = self._columns_widget if \
+                len(self._columns_widget.findItems(name, Qt.MatchExactly)) == 1 else \
+                self._static_columns_widget
+
+            # Try to find the column. Some, like 'comment_id' will not be in the
+            # list shown to the user.
+            matching_items = widget.findItems(name, Qt.MatchExactly)
+            if len(matching_items) == 1:
+                item = matching_items[0]
+                item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
         else:
-            self.setColumnHidden(column_index, True)
-
-        self.settings_changed.emit()
+            self.settings_changed.emit()
 
     def item_moved(self, parent, start, end, destination, row):
         # Take account of the static columns, and the Status column
@@ -118,7 +140,7 @@ class TableView(QtWidgets.QTableView):
         self.add_new_columns(columns, statuses)
 
     def get_column_states(self):
-        column_states = OrderedDict()
+        column_states = { }
 
         def add_columns(widget):
             for row in range(widget.count()):
@@ -129,37 +151,6 @@ class TableView(QtWidgets.QTableView):
         add_columns(self._columns_widget)
 
         return column_states
-
-    def set_column_states(self, column_states):
-        for i, column in enumerate(column_states.keys()):
-            enabled = column_states[column]
-
-            widget = self._columns_widget if \
-                len(self._columns_widget.findItems(column, Qt.MatchExactly)) == 1 else \
-                self._static_columns_widget
-
-            # Try to find the column
-            matching_items = widget.findItems(column, Qt.MatchExactly)
-            if len(matching_items) == 1:
-                item = matching_items[0]
-            else:
-                continue
-
-            # Enable/disable the column
-            item.setCheckState(Qt.Checked if enabled else Qt.Unchecked)
-
-            # Move it if necessary
-            row_offset = self._static_columns_widget.count() if widget == self._columns_widget else 0
-            row = i - row_offset
-
-            if (current_row := widget.row(item)) != row:
-                # We need to select the item because the item_moved() slot uses
-                # this to compute the new index of the column.
-                widget.setCurrentItem(item)
-
-                model = widget.model()
-                model.moveRow(model.index(current_row, 0).parent(), current_row,
-                              model.index(row, 0).parent(), row)
 
     def style_comment_rows(self, *_):
         self.clearSpans()

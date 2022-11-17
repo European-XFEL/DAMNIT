@@ -33,7 +33,9 @@ def mock_ctx():
     def array(run, foo: "var#scalar1", bar: "var#scalar2"):
         return np.array([foo, bar])
 
-    @Variable(title="Timestamp")
+    # Can't have a title of 'Timestamp' or it'll conflict with the GUI's
+    # 'Timestamp' colummn.
+    @Variable(title="Timestamp2")
     def timestamp(run):
         return time.time()
 
