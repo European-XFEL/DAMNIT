@@ -114,7 +114,7 @@ def main():
     )
 
     config_ap = subparsers.add_parser(
-        'config',
+        'db-config',
         help="See or change config in this database"
     )
     config_ap.add_argument(
@@ -209,7 +209,7 @@ def main():
         db = open_db(args.db_dir / DB_NAME)
         set_meta(db, "db_id", token_hex(20))
 
-    elif args.subcmd == 'config':
+    elif args.subcmd == 'db-config':
         from .backend.db import open_db, get_meta, set_meta
 
         db = open_db()
