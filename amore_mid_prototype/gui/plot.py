@@ -361,6 +361,7 @@ class Plot:
         res.setEditable(True)
         res.setFocusPolicy(QtCore.Qt.StrongFocus)
         res.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        res.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
 
         res.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
         res.completer().setFilterMode(QtCore.Qt.MatchContains)
