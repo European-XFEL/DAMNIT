@@ -210,7 +210,7 @@ def main():
         set_meta(db, "db_id", token_hex(20))
 
     elif args.subcmd == 'db-config':
-        from .backend.db import open_db, get_meta, set_meta
+        from .backend.db import open_db, get_meta, get_all_meta, set_meta
 
         db = open_db()
         if args.delete:
@@ -226,7 +226,7 @@ def main():
             except KeyError:
                 sys.exit(f"Error: key {args.key} not found")
         else:
-            for k, v in db.execute('SELECT * FROM metameta'):
+            for k, v in get_all_meta(db).items():
                 print(f"{k}={v!r}")
 
 if __name__ == '__main__':
