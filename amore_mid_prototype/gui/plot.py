@@ -336,8 +336,8 @@ class Plot:
             self._toggle_probability_density_clicked
         )
 
-        self._combo_box_x_axis = self._setup_combobox()
-        self._combo_box_y_axis = self._setup_combobox()
+        self._combo_box_x_axis = self._get_variable_combobox()
+        self._combo_box_y_axis = self._get_variable_combobox()
 
         self.vs_button = QtWidgets.QToolButton()
         self.vs_button.setText("vs.")
@@ -355,7 +355,7 @@ class Plot:
             "runs_as_series": [],
         }
 
-    def _setup_combobox(self):
+    def _get_variable_combobox(self):
         res = QtWidgets.QComboBox(self._main_window)
 
         res.setEditable(True)
