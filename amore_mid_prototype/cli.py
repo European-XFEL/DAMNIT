@@ -63,9 +63,14 @@ def main():
     listen_ap = subparsers.add_parser(
         'listen', help="Watch for new runs & extract data from them"
     )
-    listen_ap.add_argument(
+    listen_args_grp = listen_ap.add_mutually_exclusive_group()
+    listen_args_grp.add_argument(
         '--test', action='store_true',
         help="Manually enter 'migrated' runs for testing"
+    )
+    listen_args_grp.add_argument(
+        '--daemonize', action='store_true',
+        help="Start the listener under a separate process managed by supervisord."
     )
     listen_ap.add_argument(
         'context_dir', type=Path, nargs='?', default='.',
@@ -132,12 +137,22 @@ def main():
         return run_app(context_dir, connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
-        if args.test:
-            from .backend.test_listener import listen
+        from .backend.db import db_path
+        from .backend import initialize_and_start_backend
+
+        if args.daemonize:
+            if not db_path(args.context_dir).is_file():
+                sys.exit("You must create a database with `amore-proto proposal` before starting the listener.")
+
+            return initialize_and_start_backend(args.context_dir)
         else:
-            from .backend.listener import listen
-        os.chdir(args.context_dir)
-        return listen()
+            if args.test:
+                from .backend.test_listener import listen
+            else:
+                from .backend.listener import listen
+
+            os.chdir(args.context_dir)
+            return listen()
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable

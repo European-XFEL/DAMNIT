@@ -1,12 +1,17 @@
 import os
 import logging
 import sqlite3
+from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
 DB_NAME = 'runs.sqlite'
 
 log = logging.getLogger(__name__)
+
+
+def db_path(root_path: Path):
+    return root_path / "runs.sqlite"
 
 def open_db(path=DB_NAME) -> sqlite3.Connection:
     """ Initialize the sqlite run database
