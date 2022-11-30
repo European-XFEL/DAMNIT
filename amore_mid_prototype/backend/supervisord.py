@@ -33,7 +33,7 @@ def get_supervisord_address(default_port=2322):
 
     return hostname, port
 
-def backend_is_running(root_path: Path, timeout=5):
+def backend_is_running(root_path: Path, timeout=1):
     config_path = root_path / "supervisord.conf"
     supervisorctl_status = ["supervisorctl", "-c", str(config_path), "status", "damnit"]
 
