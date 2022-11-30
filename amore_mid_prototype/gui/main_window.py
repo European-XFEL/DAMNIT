@@ -104,7 +104,7 @@ class MainWindow(QtWidgets.QMainWindow):
             dialog = QMessageBox(QMessageBox.Warning,
                                  "Warning - unsaved changes",
                                  "There are unsaved changes to the context, do you want to save before exiting?",
-                                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+                                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
             result = dialog.exec()
 
             if result == QMessageBox.Yes:
