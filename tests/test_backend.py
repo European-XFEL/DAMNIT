@@ -17,27 +17,13 @@ import pytest
 import numpy as np
 import xarray as xr
 
+from amore_mid_prototype.util import wait_until
 from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
 from amore_mid_prototype.backend.db import open_db, get_meta
 from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
 from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.backend.supervisord import write_supervisord_conf
 
-
-def waitUntil(condition, timeout=1):
-    """
-    Re-evaluate `condition()` until it either returns true or we've waited
-    longer than `timeout`.
-    """
-    slept_for = 0
-    sleep_interval = 0.2
-
-    while not condition() and slept_for < timeout:
-        time.sleep(sleep_interval)
-        slept_for += sleep_interval
-
-    if slept_for >= timeout:
-        raise TimeoutError("Condition timed out")
 
 def kill_pid(pid):
     """
@@ -395,23 +381,26 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     # we wait a bit for it.
     pid_path = db_dir / "supervisord.pid"
     log_path = db_dir / "supervisord.log"
-    waitUntil(lambda: pid_path.is_file() and log_path.is_file())
+    wait_until(lambda: pid_path.is_file() and log_path.is_file())
     pid = int(pid_path.read_text())
 
     # Set a finalizer to kill supervisord at the end
     request.addfinalizer(lambda: kill_pid(pid))
 
+    assert path_filemode(pid_path) == good_file_mode
+    assert path_filemode(log_path) == good_file_mode
+
     # Check that it's running
     assert backend_is_running(db_dir)
 
-    waitUntil(lambda: (db_dir / "started").is_file(), timeout=1000)
+    wait_until(lambda: (db_dir / "started").is_file(), timeout=1000)
 
     # Stop the program
     supervisorctl = ["supervisorctl", "-c", str(supervisord_config_path)]
     subprocess.run([*supervisorctl, "stop", "damnit"]).check_returncode()
 
     # Check that the subprocess was also killed
-    waitUntil(lambda: (db_dir / "stopped").is_file())
+    wait_until(lambda: (db_dir / "stopped").is_file())
     assert not backend_is_running(db_dir)
 
     # Try starting it again. This time we don't pass the proposal number, it
@@ -434,7 +423,7 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
                side_effect=mock_write_supervisord_conf):
         assert initialize_and_start_backend(db_dir)
 
-    waitUntil(lambda: pid_path.is_file() and log_path.is_file())
+    wait_until(lambda: pid_path.is_file() and log_path.is_file())
     pid = int(pid_path.read_text())
     request.addfinalizer(lambda: kill_pid(pid))
 

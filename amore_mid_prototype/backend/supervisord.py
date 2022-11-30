@@ -8,6 +8,7 @@ import subprocess
 import configparser
 from pathlib import Path
 
+from ..util import wait_until
 from .db import db_path, open_db, get_meta, set_meta
 
 
@@ -114,6 +115,19 @@ def start_backend(root_path: Path, try_again=True):
     elif rc > 0:
         log.error(f"Unrecognized return code from supervisorctl: {rc}")
         return False
+
+    # Make sure the PID and log file are writable by everyone in case a
+    # different user restarts supervisord.
+    pid_path = root_path / "supervisord.pid"
+    log_path = root_path / "supervisord.log"
+    try:
+        wait_until(lambda: pid_path.is_file() and log_path.is_file(), timeout=5)
+    except TimeoutError:
+        log.error("supervisord did not start up properly")
+        return False
+    else:
+        os.chmod(pid_path, 0o666)
+        os.chmod(log_path, 0o666)
 
     return True
 
