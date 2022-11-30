@@ -1,5 +1,6 @@
 import os
 import shelve
+import numpy as np
 import textwrap
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -151,8 +152,8 @@ def test_handle_update(mock_db, qtbot):
     win.handle_update(msg)
     assert model().data(model().index(0, headers.index("Scalar1"))) == str(msg["scalar1"])
 
-    # Add a new column to an existing row
-    msg["array"] = 3.14
+    # Add a new column with np array (to be taken as an image) to an existing row
+    msg["array"] = np.array([1,2,3])
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
