@@ -29,7 +29,10 @@ def mock_ctx():
     def empty_string(run):
         return ""
 
-    @Variable(title="Array")
+    # Note: we set the summary to np.size() to test that the backend can handle
+    # summary values that return plain Python scalars (int, float) instead of
+    # numpy scalars (np.int32, np.float32, etc).
+    @Variable(title="Array", summary="size")
     def array(run, foo: "var#scalar1", bar: "var#scalar2"):
         return np.array([foo, bar])
 

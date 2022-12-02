@@ -164,7 +164,7 @@ def test_results(mock_ctx, mock_run, caplog):
 
     # Check that the summary of a DataArray is a single number
     assert isinstance(results.data["meta_array"], xr.DataArray)
-    assert isinstance(results.reduced["meta_array"], Number)
+    assert results.reduced["meta_array"].ndim == 0
 
     # Check the result values
     assert results.data["scalar1"] == 42
