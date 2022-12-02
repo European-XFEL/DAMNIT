@@ -1,3 +1,4 @@
+import socket
 import textwrap
 from unittest.mock import MagicMock
 
@@ -32,7 +33,9 @@ def mock_ctx():
     def array(run, foo: "var#scalar1", bar: "var#scalar2"):
         return np.array([foo, bar])
 
-    @Variable(title="Timestamp")
+    # Can't have a title of 'Timestamp' or it'll conflict with the GUI's
+    # 'Timestamp' colummn.
+    @Variable(title="Timestamp2")
     def timestamp(run):
         return time.time()
 
@@ -70,9 +73,21 @@ def mock_run():
     return run
 
 @pytest.fixture
-def mock_db(tmp_path):
+def mock_db(tmp_path, mock_ctx):
     db = open_db(tmp_path / DB_NAME)
+
+    (tmp_path / "context.py").write_text(mock_ctx.code)
 
     yield tmp_path, db
 
     db.close()
+
+@pytest.fixture
+def bound_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("0.0.0.0", 0))
+    port = s.getsockname()[1]
+
+    yield port
+
+    s.close()

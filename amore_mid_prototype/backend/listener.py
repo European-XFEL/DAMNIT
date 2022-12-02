@@ -156,13 +156,6 @@ def listen():
     except Exception:
         log.error("Stopping on unexpected error", exc_info=True)
 
-    # Always delete the tmux socket so we know the backend is not
-    # running. Is it safe to delete the socket before tmux has closed?
-    # Probably not. Do I care? lolno.
-    tmux_socket_path = Path.cwd() / "amore-tmux.sock"
-    if tmux_socket_path.exists():
-        tmux_socket_path.unlink()
-
     # Flush all logs
     logging.shutdown()
 

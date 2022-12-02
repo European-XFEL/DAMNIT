@@ -13,8 +13,9 @@ classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version", "description"]
 dependencies = [
     "EXtra-data",
+    "euxfel_bunch_pattern",
+    "ipython",
     "kafka-python",
-    "libtmux",
     "matplotlib",
     "mplcursors",
     "mpl-interactions",
@@ -22,8 +23,12 @@ dependencies = [
     "pandas",
     "PyQt5",
     "PyYAML",
+    "pyflakes",
+    "QScintilla",
     "xarray",
     "scipy",
+    "supervisor",
+    "termcolor",
     "tomli",
     "pasha",
     "extra_geom"

@@ -15,6 +15,8 @@ ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
 
 class TableView(QtWidgets.QTableView):
+    settings_changed = QtCore.pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__()
         self.setAlternatingRowColors(False)
@@ -41,12 +43,37 @@ class TableView(QtWidgets.QTableView):
 
     def item_changed(self, item):
         state = item.checkState()
-        column_index = self.model()._data.columns.get_loc(item.text())
+        self.set_column_visibility(item.text(), state == Qt.Checked)
 
-        if Qt.Checked == state:
-            self.setColumnHidden(column_index, False)
+    def set_column_visibility(self, name, visible, for_restore=False):
+        """
+        Make a column visible or not. This function should be used instead of the lower-level
+        setColumnHidden().
+
+        The main use-cases are hiding/showing a column when the user clicks a
+        checkbox, and hiding a column programmatically when loading the users
+        settings. In the first case we want to emit a signal to save the
+        settings, and in the second we want the checkbox for that column to be
+        deselected. The `for_restore` argument lets you specify which behaviour
+        you want.
+        """
+        column_index = self.model()._data.columns.get_loc(name)
+
+        self.setColumnHidden(column_index, not visible)
+
+        if for_restore:
+            widget = self._columns_widget if \
+                len(self._columns_widget.findItems(name, Qt.MatchExactly)) == 1 else \
+                self._static_columns_widget
+
+            # Try to find the column. Some, like 'comment_id' will not be in the
+            # list shown to the user.
+            matching_items = widget.findItems(name, Qt.MatchExactly)
+            if len(matching_items) == 1:
+                item = matching_items[0]
+                item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
         else:
-            self.setColumnHidden(column_index, True)
+            self.settings_changed.emit()
 
     def item_moved(self, parent, start, end, destination, row):
         # Take account of the static columns, and the Status column
@@ -56,6 +83,8 @@ class TableView(QtWidgets.QTableView):
         col_to = self._columns_widget.currentIndex().row() + col_offset
 
         self.horizontalHeader().moveSection(col_from, col_to)
+
+        self.settings_changed.emit()
 
     def add_new_columns(self, columns, statuses):
         for column, status in zip(columns, statuses):
@@ -109,6 +138,19 @@ class TableView(QtWidgets.QTableView):
         columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
                                             if x[0] not in static_columns]))
         self.add_new_columns(columns, statuses)
+
+    def get_column_states(self):
+        column_states = { }
+
+        def add_column_states(widget):
+            for row in range(widget.count()):
+                item = widget.item(row)
+                column_states[item.text()] = item.checkState() == Qt.Checked
+
+        add_column_states(self._static_columns_widget)
+        add_column_states(self._columns_widget)
+
+        return column_states
 
     def style_comment_rows(self, *_):
         self.clearSpans()
@@ -190,27 +232,24 @@ class Table(QtCore.QAbstractTableModel):
                                            Qt.KeepAspectRatio)
 
     @lru_cache(maxsize=1000)
-    def variable_is_constant(self, index):
+    def variable_is_constant(self, run, proposal, quantity):
         """
         Check if the variable at the given index is constant throughout the run.
         """
         is_constant = True
-        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
-        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
-        quantity = self._main_window.ds_name(self._data.columns[index.column()])
 
         try:
             file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
         except:
             return is_constant
 
-        if quantity in run_file and "trainId" in run_file[quantity]:
+        if quantity in run_file:
             ds = run_file[quantity]["data"]
+
             # If it's an array
-            if len(ds.shape) == 1:
+            if len(ds.shape) == 1 and ds.shape[0] > 1:
                 data = ds[:]
-                if not np.all(np.isclose(data, data[0])):
-                    is_constant = False
+                is_constant = np.all(np.isclose(data, data[0]))
 
         run_file.close()
         return is_constant
@@ -223,7 +262,11 @@ class Table(QtCore.QAbstractTableModel):
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
-            if not self.variable_is_constant(index):
+            run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+            proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+            quantity = self._main_window.ds_name(self._data.columns[index.column()])
+
+            if not self.variable_is_constant(run, proposal, quantity):
                 font = QtGui.QFont()
                 font.setBold(True)
                 return font

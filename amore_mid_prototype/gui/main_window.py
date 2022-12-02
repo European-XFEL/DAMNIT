@@ -1,43 +1,47 @@
 import pickle
 import os
 import logging
-import shutil
+import shelve
 import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
-from subprocess import Popen
+from enum import Enum
 
-import libtmux
 import pandas as pd
 import numpy as np
 import h5py
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from kafka.errors import NoBrokersAvailable
 
+from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
 
-from ..backend.db import open_db, get_meta, set_meta
+from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt5.Qsci import QsciScintilla, QsciLexerPython
+
+from ..backend.db import db_path, open_db, get_meta
+from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
+from .editor import Editor, ContextTestResult
 
 
 log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
 
+class Settings(Enum):
+    COLUMNS = "columns"
+
+
 class MainWindow(QtWidgets.QMainWindow):
-    context_path = None
     db = None
     db_id = None
-
-    context_dir_changed = QtCore.pyqtSignal(str)
 
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
@@ -47,19 +51,35 @@ class MainWindow(QtWidgets.QMainWindow):
         self._updates_thread = None
         self._updates_thread = None
         self._received_update = False
+        self._context_path = None
+        self._context_is_saved = True
         self._attributi = {}
 
+        self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
+
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
-        self.setWindowIcon(QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"))
+        self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
         self._create_status_bar()
         self._create_menu_bar()
 
         self._view_widget = QtWidgets.QWidget(self)
+        self._editor = Editor()
+        self._error_widget = QsciScintilla()
+        self._editor_parent_widget = QtWidgets.QSplitter(Qt.Vertical)
+
+        self._tab_widget = QTabWidget()
+        self._tabbar_style = TabBarStyle()
+        self._tab_widget.tabBar().setStyle(self._tabbar_style)
+        self._tab_widget.addTab(self._view_widget, "Run table")
+        self._tab_widget.addTab(self._editor_parent_widget, "Context file")
+        self._tab_widget.currentChanged.connect(self.on_tab_changed)
+
         # Disable the main window at first since we haven't loaded any database yet
-        self._view_widget.setEnabled(False)
-        self.setCentralWidget(self._view_widget)
+        self._tab_widget.setEnabled(False)
+        self.setCentralWidget(self._tab_widget)
 
         self._create_view()
+        self.configure_editor()
         self.center_window()
 
         if context_dir is not None:
@@ -67,7 +87,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._canvas_inspect = []
 
+    def icon_path(self, name):
+        """
+        Helper function to get the path to an icon file stored under ico/.
+        """
+        return str(Path(__file__).parent / "ico" / name)
+
+    def on_tab_changed(self, index):
+        if index == 0:
+            self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        elif index == 1:
+            self._status_bar.showMessage(self._editor_status_message)
+
     def closeEvent(self, event):
+        if not self._context_is_saved:
+            dialog = QMessageBox(QMessageBox.Warning,
+                                 "Warning - unsaved changes",
+                                 "There are unsaved changes to the context, do you want to save before exiting?",
+                                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+            result = dialog.exec()
+
+            if result == QMessageBox.Save:
+                self.save_context()
+            elif result == QMessageBox.Cancel:
+                event.ignore()
+                return
+
         self.stop_update_listener_thread()
         super().closeEvent(event)
 
@@ -103,9 +148,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
-
-    def _menu_bar_edit_context(self):
-        Popen(['xdg-open', self.context_path])
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -153,7 +195,7 @@ da-dev@xfel.eu"""
         # By convention the AMORE directory is often stored at usr/Shared/amore,
         # so if this directory exists, then we use it.
         standard_path = Path(proposal_dir) / "usr/Shared/amore"
-        if standard_path.is_dir() and self.db_path(standard_path).is_file():
+        if standard_path.is_dir() and db_path(standard_path).is_file():
             path = standard_path
         else:
             # Helper lambda to open a prompt for the user
@@ -166,7 +208,7 @@ da-dev@xfel.eu"""
                                               f"Proposal {prop_no} does not have an AMORE database, " \
                                               "would you like to create one and start the backend?")
                 if button == QMessageBox.Yes:
-                    self.initialize_database(standard_path, prop_no)
+                    initialize_and_start_backend(standard_path, prop_no)
                     path = standard_path
                 else:
                     # Otherwise, we prompt the user
@@ -182,62 +224,45 @@ da-dev@xfel.eu"""
             return
 
         # Check if the backend is running
-        tmux_socket_path = self.get_tmux_socket_path(path)
-        if not tmux_socket_path.exists():
+        if not backend_is_running(path):
             button = QMessageBox.question(self, "Backend not running",
                                           "The AMORE backend is not running, would you like to start it? " \
                                           "This is only necessary if new runs are expected.")
             if button == QMessageBox.Yes:
-                self.start_backend(path)
+                initialize_and_start_backend(path)
 
         self.autoconfigure(Path(path), proposal=prop_no)
 
     def gpfs_accessible(self):
         return os.path.isdir("/gpfs/exfel/exp")
 
-    def db_path(self, root_path: Path):
-        return root_path / "runs.sqlite"
+    def save_settings(self):
+        self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def get_tmux_socket_path(self, root_path: Path):
-        return root_path / "amore-tmux.sock"
-
-    def initialize_database(self, path, proposal):
-        # Ensure the directory exists
-        path.mkdir(parents=True, exist_ok=True)
-        os.chmod(path, 0o777)
-
-        # Initialize database
-        db = open_db(self.db_path(path))
-        set_meta(db, 'proposal', proposal)
-
-        # Copy initial context file
-        context_path = path / "context.py"
-        shutil.copyfile(Path(__file__).parents[1] / "base_context_file.py", context_path)
-        os.chmod(context_path, 0o666)
-
-        self.start_backend(path)
-
-    def start_backend(self, path: Path):
-        # Create tmux session
-        server = libtmux.Server(socket_path=self.get_tmux_socket_path(path))
-        server.new_session(session_name="AMORE",
-                           window_name="listen",
-                           # Unfortunately Maxwell's default tmux is too old to
-                           # support '-c' to change directory, so we have to
-                           # manually change directory instead of using the
-                           # 'start_directory' argument.
-                           window_command=f"cd {str(path)}; amore-proto listen .")
+        with shelve.open(str(self._settings_db_path)) as db:
+            settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
+            db[str(self._context_path)] = settings
 
     def autoconfigure(self, path: Path, proposal=None):
-        self.context_path = path / "context.py"
-        if self.context_path.is_file():
-            log.info("Reading context file %s", self.context_path)
-            ctx_file = ContextFile.from_py_file(self.context_path)
-            self._attributi = ctx_file.vars
+        context_path = path / "context.py"
+        if not context_path.is_file():
+            QMessageBox.critical(self, "No context file",
+                                 "This database is missing a context file, it cannot be opened.")
+            return
+        else:
+            self._context_path = context_path
+
+        log.info("Reading context file %s", self._context_path)
+        ctx_file = ContextFile.from_py_file(self._context_path)
+        self._attributi = ctx_file.vars
+
+        self._editor.setText(ctx_file.code)
+        self.test_context()
+        self.mark_context_saved()
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
-        sqlite_path = self.db_path(path)
+        sqlite_path = db_path(path)
         log.info("Reading data from database")
         self.db = open_db(sqlite_path)
 
@@ -252,7 +277,8 @@ da-dev@xfel.eu"""
 
         # Unpickle serialized objects. First we select all columns that
         # might need deserializing.
-        object_cols = df.select_dtypes(include=["object"]).drop(["comment", "comment_id"], axis=1)
+        object_cols = df.select_dtypes(include=["object"]).drop(columns=["comment", "comment_id"],
+                                                                errors="ignore")
         # Then we check each element and unpickle it if necessary, and
         # finally update the main DataFrame.
         unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
@@ -284,6 +310,26 @@ da-dev@xfel.eu"""
             ]
         )
 
+        # Load the users settings
+        if self._settings_db_path.parent.is_dir():
+            with shelve.open(str(self._settings_db_path)) as db:
+                key = str(self._context_path)
+                col_settings = db[key][Settings.COLUMNS.value]
+        else:
+            col_settings = { }
+
+        saved_cols = list(col_settings.keys())
+        df_cols = self.data.columns.tolist()
+
+        # Strip missing columns
+        saved_cols = [col for col in saved_cols if col in df_cols]
+
+        # Sort columns such that every column not saved is pushed to the
+        # beginning, and all saved columns are inserted afterwards.
+        sorted_cols = [col for col in df_cols if col not in saved_cols]
+        sorted_cols.extend(saved_cols)
+        self.data = self.data[sorted_cols]
+
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
                                      Qt.SortOrder.AscendingOrder)
@@ -299,13 +345,12 @@ da-dev@xfel.eu"""
                                     [True for _ in self.data.columns])
         self.plot.update_columns()
 
-        # Hide the comment_id column
-        comment_id_col = self.data.columns.get_loc("comment_id")
-        self.table_view.setColumnHidden(comment_id_col, True)
+        # Hide the comment_id column and all columns hidden by the user
+        hidden_columns = ["comment_id"] + [col for col in saved_cols if not col_settings[col]]
+        for col in hidden_columns:
+            self.table_view.set_column_visibility(col, False, for_restore=True)
 
-        self._status_bar.showMessage("Double-click on a cell to inspect results.")
-        self._view_widget.setEnabled(True)
-        self.context_dir_changed.emit(str(path))
+        self._tab_widget.setEnabled(True)
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -328,14 +373,6 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_edit_ctx = QtWidgets.QAction(
-            QtGui.QIcon.fromTheme("accessories-text-editor"), "Edit context file", self
-        )
-        action_edit_ctx.setStatusTip("Open the Python context file in a text editor")
-        action_edit_ctx.triggered.connect(self._menu_bar_edit_context)
-        action_edit_ctx.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: action_edit_ctx.setEnabled(True))
-
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -347,10 +384,9 @@ da-dev@xfel.eu"""
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
         fileMenu = menu_bar.addMenu(
-            QtGui.QIcon("amore_mid_prototype/gui/ico/AMORE.png"), "&AMORE"
+            QtGui.QIcon(self.icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        fileMenu.addAction(action_edit_ctx)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
@@ -645,6 +681,7 @@ da-dev@xfel.eu"""
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
         self.table_view.doubleClicked.connect(self.inspect_data)
+        self.table_view.settings_changed.connect(self.save_settings)
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addWidget(self.table_view.create_column_widget(),
@@ -709,6 +746,98 @@ da-dev@xfel.eu"""
 
         self._view_widget.setLayout(vertical_layout)
 
+    def configure_editor(self):
+        test_widget = QtWidgets.QWidget()
+
+        self._editor.textChanged.connect(self.on_context_changed)
+        self._editor.save_requested.connect(self.save_context)
+
+        vbox = QtWidgets.QGridLayout()
+        test_widget.setLayout(vbox)
+
+        test_btn = QtWidgets.QPushButton("Test")
+        test_btn.clicked.connect(self.test_context)
+
+        self._context_status_icon = QtSvg.QSvgWidget()
+
+        font = QtGui.QFont("Monospace", pointSize=9)
+        self._error_widget_lexer = QsciLexerPython()
+        self._error_widget_lexer.setDefaultFont(font)
+
+        self._error_widget.setReadOnly(True)
+        self._error_widget.setCaretWidth(0)
+        self._error_widget.setLexer(self._error_widget_lexer)
+
+        vbox.addWidget(test_btn, 0, 0)
+        vbox.addWidget(self._context_status_icon, 1, 0)
+        vbox.addWidget(self._error_widget, 0, 1, 2, 1)
+        vbox.setColumnStretch(0, 1)
+        vbox.setColumnStretch(1, 100)
+
+        self._editor_parent_widget.addWidget(self._editor)
+        self._editor_parent_widget.addWidget(test_widget)
+
+    def on_context_changed(self):
+        self._tabbar_style.enable_bold = True
+        self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("red"))
+        self._tab_widget.setTabText(1, " Context file* ")
+        self._editor_status_message = "Context file changed! Press Ctrl + S to save."
+        self.on_tab_changed(self._tab_widget.currentIndex())
+        self._context_is_saved = False
+
+    def test_context(self):
+        test_result, output = self._editor.test_context()
+
+        if test_result == ContextTestResult.ERROR:
+            self.set_error_widget_text(output)
+            self.set_error_icon("red")
+
+            # Resize the error window
+            height = self._editor_parent_widget.height()
+            self._editor_parent_widget.setSizes([2 * height // 3, height // 3])
+        else:
+            # Move the error widget down
+            height = self.height()
+            self._editor_parent_widget.setSizes([height, 1])
+
+            if test_result == ContextTestResult.WARNING:
+                self.set_error_widget_text(output)
+
+                # We don't treat pyflakes warnings as fatal errors because sometimes
+                # pyflakes reports valid but harmless problems, like unused
+                # variables or unused imports.
+                self.set_error_icon("yellow")
+            elif test_result == ContextTestResult.OK:
+                self.set_error_widget_text("Valid context.")
+                self.set_error_icon("green")
+
+        return test_result
+
+    def set_error_icon(self, icon):
+        self._context_status_icon.load(self.icon_path(f"{icon}_circle.svg"))
+        self._context_status_icon.renderer().setAspectRatioMode(Qt.KeepAspectRatio)
+
+    def set_error_widget_text(self, text):
+        # Clear the widget and wait for a bit to visually indicate to the
+        # user that something happened.
+        self._error_widget.setText("")
+        QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
+
+    def save_context(self):
+        if self.test_context() == ContextTestResult.ERROR:
+            return
+
+        self._context_path.write_text(self._editor.text())
+        self.mark_context_saved()
+
+    def mark_context_saved(self):
+        self._context_is_saved = True
+        self._tabbar_style.enable_bold = False
+        self._tab_widget.setTabText(1, "Context file")
+        self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("black"))
+        self._editor_status_message = str(self._context_path.resolve())
+        self.on_tab_changed(self._tab_widget.currentIndex())
+
     def save_comment(self, prop, run, value):
         if self.db is None:
             log.warning("No SQLite database in use, comment not saved")
@@ -746,6 +875,27 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return 0
         else:
             return super().styleHint(hint, option, widget, returnData)
+
+class TabBarStyle(QtWidgets.QProxyStyle):
+    """
+    Subclass that enables bold tab text for tab 1 (the editor tab).
+    """
+    def __init__(self):
+        super().__init__()
+        self.enable_bold = False
+
+    def drawControl(self, element, option, painter, widget=None):
+        if self.enable_bold and \
+           element == QtWidgets.QStyle.CE_TabBarTab and \
+           widget.tabRect(1) == option.rect:
+            font = widget.font()
+            font.setBold(True)
+            painter.save()
+            painter.setFont(font)
+            super().drawControl(element, option, painter, widget)
+            painter.restore()
+        else:
+            super().drawControl(element, option, painter, widget)
 
 
 def run_app(context_dir, connect_to_kafka=True):

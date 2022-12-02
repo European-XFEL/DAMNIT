@@ -1,18 +1,59 @@
+import inspect
 import logging
 import os
 import sys
+import textwrap
+import traceback
 from argparse import ArgumentParser
 from pathlib import Path
 
+from termcolor import colored
+
+from extra_data.read_machinery import find_proposal
+
+
+def excepthook(exc_type, value, tb):
+    """
+    Hook to start an IPython shell when an unhandled exception is caught.
+    """
+    tb_msg = "".join(traceback.format_exception(exc_type, value, tb))
+    traceback.print_exception(exc_type, value, tb)
+    print()
+
+    # Find the deepest frame in the stack that comes from us. We don't want to
+    # go straight to the last frame because that may be in some other library.
+    module_path = Path(__file__).parent.parent
+    target_frame = None
+    target_file = None
+    for frame, lineno in traceback.walk_tb(tb):
+        frame_file = Path(inspect.getframeinfo(frame).filename)
+        if module_path in frame_file.parents:
+            target_frame = frame
+            target_file = frame_file.relative_to(module_path)
+
+    # Start an IPython REPL
+    header = f"""
+    Tip: call {colored('__tb()', 'red')} to print the traceback again.
+    Dropped into {colored(target_file, 'green')} at line {colored(target_frame.f_lineno, 'green')}.
+    """
+    print(textwrap.dedent(header))
+
+    import IPython
+    IPython.start_ipython(argv=[], display_banner=False,
+                          user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
+
 def main():
     ap = ArgumentParser()
-    ap.add_argument('--debug', action='store_true')
+    ap.add_argument('--debug', action='store_true',
+                    help="Show debug logs.")
+    ap.add_argument('--debug-repl', action='store_true',
+                    help="Drop into an IPython repl if an exception occurs. Local variables at the point of the exception will be available.")
     subparsers = ap.add_subparsers(required=True, dest='subcmd')
 
     gui_ap = subparsers.add_parser('gui', help="Launch application")
     gui_ap.add_argument(
-        'context_dir', type=Path, nargs='?',
-        help="Directory storing summarised results"
+        'proposal_or_dir', nargs='?',
+        help="Either a proposal number or a database directory."
     )
     gui_ap.add_argument(
         '--no-kafka', action='store_true',
@@ -22,9 +63,14 @@ def main():
     listen_ap = subparsers.add_parser(
         'listen', help="Watch for new runs & extract data from them"
     )
-    listen_ap.add_argument(
+    listen_args_grp = listen_ap.add_mutually_exclusive_group()
+    listen_args_grp.add_argument(
         '--test', action='store_true',
         help="Manually enter 'migrated' runs for testing"
+    )
+    listen_args_grp.add_argument(
+        '--daemonize', action='store_true',
+        help="Start the listener under a separate process managed by supervisord."
     )
     listen_ap.add_argument(
         'context_dir', type=Path, nargs='?', default='.',
@@ -72,19 +118,41 @@ def main():
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")
 
+    if args.debug_repl:
+        sys.excepthook = excepthook
+
     if args.subcmd == 'gui':
-        if args.context_dir is not None and not args.context_dir.is_dir():
-            sys.exit(f"{args.context_dir} is not a directory")
+        if args.proposal_or_dir is not None:
+            if (path := Path(args.proposal_or_dir)).is_dir():
+                context_dir = path
+            elif args.proposal_or_dir.isdigit():
+                proposal_name = f"p{int(args.proposal_or_dir):06d}"
+                context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
+            else:
+                sys.exit(f"{args.proposal_or_dir} is not a proposal number or DAMNIT database directory")
+        else:
+            context_dir = None
+
         from .gui.main_window import run_app
-        return run_app(args.context_dir, connect_to_kafka=not args.no_kafka)
+        return run_app(context_dir, connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
-        if args.test:
-            from .backend.test_listener import listen
+        from .backend.db import db_path
+        from .backend import initialize_and_start_backend
+
+        if args.daemonize:
+            if not db_path(args.context_dir).is_file():
+                sys.exit("You must create a database with `amore-proto proposal` before starting the listener.")
+
+            return initialize_and_start_backend(args.context_dir)
         else:
-            from .backend.listener import listen
-        os.chdir(args.context_dir)
-        return listen()
+            if args.test:
+                from .backend.test_listener import listen
+            else:
+                from .backend.listener import listen
+
+            os.chdir(args.context_dir)
+            return listen()
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
@@ -123,8 +191,6 @@ def main():
 
         db = open_db(args.db_dir / DB_NAME)
         set_meta(db, "db_id", token_hex(20))
-
-
 
 if __name__ == '__main__':
     sys.exit(main())
