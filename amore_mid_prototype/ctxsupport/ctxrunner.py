@@ -265,7 +265,7 @@ class Results:
             if isinstance(data, xarray.DataArray):
                 data = data.data
 
-            return getattr(np, summary_method)(data)
+            return np.asarray(getattr(np, summary_method)(data))
 
     def save_hdf5(self, hdf5_path, reduced_only=False):
         dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
