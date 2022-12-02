@@ -113,6 +113,23 @@ def main():
         help="Path to the database directory"
     )
 
+    config_ap = subparsers.add_parser(
+        'db-config',
+        help="See or change config in this database"
+    )
+    config_ap.add_argument(
+        '-d', '--delete', action='store_true',
+        help="Delete the specified key",
+    )
+    config_ap.add_argument(
+        'key', nargs='?',
+        help="The config key to see/change. If not given, list all config"
+    )
+    config_ap.add_argument(
+        'value', nargs='?',
+        help="A new value for the given key"
+    )
+
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
@@ -191,6 +208,26 @@ def main():
 
         db = open_db(args.db_dir / DB_NAME)
         set_meta(db, "db_id", token_hex(20))
+
+    elif args.subcmd == 'db-config':
+        from .backend.db import open_db, get_meta, get_all_meta, set_meta
+
+        db = open_db()
+        if args.delete:
+            if not args.key:
+                sys.exit("Error: no key specified to delete")
+            with db:
+                db.execute("DELETE FROM metameta WHERE key=?", (args.key,))
+        elif args.key and (args.value is not None):
+            set_meta(db, args.key, args.value)
+        elif args.key:
+            try:
+                print(repr(get_meta(db, args.key)))
+            except KeyError:
+                sys.exit(f"Error: key {args.key} not found")
+        else:
+            for k, v in get_all_meta(db).items():
+                print(f"{k}={v!r}")
 
 if __name__ == '__main__':
     sys.exit(main())

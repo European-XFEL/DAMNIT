@@ -69,6 +69,9 @@ def get_meta(conn, key, default: Any =KeyError, set_default=False):
                 )
             return default
 
+def get_all_meta(conn):
+    return dict(conn.execute('SELECT * FROM metameta'))
+
 def set_meta(conn, key, value):
     with conn:
         conn.execute(
