@@ -310,6 +310,46 @@ class Canvas(QtWidgets.QDialog):
             self._display_annotations_checkbox.setCheckState(QtCore.Qt.Checked)
 
 
+class SearchableComboBox(QtWidgets.QComboBox):
+
+    def __init__(self, parent = None):
+        QtWidgets.QComboBox.__init__(self, parent)
+
+        self.setEditable(True)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+
+        self.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+        self.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+        self.currentTextChanged.connect(self.on_filter_text_changed)
+        self.lineEdit().editingFinished.connect(self.on_filter_editing_finished)
+
+    def on_filter_text_changed(self, txt):
+        if self.findText(txt) != -1:
+            self._text_to_select = txt
+            self._last_valid = True
+        else:
+            self._last_valid = False
+
+    def on_filter_editing_finished(self):
+        cur_completion = self.completer().currentCompletion()
+        text = self._text_to_select
+
+        if not self._last_valid and cur_completion != "":
+            text = cur_completion
+
+        self.setCurrentText(text)
+
+    def focusInEvent(self, event):
+        r = event.reason()
+        if r == QtCore.Qt.MouseFocusReason or \
+           r == QtCore.Qt.TabFocusReason or \
+           r == QtCore.Qt.BacktabFocusReason:
+            QtCore.QTimer.singleShot(0, self.lineEdit().selectAll)
+
+
 class Plot:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
@@ -336,8 +376,8 @@ class Plot:
             self._toggle_probability_density_clicked
         )
 
-        self._combo_box_x_axis = self._get_variable_combobox()
-        self._combo_box_y_axis = self._get_variable_combobox()
+        self._combo_box_x_axis = SearchableComboBox(self._main_window)
+        self._combo_box_y_axis = SearchableComboBox(self._main_window)
 
         self.vs_button = QtWidgets.QToolButton()
         self.vs_button.setText("vs.")
@@ -354,51 +394,6 @@ class Plot:
             "legend": [],
             "runs_as_series": [],
         }
-
-    def _get_variable_combobox(self):
-        res = QtWidgets.QComboBox(self._main_window)
-
-        res.setEditable(True)
-        res.setFocusPolicy(QtCore.Qt.StrongFocus)
-        res.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
-        res.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
-
-        res.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
-        res.completer().setFilterMode(QtCore.Qt.MatchContains)
-
-        def on_filter_text_changed(txt):
-            if res.findText(txt) != -1:
-                res._text_to_select = txt
-                res._last_valid = True
-            else:
-                res._last_valid = False
-
-        res.currentTextChanged.connect(on_filter_text_changed)
-
-        def on_filter_editing_finished():
-            cur_completion = res.completer().currentCompletion()
-            text = res._text_to_select
-
-            if not res._last_valid and cur_completion != "":
-                text = cur_completion
-
-            res.setCurrentText(text)
-
-        res.lineEdit().editingFinished.connect(on_filter_editing_finished)
-
-        old_focus_in_function = res.focusInEvent
-
-        def on_focus_in_event(event):
-            old_focus_in_function(event)
-            r = event.reason()
-            if r == QtCore.Qt.MouseFocusReason or \
-               r == QtCore.Qt.TabFocusReason or \
-               r == QtCore.Qt.BacktabFocusReason:
-                QtCore.QTimer.singleShot(0, res.lineEdit().selectAll)
-
-        res.focusInEvent = on_focus_in_event
-
-        return res
 
     def update_columns(self):
         keys = list(self._main_window.data.columns)
