@@ -313,7 +313,7 @@ class Canvas(QtWidgets.QDialog):
 class SearchableComboBox(QtWidgets.QComboBox):
 
     def __init__(self, parent = None):
-        QtWidgets.QComboBox.__init__(self, parent)
+        super().__init__(parent)
 
         self.setEditable(True)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
@@ -343,6 +343,7 @@ class SearchableComboBox(QtWidgets.QComboBox):
         self.setCurrentText(text)
 
     def focusInEvent(self, event):
+        super().focusInEvent(event)
         r = event.reason()
         if r == QtCore.Qt.MouseFocusReason or \
            r == QtCore.Qt.TabFocusReason or \
