@@ -22,7 +22,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
+from ..backend.db import db_path, DamnitDB, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
@@ -275,7 +275,7 @@ da-dev@xfel.eu"""
 
         sqlite_path = db_path(path)
         log.info("Reading data from database")
-        self.db = open_db(sqlite_path)
+        self.db = DamnitDB(sqlite_path)
 
         user_variables = get_user_variables(self.db)
 
@@ -299,11 +299,11 @@ da-dev@xfel.eu"""
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
-        self.db_id = get_meta(self.db, 'db_id')
+        self.db_id = self.db.metameta['db_id']
         self.stop_update_listener_thread()
         self._updates_thread_launcher()
 
-        df = pd.read_sql_query("SELECT * FROM runs", self.db)
+        df = pd.read_sql_query("SELECT * FROM runs", self.db.conn)
         df.insert(0, "Status", True)
         df.insert(len(df.columns), "comment_id", pd.NA)
         df.pop("added_at")
@@ -319,7 +319,7 @@ da-dev@xfel.eu"""
 
         # Read the comments and prepare them for merging with the main data
         comments_df = pd.read_sql_query(
-            "SELECT rowid as comment_id, * FROM time_comments", self.db
+            "SELECT rowid as comment_id, * FROM time_comments", self.db.conn
         )
         comments_df.insert(0, "Run", pd.NA)
         comments_df.insert(1, "Proposal", pd.NA)
@@ -632,9 +632,7 @@ da-dev@xfel.eu"""
     def _comment_button_clicked(self):
         ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
         text = self.comment.text()
-        with self.db:
-            cur = self.db.execute("INSERT INTO time_comments VALUES (?, ?)", (ts, text))
-        comment_id = cur.lastrowid
+        comment_id = self.db.add_independent_comment(ts, text)
         self.data = pd.concat(
             [
                 self.data,
@@ -965,10 +963,10 @@ da-dev@xfel.eu"""
             return
 
         log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
-        with self.db:
-            column_title = self.col_name_to_title(column_name)
-            if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
-                self.db.execute(
+        column_title = self.col_name_to_title(column_name)
+        if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
+            with self.db.conn:
+                self.db.conn.execute(
                     "UPDATE runs set {}=? WHERE proposal=? AND runnr=?".format(column_name),
                     (value, int(prop), int(run)),
                 )
@@ -979,11 +977,7 @@ da-dev@xfel.eu"""
             return
 
         log.debug("Saving time-based comment ID %d", comment_id)
-        with self.db:
-            self.db.execute(
-                """UPDATE time_comments set comment=? WHERE rowid=?""",
-                (value, comment_id),
-            )
+        self.db.change_independent_comment(comment_id, value)
 
 
 class TableViewStyle(QtWidgets.QProxyStyle):

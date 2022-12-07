@@ -130,7 +130,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     monkeypatch.chdir(db_dir)
 
     # Store fake data in the DB
-    runs = pd.read_sql_query("SELECT * FROM runs", db)
+    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
 
     # Create the window with a mocked Path so that it saves the settings in the
     # home directory.

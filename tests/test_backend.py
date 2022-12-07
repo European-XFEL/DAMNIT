@@ -18,7 +18,7 @@ import xarray as xr
 
 from amore_mid_prototype.util import wait_until
 from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
-from amore_mid_prototype.backend.db import open_db, get_meta
+from amore_mid_prototype.backend.db import DamnitDB
 from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
 from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.backend.supervisord import write_supervisord_conf
@@ -327,9 +327,9 @@ def test_add_to_db(mock_db):
         "image": np.random.rand(10, 10)
     }
 
-    add_to_db(reduced_data, db, 1234, 42)
+    add_to_db(reduced_data, db.conn, 1234, 42)
 
-    cursor = db.execute("SELECT * FROM runs")
+    cursor = db.conn.execute("SELECT * FROM runs")
     row = cursor.fetchone()
 
     assert row["string"] == reduced_data["string"]
@@ -460,8 +460,8 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_path = db_dir / "runs.sqlite"
     assert db_path.is_file()
     assert path_filemode(db_path) == good_file_mode
-    db = open_db(db_path)
-    assert get_meta(db, "proposal") == 1234
+    db = DamnitDB(db_path)
+    assert db.metameta["proposal"] == 1234
 
     # Check the context file
     context_path = db_dir / "context.py"

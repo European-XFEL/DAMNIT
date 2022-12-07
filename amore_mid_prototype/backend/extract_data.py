@@ -21,7 +21,7 @@ from kafka import KafkaProducer
 from ..context import ContextFile, RunData
 from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
-from .db import open_db, get_meta
+from .db import DamnitDB
 
 
 
@@ -137,24 +137,24 @@ class Extractor:
     _proposal = None
 
     def __init__(self):
-        self.db = open_db()
+        self.db = DamnitDB()
         self.kafka_prd = KafkaProducer(
             bootstrap_servers=UPDATE_BROKERS,
             value_serializer=lambda d: pickle.dumps(d),
         )
-        self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
+        self.update_topic = UPDATE_TOPIC.format(self.db.metameta['db_id'])
         self.ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(self.db))
 
     @property
     def proposal(self):
         if self._proposal is None:
-            self._proposal = get_meta(self.db, 'proposal')
+            self._proposal = self.db.metameta['proposal']
         return self._proposal
 
     def slurm_options(self):
-        if reservation := get_meta(self.db, 'slurm_reservation', ''):
+        if reservation := self.db.metameta.get('slurm_reservation', ''):
             return ['--reservation', reservation]
-        partition = get_meta(self.db, 'slurm_partition', '') or default_slurm_partition()
+        partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
         return ['--partition', partition]
 
     def extract_and_ingest(self, proposal, run, cluster=False,
@@ -162,8 +162,8 @@ class Extractor:
         if proposal is None:
             proposal = self.proposal
 
-        with self.db:
-            self.db.execute("""
+        with self.db.conn:
+            self.db.conn.execute("""
                 INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
                 ON CONFLICT (proposal, runnr) DO NOTHING
             """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
@@ -173,13 +173,13 @@ class Extractor:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(out_path.parent, 0o777)
 
-        python_exe = get_meta(self.db, 'context_python', '')
+        python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
             match=match, python_exe=python_exe
         )
         log.info("Reduced data has %d fields", len(reduced_data))
-        add_to_db(reduced_data, self.db, proposal, run)
+        add_to_db(reduced_data, self.db.conn, proposal, run)
 
         # Send update via Kafka
         reduced_data['Proposal'] = proposal

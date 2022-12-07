@@ -8,7 +8,7 @@ import pandas as pd
 
 from amore_mid_prototype.context import ContextFile
 from amore_mid_prototype.ctxsupport.damnit_ctx import types_map, UserEditableVariable
-from amore_mid_prototype.backend.db import open_db, DB_NAME
+from amore_mid_prototype.backend.db import DamnitDB, DB_NAME
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ def mock_run():
 
 @pytest.fixture
 def mock_db(tmp_path, mock_ctx):
-    db = open_db(tmp_path / DB_NAME)
+    db = DamnitDB(tmp_path / DB_NAME)
 
     (tmp_path / "context.py").write_text(mock_ctx.code)
 
