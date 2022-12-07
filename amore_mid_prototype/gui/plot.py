@@ -17,7 +17,6 @@ from mpl_interactions import zoom_factory, panhandler
 
 log = logging.getLogger(__name__)
 
-
 class Canvas(QtWidgets.QDialog):
     def __init__(
         self,
@@ -311,6 +310,48 @@ class Canvas(QtWidgets.QDialog):
             self._display_annotations_checkbox.setCheckState(QtCore.Qt.Checked)
 
 
+class SearchableComboBox(QtWidgets.QComboBox):
+
+    def __init__(self, parent = None):
+        super().__init__(parent)
+
+        self.setEditable(True)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+
+        self.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+        self.completer().setFilterMode(QtCore.Qt.MatchContains)
+
+        self.currentTextChanged.connect(self.on_filter_text_changed)
+        self.lineEdit().editingFinished.connect(self.on_filter_editing_finished)
+
+    def on_filter_text_changed(self, txt):
+        if self.findText(txt) != -1:
+            self._text_to_select = txt
+            self._last_valid = True
+        else:
+            self._last_valid = False
+
+    def on_filter_editing_finished(self):
+        cur_completion = self.completer().currentCompletion()
+        text = self._text_to_select
+
+        if not self._last_valid and cur_completion != "":
+            text = cur_completion
+
+        self.setCurrentText(text)
+
+    def focusInEvent(self, event):
+        r = event.reason()
+        if r == QtCore.Qt.MouseFocusReason or \
+           r == QtCore.Qt.TabFocusReason or \
+           r == QtCore.Qt.BacktabFocusReason:
+            QtCore.QTimer.singleShot(0, self.lineEdit().selectAll)
+        else:
+            super().focusInEvent(event)
+
+
 class Plot:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
@@ -337,8 +378,8 @@ class Plot:
             self._toggle_probability_density_clicked
         )
 
-        self._combo_box_x_axis = QtWidgets.QComboBox(self._main_window)
-        self._combo_box_y_axis = QtWidgets.QComboBox(self._main_window)
+        self._combo_box_x_axis = SearchableComboBox(self._main_window)
+        self._combo_box_y_axis = SearchableComboBox(self._main_window)
 
         self.vs_button = QtWidgets.QToolButton()
         self.vs_button.setText("vs.")
