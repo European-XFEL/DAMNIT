@@ -24,7 +24,8 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile, Variable, types_map, get_type_from_name
+from ..context import ContextFile, Variable
+from ..ctxsupport.ctxrunner import types_map, get_type_from_name
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
@@ -398,18 +399,6 @@ da-dev@xfel.eu"""
             db[str(self._context_path)] = settings
 
     def autoconfigure(self, path: Path, proposal=None):
-
-        sqlite_path = db_path(path)
-        log.info("Reading data from database")
-        self.db = open_db(sqlite_path)
-
-        cursor = self.db.execute('PRAGMA table_info("runs")')
-        column_names = [cc[1] for cc in cursor]
-
-        for kk, vv in ctx_file_db.vars.items():
-            create_user_column(self.db, vv)
-            self.table.add_editable_column(vv.title or vv.name)
-
         context_path = path / "context.py"
         if not context_path.is_file():
             QMessageBox.critical(self, "No context file",
@@ -421,11 +410,15 @@ da-dev@xfel.eu"""
         log.info("Reading context file %s", self._context_path)
         ctx_file = ContextFile.from_py_file(self._context_path)
 
+        sqlite_path = db_path(path)
+        log.info("Reading data from database")
+        self.db = open_db(sqlite_path)
+
         ctx_file_db = ContextFile.from_db(self.db)
         ctx_file.merge_context_file(ctx_file_db)
 
         for kk, vv in ctx_file_db.vars.items():
-            add_user_variable(self.db, vv)
+            create_user_column(self.db, vv)
             self.table.add_editable_column(vv.title or vv.name)
 
         self._attributi = ctx_file.vars

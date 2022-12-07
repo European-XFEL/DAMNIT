@@ -4,20 +4,26 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import re
 from enum import Enum
 
 class RunData(Enum):
     RAW = "raw"
     PROC = "proc"
+    USER = "user"
     ALL = "all"
 
 class Variable:
-    def __init__(self, title=None, summary=None, data=None, cluster=False):
+    def __init__(self, title=None, summary=None, data=None, cluster=False, variable_type=None, description=None, attributes={}):
         self.func = None
+        self.name = None
         self.title = title
         self.summary = summary
+        self.variable_type = variable_type
+        self.description = description
+        self.attributes = attributes
 
-        if data is not None and data not in ["raw", "proc"]:
+        if data is not None and data not in ["raw", "proc", "user"]:
             raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
         else:
             # Store the users original setting, this is used later to determine
@@ -26,6 +32,16 @@ class Variable:
             self._data = data
 
         self.cluster = cluster
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        if value and not re.fullmatch('[a-zA-Z_]\w+', value, flags=re.A):
+            raise ValueError(f"Error in variable: the variable name '{value}' is not of the form '[a-zA-Z_]\w+'")
+        self._name = value
 
     def __call__(self, func):
         self.func = func
@@ -55,9 +71,6 @@ class Variable:
 
         Returns a dict of argument names to their annotations.
         """
-        if self.func is None:
-            raise RuntimeError(f"Variable '{self.title}' is not initialized with a function")
-
         return getattr(self.func, '__annotations__', {})
 
 

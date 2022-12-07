@@ -12,16 +12,35 @@ import os
 import time
 from pathlib import Path
 from graphlib import CycleError, TopologicalSorter
+from collections import namedtuple
+from itertools import chain
 
 import extra_data
 import h5py
 import numpy as np
 import xarray
+import pandas as pd
 from scipy import ndimage
 
 from damnit_ctx import RunData, Variable
 
 log = logging.getLogger(__name__)
+
+VariableDB = namedtuple("VariableDB", ("name", "code", "type", "title", "description", "attributes"))
+
+types_map = {
+  'bool' : pd.BooleanDtype(),
+  'int' : pd.Int32Dtype(),
+  'float' : pd.Float32Dtype(),
+  'str' : pd.StringDtype(),
+}
+
+def get_type_from_name(type_name):
+
+    if type_name not in types_map:
+        raise ValueError(f"The type {type_name} is not valid available types are {', '.join(list(types_map.keys()))}")
+
+    return types_map[type_name]
 
 
 class ContextFile:
@@ -93,6 +112,15 @@ class ContextFile:
 
         return dependencies
 
+    def add_variable(self, variable):
+        self.vars[variable.name] = variable
+
+    def merge_context_file(self, other_context):
+        for kk, vv in other_context.vars.items():
+            if kk in self.vars:
+                log.info(f'Variable named "{kk}" is already present in the base context file will be overwritten from the one in the merging context file.')
+            self.vars[kk] = vv
+
     @classmethod
     def from_py_file(cls, path: Path):
         code = path.read_text()
@@ -107,6 +135,30 @@ class ContextFile:
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
 
+    @classmethod
+    def from_db(cls, conn):
+        code = ""
+        user_variables = []
+        for vv in conn.execute("SELECT * FROM variables"):
+            vv = VariableDB(*vv)
+            if vv.code not in [None, '']:
+                code += vv.code + "\n\n"
+            else:
+                new_var = Variable(
+                    title=vv.title,
+                    data="user",
+                    variable_type=vv.type,
+                    description=vv.description,
+                    attributes=vv.attributes
+                )
+                new_var.name = vv.name
+                user_variables.append(new_var)
+        d = {}
+        exec(code, d)
+        vars = {v.name: v for v in chain(d.values(), user_variables) if isinstance(v, Variable)}
+        log.debug("Loaded %d variables", len(vars))
+        return cls(vars, code)
+
     def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
         new_vars = {}
         for name, var in self.vars.items():
@@ -114,7 +166,7 @@ class ContextFile:
 
             # If this is being triggered by a migration/calibration message for
             # raw/proc data, then only process the Variable's that require that data.
-            data_match = run_data == RunData.ALL or var.data == run_data
+            data_match = var.data == run_data or (run_data == RunData.ALL and var.data != RunData.USER)
             # Skip data tagged cluster unless we're in a dedicated Slurm job
             cluster_match = cluster or not var.cluster
             # Skip Variables that don't match the match list
