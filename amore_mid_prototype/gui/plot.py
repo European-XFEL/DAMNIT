@@ -343,12 +343,13 @@ class SearchableComboBox(QtWidgets.QComboBox):
         self.setCurrentText(text)
 
     def focusInEvent(self, event):
-        super().focusInEvent(event)
         r = event.reason()
         if r == QtCore.Qt.MouseFocusReason or \
            r == QtCore.Qt.TabFocusReason or \
            r == QtCore.Qt.BacktabFocusReason:
             QtCore.QTimer.singleShot(0, self.lineEdit().selectAll)
+        else:
+            super().focusInEvent(event)
 
 
 class Plot:
