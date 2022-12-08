@@ -63,7 +63,7 @@ def write_supervisord_conf(root_path):
 
     # Create supervisord.conf
     config = configparser.ConfigParser()
-    with (Path(__file__).parent / "supervisord.conf").open('r') as f:
+    with open(Path(__file__).parent / "supervisord.conf", 'r') as f:
         config.read_file(f)
     config["inet_http_server"]["port"] = str(port)
     config["inet_http_server"]["username"] = username
