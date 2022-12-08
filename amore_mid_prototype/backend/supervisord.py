@@ -143,11 +143,11 @@ def initialize_and_start_backend(root_path, proposal=None):
             raise ValueError("Must pass a proposal number to `initialize_and_start_backend()` if the database doesn't exist yet.")
 
         # Initialize database
-        db = DamnitDB(db_path(root_path))
+        db = DamnitDB.from_dir(root_path)
         db.metameta["proposal"] = proposal
     else:
         # Otherwise, load the proposal number
-        db = DamnitDB(db_path(root_path))
+        db = DamnitDB.from_dir(root_path)
         proposal = db.metameta["proposal"]
 
     context_path = root_path / "context.py"

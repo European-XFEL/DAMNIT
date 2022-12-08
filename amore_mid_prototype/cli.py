@@ -204,9 +204,9 @@ def main():
 
     elif args.subcmd == 'new-id':
         from secrets import token_hex
-        from .backend.db import DamnitDB, DB_NAME
+        from .backend.db import DamnitDB
 
-        db = DamnitDB(args.db_dir / DB_NAME)
+        db = DamnitDB.from_dir(args.db_dir)
         db.metameta["db_id"] = token_hex(20)
 
     elif args.subcmd == 'db-config':

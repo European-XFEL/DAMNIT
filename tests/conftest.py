@@ -127,7 +127,7 @@ def mock_run():
 
 @pytest.fixture
 def mock_db(tmp_path, mock_ctx):
-    db = DamnitDB(tmp_path / DB_NAME)
+    db = DamnitDB.from_dir(tmp_path)
 
     (tmp_path / "context.py").write_text(mock_ctx.code)
 

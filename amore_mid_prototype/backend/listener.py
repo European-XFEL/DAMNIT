@@ -58,7 +58,7 @@ class EventProcessor:
 
     def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
-        self.db = DamnitDB(context_dir / 'runs.sqlite')
+        self.db = DamnitDB.from_dir(context_dir)
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.conn.execute("pragma user_version=0;")
         self.proposal = self.db.metameta['proposal']

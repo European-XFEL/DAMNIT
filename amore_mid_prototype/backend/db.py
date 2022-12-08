@@ -41,6 +41,10 @@ class DamnitDB:
             # secure, but the secrets module is convenient to get a random string.
             self.metameta.setdefault('db_id', token_hex(20))
 
+    @classmethod
+    def from_dir(cls, path):
+        return cls(Path(path, DB_NAME))
+
     def close(self):
         self.conn.close()
 
