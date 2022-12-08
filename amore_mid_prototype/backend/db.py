@@ -44,7 +44,7 @@ class DamnitDB:
     def close(self):
         self.conn.close()
 
-    def add_independent_comment(self, ts: float, comment: str):
+    def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
         with self.conn:
             cur = self.conn.execute(
@@ -52,7 +52,7 @@ class DamnitDB:
             )
         return cur.lastrowid
 
-    def change_independent_comment(self, comment_id: int, comment: str):
+    def change_standalone_comment(self, comment_id: int, comment: str):
         with self.conn:
             self.conn.execute(
                 """UPDATE time_comments set comment=? WHERE rowid=?""",

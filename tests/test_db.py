@@ -29,11 +29,11 @@ def test_run_comment(mock_db):
     assert runs == [(1234, 5, 'Test comment')]
 
 
-def test_independent_comment(mock_db):
+def test_standalone_comment(mock_db):
     _, db = mock_db
 
     ts = 1670498578.
-    cid = db.add_independent_comment(ts, 'Comment without run')
-    db.change_independent_comment(cid, 'Revised comment')
+    cid = db.add_standalone_comment(ts, 'Comment without run')
+    db.change_standalone_comment(cid, 'Revised comment')
     res = [tuple(r) for r in db.conn.execute("SELECT * FROM time_comments")]
     assert res == [(ts, 'Revised comment')]

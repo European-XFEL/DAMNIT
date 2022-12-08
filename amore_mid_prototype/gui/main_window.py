@@ -632,7 +632,7 @@ da-dev@xfel.eu"""
     def _comment_button_clicked(self):
         ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
         text = self.comment.text()
-        comment_id = self.db.add_independent_comment(ts, text)
+        comment_id = self.db.add_standalone_comment(ts, text)
         self.data = pd.concat(
             [
                 self.data,
@@ -977,7 +977,7 @@ da-dev@xfel.eu"""
             return
 
         log.debug("Saving time-based comment ID %d", comment_id)
-        self.db.change_independent_comment(comment_id, value)
+        self.db.change_standalone_comment(comment_id, value)
 
 
 class TableViewStyle(QtWidgets.QProxyStyle):
