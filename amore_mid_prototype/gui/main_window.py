@@ -35,6 +35,18 @@ log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
 
+class QLogger(logging.Handler):
+    # https://stackoverflow.com/questions/28655198/best-way-to-display-logs-in-pyqt
+    def __init__(self, parent):
+        super().__init__()
+        self.widget = QtWidgets.QPlainTextEdit(parent)
+        self.widget.setReadOnly(True)
+        #self.widget.setFixedHeight(75)
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.widget.appendPlainText(msg)
+
 class Settings(Enum):
     COLUMNS = "columns"
 
@@ -77,6 +89,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Disable the main window at first since we haven't loaded any database yet
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
+
+        #logging
+        self.logger = QLogger(self)
+        log.addHandler(self.logger)
 
         self._create_view()
         self.configure_editor()
@@ -148,6 +164,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+        self.log_button = QtWidgets.QPushButton("Log")
+        self.log_button.setEnabled(True)
+        self.log_button.setCheckable(True)
+        self.log_button.clicked.connect(self._log_button_show_hide)
+        self._status_bar.addPermanentWidget(self.log_button)
+
+    def _log_button_show_hide(self):
+        if self.log_button.isChecked():
+            self.logger.widget.show()
+        else:
+            self.logger.widget.hide()
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -743,6 +771,9 @@ da-dev@xfel.eu"""
         plotting_group.setLayout(plot_vertical_layout)
 
         vertical_layout.addWidget(plotting_group)
+
+        self.logger.widget.hide()
+        vertical_layout.addWidget(self.logger.widget)
 
         self._view_widget.setLayout(vertical_layout)
 
