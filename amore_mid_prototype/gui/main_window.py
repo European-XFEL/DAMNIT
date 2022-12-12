@@ -17,7 +17,7 @@ from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QObject
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
@@ -35,17 +35,28 @@ log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
 
-class QLogger(logging.Handler):
-    # https://stackoverflow.com/questions/28655198/best-way-to-display-logs-in-pyqt
+class QLogger(QObject, logging.Handler):
+    new_record = QtCore.pyqtSignal(object)
+    # based on https://stackoverflow.com/questions/28655198/best-way-to-display-logs-in-pyqt
     def __init__(self, parent):
         super().__init__()
-        self.widget = QtWidgets.QPlainTextEdit(parent)
-        self.widget.setReadOnly(True)
-        #self.widget.setFixedHeight(75)
+        self.setFormatter(
+                logging.Formatter("%(asctime)s: %(levelname)s: %(name)s: %(message)s")
+        )
+        self.is_error = False
 
     def emit(self, record):
         msg = self.format(record)
-        self.widget.appendPlainText(msg)
+        _format = "<HTML><FONT COLOR={}>{}</HTML>"
+        if record.levelno in (logging.ERROR, logging.CRITICAL):
+            msg = _format.format('red',msg)
+            self.is_error = True
+            self.new_record.emit(msg)
+        else:
+            msg = _format.format('black',msg)
+            self.is_error = False
+            self.new_record.emit(msg)
+
 
 class Settings(Enum):
     COLUMNS = "columns"
@@ -78,21 +89,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._editor = Editor()
         self._error_widget = QsciScintilla()
         self._editor_parent_widget = QtWidgets.QSplitter(Qt.Vertical)
+        self._log_view_widget = QtWidgets.QWidget(self)
 
         self._tab_widget = QTabWidget()
         self._tabbar_style = TabBarStyle()
         self._tab_widget.tabBar().setStyle(self._tabbar_style)
         self._tab_widget.addTab(self._view_widget, "Run table")
         self._tab_widget.addTab(self._editor_parent_widget, "Context file")
+        self._tab_widget.addTab(self._log_view_widget, "Logs")
         self._tab_widget.currentChanged.connect(self.on_tab_changed)
 
         # Disable the main window at first since we haven't loaded any database yet
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
-        #logging
+        #Logging
         self.logger = QLogger(self)
-        log.addHandler(self.logger)
+        root_logger = logging.getLogger()
+        root_logger.addHandler(self.logger)
+        
+        self.log_widget = QtWidgets.QPlainTextEdit(self)
+        self.log_widget.setReadOnly(True)
+        self.log_widget.textChanged.connect(self.log_changed)
+        self.logger.new_record.connect(self.log_widget.appendHtml)
+        self._create_log_view()
 
         self._create_view()
         self.configure_editor()
@@ -102,6 +122,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
+
+    def _create_log_view(self):
+        vertical_layout = QtWidgets.QVBoxLayout()
+        vertical_layout.addWidget(self.log_widget) 
+        self._log_view_widget.setLayout(vertical_layout)
+
+    def log_changed(self):
+        if self.logger.is_error:
+            self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
+            self._status_bar.showMessage("An error ocurred, check the log tab.")
 
     def icon_path(self, name):
         """
@@ -114,6 +144,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._status_bar.showMessage("Double-click on a cell to inspect results.")
         elif index == 1:
             self._status_bar.showMessage(self._editor_status_message)
+        elif index == 2:
+            self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("black"))
 
     def closeEvent(self, event):
         if not self._context_is_saved:
@@ -130,6 +162,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
+
+        #must remove QHandler, otherwise C/C++ wrapper will be deleted
+        root_logger = logging.getLogger()
+        root_logger.removeHandler(self.logger)
+        
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -164,18 +201,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
-
-        self.log_button = QtWidgets.QPushButton("Log")
-        self.log_button.setEnabled(True)
-        self.log_button.setCheckable(True)
-        self.log_button.clicked.connect(self._log_button_show_hide)
-        self._status_bar.addPermanentWidget(self.log_button)
-
-    def _log_button_show_hide(self):
-        if self.log_button.isChecked():
-            self.logger.widget.show()
-        else:
-            self.logger.widget.hide()
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -771,9 +796,6 @@ da-dev@xfel.eu"""
         plotting_group.setLayout(plot_vertical_layout)
 
         vertical_layout.addWidget(plotting_group)
-
-        self.logger.widget.hide()
-        vertical_layout.addWidget(self.logger.widget)
 
         self._view_widget.setLayout(vertical_layout)
 
