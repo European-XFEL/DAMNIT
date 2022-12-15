@@ -178,6 +178,9 @@ class AddUserVariableDialog(QtWidgets.QDialog):
             self._icons[ii] = QtGui.QIcon(f"amore_mid_prototype/gui/ico/lock_{ii}_icon.png")
 
 class MainWindow(QtWidgets.QMainWindow):
+
+    context_dir_changed = QtCore.pyqtSignal(str)
+
     db = None
     db_id = None
 
@@ -528,6 +531,7 @@ da-dev@xfel.eu"""
 
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
+        self.context_dir_changed.emit(str(path))
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
@@ -587,6 +591,8 @@ da-dev@xfel.eu"""
         action_create_var.setShortcut("Shift+U")
         action_create_var.setStatusTip("Create user editable variable")
         action_create_var.triggered.connect(self._menu_create_user_var)
+        action_create_var.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: action_create_var.setEnabled(True))
 
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
