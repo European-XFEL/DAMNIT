@@ -291,11 +291,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
-    def show_status_message(self, message, timeout = 0):
+    def show_status_message(self, message, timeout = 0, stylesheet = ''):
         self._status_bar.showMessage(message, timeout)
+        self._status_bar.setStyleSheet(stylesheet)
 
     def show_default_status_message(self):
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        self._status_bar.setStyleSheet('QStatusBar {}')
 
     def _menu_bar_edit_context(self):
         Popen(['xdg-open', self.context_path])

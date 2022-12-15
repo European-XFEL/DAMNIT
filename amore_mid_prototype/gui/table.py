@@ -365,9 +365,11 @@ class Table(QtCore.QAbstractTableModel):
                 self._data.iloc[index.row(), index.column()] = value
                 value = self._data.iloc[index.row(), index.column()].item()
             except Exception as e:
+                print(e)
                 self._main_window.show_status_message(
-                    f"Value {value} is not valid for the {self._data.columns[index.column()]} column.",
-                    timeout = 5000
+                    f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column.",
+                    timeout=5000,
+                    stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
                 )
                 return False
             self.dataChanged.emit(index, index)
