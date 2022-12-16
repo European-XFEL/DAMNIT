@@ -46,6 +46,8 @@ class AddUserVariableDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self._main_window = parent
+
         self._field_status = {
             'title' : False,
             'name' : False
@@ -56,11 +58,25 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.setModal(True)
         self._load_icons()
 
-        self._main_window = parent
-
         layout = QtWidgets.QGridLayout()
         self.setLayout(layout)
 
+        self._create_form_fields()
+        self._compose_form_layout(layout)
+
+        button_add_var = QtWidgets.QPushButton("Add variable")
+        button_add_var.setEnabled(False)
+        button_cancel = QtWidgets.QPushButton("Cancel")
+
+        self.formStatusChanged.connect(button_add_var.setEnabled)
+
+        layout.addWidget(button_add_var, 6, 0)
+        layout.addWidget(button_cancel, 6, 1)
+
+        button_add_var.clicked.connect(self.check_if_variable_is_unique)
+        button_cancel.clicked.connect(self.reject)
+
+    def _create_form_fields(self):
         self.variable_title = QtWidgets.QLineEdit()
 
         self.variable_name = QtWidgets.QLineEdit()
@@ -87,6 +103,8 @@ class AddUserVariableDialog(QtWidgets.QDialog):
 
         self.variable_description = QtWidgets.QPlainTextEdit()
 
+    def _compose_form_layout(self, layout):
+
         layout.addWidget(QtWidgets.QLabel("<b>Title</b>*"), 0, 0)
         layout.addWidget(self.variable_title, 0, 1)
         layout.addWidget(QtWidgets.QLabel("<b>Name</b>*"), 1, 0)
@@ -97,18 +115,6 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         layout.addWidget(self.variable_before, 3, 1)
         layout.addWidget(QtWidgets.QLabel("Description"), 4, 0, 1, 2)
         layout.addWidget(self.variable_description, 5, 0, 1, 2)
-
-        button_add_var = QtWidgets.QPushButton("Add variable")
-        button_add_var.setEnabled(False)
-        button_cancel = QtWidgets.QPushButton("Cancel")
-
-        self.formStatusChanged.connect(button_add_var.setEnabled)
-
-        layout.addWidget(button_add_var, 6, 0)
-        layout.addWidget(button_cancel, 6, 1)
-
-        button_add_var.clicked.connect(self.check_if_variable_is_unique)
-        button_cancel.clicked.connect(self.reject)
 
     def _set_variable_name(self, text):
         if self.variable_name.isReadOnly():
@@ -176,6 +182,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self._icons = {}
         for ii in ["closed", "open"]:
             self._icons[ii] = QtGui.QIcon(f"amore_mid_prototype/gui/ico/lock_{ii}_icon.png")
+
 
 class MainWindow(QtWidgets.QMainWindow):
 
