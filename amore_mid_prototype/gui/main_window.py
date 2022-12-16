@@ -70,8 +70,8 @@ class AddUserVariableDialog(QtWidgets.QDialog):
 
         self.formStatusChanged.connect(button_add_var.setEnabled)
 
-        layout.addWidget(button_add_var, 6, 0)
-        layout.addWidget(button_cancel, 6, 1)
+        layout.addWidget(button_cancel, 6, 0)
+        layout.addWidget(button_add_var, 6, 1)
 
         button_add_var.clicked.connect(self.check_if_variable_is_unique)
         button_cancel.clicked.connect(self.reject)
