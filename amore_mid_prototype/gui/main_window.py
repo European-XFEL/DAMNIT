@@ -131,7 +131,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def log_changed(self):
         if self.logger.is_error:
             self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
-            self._status_bar.showMessage("An error ocurred, check the log tab.")
+            self._status_bar.showMessage("An error occurred, check the log tab.")
 
     def icon_path(self, name):
         """

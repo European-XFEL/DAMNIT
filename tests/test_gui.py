@@ -1,6 +1,7 @@
 import os
 import shelve
 import textwrap
+import logging
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -186,6 +187,21 @@ def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
     last_static_col_idx = win.data.columns.get_loc(last_static_col)
     assert win.table_view.isColumnHidden(last_static_col_idx)
 
+def test_log_gui(mock_db):
+    #If the logs from here appear in the mainwindow, all logs shall appear there.
+    log = logging.getLogger(__name__)
+
+    db_dir, db = mock_db
+    win = MainWindow(db_dir, False)
+
+    log.warning('A')
+    assert win.log_widget.toPlainText()[-1] == 'A'
+    assert not win.logger.is_error
+
+    log.error('B')
+    assert win.log_widget.toPlainText()[-1] == 'B'
+    assert win.logger.is_error
+    
 def test_handle_update(mock_db, qtbot):
     db_dir, db = mock_db
 
