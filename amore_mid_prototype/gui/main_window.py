@@ -87,11 +87,11 @@ class AddUserVariableDialog(QtWidgets.QDialog):
 
         self.variable_description = QtWidgets.QPlainTextEdit()
 
-        layout.addWidget(QtWidgets.QLabel("<span style='font-weight: bold'>Title</span>*"), 0, 0)
+        layout.addWidget(QtWidgets.QLabel("<b>Title</b>*"), 0, 0)
         layout.addWidget(self.variable_title, 0, 1)
-        layout.addWidget(QtWidgets.QLabel("<span style='font-weight: bold'>Name</span>*"), 1, 0)
+        layout.addWidget(QtWidgets.QLabel("<b>Name</b>*"), 1, 0)
         layout.addWidget(self.variable_name, 1, 1)
-        layout.addWidget(QtWidgets.QLabel("<span style='font-weight: bold'>Type</span>*"), 2, 0)
+        layout.addWidget(QtWidgets.QLabel("<b>Type</b>*"), 2, 0)
         layout.addWidget(self.variable_type, 2, 1)
         layout.addWidget(QtWidgets.QLabel("Before"), 3, 0)
         layout.addWidget(self.variable_before, 3, 1)
@@ -156,7 +156,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
             dialog = QtWidgets.QMessageBox(self)
             dialog.setWindowTitle("Error adding variable")
             dialog.setText(
-                "A variable with the same <span style = \"font-weight: bold\">{}</span> is already present.".format(' and '.join(error_type))
+                "A variable with the same <b>{}</b> is already present.".format(' and '.join(error_type))
             )
             dialog.exec()
 
