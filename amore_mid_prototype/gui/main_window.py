@@ -130,8 +130,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
             self._set_variable_name(self.variable_title.text())
 
     def _clean_string(self, string):
-        res = re.sub('\W+', '@', string, flags = re.A)
-        res = re.sub('^@|@$', '', res)
+        res = re.sub('\W+', '@', string, flags = re.A).strip('@')
         res = re.sub('^\d+', '', res)
         return res.replace('@', '_')
 
