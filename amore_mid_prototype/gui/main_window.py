@@ -146,17 +146,17 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         error_type = []
 
         if name_already_exists:
-            error_type.append('name')
+            error_type.append('<b>name</b>')
 
         if title_already_exists:
-            error_type.append('title')
+            error_type.append('<b>title</b>')
 
         if len(error_type) > 0:
 
             dialog = QtWidgets.QMessageBox(self)
             dialog.setWindowTitle("Error adding variable")
             dialog.setText(
-                "A variable with the same <b>{}</b> is already present.".format(' and '.join(error_type))
+                "A variable with the same {} is already present.".format(' and '.join(error_type))
             )
             dialog.exec()
 
