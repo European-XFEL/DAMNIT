@@ -66,29 +66,16 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.variable_name = QtWidgets.QLineEdit()
         self.variable_name.setValidator(QtGui.QRegularExpressionValidator(QtCore.QRegularExpression('[a-zA-Z_]\w*')))
 
-        def set_variable_name(text):
-            if self.variable_name.isReadOnly():
-                self.variable_name.setText(self._clean_string(text).lower())
-
-        self.variable_title.textChanged.connect(set_variable_name)
+        self.variable_title.textChanged.connect(self._set_variable_name)
 
         self.variable_title.textChanged.connect(lambda x: self._update_form_status('title', len(x) > 0))
         self.variable_name.textChanged.connect(lambda x: self._update_form_status('name', self.variable_name.hasAcceptableInput() > 0))
 
-        name_action = self.variable_name.addAction(self._icons["closed"], QtWidgets.QLineEdit.TrailingPosition)
-        name_action.setToolTip("Set name manually")
+        self.name_action = self.variable_name.addAction(self._icons["closed"], QtWidgets.QLineEdit.TrailingPosition)
+        self.name_action.setToolTip("Set name manually")
 
-        def set_field_status(checked=None):
-            new_status = not self.variable_name.isReadOnly()
-            self.variable_name.setReadOnly(new_status)
-            name_action.setToolTip("Set name {}".format("manually" if new_status else "automatically"))
-            name_action.setIcon(self._icons["closed" if new_status else "open"])
-            self.variable_name.setStyleSheet("color: gray" if new_status else "")
-            if new_status:
-                set_variable_name(self.variable_title.text())
-
-        name_action.triggered.connect(set_field_status)
-        set_field_status()
+        self.name_action.triggered.connect(self._set_field_status)
+        self._set_field_status()
 
         self.variable_type = QtWidgets.QComboBox()
         self.variable_type.addItems(types_map.keys())
@@ -122,6 +109,19 @@ class AddUserVariableDialog(QtWidgets.QDialog):
 
         button_add_var.clicked.connect(self.check_if_variable_is_unique)
         button_cancel.clicked.connect(self.reject)
+
+    def _set_variable_name(self, text):
+        if self.variable_name.isReadOnly():
+            self.variable_name.setText(self._clean_string(text).lower())
+
+    def _set_field_status(self, checked=None):
+        new_status = not self.variable_name.isReadOnly()
+        self.variable_name.setReadOnly(new_status)
+        self.name_action.setToolTip("Set name {}".format("manually" if new_status else "automatically"))
+        self.name_action.setIcon(self._icons["closed" if new_status else "open"])
+        self.variable_name.setStyleSheet("color: gray" if new_status else "")
+        if new_status:
+            self._set_variable_name(self.variable_title.text())
 
     def _clean_string(self, string):
         res = re.sub('\W+', '@', string, flags = re.A)
