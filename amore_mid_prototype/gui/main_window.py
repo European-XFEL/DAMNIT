@@ -17,7 +17,7 @@ from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
-from PyQt5.QtCore import Qt, QObject
+from PyQt5.QtCore import Qt, QObject, QFileSystemWatcher
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
@@ -32,6 +32,8 @@ from .editor import Editor, ContextTestResult
 
 
 log = logging.getLogger(__name__)
+log_html_format =  "<span style=\" font-size:10pt; font-weight:400; color:{};\" ><pre>{}<\pre></span>"
+
 pd.options.mode.use_inf_as_na = True
 
 
@@ -40,20 +42,16 @@ class QLogger(QObject, logging.Handler):
     # based on https://stackoverflow.com/questions/28655198/best-way-to-display-logs-in-pyqt
     def __init__(self, parent):
         super().__init__()
-        self.setFormatter(
-                logging.Formatter("%(asctime)s: %(levelname)s: %(name)s: %(message)s")
-        )
         self.is_error = False
 
     def emit(self, record):
         msg = self.format(record)
-        _format = "<HTML><FONT COLOR={}>{}</HTML>"
         if record.levelno in (logging.ERROR, logging.CRITICAL):
-            msg = _format.format('red',msg)
+            msg = log_html_format.format('red',msg)
             self.is_error = True
             self.new_record.emit(msg)
         else:
-            msg = _format.format('black',msg)
+            msg = log_html_format.format('black',msg)
             self.is_error = False
             self.new_record.emit(msg)
 
@@ -105,6 +103,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         #Logging
         self.logger = QLogger(self)
+        formatter = logging.root.handlers[0].formatter
+        self.logger.setFormatter(formatter)
         root_logger = logging.getLogger()
         root_logger.addHandler(self.logger)
         
@@ -112,6 +112,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_widget.setReadOnly(True)
         self.log_widget.textChanged.connect(self.log_changed)
         self.logger.new_record.connect(self.log_widget.appendHtml)
+
+        self.watcher = QFileSystemWatcher(['amore.log'])
+        self.watcher.fileChanged.connect(self.log_changed_test)
+        with open('amore.log', 'rb') as file:
+            file.seek(0,2)
+            self.be_logs_position = file.tell()
         self._create_log_view()
 
         self._create_view()
@@ -128,9 +134,29 @@ class MainWindow(QtWidgets.QMainWindow):
         vertical_layout.addWidget(self.log_widget) 
         self._log_view_widget.setLayout(vertical_layout)
 
-    def log_changed(self):
-        if self.logger.is_error:
-            self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
+    def log_changed_test(self):
+        with open('amore.log', 'r') as file:
+            is_error = False
+            file.seek(self.be_logs_position)
+            newline = file.readline()
+            while newline:
+                newline = newline[0:-1]
+                is_error = not any(log_n in newline for log_n in ['DEBUG','INFO', 'WARNING']) 
+                if is_error:
+                    newline = log_html_format.format('red', newline)
+                else:
+                    newline = log_html_format.format('black', newline)
+
+                self.log_widget.appendHtml(newline)
+                newline = file.readline()
+
+            self.be_logs_position = file.tell()
+            self.log_changed(is_error)
+
+    def log_changed(self,is_be_error=False):
+        if self.logger.is_error or is_be_error:
+            if self._tab_widget.currentIndex() != 2:
+                self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
             self._status_bar.showMessage("An error occurred, check the log tab.")
 
     def icon_path(self, name):
