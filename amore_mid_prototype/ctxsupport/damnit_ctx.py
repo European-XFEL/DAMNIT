@@ -7,31 +7,19 @@ environments.
 import re
 from enum import Enum
 
-class RunData(Enum):
-    RAW = "raw"
-    PROC = "proc"
-    USER = "user"
-    ALL = "all"
+class VariableBase:
 
-class Variable:
-    def __init__(self, title=None, summary=None, data=None, cluster=False, variable_type=None, description=None, attributes={}):
-        self.func = None
-        self.name = None
+    def __new__(cls, *args, **kwargs):
+        if cls == VariableBase:
+            raise TypeError(f"only children of '{cls.__name__}' may be instantiated")
+        return super().__new__(cls)
+
+    def __init__(self, name=None, func=None, title=None, description=None, attributes={}):
+        self.func = func
+        self.name = name
         self.title = title
-        self.summary = summary
-        self.variable_type = variable_type
         self.description = description
         self.attributes = attributes
-
-        if data is not None and data not in ["raw", "proc", "user"]:
-            raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
-        else:
-            # Store the users original setting, this is used later to determine
-            # whether raw-data variables that depend on proc-data variables can
-            # automatically be promoted.
-            self._data = data
-
-        self.cluster = cluster
 
     @property
     def name(self):
@@ -45,8 +33,40 @@ class Variable:
 
     def __call__(self, func):
         self.func = func
-        self.name = func.__name__
+        if self.name is None:
+            self.name = func.__name__
         return self
+
+
+class UserEditableVariable(VariableBase):
+
+    def __init__(self, _name, title, variable_type, description=None, attributes={}):
+        super().__init__(name=_name, title=title, description=description, attributes=attributes)
+
+        self.variable_type = variable_type
+
+
+class RunData(Enum):
+    RAW = "raw"
+    PROC = "proc"
+    ALL = "all"
+
+class Variable(VariableBase):
+
+    def __init__(self, title=None, summary=None, data=None, cluster=False, description=None, attributes={}):
+        super().__init__(title=title, description=description, attributes=attributes)
+
+        self.summary = summary
+
+        if data is not None and data not in ["raw", "proc"]:
+            raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
+        else:
+            # Store the users original setting, this is used later to determine
+            # whether raw-data variables that depend on proc-data variables can
+            # automatically be promoted.
+            self._data = data
+
+        self.cluster = cluster
 
     @property
     def data(self):
