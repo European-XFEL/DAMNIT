@@ -31,12 +31,6 @@ class VariableBase:
             raise ValueError(f"Error in variable: the variable name '{value}' is not of the form '[a-zA-Z_]\w+'")
         self._name = value
 
-    def __call__(self, func):
-        self.func = func
-        if self.name is None:
-            self.name = func.__name__
-        return self
-
 
 class UserEditableVariable(VariableBase):
 
@@ -67,6 +61,11 @@ class Variable(VariableBase):
             self._data = data
 
         self.cluster = cluster
+
+    def __call__(self, func):
+        self.func = func
+        self.name = func.__name__
+        return self
 
     @property
     def data(self):
