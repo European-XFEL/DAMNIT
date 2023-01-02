@@ -130,6 +130,10 @@ def main():
         help="A new value for the given key"
     )
 
+    rm_var = subparsers.add_parser("rm-var",
+                                   help="Delete a variable from the database")
+    rm_var.add_argument("var_name", type=str, help="Name of the variable to delete")
+
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
@@ -228,6 +232,12 @@ def main():
         else:
             for k, v in get_all_meta(db).items():
                 print(f"{k}={v!r}")
+
+    elif args.subcmd == "rm-var":
+        from .backend.db import open_db, delete_variable
+
+        db = open_db()
+        delete_variable(db, args.var_name)
 
 if __name__ == '__main__':
     sys.exit(main())

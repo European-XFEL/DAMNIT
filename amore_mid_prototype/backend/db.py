@@ -80,5 +80,9 @@ def set_meta(conn, key, value):
             {'key': key, 'value': value}
         )
 
+def delete_variable(conn, var_name):
+    with conn:
+        conn.execute(f"ALTER TABLE runs DROP COLUMN {var_name}")
+
 if __name__ == '__main__':
     open_db()

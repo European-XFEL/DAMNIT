@@ -129,3 +129,16 @@ def test_listen(tmp_path, monkeypatch):
     with (amore_proto(["listen", "--daemonize", "--test"]),
           pytest.raises(SystemExit)):
         main()
+
+def test_rm_var(mock_db, monkeypatch):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    cursor = db.execute("SELECT name FROM pragma_table_info('runs') WHERE name='comment'")
+    assert cursor.fetchone()[0] == "comment"
+
+    with patch("sys.argv", ["amore-proto", "rm-var", "comment"]):
+        main()
+
+    cursor = db.execute("SELECT name FROM pragma_table_info('runs') WHERE name='comment'")
+    assert cursor.fetchone() is None
