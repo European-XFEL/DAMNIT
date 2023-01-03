@@ -18,7 +18,7 @@ import numpy as np
 
 from kafka import KafkaProducer
 
-from ..context import ContextFile, RunData
+from ..context import ContextFile, RunData, get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 
@@ -140,8 +140,7 @@ class Extractor:
             value_serializer=lambda d: pickle.dumps(d),
         )
         self.update_topic = UPDATE_TOPIC.format(get_meta(self.db, 'db_id'))
-        self.ctx_whole = ContextFile.from_py_file(Path('context.py'))
-        self.ctx_whole.merge_context_file(ContextFile.from_db(self.db))
+        self.ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(self.db))
 
     @property
     def proposal(self):

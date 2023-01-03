@@ -24,8 +24,7 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile, Variable
-from ..ctxsupport.ctxrunner import types_map, get_type_from_name
+from ..context import ContextFile, Variable, get_user_variables, types_map, get_type_from_name
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
@@ -418,17 +417,16 @@ da-dev@xfel.eu"""
         else:
             self._context_path = context_path
 
-        log.info("Reading context file %s", self._context_path)
-        ctx_file = ContextFile.from_py_file(self._context_path)
-
         sqlite_path = db_path(path)
         log.info("Reading data from database")
         self.db = open_db(sqlite_path)
 
-        ctx_file_db = ContextFile.from_db(self.db)
-        ctx_file.merge_context_file(ctx_file_db)
+        user_variables = get_user_variables(self.db)
 
-        for kk, vv in ctx_file_db.vars.items():
+        log.info("Reading context file %s", self._context_path)
+        ctx_file = ContextFile.from_py_file(self._context_path, external_vars = user_variables)
+
+        for kk, vv in user_variables.items():
             create_user_column(self.db, vv)
             self.table.add_editable_column(vv.title or vv.name)
 
@@ -511,7 +509,7 @@ da-dev@xfel.eu"""
 
         for cc in self.data:
             col_name = self.col_title_to_name(cc)
-            if col_name in self._attributi and self._attributi[col_name].variable_type:
+            if col_name in self._attributi and hasattr(self._attributi[col_name], 'variable_type'):
                 var_type = get_type_from_name(self._attributi[col_name].variable_type)
                 self.data[cc] = self.data[cc].astype(var_type)
 

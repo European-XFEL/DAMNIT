@@ -57,10 +57,9 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
 def add_user_variable(conn, variable: Variable):
 
     conn.execute(
-        "INSERT INTO variables (name, code, type, title, description) VALUES(?, ?, ?, ?, ?)", 
+        "INSERT INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)", 
         (
             variable.name,
-            variable.func,
             variable.variable_type,
             variable.title,
             variable.description
