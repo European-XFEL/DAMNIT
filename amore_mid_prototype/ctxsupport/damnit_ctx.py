@@ -5,22 +5,140 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import re
+import abc
+import collections
+
 from functools import wraps
 from enum import Enum
 
 import pandas as pd
 
-types_map = {
-  'bool' : pd.BooleanDtype(),
-  'int' : pd.Int32Dtype(),
-  'float' : pd.Float32Dtype(),
-  'str' : pd.StringDtype(),
-}
+class ValueType(abc.ABC):
 
-def get_type_from_name(type_name):
+    @abc.abstractmethod
+    def type_instance():
+        pass
+
+    @abc.abstractmethod
+    def type_name():
+        pass
+
+    def __str__(self):
+        return self.type_name
+
+    @abc.abstractmethod
+    def description():
+        pass
+
+    @abc.abstractmethod
+    def examples():
+        pass
+
+    @classmethod
+    def unwrap(cls, x):
+        if len(x) == 1:
+            return x.to_numpy().item()
+        return list(x)
+
+    @classmethod
+    def convert(cls, data, unwrap=False):
+        is_string = isinstance(data, str)
+        is_sequence = hasattr(data, "__len__") and not is_string
+
+        if not is_sequence:
+            data = [data]
+
+        res = pd.Series(data).convert_dtypes().astype(cls.type_instance)
+
+        return cls.unwrap(res) if unwrap else res
+
+class BooleanValueType(ValueType):
+
+    type_instance = pd.BooleanDtype()
+
+    type_name = "boolean"
+
+    description = "A value type that can be used to denote truth values."
+
+    examples = ["True", "T", "true", "1", "False", "F", "f", "0"]
+
+    _valid_values = {
+        "true": True,
+        "yes": True,
+        "1": True,
+        "false": False,
+        "no": False,
+        "0": False
+    }
+
+    @classmethod
+    def _map_strings_to_values(cls, to_convert, valid_strings):
+        res = valid_strings.str.startswith(to_convert.lower())
+        n_matches = res.sum()
+        if n_matches == 1:
+            return cls._valid_values[valid_strings[res.argmax()]]
+        else:
+            raise ValueError(f"Value \"{to_convert}\" matches {'more than one' if n_matches > 0 else 'none'} of the allowed ones ({', '.join(valid_strings)})")
+
+    @classmethod
+    def convert(cls, data, unwrap=False):
+        is_string = isinstance(data, str)
+        is_sequence = hasattr(data, "__len__") and not is_string
+
+        if not is_sequence:
+            data = [data]
+
+        to_convert = pd.Series(data).convert_dtypes()
+        res = None
+
+        match to_convert.dtype:
+            case "object":
+                raise ValueError("The input array contains mixed object types")
+            case "string":
+                valid_strings = pd.Series(cls._valid_values.keys(), dtype="string")
+                res = to_convert.map(lambda x: cls._map_strings_to_values(x, valid_strings))
+            case _:
+                res = to_convert.astype(cls.type_instance)
+
+        return cls.unwrap(res) if unwrap else res
+
+
+class IntegerValueType(ValueType):
+
+    type_instance = pd.Int32Dtype()
+
+    type_name = "integer"
+
+    description = "A value type that can be used to count whole number of elements or classes."
+
+    examples = ["-7", "-2", "0", "10", "34"]
+
+class NumberValueType(ValueType):
+
+    type_instance = pd.Float32Dtype()
+
+    type_name = "number"
+
+    description = "A value type that can be used to represent decimal numbers."
+
+    examples = ["-34.1e10", "-7.1", "-4", "0.0", "3.141592653589793", "85.4E7"]
+
+class StringValueType(ValueType):
+
+    type_instance = pd.StringDtype()
+
+    type_name = "string"
+
+    description = "A value type that can be used to represent text."
+
+    examples = ["Broken", "Dark frame", "test_frame"]
+
+types_map = { tt.type_name : tt for tt in [BooleanValueType(), IntegerValueType(), NumberValueType(), StringValueType()] }
+
+def get_type_from_typename(type_name):
 
     if type_name not in types_map:
-        raise ValueError(f"The type {type_name} is not valid available types are {', '.join(list(types_map.keys()))}")
+        raise ValueError(f"The type \"{type_name}\" is not valid available types are {', '.join(list(types_map.keys()))}")
 
     return types_map[type_name]
 
@@ -96,6 +214,9 @@ class UserEditableVariable(VariableBase):
         return retrieve_data
 
         self.func = retrieve_data
+
+    def get_type_class(self):
+        return get_type_from_typename(self.variable_type)
 
 
 class RunData(Enum):

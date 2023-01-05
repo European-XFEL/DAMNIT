@@ -1,7 +1,6 @@
 from functools import lru_cache
 from datetime import datetime, timezone
 
-import ast
 import numpy as np
 import pandas as pd
 
@@ -354,20 +353,14 @@ class Table(QtCore.QAbstractTableModel):
             return False
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+            changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
             try:
-                if value == '':
-                    value = None
-                else:
-                    try:
-                        value = ast.literal_eval(value)
-                    except:
-                        pass
+                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
+                value = variable_type_class.convert(value, unwrap=True) if value != '' else None
                 self._data.iloc[index.row(), index.column()] = value
-                value = self._data.iloc[index.row(), index.column()].item()
             except Exception as e:
-                print(e)
                 self._main_window.show_status_message(
-                    f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column.",
+                    f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
                     timeout=5000,
                     stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
                 )
@@ -384,7 +377,6 @@ class Table(QtCore.QAbstractTableModel):
 
             if self._data.columns[index.column()] in self.editable_columns:
                 if not (pd.isna(prop) or pd.isna(run)):
-                    changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
                     self.value_changed.emit(int(prop), int(run), changed_column, value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:

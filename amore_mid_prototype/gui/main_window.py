@@ -24,7 +24,7 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile, Variable, get_user_variables, types_map, get_type_from_name
+from ..context import ContextFile, UserEditableVariable, get_user_variables, types_map
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
@@ -169,7 +169,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self._main_window.add_variable(
             name=self.variable_name.text(),
             title=self.variable_title.text(),
-            vtype=self.variable_type.currentText(),
+            variable_type=self.variable_type.currentText(),
             description=self.variable_description.toPlainText(),
             before=self.variable_before.currentIndex()
         )
@@ -510,8 +510,8 @@ da-dev@xfel.eu"""
         for cc in self.data:
             col_name = self.col_title_to_name(cc)
             if col_name in self._attributi and hasattr(self._attributi[col_name], 'variable_type'):
-                var_type = get_type_from_name(self._attributi[col_name].variable_type)
-                self.data[cc] = self.data[cc].astype(var_type)
+                var_type_class = self._attributi[col_name].get_type_class()
+                self.data[cc] = var_type_class.convert(self.data[cc])
 
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
@@ -548,22 +548,21 @@ da-dev@xfel.eu"""
 
         return name in haystack
 
-    def add_variable(self, name, title, vtype, description="", before=None):
+    def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
         before_pos = n_static_cols + 1
         if before == None:
             before_pos += self.table_view.get_movable_columns_count()
         else:
             before_pos += before
-        variable = Variable(title=title, data="user", variable_type=vtype, description=description)
-        variable.name = name
+        variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
         with self.db:
             add_user_variable(self.db, variable)
             create_user_column(self.db, variable)
         self._attributi[name] = variable
         self._name_to_title[name] = title
         self._title_to_name[title] = name
-        self.data.insert(before_pos, title, get_type_from_name(vtype).empty((len(self.data.index),)))
+        self.data.insert(before_pos, title, variable.get_type_class().convert(pd.Series(index=self.data.index, dtype='object')))
         self.table.insertColumn(before_pos)
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(title)
@@ -827,6 +826,13 @@ da-dev@xfel.eu"""
 
         return res
 
+    def get_variable_from_name(self, name):
+        res = None
+
+        if name in self._attributi:
+            res = self._attributi[name]
+
+        return res
 
     def make_finite(self, data):
         if not isinstance(data, pd.Series):
