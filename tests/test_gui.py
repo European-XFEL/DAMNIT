@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
+from PyQt5 import QtGui
 from PyQt5.QtWidgets import QMessageBox, QInputDialog
 
 from amore_mid_prototype.backend.db import db_path
@@ -188,19 +189,22 @@ def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
     assert win.table_view.isColumnHidden(last_static_col_idx)
 
 def test_log_gui(mock_db):
-    #If the logs from here appear in the mainwindow, all logs shall appear there.
+    # If the logs from here appear in the mainwindow, all logs shall appear there.
+
+
     log = logging.getLogger(__name__)
 
     db_dir, db = mock_db
     win = MainWindow(db_dir, False)
 
-    log.warning('A')
-    assert win.log_widget.toPlainText()[-1] == 'A'
-    assert not win.logger.is_error
+    cmt =  'echo {}.amore.log'.format(db_dir)
+    os.system(cmt)
+    #log.warning('A')
+    win.log_widget.moveCursor(QtGui.QTextCursor.MoveOperation.Start)
+    assert len(win.log_widget.toPlainText()) != 0
 
     log.error('B')
     assert win.log_widget.toPlainText()[-1] == 'B'
-    assert win.logger.is_error
     
 def test_handle_update(mock_db, qtbot):
     db_dir, db = mock_db

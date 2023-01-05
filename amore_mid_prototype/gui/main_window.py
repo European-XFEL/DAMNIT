@@ -32,28 +32,7 @@ from .editor import Editor, ContextTestResult
 
 
 log = logging.getLogger(__name__)
-log_html_format =  "<span style=\" font-size:10pt; font-weight:400; color:{};\" ><pre>{}<\pre></span>"
-
 pd.options.mode.use_inf_as_na = True
-
-
-class QLogger(QObject, logging.Handler):
-    new_record = QtCore.pyqtSignal(object)
-    # based on https://stackoverflow.com/questions/28655198/best-way-to-display-logs-in-pyqt
-    def __init__(self, parent):
-        super().__init__()
-        self.is_error = False
-
-    def emit(self, record):
-        msg = self.format(record)
-        if record.levelno in (logging.ERROR, logging.CRITICAL):
-            msg = log_html_format.format('red',msg)
-            self.is_error = True
-            self.new_record.emit(msg)
-        else:
-            msg = log_html_format.format('black',msg)
-            self.is_error = False
-            self.new_record.emit(msg)
 
 
 class Settings(Enum):
@@ -63,6 +42,10 @@ class Settings(Enum):
 class MainWindow(QtWidgets.QMainWindow):
     db = None
     db_id = None
+    log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    log_html_format = """<span style=\" font-size:10pt; 
+            font-weight:400; color:{};\" ><pre>{}<\pre></span>"""
+
 
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
@@ -77,6 +60,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._attributi = {}
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
+        self.be_log_path = 'amore.log'
+        self.ge_log_path = '.amore.log'
+        self.in_log_path = '.in_amore.log'
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
@@ -101,23 +87,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
-        #Logging
-        self.logger = QLogger(self)
+        # Local handler streams directly into the general log file
+        self.logger = logging.FileHandler(self.ge_log_path)
         formatter = logging.root.handlers[0].formatter
         self.logger.setFormatter(formatter)
-        root_logger = logging.getLogger()
+        root_logger = logging.root #.getLogger()
         root_logger.addHandler(self.logger)
-        
+
         self.log_widget = QtWidgets.QPlainTextEdit(self)
         self.log_widget.setReadOnly(True)
-        self.log_widget.textChanged.connect(self.log_changed)
-        self.logger.new_record.connect(self.log_widget.appendHtml)
 
-        self.watcher = QFileSystemWatcher(['amore.log'])
-        self.watcher.fileChanged.connect(self.log_changed_test)
-        with open('amore.log', 'rb') as file:
-            file.seek(0,2)
-            self.be_logs_position = file.tell()
         self._create_log_view()
 
         self._create_view()
@@ -130,34 +109,144 @@ class MainWindow(QtWidgets.QMainWindow):
         self._canvas_inspect = []
 
     def _create_log_view(self):
+        # get current last line of BackEnd(be) log file and watches it.
+        # The same is done for the General log file (gr)
+        if not(os.path.exists(self.be_log_path)):
+            Path(self.be_log_path).touch()
+        with open(self.be_log_path, 'rb') as log_file:
+            log_file.seek(0,2)
+            self.be_log_pos = log_file.tell()
+        self.watcher_backend = QFileSystemWatcher([self.be_log_path])
+        self.watcher_backend.fileChanged.connect(
+                lambda: self.log_file_changed(self.be_log_path,
+                                                self.be_log_pos))
+
+        with open(self.ge_log_path, 'rb') as log_file:
+            log_file.seek(0,2)
+            self.ge_log_pos = log_file.tell()
+            self.ge_log_pos_start = log_file.tell()
+        self.watcher_ge = QFileSystemWatcher([self.ge_log_path])
+        self.watcher_ge.fileChanged.connect(
+                lambda: self.log_file_changed(self.ge_log_path,
+                                                self.ge_log_pos))
+ 
+        self.create_log_cboxes()
+ 
         vertical_layout = QtWidgets.QVBoxLayout()
         vertical_layout.addWidget(self.log_widget) 
+        vertical_layout.addLayout(self.log_cboxes) 
         self._log_view_widget.setLayout(vertical_layout)
 
-    def log_changed_test(self):
-        with open('amore.log', 'r') as file:
+    def log_file_changed(self, path, position, refresh = False):
+        with open(path, 'r') as log_file:
             is_error = False
-            file.seek(self.be_logs_position)
-            newline = file.readline()
+            log_file.seek(position)
+            newline = log_file.readline()
+
             while newline:
-                newline = newline[0:-1]
-                is_error = not any(log_n in newline for log_n in ['DEBUG','INFO', 'WARNING']) 
-                if is_error:
-                    newline = log_html_format.format('red', newline)
-                else:
-                    newline = log_html_format.format('black', newline)
+                is_error = not any(log_n in newline for log_n in 
+                        ['DEBUG', 'INFO', 'WARNING']) 
+                if path == self.ge_log_path:
+                    htmlline = self.plain_to_html(newline[0:-1])
+                    if htmlline != None:
+                        #self.log_widget.appendHtml(htmlline)
+                        self.log_widget.appendPlainText(htmlline)
+                        self.ge_log_pos = log_file.tell()
 
-                self.log_widget.appendHtml(newline)
-                newline = file.readline()
+                # if changes are in the backend log file, just save it in
+                # the general log file. This will trigger the watcher and 
+                # display it in the gui.
+                if path == self.be_log_path:
+                    if not(refresh):
+                        with open(self.ge_log_path, 'a') as ge_log_file:
+                            ge_log_file.seek(self.ge_log_pos)
+                            ge_log_file.write(newline)
+                        self.be_log_pos = log_file.tell()
 
-            self.be_logs_position = file.tell()
-            self.log_changed(is_error)
+                    if is_error and not(refresh):
+                        if self._tab_widget.currentIndex() != 2:
+                            self._tab_widget.tabBar().setTabTextColor(
+                                    2, QtGui.QColor("red"))
+                            self._status_bar.showMessage(
+                                    "An error occurred, check the log tab.")
+                newline = log_file.readline()
+                if path == self.ge_log_path:
+                    self.ge_log_pos = log_file.tell()
 
-    def log_changed(self,is_be_error=False):
-        if self.logger.is_error or is_be_error:
-            if self._tab_widget.currentIndex() != 2:
-                self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
-            self._status_bar.showMessage("An error occurred, check the log tab.")
+
+    def plain_to_html(self, logline):
+        log_level = ''
+        html_log = None
+        _levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+
+        # any log line without a level is treated as an error
+        if not(any(level in logline for level in _levels)) and \
+                'ERROR' in self.log_levels:
+            log_level = 'ERROR'
+        else:
+            for level in self.log_levels:
+                log_level_found = level in logline
+                if log_level_found:
+                    log_level = level
+                    break
+
+        match log_level:
+            case 'DEBUG':
+                html_log = self.log_html_format.format('black', logline)
+            case 'INFO':
+                html_log = self.log_html_format.format('black', logline)
+            case 'WARNING':
+                html_log = self.log_html_format.format('#f27b1f', logline)
+            case 'ERROR':
+                html_log = self.log_html_format.format('red', logline)
+            case 'CRITICAL':
+                html_log = self.log_html_format.format('red', logline)
+
+        return  html_log
+ 
+    def create_log_cboxes(self):
+        horizontal_layout = QtWidgets.QHBoxLayout()
+        horizontal_layout.setAlignment(QtCore.Qt.AlignLeft)
+        horizontal_layout.setSpacing(10)
+        log_bar_label = QtWidgets.QLabel('Showing logs for:')
+        horizontal_layout.addWidget(log_bar_label)
+
+        self.InfoC = QtWidgets.QCheckBox('Infos')
+        self.InfoC.setChecked(True)
+        self.InfoC.stateChanged.connect(lambda: \
+                self.add_log_level('INFO') if self.InfoC.isChecked()\
+                else self.remove_log_level('INFO'))
+
+        self.WarningC = QtWidgets.QCheckBox('Warnings')
+        self.WarningC.setChecked(True)
+        self.WarningC.stateChanged.connect(lambda: \
+                self.add_log_level('WARNING') if self.WarningC.isChecked()\
+                else self.remove_log_level('WARNING'))
+
+        self.ErrorC = QtWidgets.QCheckBox('Errors')
+        self.ErrorC.setChecked(True)
+        self.ErrorC.stateChanged.connect(lambda: \
+                self.add_log_level('ERROR') if self.ErrorC.isChecked()\
+                else self.remove_log_level('ERROR'))
+
+        horizontal_layout.addWidget(self.InfoC)
+        horizontal_layout.addWidget(self.WarningC)
+        horizontal_layout.addWidget(self.ErrorC)
+
+        self.log_cboxes = horizontal_layout
+
+    def add_log_level(self, level = None):
+        self.log_levels.append(level)
+        self.refresh_log()
+ 
+    def remove_log_level(self, level = None):
+        self.log_levels.remove(level)
+        self.refresh_log()
+
+    def refresh_log(self):
+        self.log_widget.clear()
+        self.log_file_changed(self.ge_log_path, self.ge_log_pos_start, True)
+
 
     def icon_path(self, name):
         """
