@@ -92,8 +92,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.name_action.triggered.connect(self._set_field_status)
         self._set_field_status()
 
-        self.variable_type = QtWidgets.QComboBox()
-        self.variable_type.addItems(types_map.keys())
+        self._setup_types_widgets()
 
         self.variable_before = QtWidgets.QComboBox()
         columns = self._main_window.table_view.get_movable_columns()
@@ -102,14 +101,55 @@ class AddUserVariableDialog(QtWidgets.QDialog):
 
         self.variable_description = QtWidgets.QPlainTextEdit()
 
-    def _compose_form_layout(self, layout):
+    def _setup_types_widgets(self):
+        self.type_and_example = QtWidgets.QWidget()
+        self.type_and_example.setLayout(QtWidgets.QHBoxLayout())
+        self.type_and_example.layout().setContentsMargins(0, 0, 0, 0)
 
+        self.variable_type = QtWidgets.QComboBox()
+
+        self.variable_example = QtWidgets.QLabel()
+        self.variable_example.setAlignment(self.variable_example.alignment() | Qt.AlignRight)
+
+        for ii, (kk, vv) in enumerate(types_map.items()):
+            self.variable_type.addItem(kk)
+            self.variable_type.setItemData(ii, vv.description, Qt.ToolTipRole)
+
+        self._set_dynamic_type_information(self.variable_type.currentText())
+
+        self.variable_type.textHighlighted.connect(lambda x: self._set_dynamic_type_information(x))
+        self.variable_type.currentTextChanged.connect(lambda x: self._set_dynamic_type_information(x))
+
+        self.type_and_example.layout().addWidget(self.variable_type, stretch=1)
+        self.type_and_example.layout().addWidget(self.variable_example, stretch=2)
+
+
+    def _set_dynamic_type_information(self, current_type):
+
+        label = self.variable_example
+        format_text = lambda x: f"<span style='color: gray; font-size: 10px;'>{x}</span>"
+        cur_type_class = types_map[current_type]
+        type_examples = cur_type_class.examples
+        joined_examples = ', '.join(type_examples)
+
+        self.variable_type.setToolTip(cur_type_class.description)
+
+        label_font = label.font()
+        label_font.setPixelSize(10)
+        metrics = QtGui.QFontMetrics(label_font)
+
+        clipped_text = metrics.elidedText(joined_examples, Qt.ElideRight, label.width() - 5)
+
+        label.setText(format_text(clipped_text))
+        label.setToolTip(f'<b>Examples of values for type {current_type}</b>: {format_text(joined_examples)}')
+
+    def _compose_form_layout(self, layout):
         layout.addWidget(QtWidgets.QLabel("<b>Title</b>*"), 0, 0)
         layout.addWidget(self.variable_title, 0, 1)
         layout.addWidget(QtWidgets.QLabel("<b>Name</b>*"), 1, 0)
         layout.addWidget(self.variable_name, 1, 1)
         layout.addWidget(QtWidgets.QLabel("<b>Type</b>*"), 2, 0)
-        layout.addWidget(self.variable_type, 2, 1)
+        layout.addWidget(self.type_and_example, 2, 1)
         layout.addWidget(QtWidgets.QLabel("Before"), 3, 0)
         layout.addWidget(self.variable_before, 3, 1)
         layout.addWidget(QtWidgets.QLabel("Description"), 4, 0, 1, 2)
