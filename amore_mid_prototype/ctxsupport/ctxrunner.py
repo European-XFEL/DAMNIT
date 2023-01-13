@@ -44,7 +44,7 @@ class ContextFile:
         for name, var in raw_vars.items():
             dependencies = self.all_dependencies(var)
             proc_dependencies = [dep for dep in dependencies
-                                 if not hasattr(dep, "data") or self.vars[dep].data == RunData.PROC]
+                                 if not hasattr(self.vars[dep], "data") or self.vars[dep].data == RunData.PROC]
 
             if len(proc_dependencies) > 0:
                 # If we have a variable that depends on proc data but didn't
