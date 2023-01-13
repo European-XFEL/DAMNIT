@@ -79,7 +79,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.variable_title = QtWidgets.QLineEdit()
 
         self.variable_name = QtWidgets.QLineEdit()
-        self.variable_name.setValidator(QtGui.QRegularExpressionValidator(QtCore.QRegularExpression('[a-zA-Z_]\w*')))
+        self.variable_name.setValidator(QtGui.QRegularExpressionValidator(QtCore.QRegularExpression(r'[a-zA-Z_]\w*')))
 
         self.variable_title.textChanged.connect(self._set_variable_name)
 
@@ -169,8 +169,8 @@ class AddUserVariableDialog(QtWidgets.QDialog):
             self._set_variable_name(self.variable_title.text())
 
     def _clean_string(self, string):
-        res = re.sub('\W+', '@', string, flags = re.A).strip('@')
-        res = re.sub('^\d+', '', res)
+        res = re.sub(r'\W+', '@', string, flags = re.A).strip('@')
+        res = re.sub(r'^\d+', '', res)
         return res.replace('@', '_')
 
     def _update_form_status(self, name, is_ok):

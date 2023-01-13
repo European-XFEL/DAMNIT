@@ -164,8 +164,8 @@ class VariableBase:
 
     @name.setter
     def name(self, value):
-        if value and not re.fullmatch('[a-zA-Z_]\w+', value, flags=re.A):
-            raise ValueError(f"Error in variable: the variable name '{value}' is not of the form '[a-zA-Z_]\w+'")
+        if value and not re.fullmatch(r'[a-zA-Z_]\w+', value, flags=re.A):
+            raise ValueError(f"Error in variable: the variable name '{value}' is not of the form '[a-zA-Z_]\\w+'")
         self._name = value
 
     def arg_dependencies(self):
