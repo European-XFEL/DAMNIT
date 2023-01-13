@@ -147,12 +147,11 @@ def run_ctx_helper(context, run, run_number, proposal, caplog):
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = Results.create(context, run, run_number, proposal)
+        results = Results.create(context, {"run_data" : run}, run_number, proposal)
 
     # Check that there were no errors
     assert caplog.records == []
     return results
-
 
 def test_results(mock_ctx, mock_run, caplog):
     run_number = 1000
@@ -189,7 +188,7 @@ def test_results(mock_ctx, mock_run, caplog):
     raising_ctx = ContextFile.from_str(textwrap.dedent(raising_code))
 
     with caplog.at_level(logging.WARNING):
-        results = Results.create(raising_ctx, mock_run, run_number, proposal)
+        results = Results.create(raising_ctx, {"run_data" : mock_run}, run_number, proposal)
 
         # An error about foo and warning about bar should have been logged
         assert len(caplog.records) == 2
@@ -216,7 +215,7 @@ def test_results(mock_ctx, mock_run, caplog):
     return_none_ctx = ContextFile.from_str(textwrap.dedent(return_none_code))
 
     with caplog.at_level(logging.WARNING):
-        results = Results.create(return_none_ctx, mock_run, run_number, proposal)
+        results = Results.create(return_none_ctx, {"run_data" : mock_run}, run_number, proposal)
 
         # One warning about foo should have been logged
         assert len(caplog.records) == 1
