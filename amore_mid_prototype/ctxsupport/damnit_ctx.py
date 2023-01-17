@@ -48,7 +48,10 @@ class ValueType(abc.ABC):
         if not is_sequence:
             data = [data]
 
-        res = pd.Series(data).convert_dtypes().astype(cls.type_instance)
+        if len(data) > 0:
+            res = pd.Series(data).convert_dtypes().astype(cls.type_instance)
+        else:
+            res = pd.Series([], dtype=cls.type_instance)
 
         return cls.unwrap(res) if unwrap else res
 
@@ -91,14 +94,17 @@ class BooleanValueType(ValueType):
         to_convert = pd.Series(data).convert_dtypes()
         res = None
 
-        match to_convert.dtype:
-            case "object":
-                raise ValueError("The input array contains mixed object types")
-            case "string":
-                valid_strings = pd.Series(cls._valid_values.keys(), dtype="string")
-                res = to_convert.map(lambda x: cls._map_strings_to_values(x, valid_strings))
-            case _:
-                res = to_convert.astype(cls.type_instance)
+        if len(data) > 0:
+            match to_convert.dtype:
+                case "object":
+                    raise ValueError("The input array contains mixed object types")
+                case "string":
+                    valid_strings = pd.Series(cls._valid_values.keys(), dtype="string")
+                    res = to_convert.map(lambda x: cls._map_strings_to_values(x, valid_strings))
+                case _:
+                    res = to_convert.astype(cls.type_instance)
+        else:
+            res = pd.Series([], dtype=cls.type_instance)
 
         return cls.unwrap(res) if unwrap else res
 
