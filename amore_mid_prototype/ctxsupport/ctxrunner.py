@@ -279,6 +279,11 @@ class Results:
         # We need to open the files in append mode so that when proc Variable's
         # are processed after raw ones, the raw ones won't be lost.
         with add_to_h5_file(hdf5_path) as f:
+            # Delete whole groups for the Variable's we're modifying
+            for name in self.data.keys():
+                if name in f:
+                    del f[name]
+
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, arr in dsets:

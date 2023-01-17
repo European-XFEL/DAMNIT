@@ -1,6 +1,5 @@
 import os
 import stat
-import time
 import pickle
 import signal
 import logging
@@ -10,9 +9,9 @@ import tempfile
 import subprocess
 import configparser
 from pathlib import Path
-from numbers import Number
 from unittest.mock import patch
 
+import h5py
 import pytest
 import numpy as np
 import xarray as xr
@@ -21,7 +20,7 @@ from amore_mid_prototype.util import wait_until
 from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
 from amore_mid_prototype.backend.db import open_db, get_meta
 from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
-from amore_mid_prototype.backend.extract_data import add_to_db, Extractor
+from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.backend.supervisord import write_supervisord_conf
 
 
@@ -154,9 +153,10 @@ def run_ctx_helper(context, run, run_number, proposal, caplog):
     return results
 
 
-def test_results(mock_ctx, mock_run, caplog):
+def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
+    results_create = lambda ctx: Results.create(ctx, mock_run, run_number, proposal)
 
     # Simple test
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
@@ -189,7 +189,7 @@ def test_results(mock_ctx, mock_run, caplog):
     raising_ctx = ContextFile.from_str(textwrap.dedent(raising_code))
 
     with caplog.at_level(logging.WARNING):
-        results = Results.create(raising_ctx, mock_run, run_number, proposal)
+        results = results_create(raising_ctx)
 
         # An error about foo and warning about bar should have been logged
         assert len(caplog.records) == 2
@@ -216,7 +216,7 @@ def test_results(mock_ctx, mock_run, caplog):
     return_none_ctx = ContextFile.from_str(textwrap.dedent(return_none_code))
 
     with caplog.at_level(logging.WARNING):
-        results = Results.create(return_none_ctx, mock_run, run_number, proposal)
+        results = results_create(return_none_ctx)
 
         # One warning about foo should have been logged
         assert len(caplog.records) == 1
@@ -224,6 +224,40 @@ def test_results(mock_ctx, mock_run, caplog):
 
         # There should be no computed variables since we treat None as a missing dependency
         assert tuple(results.data.keys()) == ("start_time",)
+
+    # Test that the backend completely updates all datasets belonging to a
+    # variable during reprocessing. e.g. if it had a trainId dataset but now
+    # doesn't, the trainId dataset should be deleted from the HDF5 file.
+    results_hdf5_path = tmp_path / "results.hdf5"
+    with_coords_code = """
+    import xarray as xr
+    from amore_mid_prototype.context import Variable
+
+    @Variable(title="Foo")
+    def foo(run): return xr.DataArray([1, 2, 3], coords={"trainId": [100, 101, 102]})
+    """
+    with_coords_ctx = ContextFile.from_str(textwrap.dedent(with_coords_code))
+    results = results_create(with_coords_ctx)
+    results.save_hdf5(results_hdf5_path)
+
+    # This time there should be a trainId dataset saved
+    with h5py.File(results_hdf5_path) as f:
+        assert "foo/trainId" in f
+
+    without_coords_code = """
+    import xarray as xr
+    from amore_mid_prototype.context import Variable
+
+    @Variable(title="Foo")
+    def foo(run): return xr.DataArray([1, 2, 3])
+    """
+    without_coords_ctx = ContextFile.from_str(textwrap.dedent(without_coords_code))
+    results = results_create(without_coords_ctx)
+    results.save_hdf5(results_hdf5_path)
+
+    # But now it should be deleted from the file
+    with h5py.File(results_hdf5_path) as f:
+        assert "foo/trainId" not in f
 
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000
