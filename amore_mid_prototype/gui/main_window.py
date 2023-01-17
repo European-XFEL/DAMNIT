@@ -4,6 +4,8 @@ import logging
 import shelve
 import sys
 import time
+
+from operator import itemgetter
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
@@ -43,9 +45,9 @@ class MainWindow(QtWidgets.QMainWindow):
     db = None
     db_id = None
     log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-    log_html_format = """<span style=\" font-size:10pt; 
-            font-weight:400; color:{};\" ><pre>{}<\pre></span>"""
-
+    log_html_format = """<span style=" font-size:10pt;
+font-weight:400; color:{}; display : inline;" >
+<pre style = "white-space: pre-wrap;">{}<br></pre></span>"""
 
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
@@ -61,7 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
         self.be_log_path = 'amore.log'
-        self.ge_log_path = '.amore.log'
+        self.fe_log_path = str(Path.home() / '.amore.log')
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
@@ -87,24 +89,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self._tab_widget)
 
         # Local handler streams directly into the general log file
-        #self.logger = logging.FileHandler(self.ge_log_path)
-        self.error_alert = False
         self.log_pos = 0
         self.log_list = []
         self.d_handler = DictHandler(self.log_list)
-        self.f_handler = logging.FileHandler(self.ge_log_path)
+        self.f_handler = logging.FileHandler(self.fe_log_path)
         formatter = logging.Formatter(LOG_FORMAT)
         self.f_handler.setFormatter(formatter)
-        root_logger = logging.root #.getLogger()
+        root_logger = logging.root 
         root_logger.addHandler(self.d_handler)
         root_logger.addHandler(self.f_handler)
 
-        self.log_widget = QtWidgets.QPlainTextEdit(self)
+        self.log_widget = QtWidgets.QTextEdit(self)
         self.log_widget.setReadOnly(True)
-
         self._create_log_view()
-
-        self.log_df = pd.DataFrame(columns = ['time', 'level', 'source', 'msg'])
 
         self._create_view()
         self.configure_editor()
@@ -114,191 +111,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
-
-    def _create_log_view(self):
-        # get current last line of BackEnd(be) log file and watches it.
-        # The same is done for the General log file (gr)
-        if not(os.path.exists(self.be_log_path)):
-            Path(self.be_log_path).touch()
-        with open(self.be_log_path, 'rb') as log_file:
-            log_file.seek(0,2)
-            self.be_log_pos = log_file.tell()
-        self.watcher_backend = QFileSystemWatcher([self.be_log_path])
-        self.watcher_backend.fileChanged.connect(self.add_log_entry)
-
-        with open(self.ge_log_path, 'rb') as log_file:
-            log_file.seek(0,2)
-            self.ge_log_pos = log_file.tell()
-            self.ge_log_pos_start = log_file.tell()
-        self.watcher_ge = QFileSystemWatcher([self.ge_log_path])
-        self.watcher_ge.fileChanged.connect(self.display_log_lines)
- 
-        #self.watcher_ge.fileChanged.connect(
-        #        lambda: self.log_file_changed(self.ge_log_path,
-        #                                        self.ge_log_pos))
- 
-        self.create_log_cboxes()
- 
-        vertical_layout = QtWidgets.QVBoxLayout()
-        vertical_layout.addWidget(self.log_widget) 
-        vertical_layout.addLayout(self.log_cboxes) 
-        self._log_view_widget.setLayout(vertical_layout)
-
-    def display_log_lines(self):
-        while self.log_pos < len(self.log_list):
-            self.display_log_line(self.log_pos)
-            self.log_pos += 1
-
-    def display_log_line(self, k = -1):
-        new_line = self.log_list[k]
-        _time = new_line['time'][0:-4]
-        log_line = '  |  '.join(list(new_line.values())[1:])
-        log_line = '  |  '.join([_time, log_line])
-        html_new_line = self.plain_to_html(log_line)
-
-        if new_line['level'] == 'ERROR' and self._tab_widget.currentIndex() != 2:
-            self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
-            self._status_bar.showMessage("An error occurred, check the log tab.")
-
-        self.log_widget.appendHtml(html_new_line)
-
-    def add_log_entry(self):
-        log_list_tba = []
-        with open(self.be_log_path, 'r') as f:
-            f.seek(self.be_log_pos)
-            newline = f.readline()
-            while newline:
-                if '|' in newline:
-                    print('B')
-                    values = []
-                    for item in newline.split('|'):
-                        item = item.strip()
-                        values.append(item)
-                    keys = ['time', 'level', 'name', 'message']
-                    log_list_tba.append(dict(zip(keys,values)))
-                else:
-                    print('A', newline)
-                    log_list_tba[-1]['message'] = ''.join([log_list_tba[-1]['message'], newline])
-                newline = f.readline()
-            self.be_log_pos = f.tell()
-
-        if len(log_list_tba) > 0 and \
-                all(['time' in l.keys() for l in log_list_tba]):
-            self.log_list.extend(log_list_tba)
-            self.display_log_lines()
-
- 
-
-    def log_file_changed(self, path, position, refresh = False):
-        with open(path, 'r') as log_file:
-            is_error = False
-            log_file.seek(position)
-            newline = log_file.readline()
-
-            while newline:
-                is_error = not any(log_n in newline for log_n in 
-                        ['DEBUG', 'INFO', 'WARNING']) 
-                if path == self.ge_log_path:
-                    htmlline = self.plain_to_html(newline[0:-1])
-
-                    if htmlline != None:
-                        self.log_widget.appendHtml(htmlline)
-                        self.ge_log_pos = log_file.tell()
-
-                # if changes are in the backend log file, just save it in
-                # the general log file. This will trigger the watcher and
-                # display it in the gui.
-                if path == self.be_log_path:
-                    if not(refresh):
-                        with open(self.ge_log_path, 'a') as ge_log_file:
-                            ge_log_file.seek(self.ge_log_pos)
-                            ge_log_file.write(newline)
-                        self.be_log_pos = log_file.tell()
-
-                    if is_error and not(refresh):
-                        if self._tab_widget.currentIndex() != 2:
-                            self._tab_widget.tabBar().setTabTextColor(
-                                    2, QtGui.QColor("red"))
-                            self._status_bar.showMessage(
-                                    "An error occurred, check the log tab.")
-                newline = log_file.readline()
-                if path == self.ge_log_path:
-                    self.ge_log_pos = log_file.tell()
-
-
-    def plain_to_html(self, logline):
-        log_level = ''
-        html_log = None
-        _levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-
-        # any log line without a level keyword is treated as an error
-        if not(any(level in logline for level in _levels)) and \
-                'ERROR' in self.log_levels:
-            log_level = 'ERROR'
-        else:
-            for level in self.log_levels:
-                log_level_found = level in logline
-                if log_level_found:
-                    log_level = level
-                    break
-
-        match log_level:
-            case 'DEBUG':
-                html_log = self.log_html_format.format('black', logline)
-            case 'INFO':
-                html_log = self.log_html_format.format('black', logline)
-            case 'WARNING':
-                html_log = self.log_html_format.format('#f27b1f', logline)
-            case 'ERROR':
-                html_log = self.log_html_format.format('red', logline)
-            case 'CRITICAL':
-                html_log = self.log_html_format.format('red', logline)
-
-        return  html_log
- 
-    def create_log_cboxes(self):
-        horizontal_layout = QtWidgets.QHBoxLayout()
-        horizontal_layout.setAlignment(QtCore.Qt.AlignLeft)
-        horizontal_layout.setSpacing(10)
-        log_bar_label = QtWidgets.QLabel('Showing logs for:')
-        horizontal_layout.addWidget(log_bar_label)
-
-        self.infoC = QtWidgets.QCheckBox('Infos')
-        self.infoC.setChecked(True)
-        self.infoC.stateChanged.connect(lambda: \
-                self.add_log_level('INFO') if self.infoC.isChecked()\
-                else self.remove_log_level('INFO'))
-
-        self.warningC = QtWidgets.QCheckBox('Warnings')
-        self.warningC.setChecked(True)
-        self.warningC.stateChanged.connect(lambda: \
-                self.add_log_level('WARNING') if self.warningC.isChecked()\
-                else self.remove_log_level('WARNING'))
-
-        self.errorC = QtWidgets.QCheckBox('Errors')
-        self.errorC.setChecked(True)
-        self.errorC.stateChanged.connect(lambda: \
-                self.add_log_level('ERROR') if self.errorC.isChecked()\
-                else self.remove_log_level('ERROR'))
-
-        horizontal_layout.addWidget(self.infoC)
-        horizontal_layout.addWidget(self.warningC)
-        horizontal_layout.addWidget(self.errorC)
-
-        self.log_cboxes = horizontal_layout
-
-    def add_log_level(self, level = None):
-        self.log_levels.append(level)
-        self.refresh_log()
- 
-    def remove_log_level(self, level = None):
-        self.log_levels.remove(level)
-        self.refresh_log()
-
-    def refresh_log(self):
-        self.log_widget.clear()
-        self.log_file_changed(self.ge_log_path, self.ge_log_pos_start, True)
-
 
     def icon_path(self, name):
         """
@@ -329,10 +141,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
-
-        #must remove QHandler, otherwise C/C++ wrapper will be deleted
-        #root_logger = logging.getLogger()
-        #root_logger.removeHandler(self.logger)
         
         super().closeEvent(event)
 
@@ -887,6 +695,240 @@ da-dev@xfel.eu"""
             )
         )
         self._canvas_inspect[-1].show()
+
+    def _create_log_view(self):
+        # get current last line of BackEnd(be) log file and watches it.
+        # The same is done FortEnd(fe)
+        if not(os.path.exists(self.be_log_path)):
+            Path(self.be_log_path).touch()
+        with open(self.be_log_path, 'rb') as log_file:
+            self.line_positions_be = self.lines_pos(log_file)
+            log_file.seek(0,2)
+            self.be_log_pos = log_file.tell()
+        self.watcher_backend = QFileSystemWatcher([self.be_log_path])
+        self.watcher_backend.fileChanged.connect(self.add_log_entry)
+
+        with open(self.fe_log_path, 'rb') as log_file:
+            log_file.seek(0,2)
+            self.fe_log_pos = log_file.tell()
+        self.watcher_fe = QFileSystemWatcher([self.fe_log_path])
+        self.watcher_fe.fileChanged.connect(self.display_log_lines)
+    
+        self.create_log_cboxes()
+ 
+        horizontal_layout = QtWidgets.QHBoxLayout()
+        horizontal_layout.setAlignment(QtCore.Qt.AlignRight)
+        self.old_logs_button = QtWidgets.QPushButton('Load past logs')
+        horizontal_layout.addWidget(self.old_logs_button)
+
+        self.old_logs_button.adjustSize()
+
+        self.be_pos_relative = len(self.line_positions_be)-1
+        self.old_logs_button.clicked.connect(self.fetch_logs)
+        vertical_layout = QtWidgets.QVBoxLayout()
+        vertical_layout.addLayout(horizontal_layout) 
+        vertical_layout.addWidget(self.log_widget) 
+        vertical_layout.addLayout(self.log_cboxes) 
+        self._log_view_widget.setLayout(vertical_layout)
+
+    def lines_pos(self, file):
+        line = file.readline()
+        list_pos = [0, file.tell()]
+        while line:
+            line = file.readline()
+            list_pos.append(file.tell())
+
+        return list_pos
+
+    def fetch_logs(self):
+        # N is the number of lines to be fetched, while i is
+        # the number of exception lines found.
+        N = 30
+        i = 0
+        if self.be_pos_relative == 0:
+            return
+
+        with open(self.be_log_path, 'r') as log_file:
+            if self.be_pos_relative <= N:
+                pos = 0
+
+            else:
+                i=1
+                pos = self.line_positions_be[self.be_pos_relative - N]
+                log_file.seek(pos)
+                new_line = log_file.readline()
+
+                while new_line[0] != '2':
+                    pos = self.line_positions_be[self.be_pos_relative - N - i]
+                    log_file.seek(pos)
+                    new_line = log_file.readline()
+                    i+=1
+
+                pos = self.line_positions_be[self.be_pos_relative - N - i - 1]
+
+            log_file.seek(pos)
+            new_line = log_file.readline()
+            log_list_tba = []
+
+            while new_line and \
+                    (log_file.tell() != self.line_positions_be[self.be_pos_relative]):
+                self.plain_to_dict(new_line, log_list_tba)
+                new_line = log_file.readline()
+
+        self.log_list.extend(log_list_tba)
+        self.log_list = sorted(self.log_list, key=itemgetter('time')) 
+        self.d_handler.update_list(self.log_list)
+        self.refresh_log()
+        self.log_widget.moveCursor(QtGui.QTextCursor.Start)
+
+        self.be_pos_relative = (self.be_pos_relative -N -i)*int(pos != 0)
+        i = 0
+
+    def display_log_lines(self):
+        while self.log_pos < len(self.log_list):
+            self.display_log_line(self.log_pos)
+            self.log_pos += 1
+
+    def display_log_line(self, k = -1):
+        self.log_widget.moveCursor(QtGui.QTextCursor.End)
+        new_line = self.log_list[k]
+        _time, _level, _name, _message = self.log_list[k].values()
+        if not(_level.strip() in self.log_levels):
+            return
+
+        # miliseconds should not be displayed, but must be in 
+        # the list for further sortting 
+        if len(_time) >= 19:
+            _time = _time[0:19].ljust(20,' ')
+
+        _message = _message.replace('\n', '<br>')
+        _level = _level.ljust(8,' ')
+        _name = _name.ljust(40,' ')
+        log_line = ''.join([_time, _level, _name, _message])
+        html_new_line = self.plain_to_html(log_line)
+
+        # only indicate an error occurence if the current tab
+        # is not the log tab
+        if new_line['level'].strip() == 'ERROR' and self._tab_widget.currentIndex() != 2:
+            self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
+            self._status_bar.showMessage("An error occurred, check the log tab.")
+
+        # add separation if the date has changed
+        if new_line['time'][0:11] != self.log_list[k-1]['time'][0:11]\
+                and k>0:
+            html_separation =  '''<div style="text-align: right; display : inline;">
+<hr />{} &#8595; | &#8593; {} <hr /></div>'''
+            html_separation =  html_separation.format(
+                    new_line['time'][0:11], self.log_list[k-1]['time'][0:11])
+ 
+            html_separation = self.log_html_format.format('gray', html_separation)
+            self.log_widget.insertHtml(html_separation)
+
+        self.log_widget.insertHtml(html_new_line)
+
+    def add_log_entry(self):
+        # appends log entry from file to log_list 
+        # and displays it
+        log_list_tba = []
+        with open(self.be_log_path, 'r') as f:
+            f.seek(self.be_log_pos)
+            newline = f.readline()
+            while newline:
+                self.plain_to_dict(newline, log_list_tba)
+                newline = f.readline()
+            self.be_log_pos = f.tell()
+
+        if len(log_list_tba) > 0 and \
+                all(['time' in l.keys() for l in log_list_tba]):
+            self.log_list.extend(log_list_tba)
+            self.display_log_lines()
+
+    def plain_to_dict(self, newline, log_list_tba):
+        # transforms newline (plain text) into a dic
+        # please take note that record itens must be separated with |
+        keys = ['time', 'level', 'name', 'message']
+        if '|' in newline:
+            values = [i.strip() for i in newline.split('|')]
+            log_list_tba.append(dict(zip(keys, values)))
+
+        else:
+            # ERROR's execptions message lines should be added to
+            # the upper ERROR  message. 
+            try:
+                log_list_tba[-1]['message'] = \
+                        ''.join([log_list_tba[-1]['message'], newline])
+            except:
+                return
+
+    def plain_to_html(self, logline):
+        log_level = ''
+        html_log = None
+
+        # any log line without a level keyword is treated as an error
+        for level in self.log_levels:
+            log_level_found = level in logline
+            if log_level_found:
+                log_level = level
+                break
+
+        match log_level:
+            case 'DEBUG':
+                html_log = self.log_html_format.format('black', logline)
+            case 'INFO':
+                html_log = self.log_html_format.format('black', logline)
+            case 'WARNING':
+                html_log = self.log_html_format.format('#f27b1f', logline)
+            case 'ERROR':
+                html_log = self.log_html_format.format('red', logline)
+            case 'CRITICAL':
+                html_log = self.log_html_format.format('red', logline)
+
+        html_log = html_log.replace('<br><br>', '<br>')
+        return  html_log
+ 
+    def create_log_cboxes(self):
+        horizontal_layout = QtWidgets.QHBoxLayout()
+        horizontal_layout.setAlignment(QtCore.Qt.AlignLeft)
+        horizontal_layout.setSpacing(10)
+        log_bar_label = QtWidgets.QLabel('Showing logs for:')
+        horizontal_layout.addWidget(log_bar_label)
+
+        self.infoC = QtWidgets.QCheckBox('Infos')
+        self.infoC.setChecked(True)
+        self.infoC.stateChanged.connect(lambda: \
+                self.add_log_level('INFO') if self.infoC.isChecked()\
+                else self.remove_log_level('INFO'))
+
+        self.warningC = QtWidgets.QCheckBox('Warnings')
+        self.warningC.setChecked(True)
+        self.warningC.stateChanged.connect(lambda: \
+                self.add_log_level('WARNING') if self.warningC.isChecked()\
+                else self.remove_log_level('WARNING'))
+
+        self.errorC = QtWidgets.QCheckBox('Errors')
+        self.errorC.setChecked(True)
+        self.errorC.stateChanged.connect(lambda: \
+                self.add_log_level('ERROR') if self.errorC.isChecked()\
+                else self.remove_log_level('ERROR'))
+
+        horizontal_layout.addWidget(self.infoC)
+        horizontal_layout.addWidget(self.warningC)
+        horizontal_layout.addWidget(self.errorC)
+
+        self.log_cboxes = horizontal_layout
+
+    def add_log_level(self, level = None):
+        self.log_levels.append(level)
+        self.refresh_log()
+ 
+    def remove_log_level(self, level = None):
+        self.log_levels.remove(level)
+        self.refresh_log()
+
+    def refresh_log(self):
+        self.log_widget.clear()
+        self.log_pos = 0
+        self.display_log_lines()
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()

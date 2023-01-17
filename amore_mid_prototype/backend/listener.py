@@ -13,6 +13,7 @@ from kafka import KafkaConsumer
 
 from .db import open_db, get_meta
 from .extract_data import RunData
+from ..definitions import LOG_FORMAT
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -143,7 +144,8 @@ class EventProcessor:
 def listen():
     # Set up logging to a file
     file_handler = logging.FileHandler("amore.log")
-    formatter = logging.root.handlers[0].formatter
+    # formatter = logging.root.handlers[0].formatter
+    formatter = logging.Formatter(LOG_FORMAT)
     file_handler.setFormatter(formatter)
     logging.root.addHandler(file_handler)
 

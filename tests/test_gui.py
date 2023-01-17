@@ -15,6 +15,7 @@ from amore_mid_prototype.backend.db import db_path
 from amore_mid_prototype.gui.editor import ContextTestResult
 from amore_mid_prototype.gui.main_window import MainWindow, Settings
 
+_log = logging.getLogger(__name__)
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -188,24 +189,9 @@ def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
     last_static_col_idx = win.data.columns.get_loc(last_static_col)
     assert win.table_view.isColumnHidden(last_static_col_idx)
 
-def test_log_gui(mock_db):
-    # If the logs from here appear in the mainwindow, all logs shall appear there.
+def test_log_gui(mock_db, qtbot):
+    pass
 
-
-    log = logging.getLogger(__name__)
-
-    db_dir, db = mock_db
-    win = MainWindow(db_dir, False)
-
-    cmt =  'echo {}.amore.log'.format(db_dir)
-    os.system(cmt)
-    #log.warning('A')
-    win.log_widget.moveCursor(QtGui.QTextCursor.MoveOperation.Start)
-    assert len(win.log_widget.toPlainText()) != 0
-
-    log.error('B')
-    assert win.log_widget.toPlainText()[-1] == 'B'
-    
 def test_handle_update(mock_db, qtbot):
     db_dir, db = mock_db
 

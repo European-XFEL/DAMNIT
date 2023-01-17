@@ -1,4 +1,5 @@
 import logging
+from operator import itemgetter
 from PyQt5 import QtCore
 
 class NoExcFormatter(logging.Formatter):
@@ -32,7 +33,9 @@ class DictHandler(logging.Handler):
         
         self.llist.append(dic)
 
-        print(len(self.llist))
+    def update_list(self, log_list):
+        self.llist = log_list
+
         
 
     

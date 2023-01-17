@@ -7,3 +7,5 @@ else:
     UPDATE_BROKERS = ['exflwebstor01.desy.de:9102']
 
 UPDATE_TOPIC = "amore-db-{}"  # Fill in ID stored in database
+
+LOG_FORMAT = '%(asctime)s | %(levelname)s | %(name)s | %(message)s'
