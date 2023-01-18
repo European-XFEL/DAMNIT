@@ -7,11 +7,12 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QInputDialog
+from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
 
-from amore_mid_prototype.backend.db import db_path
+from amore_mid_prototype.backend.db import db_path, add_user_variable
+from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.gui.editor import ContextTestResult
-from amore_mid_prototype.gui.main_window import MainWindow, Settings
+from amore_mid_prototype.gui.main_window import MainWindow, Settings, AddUserVariableDialog
 
 
 # Check if a PID exists by using `kill -0`
@@ -264,3 +265,220 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # This time the database is already initialized
         win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
         initialize_and_start_backend.assert_called_once_with(db_dir)
+
+def test_user_vars(mock_ctx_user, mock_user_vars, mock_db):
+
+    proposal = 1234
+    run_number = 1000
+
+    db_dir, db = mock_db
+    ctx_path = db_dir / "context.py"
+    ctx_path.write_text(mock_ctx_user.code)
+
+    reduced_data = {
+        "user_integer": 12,
+        "user_number": 10.2,
+        "user_boolean": True,
+        "user_string": "foo",
+        "dep_integer": 13,
+        "dep_number": 10.2,
+        "dep_boolean": False,
+        "dep_string": "foofoo"
+    }
+
+    with db:
+        add_to_db(reduced_data, db, proposal, run_number)
+
+
+    win = MainWindow(connect_to_kafka=False)
+    win.show()
+
+    # Find menu for creating variable
+    create_user_menu = None
+    for aa in win.menuBar().actions()[0].menu().actions():
+        if aa.text() == "&Create user variable":
+            create_user_menu = aa
+            break
+
+    # Check that we found the actual menu
+    assert create_user_menu is not None
+    # The menu should not be enabled if the context file is not loaded
+    assert not create_user_menu.isEnabled()
+
+    # Adds the variables to the db
+    with db:
+        for vv in mock_user_vars.values():
+            add_user_variable(db, vv)
+
+    # Loads the context file to do the other tests
+    win.autoconfigure(db_dir)
+
+    # After loading a context file the menu should be enabled
+    assert create_user_menu.isEnabled()
+
+    add_var_win = AddUserVariableDialog(win)
+
+    # Check if setting a title with non alphanumeric chars
+    #   at beginning and end produces a clean variable name
+    add_var_win.variable_title.setText("!!My Cool Var!!#")
+    assert add_var_win.variable_name.text() == "my_cool_var"
+
+    # Check if setting a title with non alphanumeric chars
+    #   in the middle produces a clean variable name
+    add_var_win.variable_title.setText("My DAMN#@! Var")
+    assert add_var_win.variable_name.text() == "my_damn_var"
+
+    # Check if setting a title with numbers at the beginning
+    #   produces a clean variable name
+    add_var_win.variable_title.setText("11Var")
+    assert add_var_win.variable_name.text() == "var"
+
+    # Check if setting the title to an empty string sets
+    #   the variable name to an empty string
+    add_var_win.variable_title.setText("")
+    assert add_var_win.variable_name.text() == ""
+
+    # Check if disabling variable name autofill don't touch
+    #   the variable name value
+    add_var_win.name_action.trigger()
+    add_var_win.variable_title.setText("This cool var")
+    assert add_var_win.variable_name.text() == ""
+
+    # Check if typing an invalid variable name (i.e. digits at the
+    #   beginning) is prevented.
+    add_var_win.variable_name.insert("111")
+    assert add_var_win.variable_name.text() == ""
+
+    # Check if typing an invalid variable name (i.e. variable including
+    #   non-alphanumeric characters) is prevented.
+    for c in "var$i a@b!le1":
+        add_var_win.variable_name.insert(c)
+    assert add_var_win.variable_name.text() == "variable1"
+
+    # Check if reactivating the autofill of the variable name updates
+    #   the field to match the current title.
+    add_var_win.name_action.trigger()
+    assert add_var_win.variable_name.text() == "this_cool_var"
+
+    with patch.object(QMessageBox, "exec", return_value=QMessageBox.Cancel):
+        # Check if setting the variable title and name to an already existing
+        #   one prevents the creation of the variable.
+        add_var_win.variable_title.setText("User integer")
+        add_var_win.check_if_variable_is_unique("")
+        assert add_var_win.result() == QDialog.Rejected
+
+        # Check if setting the variable name to an already existing
+        #   one prevents the creation of the variable.
+        add_var_win.name_action.trigger()
+        add_var_win.variable_title.setText("My cool integer")
+        add_var_win.check_if_variable_is_unique("")
+        assert add_var_win.result() == QDialog.Rejected
+
+        # Check if setting the variable title to an already existing
+        #   one prevents the creation of the variable.
+        add_var_win.variable_title.setText("User integer")
+        add_var_win.variable_name.setText("my_cool_integer")
+        add_var_win.check_if_variable_is_unique("")
+        assert add_var_win.result() == QDialog.Rejected
+
+        # Check if setting the variable title and name to a non-conflicting
+        #   one allows the creation of the variable.
+        add_var_win.name_action.trigger()
+        add_var_win.variable_title.setText("My integer")
+        add_var_win.variable_type.setCurrentText("integer")
+        add_var_win.variable_description.setPlainText("My cool description")
+        add_var_win.check_if_variable_is_unique("")
+        assert add_var_win.result() == QDialog.Accepted
+
+    # Check that the variable with the already existing name is not created
+    assert db.execute("SELECT COUNT(*) FROM variables WHERE title = 'My cool integer'").fetchone()[0] == 0
+
+    # Check that the variable with the already existing title is not created
+    assert db.execute("SELECT COUNT(*) FROM variables WHERE name = 'my_cool_integer'").fetchone()[0] == 0
+
+    row = db.execute("SELECT name, type, title, description FROM variables WHERE name = 'my_integer'").fetchone()
+
+    # Check that the variable added via the dialog is actually created
+    assert row is not None
+
+    # Check that the fields of the variable added via the dialog was created
+    assert tuple(row) == ("my_integer", "integer", "My integer", "My cool description")
+
+    col_to_pos = {win.col_title_to_name(cc) : ii for ii, cc in enumerate(win.data.columns)}
+
+    class CaptureEditorDelegate(QStyledItemDelegate):
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.widget = None
+
+        def createEditor(self, parent, option, index):
+            self.widget = QLineEdit(parent=parent)
+            return self.widget
+
+        def destroyEditor(self, editor, index):
+            self.widget = None
+
+    table_view = win.table_view
+    table_view.setItemDelegate(CaptureEditorDelegate())
+    table_model = table_view.model()
+
+    def open_editor_and_get_delegate(field_name, row_number = 0):
+        table_view.edit(table_model.index(row_number, col_to_pos[field_name]))
+        return table_view.itemDelegate()
+
+    def change_to_value_and_close(value):
+        delegate = table_view.itemDelegate()
+        delegate.widget.insert(value)
+        table_view.commitData(delegate.widget)
+        table_view.closeEditor(delegate.widget, 0)
+
+    def get_value_from_field(field_name, row_number = 0):
+        return win.data.iloc[row_number, col_to_pos[field_name]]
+
+    # Check that editing is prevented when trying to modfiy a non-editable column 
+    assert open_editor_and_get_delegate("dep_number").widget is None
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_number").widget is not None
+
+    change_to_value_and_close('15.4')
+    # Check that the value in the table is of the correct type and value
+    assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_number").widget is not None
+
+    # Try to assign a value of the wrong type
+    change_to_value_and_close('fooo')
+    # Check that the value is still the same as before
+    assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_integer").widget is not None
+
+    change_to_value_and_close('42')
+    # Check that the value in the table is of the correct type and value
+    assert get_value_from_field("user_integer") == 42
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_string").widget is not None
+
+    change_to_value_and_close('Cool string')
+    # Check that the value in the table is of the correct type and value
+    assert get_value_from_field("user_string") == 'Cool string'
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_boolean").widget is not None
+
+    change_to_value_and_close('T')
+    # Check that the value in the table is of the correct type and value
+    assert get_value_from_field("user_boolean")
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_boolean").widget is not None
+
+    change_to_value_and_close('no')
+    # Check that the value in the table is of the correct type and value
+    assert not get_value_from_field("user_boolean")
+

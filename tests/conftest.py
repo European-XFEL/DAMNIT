@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 import numpy as np
 
-from amore_mid_prototype.context import ContextFile
+from amore_mid_prototype.context import ContextFile, types_map, UserEditableVariable
 from amore_mid_prototype.backend.db import open_db, DB_NAME
 
 
@@ -53,6 +53,50 @@ def mock_ctx():
     """
 
     return ContextFile.from_str(textwrap.dedent(code))
+
+@pytest.fixture
+def mock_user_vars():
+
+    user_variables = {}
+
+    for kk in types_map.keys():
+        var_name = f"user_{kk}"
+        user_variables[var_name] = UserEditableVariable(
+            var_name,
+            f"User {kk}",
+            kk,
+            description=f"This is a user editable variable of type {kk}"
+        )
+
+    return user_variables
+
+@pytest.fixture
+def mock_ctx_user(mock_user_vars):
+    code = """
+    import time
+    import numpy as np
+    import xarray as xr
+    from amore_mid_prototype.context import Variable
+
+    @Variable(title="Depend from user integer")
+    def dep_integer(run, user_integer: "var#user_integer"):
+        return user_integer + 1
+
+    @Variable(title="Depend from user number")
+    def dep_number(run, user_number: "var#user_number"):
+        return user_number * 1.0
+
+    @Variable(title="Depend from user boolean")
+    def dep_boolean(run, user_boolean: "var#user_boolean"):
+        return user_boolean and False
+
+    @Variable(title="Depend from user string")
+    def dep_string(run, user_string: "var#user_string"):
+        return user_string * 2
+
+    """
+
+    return ContextFile.from_str(textwrap.dedent(code), external_vars=mock_user_vars)
 
 @pytest.fixture
 def mock_run():
