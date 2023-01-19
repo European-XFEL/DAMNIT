@@ -1,3 +1,4 @@
+import re
 import os
 import shelve
 import textwrap
@@ -436,49 +437,108 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db):
     def get_value_from_field(field_name, row_number = 0):
         return win.data.iloc[row_number, col_to_pos[field_name]]
 
+    def get_value_from_db(field_name):
+        if not re.fullmatch(r"[a-zA-Z_]\w+", field_name, flags=re.A):
+            raise ValueError(f"Error in field_name: the variable name '{field_name}' is not of the form '[a-zA-Z_]\\w+'")
+        return db.execute(f"SELECT {field_name} FROM runs WHERE runnr = ?", (run_number,)).fetchone()[0]
+
     # Check that editing is prevented when trying to modfiy a non-editable column 
     assert open_editor_and_get_delegate("dep_number").widget is None
 
     # Check that editing is allowed when trying to modfiy a user editable column 
     assert open_editor_and_get_delegate("user_number").widget is not None
 
-    change_to_value_and_close('15.4')
+    change_to_value_and_close("15.4")
+
     # Check that the value in the table is of the correct type and value
     assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
+
+    # Check that the value in the db matches what was typed in the table
+    assert abs(get_value_from_db("user_number") - 15.4) < 1e-5
 
     # Check that editing is allowed when trying to modfiy a user editable column 
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     # Try to assign a value of the wrong type
-    change_to_value_and_close('fooo')
+    change_to_value_and_close("fooo")
     # Check that the value is still the same as before
     assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
 
     # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_number").widget is not None
+
+    # Try to assign an empty value (i.e. deletes the cell)
+    change_to_value_and_close("")
+    assert pd.isna(get_value_from_field("user_number"))
+
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_number") is None
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
     assert open_editor_and_get_delegate("user_integer").widget is not None
 
-    change_to_value_and_close('42')
+    change_to_value_and_close("42")
+
     # Check that the value in the table is of the correct type and value
     assert get_value_from_field("user_integer") == 42
+
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_integer") == 42
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_integer").widget is not None
+
+    # Try to assign an empty value (i.e. deletes the cell)
+    change_to_value_and_close("")
+    assert pd.isna(get_value_from_field("user_integer"))
+
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_integer") is None
 
     # Check that editing is allowed when trying to modfiy a user editable column 
     assert open_editor_and_get_delegate("user_string").widget is not None
 
-    change_to_value_and_close('Cool string')
+    change_to_value_and_close("Cool string")
     # Check that the value in the table is of the correct type and value
-    assert get_value_from_field("user_string") == 'Cool string'
+    assert get_value_from_field("user_string") == "Cool string"
+
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_string") == "Cool string"
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_string").widget is not None
+
+    # Try to assign an empty value (i.e. deletes the cell)
+    change_to_value_and_close("")
+    assert pd.isna(get_value_from_field("user_string"))
+
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_string") is None
 
     # Check that editing is allowed when trying to modfiy a user editable column 
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
-    change_to_value_and_close('T')
+    change_to_value_and_close("T")
     # Check that the value in the table is of the correct type and value
     assert get_value_from_field("user_boolean")
 
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_boolean")
+
     # Check that editing is allowed when trying to modfiy a user editable column 
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
-    change_to_value_and_close('no')
+    change_to_value_and_close("no")
     # Check that the value in the table is of the correct type and value
     assert not get_value_from_field("user_boolean")
+
+    # Check that editing is allowed when trying to modfiy a user editable column 
+    assert open_editor_and_get_delegate("user_boolean").widget is not None
+
+    # Try to assign an empty value (i.e. deletes the cell)
+    change_to_value_and_close("")
+    assert pd.isna(get_value_from_field("user_boolean"))
+
+    # Check that the value in the db matches what was typed in the table
+    assert get_value_from_db("user_boolean") is None
 
