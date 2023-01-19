@@ -153,3 +153,7 @@ cython_debug/
 
 *.sqlite
 AMORE.json
+
+# vim swp files
+*.swp
+*.swo
