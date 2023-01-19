@@ -31,4 +31,4 @@ before_script:
 test:
   script:
     - pip install '.[test]'
-    - python -m pytest . -s
+    - python -m pytest .
