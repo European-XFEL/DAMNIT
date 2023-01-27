@@ -311,12 +311,12 @@ da-dev@xfel.eu"""
         )
 
         # Load the users settings
+        col_settings = { }
         if self._settings_db_path.parent.is_dir():
             with shelve.open(str(self._settings_db_path)) as db:
                 key = str(self._context_path)
-                col_settings = db[key][Settings.COLUMNS.value]
-        else:
-            col_settings = { }
+                if key in db:
+                    col_settings = db[key][Settings.COLUMNS.value]
 
         saved_cols = list(col_settings.keys())
         df_cols = self.data.columns.tolist()
