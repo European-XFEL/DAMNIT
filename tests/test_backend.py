@@ -258,6 +258,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert "foo/trainId" not in f
 
+@pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db, caplog):
 
     proposal = 1234

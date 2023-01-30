@@ -27,6 +27,7 @@ from damnit_ctx import RunData, VariableBase, Variable, UserEditableVariable
 log = logging.getLogger(__name__)
 
 class ContextFile:
+
     def __init__(self, vars, code):
         self.vars = vars
         self.code = code
@@ -37,6 +38,14 @@ class ContextFile:
         except CycleError as e:
             # Tweak the error message to make it clearer
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
+
+        # Temporarily prevent User Editable Variables as dependencies
+        user_var_deps = set()
+        for name, var in self.vars.items():
+            user_var_deps |= {dep for dep in self.all_dependencies(var) if hasattr(self.vars[dep], "variable_type")}
+        if len(user_var_deps):
+            all_vars_quoted = ", ".join(f'"{name}"' for name in sorted(user_var_deps))
+            raise ValueError(f"The following User Editable Variables {all_vars_quoted} are used as dependecies. This is currently unsupported.")
 
         # Check for raw-data variables that depend on proc-data variables
         raw_vars = { name: var for name, var in self.vars.items()

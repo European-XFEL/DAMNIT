@@ -79,19 +79,23 @@ def mock_ctx_user(mock_user_vars):
     from amore_mid_prototype.context import Variable
 
     @Variable(title="Depend from user integer")
-    def dep_integer(run, user_integer: "var#user_integer"):
+    #def dep_integer(run, user_integer: "var#user_integer"):
+    def dep_integer(run, user_integer=12):
         return user_integer + 1
 
     @Variable(title="Depend from user number")
-    def dep_number(run, user_number: "var#user_number"):
+    #def dep_number(run, user_number: "var#user_number"):
+    def dep_number(run, user_number=10.2):
         return user_number * 1.0
 
     @Variable(title="Depend from user boolean")
-    def dep_boolean(run, user_boolean: "var#user_boolean"):
+    #def dep_boolean(run, user_boolean: "var#user_boolean"):
+    def dep_boolean(run, user_boolean=True):
         return user_boolean and False
 
     @Variable(title="Depend from user string")
-    def dep_string(run, user_string: "var#user_string"):
+    #def dep_string(run, user_string: "var#user_string"):
+    def dep_string(run, user_string="foo"):
         return user_string * 2
 
     """
