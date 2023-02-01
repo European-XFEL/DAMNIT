@@ -92,6 +92,12 @@ class Canvas(QtWidgets.QDialog):
             warning_label.setWordWrap(True)
             layout.addWidget(warning_label)
 
+        self._nan_warning_label = QtWidgets.QLabel("Warning: at least one of the variables is all NaNs, " \
+                                                   "it may not be plotted.")
+        self._nan_warning_label.setWordWrap(True)
+        self._nan_warning_label.hide()
+        layout.addWidget(self._nan_warning_label)
+
         self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
         self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
         self._autoscale_checkbox.setLayoutDirection(
@@ -177,6 +183,7 @@ class Canvas(QtWidgets.QDialog):
 
     def update_canvas(self, xs=None, ys=None, image=None, legend=None, series_names=["default"]):
         cmap = mpl_cm.get_cmap("tab20")
+        self._nan_warning_label.hide()
 
         if (xs is None and ys is None) and self.plot_type == "histogram1D":
             xs, ys = [], []
@@ -188,6 +195,11 @@ class Canvas(QtWidgets.QDialog):
                     if self.plot_type == "default":
                         self._lines[series][i].set_data(x, y)
                     if self.plot_type == "histogram1D":
+                        # Don't try to update histograms of NaN arrays
+                        if np.all(np.isnan(x)):
+                            self._nan_warning_label.show()
+                            continue
+
                         _ = [b.remove() for b in self._lines[series][i]]
                         y, x, patches = self._axis.hist(
                             x, bins=self.histogram1D_bins, **self._kwargs[series][i]
@@ -198,10 +210,10 @@ class Canvas(QtWidgets.QDialog):
                     ys.append(y)
             self.figure.canvas.draw()
 
-            xs_min, ys_min = xs[0].min(), 0
-            xs_max, ys_max = xs[0].max(), 1
+            if self._autoscale_checkbox.isChecked() and len(xs) > 0:
+                xs_min, ys_min = xs[0].min(), 0
+                xs_max, ys_max = xs[0].max(), 1
 
-            if self._autoscale_checkbox.isChecked():
                 for x, y in zip(xs, ys):
                     xs_min = min(xs_min, x.min())
                     xs_max = max(xs_max, x.max())
@@ -211,6 +223,9 @@ class Canvas(QtWidgets.QDialog):
 
             return
         elif image is not None:
+            if np.all(np.isnan(image)):
+                self._nan_warning_label.show()
+
             if self._image is None:
                 self._image = self._axis.imshow(image, interpolation="nearest")
                 self.figure.colorbar(self._image, ax=self._axis)
@@ -224,6 +239,12 @@ class Canvas(QtWidgets.QDialog):
             self._axis.grid(visible=True)
             self.data_x = xs
             self.data_y = ys
+
+            # Check for data that's all NaNs
+            for data in [*xs, *ys]:
+                if np.all(np.isnan(data)):
+                    self._nan_warning_label.show()
+                    break
 
             if len(xs):
                 xs_min, ys_min = np.asarray(xs[0]).min(), 0
@@ -262,6 +283,12 @@ class Canvas(QtWidgets.QDialog):
                             "alpha": 0.5,
                         }
                     )
+
+                    # Don't try to histogram NaNs
+                    if np.all(np.isnan(x)):
+                        self._lines[series].append([])
+                        continue
+
                     y, x, patches = self._axis.hist(
                         x, bins=self.histogram1D_bins, **self._kwargs[series][-1]
                     )
@@ -279,10 +306,10 @@ class Canvas(QtWidgets.QDialog):
                 if self._autoscale_checkbox.isChecked() or not plot_exists:
 
                     if self.plot_type != "histogram1D":
-                        xs_min = min([xi.min() for xi in xs])
-                        ys_min = min([yi.min() for yi in ys])
-                        xs_max = max([xi.max() for xi in xs])
-                        ys_max = max([yi.max() for yi in ys])
+                        xs_min = np.nanmin([xi.min() for xi in xs])
+                        ys_min = np.nanmin([yi.min() for yi in ys])
+                        xs_max = np.nanmax([xi.max() for xi in xs])
+                        ys_max = np.nanmax([yi.max() for yi in ys])
 
                     self.autoscale(
                         xs_min,
