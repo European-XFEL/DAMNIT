@@ -163,16 +163,17 @@ class Canvas(QtWidgets.QDialog):
         self.update_canvas()
 
     def autoscale(self, x_min, x_max, y_min, y_max, margin=0.05):
-        x_range = np.abs(x_max - x_min)
-        x_min = x_min - x_range * margin
-        x_max = x_max + x_range * margin
+        if not np.any(np.isnan([x_min, x_max])):
+            x_range = np.abs(x_max - x_min)
+            x_min = x_min - x_range * margin
+            x_max = x_max + x_range * margin
+            self._axis.set_xlim((x_min, x_max))
 
-        y_range = np.abs(y_max - y_min)
-        y_min = y_min - y_range * margin
-        y_max = y_max + y_range * margin
-
-        self._axis.set_xlim((x_min, x_max))
-        self._axis.set_ylim((y_min, y_max))
+        if not np.any(np.isnan([y_min, y_max])):
+            y_range = np.abs(y_max - y_min)
+            y_min = y_min - y_range * margin
+            y_max = y_max + y_range * margin
+            self._axis.set_ylim((y_min, y_max))
 
     def update_canvas(self, xs=None, ys=None, image=None, legend=None, series_names=["default"]):
         cmap = mpl_cm.get_cmap("tab20")
