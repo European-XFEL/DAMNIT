@@ -66,15 +66,19 @@ def test_editor(mock_db, mock_ctx, qtbot):
     editor.setText(old_code)
     assert "Ctrl + S" in status_bar.currentMessage()
 
-    # It would be nice to use qtbot.keyClick() to test the save shortcut, but I
-    # couldn't get that to work. Possibly related:
-    # https://github.com/pytest-dev/pytest-qt/issues/254
-    win._editor.save_requested.emit()
-
     # Saving OK code should work
+    win._save_btn.clicked.emit()
     assert editor.test_context(db)[0] == ContextTestResult.OK
     assert ctx_path.read_text() == old_code
     assert status_bar.currentMessage() == str(ctx_path.resolve())
+
+    # The Validate button should trigger validation. Note that we mock
+    # editor.test_context() function instead of MainWindow.test_context()
+    # because the win._check_btn.clicked has already been connected to the
+    # original function, so mocking it will not make Qt call the mock object.
+    with patch.object(editor, "test_context", return_value=(None, None)) as test_context:
+        win._check_btn.clicked.emit()
+        test_context.assert_called_once()
 
     # Change the context again
     new_code = "x = 2"
