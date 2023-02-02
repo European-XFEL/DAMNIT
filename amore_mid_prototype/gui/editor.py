@@ -3,9 +3,8 @@ import traceback
 from enum import Enum
 from io import StringIO
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont
-from PyQt5.QtWidgets import QShortcut
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 
 from pyflakes.reporter import Reporter
@@ -20,8 +19,6 @@ class ContextTestResult(Enum):
     ERROR = 2
 
 class Editor(QsciScintilla):
-    save_requested = pyqtSignal()
-
     def __init__(self):
         super().__init__()
 
@@ -49,10 +46,6 @@ class Editor(QsciScintilla):
 
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
-
-        # And Ctrl + S to save the context file
-        self._save_shortcut = QShortcut(Qt.ControlModifier | Qt.Key_S, self)
-        self._save_shortcut.activated.connect(self.save_requested)
 
     def test_context(self):
         """

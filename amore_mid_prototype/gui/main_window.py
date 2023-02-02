@@ -750,13 +750,17 @@ da-dev@xfel.eu"""
         test_widget = QtWidgets.QWidget()
 
         self._editor.textChanged.connect(self.on_context_changed)
-        self._editor.save_requested.connect(self.save_context)
 
         vbox = QtWidgets.QGridLayout()
         test_widget.setLayout(vbox)
 
-        test_btn = QtWidgets.QPushButton("Test")
-        test_btn.clicked.connect(self.test_context)
+        self._save_btn = QtWidgets.QPushButton("Save")
+        self._save_btn.clicked.connect(self.save_context)
+        self._save_btn.setToolTip("Ctrl + S")
+        self._save_btn.setShortcut(QtGui.QKeySequence(Qt.ControlModifier | Qt.Key_S))
+
+        self._check_btn = QtWidgets.QPushButton("Validate")
+        self._check_btn.clicked.connect(self.test_context)
 
         self._context_status_icon = QtSvg.QSvgWidget()
 
@@ -768,9 +772,10 @@ da-dev@xfel.eu"""
         self._error_widget.setCaretWidth(0)
         self._error_widget.setLexer(self._error_widget_lexer)
 
-        vbox.addWidget(test_btn, 0, 0)
-        vbox.addWidget(self._context_status_icon, 1, 0)
-        vbox.addWidget(self._error_widget, 0, 1, 2, 1)
+        vbox.addWidget(self._save_btn, 0, 0)
+        vbox.addWidget(self._check_btn, 1, 0)
+        vbox.addWidget(self._context_status_icon, 2, 0)
+        vbox.addWidget(self._error_widget, 0, 1, 3, 1)
         vbox.setColumnStretch(0, 1)
         vbox.setColumnStretch(1, 100)
 
@@ -793,12 +798,12 @@ da-dev@xfel.eu"""
             self.set_error_icon("red")
 
             # Resize the error window
-            height = self._editor_parent_widget.height()
-            self._editor_parent_widget.setSizes([2 * height // 3, height // 3])
+            height_unit = self._editor_parent_widget.height() // 3
+            self._editor_parent_widget.setSizes([2 * height_unit, height_unit])
         else:
             # Move the error widget down
-            height = self.height()
-            self._editor_parent_widget.setSizes([height, 1])
+            height_unit = self.height() // 7
+            self._editor_parent_widget.setSizes([6 * height_unit, height_unit])
 
             if test_result == ContextTestResult.WARNING:
                 self.set_error_widget_text(output)
@@ -811,6 +816,7 @@ da-dev@xfel.eu"""
                 self.set_error_widget_text("Valid context.")
                 self.set_error_icon("green")
 
+        self._editor.setFocus()
         return test_result
 
     def set_error_icon(self, icon):
@@ -829,6 +835,7 @@ da-dev@xfel.eu"""
 
         self._context_path.write_text(self._editor.text())
         self.mark_context_saved()
+        self._editor.setFocus()
 
     def mark_context_saved(self):
         self._context_is_saved = True
