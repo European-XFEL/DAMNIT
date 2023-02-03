@@ -703,8 +703,13 @@ da-dev@xfel.eu"""
         quantity_title = self.data.columns[index.column()]
         quantity = self.ds_name(quantity_title)
 
+        user_string_columns = set()
+        for cc in self.table.editable_columns:
+            if isinstance(self.vars[cc].get_type_class(), StringValueType):
+                user_string_columns.add(cc)
+
         # Don't try to plot comments
-        if quantity in {"Status"} | self.table.editable_columns:
+        if quantity in {"Status"} | user_string_columns:
             return
 
         log.info(
