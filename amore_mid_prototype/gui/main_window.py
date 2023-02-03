@@ -217,10 +217,8 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.accept()
 
     def _load_icons(self):
-        self._icons = {}
-        for ii in ["closed", "open"]:
-            self._icons[ii] = QtGui.QIcon(f"amore_mid_prototype/gui/ico/lock_{ii}_icon.png")
-
+        build_icon = lambda ii: QtGui.QIcon(self._main_window.icon_path(f"lock_{ii}_icon.png"))
+        self._icons = { status : build_icon(status) for status in ["closed", "open"] }
 
 class MainWindow(QtWidgets.QMainWindow):
 
