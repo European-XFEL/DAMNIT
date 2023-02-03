@@ -509,9 +509,6 @@ da-dev@xfel.eu"""
         self.plot.update_columns()
         self.plot.update()
 
-        # (over)write down metadata
-        self.data.to_json("AMORE.json")
-
     def _updates_thread_launcher(self) -> None:
         if not self._connect_to_kafka:
             return
