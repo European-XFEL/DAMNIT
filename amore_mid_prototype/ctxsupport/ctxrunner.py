@@ -45,7 +45,7 @@ class ContextFile:
             user_var_deps |= {dep for dep in self.all_dependencies(var) if isinstance(self.vars[dep], UserEditableVariable)}
         if len(user_var_deps):
             all_vars_quoted = ", ".join(f'"{name}"' for name in sorted(user_var_deps))
-            raise ValueError(f"The following User Editable Variables {all_vars_quoted} are used as dependecies. This is currently unsupported.")
+            raise ValueError(f"The following user-editable variables are used as dependencies, this is currently unsupported: {all_vars_quoted}")
 
         # Check for raw-data variables that depend on proc-data variables
         raw_vars = { name: var for name, var in self.vars.items()
