@@ -36,7 +36,7 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value)"
     )
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY, code TEXT, type TEXT, title TEXT, description TEXT, attributes TEXT)"
+        "CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY, type TEXT, title TEXT, description TEXT, attributes TEXT)"
     )
     conn.execute(
         "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
