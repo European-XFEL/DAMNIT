@@ -42,7 +42,7 @@ class ContextFile:
         # Temporarily prevent User Editable Variables as dependencies
         user_var_deps = set()
         for name, var in self.vars.items():
-            user_var_deps |= {dep for dep in self.all_dependencies(var) if hasattr(self.vars[dep], "variable_type")}
+            user_var_deps |= {dep for dep in self.all_dependencies(var) if isinstance(self.vars[dep], UserEditableVariable)}
         if len(user_var_deps):
             all_vars_quoted = ", ".join(f'"{name}"' for name in sorted(user_var_deps))
             raise ValueError(f"The following User Editable Variables {all_vars_quoted} are used as dependecies. This is currently unsupported.")
