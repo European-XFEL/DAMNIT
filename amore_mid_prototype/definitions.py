@@ -8,4 +8,4 @@ else:
 
 UPDATE_TOPIC = "amore-db-{}"  # Fill in ID stored in database
 
-LOG_FORMAT = '%(asctime)s | %(levelname)s | %(name)s | %(message)s'
+LOG_FORMAT = '%(asctime)4s  %(levelname)3s  %(name)3s  %(message)s'

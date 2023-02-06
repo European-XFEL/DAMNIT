@@ -26,8 +26,8 @@ before_script:
   - apt-get update
   # We don't actually need qtbase5-dev, it's just the easiest way to install the
   # system dependencies Qt needs (in particular for libxcb).
-  - apt-get install --no-install-suggests --no-install-recommends -y gcc g++ xvfb qtbase5-dev
-
+  - apt-get install --no-install-suggests --no-install-recommends -y xvfb gcc g++ qtbase5-dev libnss3 libxtst6 libxcomposite1 libxrandr2 libpci3 libxcursor1 libasound2 
+    
 test:
   script:
     - pip install '.[test]'

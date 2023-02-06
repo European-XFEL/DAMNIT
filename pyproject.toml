@@ -22,6 +22,7 @@ dependencies = [
     "numpy",
     "pandas",
     "PyQt5",
+    "PyQtWebEngine",
     "PyYAML",
     "pyflakes",
     "QScintilla",
