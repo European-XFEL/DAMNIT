@@ -12,6 +12,7 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import h5py
+from pandas.api.types import infer_dtype
 
 from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
@@ -694,7 +695,16 @@ da-dev@xfel.eu"""
         if not isinstance(data, pd.Series):
             data = pd.Series(data)
 
-        return data.fillna(np.nan)
+        return data.astype('object').fillna(np.nan)
+
+    def bool_to_numeric(self, data):
+        if infer_dtype(data) == 'boolean':
+            data = data.astype('float')
+
+        return data
+
+    def fix_data_for_plotting(self, data):
+        return self.bool_to_numeric(self.make_finite(data))
 
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
@@ -758,8 +768,8 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[self.make_finite(x)] if not is_image else [],
-                y=[self.make_finite(y)] if not is_image else [],
+                x=[self.bool_to_numeric(self.fix_data_for_plotting(x))] if not is_image else [],
+                y=[self.bool_to_numeric(self.fix_data_for_plotting(y))] if not is_image else [],
                 image=image if is_image else None,
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
