@@ -156,6 +156,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
     results_create = lambda ctx: Results.create(ctx, { "run_data" : mock_run }, run_number, proposal)
+    mkcontext = lambda code: ContextFile.from_str(textwrap.dedent(code))
 
     # Simple test
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
@@ -185,7 +186,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     def bar(run, foo: "var#foo"):
         return foo
     """
-    raising_ctx = ContextFile.from_str(textwrap.dedent(raising_code))
+    raising_ctx = mkcontext(raising_code)
 
     with caplog.at_level(logging.WARNING):
         results = results_create(raising_ctx)
@@ -212,7 +213,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     def bar(run, foo: "var#foo"):
         return foo
     """
-    return_none_ctx = ContextFile.from_str(textwrap.dedent(return_none_code))
+    return_none_ctx = mkcontext(return_none_code)
 
     with caplog.at_level(logging.WARNING):
         results = results_create(return_none_ctx)
@@ -235,7 +236,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     @Variable(title="Foo")
     def foo(run): return xr.DataArray([1, 2, 3], coords={"trainId": [100, 101, 102]})
     """
-    with_coords_ctx = ContextFile.from_str(textwrap.dedent(with_coords_code))
+    with_coords_ctx = mkcontext(with_coords_code)
     results = results_create(with_coords_ctx)
     results.save_hdf5(results_hdf5_path)
 
@@ -250,7 +251,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     @Variable(title="Foo")
     def foo(run): return xr.DataArray([1, 2, 3])
     """
-    without_coords_ctx = ContextFile.from_str(textwrap.dedent(without_coords_code))
+    without_coords_ctx = mkcontext(without_coords_code)
     results = results_create(without_coords_ctx)
     results.save_hdf5(results_hdf5_path)
 
@@ -345,6 +346,14 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     pkg = "ctxrunner"
 
     # Write context file
+    no_summary_var = """
+    @Variable(title="Array")
+    def array(run):
+        return np.random.rand(2, 2, 2, 2)
+    """
+    mock_code = mock_ctx.code + "\n\n" + textwrap.dedent(no_summary_var)
+    mock_ctx = ContextFile.from_str(mock_code)
+
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx.code)
 
@@ -360,6 +369,10 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Check that a file was created
     assert out_path.is_file()
+
+    with h5py.File(out_path) as f:
+        assert f[".reduced"]["array"].asstr()[0] == "float64: (2, 2, 2, 2)"
+        assert f["array"]["data"].shape == (2, 2, 2, 2)
 
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
