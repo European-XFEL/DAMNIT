@@ -37,7 +37,6 @@ from .editor import Editor, ContextTestResult
 log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
-
 class Settings(Enum):
     COLUMNS = "columns"
 
@@ -61,6 +60,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._attributi = {}
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
+        self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.log_def = LogDefinitions()
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
@@ -86,7 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
-        self.log_widget = QtWebEngineWidgets.QWebEngineView()
+        self.log_widget = QtWebEngineWidgets.QWebEngineView(self)
         self.log_widget.load(QtCore.QUrl.fromLocalFile(str(self.log_def.path_html_log)))
         self.scroll_status = 1
         self.log_widget.page().contentsSizeChanged.connect(self.log_scrollbar_behavior)
@@ -131,9 +131,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # delete html log files
         _cmd = 'rm {} {}'.format(self.log_def.path_stylesheet_log, self.log_def.path_html_log)    
         subprocess.run(_cmd, shell=True)
-
+        self.should_watch_logs = False
+        self.log_widget.page().deleteLater()
+ 
         self.stop_update_listener_thread()
-        
+
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -257,8 +259,6 @@ da-dev@xfel.eu"""
         return os.path.isdir("/gpfs/exfel/exp")
 
     def save_settings(self):
-        self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
-
         with shelve.open(str(self._settings_db_path)) as db:
             settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
             db[str(self._context_path)] = settings
@@ -331,11 +331,11 @@ da-dev@xfel.eu"""
         )
 
         # Load the users settings
-        if self._settings_db_path.parent.is_dir():
+        try:
             with shelve.open(str(self._settings_db_path)) as db:
                 key = str(self._context_path)
                 col_settings = db[key][Settings.COLUMNS.value]
-        else:
+        except:
             col_settings = { }
 
         saved_cols = list(col_settings.keys())
@@ -719,19 +719,20 @@ da-dev@xfel.eu"""
         self._log_view_widget.setLayout(vertical_layout)
             
         # start watching log files
-        self.watch_tread_be = Thread(target=self.watch_log_files, 
-                                     args=(self.log_def.be_log_path,), daemon=True)
-        self.watch_tread_fe = Thread(target=self.watch_log_files, 
+        self.watch_thread_be = Thread(target=self.watch_log_files, 
+                                args=(self.log_def.be_log_path,), daemon=True)
+        self.watch_thread_fe = Thread(target=self.watch_log_files, 
                                 args=(self.log_def.fe_log_path,), daemon=True)
         self.onChangedLog.connect(self.refresh_log)
         self.errorAlert.connect(self.error_alert)    
-        self.watch_tread_be.start()
-        self.watch_tread_fe.start()
+        self.should_watch_logs = True
+        self.watch_thread_be.start()
+        self.watch_thread_fe.start()
         
     def watch_log_files(self, log_path):
         with open(log_path,'r') as f_in:
             f_in.seek(0,2)
-            while True:
+            while self.should_watch_logs:
                 new_line = f_in.readline()
                 if new_line:
                     self.write_html(new_line)
@@ -778,7 +779,7 @@ da-dev@xfel.eu"""
         self.be_pos_relative = (self.be_pos_relative -N)*int(pos != 0)
         
     def log_scrollbar_behavior(self):
-        #scroll_status should be set as the following:
+        # scroll_status should be set as the following:
         # 1 - scroll down, 2 - scroll up, 3 - do nothing
         if self.scroll_status == 1:
             content_size = self.log_widget.page().contentsSize().height()
@@ -786,10 +787,10 @@ da-dev@xfel.eu"""
                                                  window.scrollTo(0,{})'''.format(content_size))
         elif self.scroll_status == 2 : 
             self.log_widget.page().runJavaScript('''window.history.scrollRestoration = 'manual';
-                                                 window.scrollTo(0,0)''') 
-        else :
+                                                 window.onload = window.scrollTo(0,0)''') 
+        elif self.scroll_status == 3 :
             self.log_widget.page().runJavaScript('''window.history.scrollRestoration = 'auto';''')  
-                   
+                  
     def write_html(self, new_line, on_top = False):
         new_line_html = self.plain_to_html(new_line)
         if on_top:
@@ -798,6 +799,7 @@ da-dev@xfel.eu"""
         else:
             cmd_ = "sed -i '$i{}' {}".format(new_line_html, self.log_def.path_html_log)
             self.scroll_status = 1
+
         subprocess.run(cmd_, shell=True)
 
     def plain_to_html(self, plain_log):
@@ -809,9 +811,12 @@ da-dev@xfel.eu"""
                 log_level = level
                 break
         
-        html_log = self.log_def.log_html_format.format(log_level, plain_log[0:-1])
+        html_log = self.log_def.log_html_format.format(log_level, 
+                plain_log[0:-1].replace('<', '&lt;'))
+
         if log_level == 'ERROR' and self._tab_widget.currentIndex() != 2:
             self.errorAlert.emit()
+
         return  html_log
 
     def create_log_cboxes(self):
@@ -869,7 +874,6 @@ da-dev@xfel.eu"""
     def error_alert(self):
         self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
 
- 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -1066,8 +1070,8 @@ da-dev@xfel.eu"""
                 (value, comment_id),
             )
 
+
 class LogDefinitions():
-    
     def __init__(self):
         self.log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
         self.be_log_path = 'amore.log'
@@ -1140,7 +1144,7 @@ def run_app(context_dir, connect_to_kafka=True):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
-    application = QtWidgets.QApplication(sys.argv)
+    application = QtWidgets.QApplication(sys.argv + ['--no-sandbox'])
     application.setStyle(TableViewStyle())
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)

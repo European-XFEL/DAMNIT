@@ -138,7 +138,6 @@ def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
         win = MainWindow(db_dir, False)
 
     settings_db_path = tmp_path / ".local/state/damnit/settings.db"
-    assert not settings_db_path.parent.is_dir()
 
     columns_widget = win.table_view._columns_widget
     static_columns_widget = win.table_view._static_columns_widget
@@ -189,9 +188,6 @@ def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
     last_static_col_idx = win.data.columns.get_loc(last_static_col)
     assert win.table_view.isColumnHidden(last_static_col_idx)
 
-def test_log_gui(mock_db, qtbot):
-    pass
-
 def test_handle_update(mock_db, qtbot):
     db_dir, db = mock_db
 
@@ -230,6 +226,9 @@ def test_handle_update(mock_db, qtbot):
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
+
+def test_log_widget(mock_db, qtbot):
+    pass
 
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
@@ -270,3 +269,6 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # This time the database is already initialized
         win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
         initialize_and_start_backend.assert_called_once_with(db_dir)
+
+
+
