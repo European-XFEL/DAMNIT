@@ -38,6 +38,7 @@ dependencies = [
 test = [
     "pytest",
     "pytest-qt",
+    "pytest-virtualenv",
     "pytest-xvfb"
 ]
 docs = [
