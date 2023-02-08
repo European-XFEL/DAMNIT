@@ -182,6 +182,21 @@ $ amore-proto reprocess $(seq 1 100) --match agipd
 $ amore-proto reprocess all
 ```
 
+## Using custom environments
+DAMNIT supports running the context file in a user-defined Python environment,
+which is handy if there's a certain package you want that's only installed in
+a certain environment. At some point the setting for this will be exposed
+in the GUI, but right now you'll have to change it on the command line by
+passing the path to the `python` executable of the required environment:
+```bash
+$ amore-proto db-config context_python /path/to/your/python
+```
+
+The environment *must* have these dependencies installed for DAMNIT to work:
+
+- `extra_data`
+- `scipy`
+
 ## Managing the backend
 The backend is a process running under [Supervisor](http://supervisord.org/). In
 a nutshell:

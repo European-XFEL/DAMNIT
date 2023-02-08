@@ -41,6 +41,14 @@ def default_slurm_partition():
         return 'upex'
     return 'all'
 
+def run_in_subprocess(args, **kwargs):
+    env = os.environ.copy()
+    ctxsupport_dir = str(Path(__file__).parents[1] / 'ctxsupport')
+    env['PYTHONPATH'] = ctxsupport_dir + (
+        os.pathsep + env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
+    )
+
+    return subprocess.run(args, env=env, **kwargs)
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
@@ -48,12 +56,8 @@ def extract_in_subprocess(
 ):
     if not python_exe:
         python_exe = sys.executable
-    env = os.environ.copy()
-    ctxsupport_dir = str(Path(__file__).parents[1] / 'ctxsupport')
-    env['PYTHONPATH'] = ctxsupport_dir + (
-        os.pathsep + env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
-    )
-    args = [python_exe, '-m', 'ctxrunner', str(proposal), str(run), run_data.value,
+
+    args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run), run_data.value,
             '--save', out_path]
     if cluster:
         args.append('--cluster-job')
@@ -68,10 +72,44 @@ def extract_in_subprocess(
         reduced_out_path = Path(td, 'reduced.h5')
         args.extend(['--save-reduced', str(reduced_out_path)])
 
-        subprocess.run(args, env=env, check=True)
+        run_in_subprocess(args, check=True)
 
         return load_reduced_data(reduced_out_path)
 
+class ContextFileUnpickler(pickle.Unpickler):
+    """
+    Unpickler class to allow unpickling ContextFile's from any module location.
+
+    See: https://stackoverflow.com/a/51397373
+    """
+    def find_class(self, module, name):
+        if name == 'ContextFile':
+            return ContextFile
+        else:
+            return super().find_class(module, name)
+
+def get_context_file(ctx_path: Path, context_python=None):
+    ctx_path = ctx_path.absolute()
+    db_dir = ctx_path.parent
+
+    if context_python is None:
+        db = DamnitDB.from_dir(ctx_path.parent)
+        with db.conn:
+            ctx = ContextFile.from_py_file(ctx_path, external_vars=get_user_variables(db.conn))
+
+        db.close()
+        return ctx, None
+    else:
+        with TemporaryDirectory() as d:
+            out_file = Path(d) / "context.pickle"
+            run_in_subprocess([context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)],
+                              cwd=db_dir, check=True)
+
+            with out_file.open("rb") as f:
+                unpickler = ContextFileUnpickler(f)
+                ctx, error_info = unpickler.load()
+
+                return ctx, error_info
 
 def load_reduced_data(h5_path):
     def get_dset_value(ds):
@@ -145,7 +183,9 @@ class Extractor:
             value_serializer=lambda d: pickle.dumps(d),
         )
         self.update_topic = UPDATE_TOPIC.format(self.db.metameta['db_id'])
-        self.ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(self.db.conn))
+        context_python = self.db.metameta.get("context_python")
+        self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
+        assert error_info is None, error_info
 
     @property
     def proposal(self):
