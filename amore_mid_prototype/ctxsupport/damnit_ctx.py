@@ -17,6 +17,8 @@ class Variable:
         self.title = title
         self.summary = summary
 
+        self._annotations = { }
+
         if data is not None and data not in ["raw", "proc"]:
             raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
         else:
@@ -30,6 +32,7 @@ class Variable:
     def __call__(self, func):
         self.func = func
         self.name = func.__name__
+        self._annotations = getattr(self.func, "__annotations__", { })
         return self
 
     @property
@@ -55,9 +58,6 @@ class Variable:
 
         Returns a dict of argument names to their annotations.
         """
-        if self.func is None:
-            raise RuntimeError(f"Variable '{self.title}' is not initialized with a function")
-
-        return getattr(self.func, '__annotations__', {})
+        return self._annotations
 
 

@@ -9,7 +9,10 @@ import argparse
 import functools
 import logging
 import os
+import pickle
+import sys
 import time
+import traceback
 from pathlib import Path
 from graphlib import CycleError, TopologicalSorter
 
@@ -17,12 +20,30 @@ import extra_data
 import h5py
 import numpy as np
 import xarray
-from scipy import ndimage
 
 from damnit_ctx import RunData, Variable
 
 log = logging.getLogger(__name__)
 
+
+def extract_error_info(exc_type, e, tb):
+    lineno = -1
+    offset = 0
+
+    if isinstance(e, SyntaxError):
+        # SyntaxError and its child classes are special, their
+        # tracebacks don't include the line number.
+        lineno = e.lineno
+        offset = e.offset - 1
+    else:
+        # Look for the frame with a filename matching the context
+        for frame in traceback.extract_tb(tb):
+            if frame.filename == "<string>":
+                lineno = frame.lineno
+                break
+
+    stacktrace = "".join(traceback.format_exception(exc_type, e, tb))
+    return (stacktrace, lineno, offset)
 
 class ContextFile:
     def __init__(self, vars, code):
@@ -249,6 +270,8 @@ class Results:
         elif data.ndim == 0:
             return data
         elif data.ndim == 2 and self.ctx.vars[name].summary is None:
+            from scipy import ndimage
+
             # For the sake of space and memory we downsample images to a
             # resolution of 150x150.
             zoom_ratio = 150 / max(data.shape)
@@ -305,29 +328,53 @@ class Results:
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('proposal', type=int)
-    ap.add_argument('run', type=int)
-    ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
-    ap.add_argument('--cluster-job', action="store_true")
-    ap.add_argument('--match', action="append", default=[])
-    ap.add_argument('--save', action='append', default=[])
-    ap.add_argument('--save-reduced', action='append', default=[])
+    subparsers = ap.add_subparsers(required=True, dest="subcmd")
+
+    exec_ap = subparsers.add_parser("exec", help="Execute context file on a run")
+    exec_ap.add_argument('proposal', type=int)
+    exec_ap.add_argument('run', type=int)
+    exec_ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    exec_ap.add_argument('--cluster-job', action="store_true")
+    exec_ap.add_argument('--match', action="append", default=[])
+    exec_ap.add_argument('--save', action='append', default=[])
+    exec_ap.add_argument('--save-reduced', action='append', default=[])
+
+    ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
+    ctx_ap.add_argument("context_file", type=Path)
+    ctx_ap.add_argument("out_file", type=Path)
+
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
 
-    ctx_whole = ContextFile.from_py_file(Path('context.py'))
-    ctx = ctx_whole.filter(
-        run_data=RunData(args.run_data), cluster=args.cluster_job, name_matches=args.match
-    )
-    log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
+    if args.subcmd == "exec":
+        ctx_whole = ContextFile.from_py_file(Path('context.py'))
+        ctx = ctx_whole.filter(
+            run_data=RunData(args.run_data), cluster=args.cluster_job, name_matches=args.match
+        )
+        log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
-    run_dc = extra_data.open_run(args.proposal, args.run, data="all")
-    res = Results.create(ctx, run_dc, args.run, args.proposal)
+        run_dc = extra_data.open_run(args.proposal, args.run, data="all")
+        res = Results.create(ctx, run_dc, args.run, args.proposal)
 
-    for path in args.save:
-        res.save_hdf5(path)
-    for path in args.save_reduced:
-        res.save_hdf5(path, reduced_only=True)
+        for path in args.save:
+            res.save_hdf5(path)
+        for path in args.save_reduced:
+            res.save_hdf5(path, reduced_only=True)
+    elif args.subcmd == "ctx":
+        error_info = None
+
+        try:
+            ctx = ContextFile.from_py_file(args.context_file)
+
+            # Strip the functions from the Variable's, these cannot always be
+            # pickled.
+            for var in ctx.vars.values():
+                var.func = None
+        except:
+            ctx = None
+            error_info = extract_error_info(*sys.exc_info())
+
+        args.out_file.write_bytes(pickle.dumps((ctx, error_info)))
 
 
 if __name__ == '__main__':

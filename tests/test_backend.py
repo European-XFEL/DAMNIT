@@ -18,10 +18,11 @@ import xarray as xr
 
 from amore_mid_prototype.util import wait_until
 from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
-from amore_mid_prototype.backend.db import open_db, get_meta
+from amore_mid_prototype.backend.db import open_db, get_meta, set_meta
 from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
-from amore_mid_prototype.backend.extract_data import add_to_db
+from amore_mid_prototype.backend.extract_data import Extractor, add_to_db
 from amore_mid_prototype.backend.supervisord import write_supervisord_conf
+from amore_mid_prototype.gui.main_window import MainWindow
 
 
 def kill_pid(pid):
@@ -341,7 +342,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Process run
     with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
-        main(['1234', '42', 'raw', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'raw', '--save', str(out_path)])
 
     # Check that a file was created
     assert out_path.is_file()
@@ -349,6 +350,48 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     with h5py.File(out_path) as f:
         assert f[".reduced"]["array"].asstr()[0] == "float64: (2, 2, 2, 2)"
         assert f["array"]["data"].shape == (2, 2, 2, 2)
+
+def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    ctxrunner_deps = ["extra_data"]
+
+    # Install dependencies for ctxrunner and a light-weight package (sfollow)
+    # that isn't in our current environment.
+    virtualenv.install_package(" ".join([*ctxrunner_deps, "sfollow"]),
+                               installer="pip install")
+
+    # Write a context file that requires the new package
+    new_env_code = """
+    import sfollow
+    from damnit_ctx import Variable
+
+    @Variable(title="Foo")
+    def foo(run):
+        return 42
+    """
+    (db_dir / "context.py").write_text(textwrap.dedent(new_env_code))
+
+    pkg = "amore_mid_prototype.backend.extract_data"
+
+    with patch(f"{pkg}.KafkaProducer"), pytest.raises(ImportError):
+        Extractor()
+
+    # Set the context_python field in the database
+    set_meta(db, "context_python", str(virtualenv.python))
+
+    # Patch extract_in_subprocess() because it'll try to open an actual run in a
+    # new process, and that's difficult to mock.
+    mock_reduced_data = { "foo": 42 }
+    with patch(f"{pkg}.KafkaProducer"), \
+         patch(f"{pkg}.extract_in_subprocess", return_value=mock_reduced_data):
+        Extractor().extract_and_ingest(1234, 42)
+
+    # Make sure that the GUI evaluates the context file correctly (which it does
+    # upon opening a database directory).
+    win = MainWindow(db_dir, False)
+    win.show()
 
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
