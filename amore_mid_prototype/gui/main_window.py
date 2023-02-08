@@ -22,6 +22,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
+from ..backend.extract_data import get_context_file
 from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
@@ -273,21 +274,27 @@ da-dev@xfel.eu"""
         else:
             self._context_path = context_path
 
+        self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
+
         sqlite_path = db_path(path)
         log.info("Reading data from database")
         self.db = open_db(sqlite_path)
+        self.db_id = get_meta(self.db, 'db_id')
+        self.stop_update_listener_thread()
+        self._updates_thread_launcher()
 
         user_variables = get_user_variables(self.db)
 
         log.info("Reading context file %s", self._context_path)
-        ctx_file = ContextFile.from_py_file(self._context_path, external_vars = user_variables)
+        context_python = get_meta(self.db, "context_python", None)
+        ctx_file, error_info = get_context_file(self._context_path, context_python)
+        assert error_info is None
 
         for kk, vv in user_variables.items():
             create_user_column(self.db, vv)
             self.table.add_editable_column(vv.title or vv.name)
 
         self._attributi = ctx_file.vars
-
         self._title_to_name = { "Comment" : "comment"} | {
             (aa.title or kk) : kk for kk, aa in self._attributi.items()
         }
@@ -296,12 +303,6 @@ da-dev@xfel.eu"""
         self._editor.setText(ctx_file.code)
         self.test_context()
         self.mark_context_saved()
-
-        self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
-
-        self.db_id = get_meta(self.db, 'db_id')
-        self.stop_update_listener_thread()
-        self._updates_thread_launcher()
 
         df = pd.read_sql_query("SELECT * FROM runs", self.db)
         df.insert(0, "Status", True)
@@ -905,7 +906,7 @@ da-dev@xfel.eu"""
         self._context_is_saved = False
 
     def test_context(self):
-        test_result, output = self._editor.test_context()
+        test_result, output = self._editor.test_context(self.db)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)

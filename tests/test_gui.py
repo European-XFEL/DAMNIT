@@ -71,7 +71,7 @@ def test_editor(mock_db, mock_ctx, qtbot):
 
     # Saving OK code should work
     win._save_btn.clicked.emit()
-    assert editor.test_context()[0] == ContextTestResult.OK
+    assert editor.test_context(db)[0] == ContextTestResult.OK
     assert ctx_path.read_text() == old_code
     assert status_bar.currentMessage() == str(ctx_path.resolve())
 
@@ -121,7 +121,7 @@ def test_editor(mock_db, mock_ctx, qtbot):
     x = 1
     """)
     editor.setText(warning_code)
-    assert editor.test_context()[0] == ContextTestResult.WARNING
+    assert editor.test_context(db)[0] == ContextTestResult.WARNING
     win.save_context()
     assert ctx_path.read_text() == warning_code
 

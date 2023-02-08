@@ -1,15 +1,19 @@
 import sys
-import traceback
 from enum import Enum
 from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor, QFont, QGuiApplication, QCursor
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 
 from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
 
+from ..backend.db import get_meta
+from ..backend.extract_data import get_context_file
+from ..ctxsupport.ctxrunner import extract_error_info
 from ..context import ContextFile
 
 
@@ -47,30 +51,37 @@ class Editor(QsciScintilla):
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
 
-    def test_context(self):
+    def test_context(self, db):
         """
         Check if the current context file is valid.
 
         Returns a tuple of (result, output_msg).
         """
-        try:
-            ContextFile.from_str(self.text())
-        except:
-            # Extract the line number of the error
-            exc_type, e, tb = sys.exc_info()
-            lineno = -1
-            offset = 0
-            if isinstance(e, SyntaxError):
-                # SyntaxError and its child classes are special, their
-                # tracebacks don't include the line number.
-                lineno = e.lineno
-                offset = e.offset - 1
-            else:
-                # Look for the frame with a filename matching the context
-                for frame in traceback.extract_tb(tb):
-                    if frame.filename == "<string>":
-                        lineno = frame.lineno
-                        break
+        error_info = None
+        context_python = get_meta(db, "context_python", None)
+
+        # If a different environment is not specified, we can evaluate the
+        # context file directly.
+        if context_python is None:
+            try:
+                ContextFile.from_str(self.text())
+            except:
+                # Extract the error information
+                error_info = extract_error_info(*sys.exc_info())
+
+        # Otherwise, write it to a temporary file to evaluate it from another
+        # process.
+        else:
+            with TemporaryDirectory() as d:
+                ctx_path = Path(d) / "context.py"
+                ctx_path.write_text(self.text())
+
+                QGuiApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+                ctx, error_info = get_context_file(ctx_path, context_python)
+                QGuiApplication.restoreOverrideCursor()
+
+        if error_info is not None:
+            stacktrace, lineno, offset = error_info
 
             if lineno != -1:
                 # The line numbers reported by Python are 1-indexed so we
@@ -83,7 +94,7 @@ class Editor(QsciScintilla):
                 if lineno != self.getCursorPosition()[0]:
                     self.setCursorPosition(lineno, offset)
 
-            return ContextTestResult.ERROR, traceback.format_exc()
+            return ContextTestResult.ERROR, stacktrace
 
         # If that worked, try pyflakes
         out_buffer = StringIO()
