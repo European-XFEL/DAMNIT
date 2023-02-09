@@ -142,12 +142,12 @@ def test_context_file(mock_ctx):
     # on a proc variable.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
 
-def run_ctx_helper(context, run, run_number, proposal, caplog):
+def run_ctx_helper(context, db_dir, run, run_number, proposal, caplog):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = Results.create(context, run, run_number, proposal)
+        results = Results.create(context, db_dir, run, run_number, proposal)
 
     # Check that there were no errors
     assert caplog.records == []
@@ -157,11 +157,11 @@ def run_ctx_helper(context, run, run_number, proposal, caplog):
 def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
-    results_create = lambda ctx: Results.create(ctx, mock_run, run_number, proposal)
+    results_create = lambda ctx: Results.create(ctx, tmp_path, mock_run, run_number, proposal)
     mkcontext = lambda code: ContextFile.from_str(textwrap.dedent(code))
 
     # Simple test
-    results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
+    results = run_ctx_helper(mock_ctx, tmp_path, mock_run, run_number, proposal, caplog)
     assert set(mock_ctx.ordered_vars()) <= results.data.keys()
 
     # Check that the summary of a DataArray is a single number
@@ -261,20 +261,20 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert "foo/trainId" not in f
 
-def test_filtering(mock_ctx, mock_run, caplog):
+def test_filtering(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
 
     # First run with raw data and a filter so only one Variable is executed
     ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["string"])
     assert set(ctx.vars) == { "string" }
-    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    results = run_ctx_helper(ctx, tmp_path, mock_run, run_number, proposal, caplog)
     assert set(results.data) == { "string", "start_time" }
 
     # Now select a Variable with dependencies
     ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["scalar2", "timestamp"])
     assert set(ctx.vars) == { "scalar1", "scalar2", "timestamp" }
-    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    results = run_ctx_helper(ctx, tmp_path, mock_run, run_number, proposal, caplog)
     assert set(results.data) == { "scalar1", "scalar2", "timestamp", "start_time" }
     ts = results.data["timestamp"]
 
@@ -282,13 +282,13 @@ def test_filtering(mock_ctx, mock_run, caplog):
     # should not execute anything.
     ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["meta_array"])
     assert set(ctx.vars) == set()
-    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    results = run_ctx_helper(ctx, tmp_path, mock_run, run_number, proposal, caplog)
     assert set(results.data) == {"start_time"}
 
     # But with proc data all dependencies should be executed
     ctx = mock_ctx.filter(run_data=RunData.PROC, name_matches=["meta_array"])
     assert set(ctx.vars) == { "scalar1", "scalar2", "timestamp", "array", "meta_array" }
-    results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
+    results = run_ctx_helper(ctx, tmp_path, mock_run, run_number, proposal, caplog)
     assert set(results.data) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
     assert results.data["timestamp"] > ts
 

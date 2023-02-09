@@ -192,7 +192,7 @@ class Results:
         self._reduced = None
 
     @classmethod
-    def create(cls, ctx_file: ContextFile, xd_run, run_number, proposal):
+    def create(cls, ctx_file: ContextFile, db_dir, xd_run, run_number, proposal):
         res = {'start_time': np.asarray(get_start_time(xd_run))}
 
         for name in ctx_file.ordered_vars():
@@ -220,6 +220,8 @@ class Results:
                         kwargs[arg_name] = proposal
                     elif annotation == "meta#proposal_path":
                         kwargs[arg_name] = get_proposal_path(xd_run)
+                    elif annotation == "meta#db_dir_path":
+                        kwargs[arg_name] = db_dir
                     else:
                         raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
 
@@ -354,7 +356,7 @@ def main(argv=None):
         log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
         run_dc = extra_data.open_run(args.proposal, args.run, data="all")
-        res = Results.create(ctx, run_dc, args.run, args.proposal)
+        res = Results.create(ctx, Path.cwd(), run_dc, args.run, args.proposal)
 
         for path in args.save:
             res.save_hdf5(path)
