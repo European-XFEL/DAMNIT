@@ -231,11 +231,19 @@ class Extractor:
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
+            slurm_logs_dir = Path.cwd() / "slurm_logs"
+            slurm_logs_dir.mkdir(exist_ok=True)
+            slurm_logs_dir.chmod(0o777)
+
             python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]
             res = subprocess.run([
                 'sbatch', '--parsable',
                 *self.slurm_options(),
+                '-o', str(slurm_logs_dir / f"r{run}-p{proposal}-%j.out"),
+                # Note: we put the run number first so that it's visible in
+                # squeue's default 11-character column for the JobName.
+                '--job-name', f"r{run}_p{proposal}_damnit",
                 '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
