@@ -240,6 +240,9 @@ class Extractor:
                 'sbatch', '--parsable',
                 *self.slurm_options(),
                 '-o', str(slurm_logs_dir / f"p{proposal}-r{run}-%j.out"),
+                # Note: we put the run number first so that it's visible in
+                # squeue's default 11-character column for the JobName.
+                '--job-name', f"r{run}_p{proposal}_damnit",
                 '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
