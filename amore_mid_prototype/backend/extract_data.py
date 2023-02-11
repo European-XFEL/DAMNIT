@@ -234,6 +234,7 @@ class Extractor:
                 # Note: we put the run number first so that it's visible in
                 # squeue's default 11-character column for the JobName.
                 '--job-name', f"r{run}_p{proposal}_damnit",
+                '--time', '02:00:00',
                 '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
