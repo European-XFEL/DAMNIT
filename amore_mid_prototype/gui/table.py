@@ -4,9 +4,6 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qtagg import FigureCanvas
-
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
@@ -201,7 +198,7 @@ class Table(QtCore.QAbstractTableModel):
 
         return True
 
-    @lru_cache(maxsize=500)
+    @lru_cache(maxsize=1000)
     def generateThumbnail(self, index) -> QtGui.QPixmap:
         """
         Helper function to generate a thumbnail for a 2D array.
@@ -213,21 +210,8 @@ class Table(QtCore.QAbstractTableModel):
         we have to take an index instead.
         """
         image = self._data.iloc[index.row(), index.column()]
-
-        fig = Figure(figsize=(1, 1))
-        canvas = FigureCanvas(fig)
-        ax = fig.add_subplot()
-        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-        vmin = np.nanquantile(image, 0.01, interpolation='nearest')
-        vmax = np.nanquantile(image, 0.99, interpolation='nearest')
-        ax.imshow(image, vmin=vmin, vmax=vmax, extent=(0, 1, 1, 0))
-        ax.axis('tight')
-        ax.axis('off')
-        ax.margins(0, 0)
-        canvas.draw()
-
-        width, height = int(fig.figbbox.width), int(fig.figbbox.height)
-        image = QtGui.QImage(canvas.buffer_rgba(), width, height, QtGui.QImage.Format_ARGB32)
+        height, width = image.shape[:2]
+        image = QtGui.QImage(image.data, width, height, QtGui.QImage.Format_ARGB32)
         return QtGui.QPixmap(image).scaled(QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
                                            Qt.KeepAspectRatio)
 
