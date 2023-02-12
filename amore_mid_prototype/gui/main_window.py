@@ -604,6 +604,9 @@ da-dev@xfel.eu"""
         self.plot.update_columns()
         self.plot.update()
 
+        # Clear caches in the table
+        self.table.generateThumbnail.cache_clear()
+
     def _updates_thread_launcher(self) -> None:
         if not self._connect_to_kafka:
             return
@@ -737,7 +740,7 @@ da-dev@xfel.eu"""
                                 f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
             return
 
-        is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 2)
+        is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 3)
 
         try:
             file_name, dataset = self.get_run_file(proposal, run)
