@@ -82,6 +82,10 @@ def main():
         help="Extract data from specified runs. This does not send live updates yet."
     )
     reprocess_ap.add_argument(
+        "--mock", action="store_true",
+        help="Use a fake run object instead of loading one from disk."
+    )
+    reprocess_ap.add_argument(
         '--proposal', type=int,
         help="Proposal number, e.g. 1234"
     )
@@ -181,14 +185,14 @@ def main():
             rows = extr.db.execute("SELECT proposal, runnr FROM runs").fetchall()
             print(f"Reprocessing {len(rows)} runs already recorded...")
             for proposal, run in rows:
-                extr.extract_and_ingest(proposal, run, match=args.match)
+                extr.extract_and_ingest(proposal, run, match=args.match, mock=args.mock)
         else:
             try:
                 runs = [int(r) for r in args.run]
             except ValueError as e:
                 sys.exit(f"Run numbers must be integers ({e})")
             for run in runs:
-                extr.extract_and_ingest(args.proposal, run, match=args.match)
+                extr.extract_and_ingest(args.proposal, run, match=args.match, mock=args.mock)
 
     elif args.subcmd == 'proposal':
         from .backend.db import open_db, get_meta, set_meta

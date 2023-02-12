@@ -14,6 +14,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
 from collections import namedtuple
 from itertools import chain
@@ -370,6 +371,24 @@ class Results:
 
         os.chmod(hdf5_path, 0o666)
 
+def mock_run():
+    run = MagicMock()
+    run.files = [MagicMock(filename="/tmp/foo/bar.h5")]
+    run.train_ids = np.arange(10)
+
+    def select_trains(train_slice):
+        return run
+
+    run.select_trains.side_effect = select_trains
+
+    def train_timestamps():
+        return np.array(run.train_ids + 1493892000000000000,
+                        dtype="datetime64[ns]")
+
+    run.train_timestamps.side_effect = train_timestamps
+
+    return run
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     subparsers = ap.add_subparsers(required=True, dest="subcmd")
@@ -378,6 +397,7 @@ def main(argv=None):
     exec_ap.add_argument('proposal', type=int)
     exec_ap.add_argument('run', type=int)
     exec_ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    exec_ap.add_argument('--mock', action='store_true')
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
@@ -395,11 +415,16 @@ def main(argv=None):
     if args.subcmd == "exec":
         # Check if we have proc data
         proc_available = False
-        try:
-            extra_data.open_run(args.proposal, args.run, data="proc")
+        if args.mock:
+            # If we want to mock a run, assume it's available
             proc_available = True
-        except FileNotFoundError:
-            pass
+        else:
+            # Otherwise check with open_run()
+            try:
+                extra_data.open_run(args.proposal, args.run, data="proc")
+                proc_available = True
+            except FileNotFoundError:
+                pass
 
         run_data = RunData(args.run_data)
         if run_data == RunData.ALL and not proc_available:
@@ -412,8 +437,13 @@ def main(argv=None):
         )
         log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
+        if args.mock:
+            run_dc = mock_run()
+        else:
+            run_dc = extra_data.open_run(args.proposal, args.run, data=run_data.value)
+
         inputs = {
-            'run_data' : extra_data.open_run(args.proposal, args.run, data=run_data.value),
+            'run_data' : run_dc,
             'db_conn' : db_conn
         }
         res = Results.create(ctx, inputs, args.run, args.proposal)
