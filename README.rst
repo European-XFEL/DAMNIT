@@ -47,11 +47,17 @@ forward the broker port to your machine::
 
     ssh -L 9102:exflwebstor01.desy.de:9102 max-exfl.desy.de
 
-And then set the ``AMORE_BROKER`` variable::
+And then add a line in your ``/etc/hosts`` file to resolve
+``exflwebstor01.desy.de`` to ``localhost``::
+
+    127.0.0.1 exflwebstor01.desy.de
+
+And then AMORE should be able to use XFELs broker.
+
+If you want to use a specific broker you can set the ``AMORE_BROKER`` variable::
 
     export AMORE_BROKER=localhost:9102
 
-AMORE will then connect to the broker at that address.
 
 Deployment on Maxwell
 ---------------------
