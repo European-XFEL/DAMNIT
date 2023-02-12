@@ -44,7 +44,7 @@ def default_slurm_partition():
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None,
+        python_exe=None, mock=False
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -57,6 +57,8 @@ def extract_in_subprocess(
             '--save', out_path]
     if cluster:
         args.append('--cluster-job')
+    if mock:
+        args.append("--mock")
     for m in match:
         args.extend(['--match', m])
 
@@ -158,7 +160,7 @@ class Extractor:
         return ['--partition', partition]
 
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=()):
+                           run_data=RunData.ALL, match=(), mock=False):
         if proposal is None:
             proposal = self.proposal
 
@@ -176,7 +178,7 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe
+            match=match, python_exe=python_exe, mock=mock
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db.conn, proposal, run)

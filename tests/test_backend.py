@@ -417,6 +417,11 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     with h5py.File(out_path) as f:
         assert "meta_array" in f
 
+    # Runs shouldn't be opened with open_run() when --mock is passed
+    with patch("ctxrunner.extra_data.open_run") as open_run:
+        main(["1234", "42", "all", "--mock"])
+        open_run.assert_not_called()
+
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
     supervisord_config_path = db_dir / "supervisord.conf"
