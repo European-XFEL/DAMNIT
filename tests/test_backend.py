@@ -385,7 +385,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with `data='all'`, but as if there is no proc data
     with patch(f"{pkg}.extra_data.open_run", side_effect=mock_open_run):
-        main(['1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
 
     # Check that `meta_array` wasn't processed, since it requires proc data
     with h5py.File(out_path) as f:
@@ -393,7 +393,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with proc data
     with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
-        main(['1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
 
     # Now `meta_array` should have been processed
     with h5py.File(out_path) as f:
