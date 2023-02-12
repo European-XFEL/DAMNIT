@@ -8,6 +8,7 @@ possibly running in a different Python interpreter. It will run a context file
 import argparse
 import functools
 import inspect
+import io
 import logging
 import os
 import pickle
@@ -187,6 +188,32 @@ def get_start_time(xd_run):
         return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
+def generate_thumbnail(image):
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvas
+
+    # Create plot
+    fig = Figure(figsize=(1, 1))
+    canvas = FigureCanvas(fig)
+    ax = fig.add_subplot()
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+    vmin = np.nanquantile(image, 0.01)
+    vmax = np.nanquantile(image, 0.99)
+    ax.imshow(image, vmin=vmin, vmax=vmax, extent=(0, 1, 1, 0))
+    ax.axis('tight')
+    ax.axis('off')
+    ax.margins(0, 0)
+    canvas.draw()
+
+    # Store in numpy array
+    with io.BytesIO() as buff:
+        fig.savefig(buff, format="rgba")
+        data = np.frombuffer(buff.getvalue(), dtype=np.uint8)
+
+    data = data.reshape((*canvas.get_width_height(), -1))
+    return data
+
+
 def extract_error_info(exc_type, e, tb):
     lineno = -1
     offset = 0
@@ -335,6 +362,8 @@ class Results:
             if zoom_ratio < 1:
                 data = ndimage.zoom(np.nan_to_num(data),
                                     zoom_ratio)
+
+            data = generate_thumbnail(data)
 
             return data
         elif self.ctx.vars[name].summary is None:
