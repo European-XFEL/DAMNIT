@@ -14,6 +14,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
 
 import extra_data
@@ -328,6 +329,24 @@ class Results:
 
         os.chmod(hdf5_path, 0o666)
 
+def mock_run():
+    run = MagicMock()
+    run.files = [MagicMock(filename="/tmp/foo/bar.h5")]
+    run.train_ids = np.arange(10)
+
+    def select_trains(train_slice):
+        return run
+
+    run.select_trains.side_effect = select_trains
+
+    def train_timestamps():
+        return np.array(run.train_ids + 1493892000000000000,
+                        dtype="datetime64[ns]")
+
+    run.train_timestamps.side_effect = train_timestamps
+
+    return run
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     subparsers = ap.add_subparsers(required=True, dest="subcmd")
@@ -336,6 +355,7 @@ def main(argv=None):
     exec_ap.add_argument('proposal', type=int)
     exec_ap.add_argument('run', type=int)
     exec_ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    exec_ap.add_argument('--mock', action='store_true')
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
@@ -355,7 +375,11 @@ def main(argv=None):
         )
         log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
-        run_dc = extra_data.open_run(args.proposal, args.run, data="all")
+        if args.mock:
+            run_dc = mock_run()
+        else:
+            run_dc = extra_data.open_run(args.proposal, args.run, data="all")
+
         res = Results.create(ctx, Path.cwd(), run_dc, args.run, args.proposal)
 
         for path in args.save:
