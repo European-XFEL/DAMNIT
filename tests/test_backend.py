@@ -381,12 +381,11 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
     # Set the context_python field in the database
     set_meta(db, "context_python", str(virtualenv.python))
 
-    # Patch extract_in_subprocess() because it'll try to open an actual run in a
-    # new process, and that's difficult to mock.
-    mock_reduced_data = { "foo": 42 }
-    with patch(f"{pkg}.KafkaProducer"), \
-         patch(f"{pkg}.extract_in_subprocess", return_value=mock_reduced_data):
-        Extractor().extract_and_ingest(1234, 42)
+    with patch(f"{pkg}.KafkaProducer"):
+        Extractor().extract_and_ingest(1234, 42, mock=True)
+
+    with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
+        assert f["foo/data"][()] == 42
 
     # Make sure that the GUI evaluates the context file correctly (which it does
     # upon opening a database directory).
