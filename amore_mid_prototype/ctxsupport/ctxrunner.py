@@ -208,7 +208,6 @@ def generate_thumbnail(image):
     # Store in numpy array
     with io.BytesIO() as buff:
         fig.savefig(buff, format="rgba")
-        buff.seek(0)
         data = np.frombuffer(buff.getvalue(), dtype=np.uint8)
 
     data = data.reshape((*canvas.get_width_height(), -1))
