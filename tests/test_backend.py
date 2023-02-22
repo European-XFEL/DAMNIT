@@ -141,22 +141,21 @@ def test_context_file(mock_ctx):
     # on a proc variable.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
 
-def run_ctx_helper(context, run, run_number, proposal, caplog):
+def run_ctx_helper(context, run, run_number, proposal, caplog, additional_inputs = {}):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = Results.create(context, run, run_number, proposal)
+        results = Results.create(context, {"run_data" : run} | additional_inputs, run_number, proposal)
 
     # Check that there were no errors
     assert caplog.records == []
     return results
 
-
 def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
-    results_create = lambda ctx: Results.create(ctx, mock_run, run_number, proposal)
+    results_create = lambda ctx: Results.create(ctx, { "run_data" : mock_run }, run_number, proposal)
     mkcontext = lambda code: ContextFile.from_str(textwrap.dedent(code))
 
     # Simple test
@@ -259,6 +258,31 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     # But now it should be deleted from the file
     with h5py.File(results_hdf5_path) as f:
         assert "foo/trainId" not in f
+
+@pytest.mark.skip(reason="Depending on user variables is currently disabled")
+def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db, caplog):
+
+    proposal = 1234
+    run_number = 1000
+
+    db_dir, db = mock_db
+
+    reduced_data = {
+        "user_integer": 12,
+        "user_number": 10.2,
+        "user_boolean": True,
+        "user_string": "foo"
+    }
+
+    add_to_db(reduced_data, db, proposal, run_number)
+
+    results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, additional_inputs={ "db_conn" : db})
+
+    # Tests if computations that depends on user variable return the correct results
+    assert results.data["dep_integer"] == reduced_data["user_integer"] + 1
+    assert results.data["dep_number"] == reduced_data["user_number"]
+    assert results.data["dep_boolean"] == False
+    assert results.data["dep_string"] == reduced_data["user_string"] * 2
 
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000

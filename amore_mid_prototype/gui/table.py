@@ -80,21 +80,24 @@ class TableView(QtWidgets.QTableView):
         col_offset = self._static_columns_widget.count() + 1
 
         col_from = start + col_offset
-        col_to = self._columns_widget.currentIndex().row() + col_offset
+        col_to = row + col_offset
 
         self.horizontalHeader().moveSection(col_from, col_to)
 
         self.settings_changed.emit()
 
-    def add_new_columns(self, columns, statuses):
-        for column, status in zip(columns, statuses):
+    def add_new_columns(self, columns, statuses, positions = None):
+        if positions is None:
+            rows_count = self._columns_widget.count()
+            positions = [ii + rows_count for ii in range(len(columns))]
+        for column, status, position in zip(columns, statuses, positions):
             if column in ["Status", "comment_id"]:
                 continue
 
             item = QtWidgets.QListWidgetItem(column)
             item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
-            self._columns_widget.addItem(item)
+            self._columns_widget.insertItem(position, item)
 
     def create_column_widget(self):
         group = QtWidgets.QGroupBox("Column settings")
@@ -167,9 +170,27 @@ class TableView(QtWidgets.QTableView):
         for row in range(first, last + 1):
             self.resizeRowToContents(row)
 
+    def _get_columns_status(self, widget):
+        res = {}
+        for ii in range(widget.count()):
+            ci = widget.item(ii)
+            res[ci.text()] = ci.isSelected()
+        return res
+
+    def get_movable_columns(self):
+        return self._get_columns_status(self._columns_widget)
+
+    def get_movable_columns_count(self):
+        return self._columns_widget.count()
+
+    def get_static_columns(self):
+        return self._get_columns_status(self._static_columns_widget)
+
+    def get_static_columns_count(self):
+        return self._static_columns_widget.count()
 
 class Table(QtCore.QAbstractTableModel):
-    comment_changed = QtCore.pyqtSignal(int, int, str)
+    value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
@@ -178,10 +199,21 @@ class Table(QtCore.QAbstractTableModel):
         self._main_window = main_window
         self.is_sorted_by = ""
         self.is_sorted_order = None
+        self.editable_columns = {"Comment"}
 
     @property
     def _data(self):
         return self._main_window.data
+
+    def add_editable_column(self, name):
+        if name == "Status":
+            return
+        self.editable_columns.add(name)
+
+    def remove_editable_column(self, name):
+        if name == "Comment":
+            return
+        self.editable_columns.remove(name)
 
     def rowCount(self, index=None) -> int:
         return self._data.shape[0]
@@ -321,18 +353,31 @@ class Table(QtCore.QAbstractTableModel):
             return False
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            self._data.iloc[index.row(), index.column()] = value
+            changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
+            try:
+                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
+                value = variable_type_class.convert(value, unwrap=True) if value != '' else None
+                self._data.iloc[index.row(), index.column()] = value
+            except Exception as e:
+                self._main_window.show_status_message(
+                    f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
+                    timeout=5000,
+                    stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
+                )
+                return False
             self.dataChanged.emit(index, index)
 
-            # Only comment column is editable
-            if index.column() == self._data.columns.get_loc("Comment"):
-                prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
+            prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
+
+            if pd.isna(prop) and pd.isna(run) and index.column() == self._data.columns.get_loc("Comment"):
+                comment_id = self._data.iloc[index.row()]["comment_id"]
+                if not pd.isna(comment_id):
+                    self.time_comment_changed.emit(comment_id, value)
+                    return
+
+            if self._data.columns[index.column()] in self.editable_columns:
                 if not (pd.isna(prop) or pd.isna(run)):
-                    self.comment_changed.emit(int(prop), int(run), value)
-                else:
-                    comment_id = self._data.iloc[index.row()]["comment_id"]
-                    if not pd.isna(comment_id):
-                        self.time_comment_changed.emit(comment_id, value)
+                    self.value_changed.emit(int(prop), int(run), changed_column, value)
 
         elif role == Qt.ItemDataRole.CheckStateRole:
             new_state = not self._data["Status"].iloc[index.row()]
@@ -352,7 +397,7 @@ class Table(QtCore.QAbstractTableModel):
     def flags(self, index) -> Qt.ItemFlag:
         item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
 
-        if index.column() == self._data.columns.get_loc("Comment"):
+        if self._data.columns[index.column()] in self.editable_columns:
             item_flags |= Qt.ItemIsEditable
         elif index.column() == self._data.columns.get_loc("Status"):
             item_flags |= Qt.ItemIsUserCheckable

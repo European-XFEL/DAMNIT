@@ -12,19 +12,22 @@ import os
 import time
 from pathlib import Path
 from graphlib import CycleError, TopologicalSorter
+from collections import namedtuple
+from itertools import chain
 
 import extra_data
 import h5py
 import numpy as np
 import xarray
+import sqlite3
 from scipy import ndimage
 
-from damnit_ctx import RunData, Variable
+from damnit_ctx import RunData, VariableBase, Variable, UserEditableVariable
 
 log = logging.getLogger(__name__)
 
-
 class ContextFile:
+
     def __init__(self, vars, code):
         self.vars = vars
         self.code = code
@@ -36,13 +39,21 @@ class ContextFile:
             # Tweak the error message to make it clearer
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
 
+        # Temporarily prevent User Editable Variables as dependencies
+        user_var_deps = set()
+        for name, var in self.vars.items():
+            user_var_deps |= {dep for dep in self.all_dependencies(var) if isinstance(self.vars[dep], UserEditableVariable)}
+        if len(user_var_deps):
+            all_vars_quoted = ", ".join(f'"{name}"' for name in sorted(user_var_deps))
+            raise ValueError(f"The following user-editable variables are used as dependencies, this is currently unsupported: {all_vars_quoted}")
+
         # Check for raw-data variables that depend on proc-data variables
         raw_vars = { name: var for name, var in self.vars.items()
-                     if var.data == RunData.RAW }
+                     if hasattr(var, "data") and var.data == RunData.RAW }
         for name, var in raw_vars.items():
             dependencies = self.all_dependencies(var)
             proc_dependencies = [dep for dep in dependencies
-                                 if self.vars[dep].data == RunData.PROC]
+                                 if not hasattr(self.vars[dep], "data") or self.vars[dep].data == RunData.PROC]
 
             if len(proc_dependencies) > 0:
                 # If we have a variable that depends on proc data but didn't
@@ -94,22 +105,30 @@ class ContextFile:
         return dependencies
 
     @classmethod
-    def from_py_file(cls, path: Path):
+    def from_py_file(cls, path: Path, external_vars={}):
         code = path.read_text()
         log.debug("Loading context from %s", path)
-        return ContextFile.from_str(code)
-
+        return ContextFile.from_str(code, external_vars)
+ 
     @classmethod
-    def from_str(cls, code: str):
+    def from_str(cls, code: str, external_vars={}):
         d = {}
         exec(code, d)
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
         log.debug("Loaded %d variables", len(vars))
-        return cls(vars, code)
+        clashing_vars = vars.keys() & external_vars.keys()
+ 
+        if len(clashing_vars) > 0:
+            raise RuntimeError(f"These Variables have clashing names: {', '.join(clashing_vars)}")
+        return cls(vars | external_vars, code)
 
     def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
         new_vars = {}
         for name, var in self.vars.items():
+
+            if not isinstance(var, Variable):
+                continue
+
             title = var.title or name
 
             # If this is being triggered by a migration/calibration message for
@@ -128,6 +147,24 @@ class ContextFile:
         new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
         return ContextFile(new_vars, self.code)
+
+
+def get_user_variables(conn):
+    user_variables = {}
+    rows = conn.execute("SELECT name, title, type, description, attributes FROM variables")
+    name_to_pos = {ff[0] : ii for ii, ff in enumerate(rows.description)}
+    for rr in rows:
+        var_name = rr[name_to_pos["name"]]
+        new_var = UserEditableVariable(
+            var_name,
+            title=rr[name_to_pos["title"]],
+            variable_type=rr[name_to_pos["type"]],
+            description=rr[name_to_pos["description"]],
+            attributes=rr[name_to_pos["attributes"]]
+        )
+        user_variables[var_name] = new_var
+    log.debug("Loaded %d user variables", len(user_variables))
+    return user_variables
 
 
 def get_start_time(xd_run):
@@ -171,8 +208,8 @@ class Results:
         self._reduced = None
 
     @classmethod
-    def create(cls, ctx_file: ContextFile, xd_run, run_number, proposal):
-        res = {'start_time': np.asarray(get_start_time(xd_run))}
+    def create(cls, ctx_file: ContextFile, inputs, run_number, proposal):
+        res = {'start_time': np.asarray(get_start_time(inputs['run_data']))}
 
         for name in ctx_file.ordered_vars():
             var = ctx_file.vars[name]
@@ -198,13 +235,13 @@ class Results:
                     elif annotation == "meta#proposal":
                         kwargs[arg_name] = proposal
                     elif annotation == "meta#proposal_path":
-                        kwargs[arg_name] = get_proposal_path(xd_run)
+                        kwargs[arg_name] = get_proposal_path(inputs['run_data'])
                     else:
                         raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
 
                 func = functools.partial(var.func, **kwargs)
 
-                data = func(xd_run)
+                data = func(inputs)
                 if not isinstance(data, (xarray.DataArray, str, type(None))):
                     data = np.asarray(data)
             except Exception:
@@ -270,10 +307,15 @@ class Results:
             return np.asarray(getattr(np, summary_method)(data))
 
     def save_hdf5(self, hdf5_path, reduced_only=False):
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
+
+        ctx_vars = self.ctx.vars
+        implicit_vars = self.data.keys() - self.ctx.vars.keys()
+
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items() if name in implicit_vars or ctx_vars[name].store_result]
         if not reduced_only:
             for name, arr in self.data.items():
-                dsets.extend(self._datasets_for_arr(name, arr))
+                if name in implicit_vars or ctx_vars[name].store_result:
+                    dsets.extend(self._datasets_for_arr(name, arr))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -312,17 +354,23 @@ def main(argv=None):
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--save', action='append', default=[])
     ap.add_argument('--save-reduced', action='append', default=[])
+
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
 
-    ctx_whole = ContextFile.from_py_file(Path('context.py'))
+    db_conn = sqlite3.connect('runs.sqlite', timeout=30)
+
+    ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(db_conn))
     ctx = ctx_whole.filter(
         run_data=RunData(args.run_data), cluster=args.cluster_job, name_matches=args.match
     )
     log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
-    run_dc = extra_data.open_run(args.proposal, args.run, data="all")
-    res = Results.create(ctx, run_dc, args.run, args.proposal)
+    inputs = {
+        'run_data' : extra_data.open_run(args.proposal, args.run, data="all"),
+        'db_conn' : db_conn
+    }
+    res = Results.create(ctx, inputs, args.run, args.proposal)
 
     for path in args.save:
         res.save_hdf5(path)

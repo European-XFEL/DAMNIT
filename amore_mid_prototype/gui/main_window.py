@@ -12,6 +12,7 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 import h5py
+from pandas.api.types import infer_dtype
 
 from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
@@ -21,25 +22,29 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, open_db, get_meta
+from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
+from ..ctxsupport.damnit_ctx import UserEditableVariable
+from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
+from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
 
 
 log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
 
-
 class Settings(Enum):
     COLUMNS = "columns"
 
-
 class MainWindow(QtWidgets.QMainWindow):
+
+    context_dir_changed = QtCore.pyqtSignal(str)
+
     db = None
     db_id = None
 
@@ -54,6 +59,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._context_path = None
         self._context_is_saved = True
         self._attributi = {}
+        self._title_to_name = {}
+        self._name_to_title = {}
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -142,12 +149,29 @@ class MainWindow(QtWidgets.QMainWindow):
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
 
+        self._status_bar.messageChanged.connect(lambda m: self.show_default_status_message() if m == "" else m)
+
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage("Autoconfigure AMORE.")
         self.setStatusBar(self._status_bar)
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+    def show_status_message(self, message, timeout = 0, stylesheet = ''):
+        self._status_bar.showMessage(message, timeout)
+        self._status_bar.setStyleSheet(stylesheet)
+
+    def show_default_status_message(self):
+        self._status_bar.showMessage("Double-click on a cell to inspect results.")
+        self._status_bar.setStyleSheet('QStatusBar {}')
+
+    def _menu_bar_edit_context(self):
+        Popen(['xdg-open', self.context_path])
+
+    def _menu_create_user_var(self) -> None:
+        dialog = AddUserVariableDialog(self)
+        dialog.exec()
 
     def _menu_bar_help(self) -> None:
         dialog = QtWidgets.QMessageBox(self)
@@ -252,19 +276,31 @@ da-dev@xfel.eu"""
         else:
             self._context_path = context_path
 
+        sqlite_path = db_path(path)
+        log.info("Reading data from database")
+        self.db = open_db(sqlite_path)
+
+        user_variables = get_user_variables(self.db)
+
         log.info("Reading context file %s", self._context_path)
-        ctx_file = ContextFile.from_py_file(self._context_path)
+        ctx_file = ContextFile.from_py_file(self._context_path, external_vars = user_variables)
+
+        for kk, vv in user_variables.items():
+            create_user_column(self.db, vv)
+            self.table.add_editable_column(vv.title or vv.name)
+
         self._attributi = ctx_file.vars
+
+        self._title_to_name = { "Comment" : "comment"} | {
+            (aa.title or kk) : kk for kk, aa in self._attributi.items()
+        }
+        self._name_to_title = {vv : kk for kk, vv in self._title_to_name.items()}
 
         self._editor.setText(ctx_file.code)
         self.test_context()
         self.mark_context_saved()
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
-
-        sqlite_path = db_path(path)
-        log.info("Reading data from database")
-        self.db = open_db(sqlite_path)
 
         self.db_id = get_meta(self.db, 'db_id')
         self.stop_update_listener_thread()
@@ -330,6 +366,12 @@ da-dev@xfel.eu"""
         sorted_cols.extend(saved_cols)
         self.data = self.data[sorted_cols]
 
+        for cc in self.data:
+            col_name = self.col_title_to_name(cc)
+            if col_name in self._attributi and hasattr(self._attributi[col_name], 'variable_type'):
+                var_type_class = self._attributi[col_name].get_type_class()
+                self.data[cc] = var_type_class.convert(self.data[cc])
+
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
                                      Qt.SortOrder.AscendingOrder)
@@ -351,9 +393,39 @@ da-dev@xfel.eu"""
             self.table_view.set_column_visibility(col, False, for_restore=True)
 
         self._tab_widget.setEnabled(True)
+        self.show_default_status_message()
+        self.context_dir_changed.emit(str(path))
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
+
+    def has_variable(self, name, by_title=False):
+        if by_title:
+            haystack = set(self._title_to_name.keys()) | set(self.data.columns.values)
+        else:
+            haystack = set(self._name_to_title.keys())
+
+        return name in haystack
+
+    def add_variable(self, name, title, variable_type, description="", before=None):
+        n_static_cols = self.table_view.get_static_columns_count()
+        before_pos = n_static_cols + 1
+        if before == None:
+            before_pos += self.table_view.get_movable_columns_count()
+        else:
+            before_pos += before
+        variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
+        with self.db:
+            add_user_variable(self.db, variable)
+            create_user_column(self.db, variable)
+        self._attributi[name] = variable
+        self._name_to_title[name] = title
+        self._title_to_name[title] = name
+        self.data.insert(before_pos, title, variable.get_type_class().convert(pd.Series(index=self.data.index, dtype='object')))
+        self.table.insertColumn(before_pos)
+        self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
+        self.table.add_editable_column(title)
+
 
     def column_title(self, name):
         if name in self._attributi:
@@ -373,6 +445,17 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
+        action_create_var = QtWidgets.QAction(
+            QtGui.QIcon.fromTheme("accessories-text-editor"),
+            "&Create user variable",
+            self
+        )
+        action_create_var.setShortcut("Shift+U")
+        action_create_var.setStatusTip("Create user editable variable")
+        action_create_var.triggered.connect(self._menu_create_user_var)
+        action_create_var.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: action_create_var.setEnabled(True))
+
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -387,6 +470,7 @@ da-dev@xfel.eu"""
             QtGui.QIcon(self.icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
+        fileMenu.addAction(action_create_var)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
@@ -583,18 +667,43 @@ da-dev@xfel.eu"""
             raise e
 
     def ds_name(self, quantity):
-        # a LUT would be better
-        for ki, vi in self._attributi.items():
-            if vi.title == quantity:
-                return ki
+        res = quantity
 
-        return quantity
+        if quantity in self._name_to_title:
+            res = self._name_to_title[quantity]
+
+        return res
+
+    def col_title_to_name(self, title):
+        res = title
+
+        if title in self._title_to_name:
+            res = self._title_to_name[title]
+
+        return res
+
+    def get_variable_from_name(self, name):
+        res = None
+
+        if name in self._attributi:
+            res = self._attributi[name]
+
+        return res
 
     def make_finite(self, data):
         if not isinstance(data, pd.Series):
             data = pd.Series(data)
 
-        return data.fillna(np.nan)
+        return data.astype('object').fillna(np.nan)
+
+    def bool_to_numeric(self, data):
+        if infer_dtype(data) == 'boolean':
+            data = data.astype('float')
+
+        return data
+
+    def fix_data_for_plotting(self, data):
+        return self.bool_to_numeric(self.make_finite(data))
 
     def inspect_data(self, index):
         proposal = self.data["Proposal"][index.row()]
@@ -603,8 +712,13 @@ da-dev@xfel.eu"""
         quantity_title = self.data.columns[index.column()]
         quantity = self.ds_name(quantity_title)
 
+        user_string_columns = set()
+        for cc in self.table.editable_columns:
+            if isinstance(self.vars[cc].get_type_class(), StringValueType):
+                user_string_columns.add(cc)
+
         # Don't try to plot comments
-        if quantity in ["Comment", "Status"]:
+        if quantity in {"Status"} | user_string_columns:
             return
 
         log.info(
@@ -653,8 +767,8 @@ da-dev@xfel.eu"""
         self._canvas_inspect.append(
             Canvas(
                 self,
-                x=[self.make_finite(x)] if not is_image else [],
-                y=[self.make_finite(y)] if not is_image else [],
+                x=[self.bool_to_numeric(self.fix_data_for_plotting(x))] if not is_image else [],
+                y=[self.bool_to_numeric(self.fix_data_for_plotting(y))] if not is_image else [],
                 image=image if is_image else None,
                 xlabel="Event (run {})".format(run),
                 ylabel=quantity_title,
@@ -673,7 +787,7 @@ da-dev@xfel.eu"""
         # the table
         self.table_view = TableView()
         self.table = Table(self)
-        self.table.comment_changed.connect(self.save_comment)
+        self.table.value_changed.connect(self.save_value)
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
@@ -842,19 +956,19 @@ da-dev@xfel.eu"""
         self._editor_status_message = str(self._context_path.resolve())
         self.on_tab_changed(self._tab_widget.currentIndex())
 
-    def save_comment(self, prop, run, value):
+    def save_value(self, prop, run, column_name, value):
         if self.db is None:
-            log.warning("No SQLite database in use, comment not saved")
+            log.warning("No SQLite database in use, value not saved")
             return
 
-        log.debug("Saving comment for prop %d run %d", prop, run)
+        log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
         with self.db:
-            self.db.execute(
-                """
-                UPDATE runs set comment=? WHERE proposal=? AND runnr=?
-                """,
-                (value, int(prop), int(run)),
-            )
+            column_title = self.ds_name(column_name)
+            if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
+                self.db.execute(
+                    "UPDATE runs set {}=? WHERE proposal=? AND runnr=?".format(column_name),
+                    (value, int(prop), int(run)),
+                )
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:

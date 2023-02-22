@@ -468,7 +468,7 @@ class Plot:
         # given a timestamp).
         safe_cols = ["Proposal", "Run"]
         for label in [xlabel, ylabel]:
-            finite_data = self._main_window.make_finite(self._data[label])
+            finite_data = self._main_window.fix_data_for_plotting(self._data[label])
             if not label in safe_cols and not is_numeric_dtype(finite_data.dtype):
                 QMessageBox.warning(self._main_window,
                                     "Plotting failed",
@@ -599,15 +599,15 @@ class Plot:
 
                 for pi, ri in zip(proposal, run):
                     strongly_correlated, x, y = self.get_run_series_data(pi, ri, xi, yi)
-                    xs.append(self._main_window.make_finite(x))
-                    ys.append(self._main_window.make_finite(y))
+                    xs.append(self._main_window.fix_data_for_plotting(x))
+                    ys.append(self._main_window.fix_data_for_plotting(y))
             else:
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
-                    self._main_window.make_finite(self._data[xi])[self._data["Status"]]
+                    self._main_window.fix_data_for_plotting(self._data[xi])[self._data["Status"]]
                 )
                 ys.append(
-                    self._main_window.make_finite(self._data[yi])[self._data["Status"]]
+                    self._main_window.fix_data_for_plotting(self._data[yi])[self._data["Status"]]
                 )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)

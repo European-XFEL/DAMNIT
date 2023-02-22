@@ -5,10 +5,11 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
+from ..context import Variable
+
 DB_NAME = 'runs.sqlite'
 
 log = logging.getLogger(__name__)
-
 
 def db_path(root_path: Path):
     return root_path / DB_NAME
@@ -35,6 +36,9 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value)"
     )
     conn.execute(
+        "CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY, type TEXT, title TEXT, description TEXT, attributes TEXT)"
+    )
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
     )
     conn.row_factory = sqlite3.Row
@@ -49,6 +53,27 @@ def open_db(path=DB_NAME) -> sqlite3.Connection:
     os.chmod(path, 0o666)
 
     return conn
+
+def add_user_variable(conn, variable: Variable):
+
+    conn.execute(
+        "INSERT INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)", 
+        (
+            variable.name,
+            variable.variable_type,
+            variable.title,
+            variable.description
+        )
+    )
+
+def create_user_column(conn, variable: Variable):
+
+    num_cols = conn.execute(
+        "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
+    ).fetchone()[0]
+
+    if num_cols == 0:
+        conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
 
 def get_meta(conn, key, default: Any =KeyError, set_default=False):
     with conn:
