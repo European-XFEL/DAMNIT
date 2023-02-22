@@ -24,7 +24,9 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import db_path, open_db, get_meta, add_user_variable, create_user_column
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile, UserEditableVariable, get_user_variables
+from ..context import ContextFile
+from ..ctxsupport.damnit_ctx import UserEditableVariable
+from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS
 from .kafka import UpdateReceiver
 from .table import TableView, Table

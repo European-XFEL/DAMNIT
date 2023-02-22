@@ -18,7 +18,8 @@ import numpy as np
 
 from kafka import KafkaProducer
 
-from ..context import ContextFile, RunData, get_user_variables
+from ..context import ContextFile, RunData
+from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import open_db, get_meta
 

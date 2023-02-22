@@ -5,7 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 import numpy as np
 
-from amore_mid_prototype.context import ContextFile, types_map, UserEditableVariable
+from amore_mid_prototype.context import ContextFile
+from amore_mid_prototype.ctxsupport.damnit_ctx import types_map, UserEditableVariable
 from amore_mid_prototype.backend.db import open_db, DB_NAME
 
 

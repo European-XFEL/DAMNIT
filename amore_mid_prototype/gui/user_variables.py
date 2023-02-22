@@ -2,7 +2,7 @@ import re
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from ..context import types_map
+from ..ctxsupport.damnit_ctx import types_map
 
 class AddUserVariableDialog(QtWidgets.QDialog):
 
