@@ -5,7 +5,6 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import re
-import abc
 import collections
 
 from functools import wraps
@@ -13,26 +12,20 @@ from enum import Enum
 
 import pandas as pd
 
-class ValueType(abc.ABC):
+class ValueType:
 
-    @abc.abstractmethod
-    def type_instance():
-        pass
+    # These are intended to be overridden in subclasses.
+    type_instance = None
 
-    @abc.abstractmethod
-    def type_name():
-        pass
+    type_name = None
+
+    description = None
+
+    examples = None
 
     def __str__(self):
         return self.type_name
 
-    @abc.abstractmethod
-    def description():
-        pass
-
-    @abc.abstractmethod
-    def examples():
-        pass
 
     @classmethod
     def unwrap(cls, x):
