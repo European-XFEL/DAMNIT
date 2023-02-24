@@ -226,7 +226,7 @@ def test_handle_update(mock_db, qtbot):
     assert model().data(model().index(0, headers.index("Scalar1"))) == str(msg["scalar1"])
 
     # Add a new column to an existing row
-    msg["array"] = 3.14
+    msg["array"] = np.array([1,1,2])
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()

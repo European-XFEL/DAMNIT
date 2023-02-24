@@ -525,6 +525,9 @@ da-dev@xfel.eu"""
                 )
                 for col_name in new_cols:
                     self.data.insert(len(self.data.columns), col_name, np.nan)
+                    if isinstance(message[col_name], np.ndarray):
+                        self.data[col_name] = self.data[col_name].astype('object')
+
                 self.table.endInsertColumns()
 
                 self.table_view.add_new_columns(
