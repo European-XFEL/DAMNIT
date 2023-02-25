@@ -296,6 +296,9 @@ da-dev@xfel.eu"""
         # Don't try to plot comments
         comments_df.insert(2, "Status", False)
 
+        # Unset the table_view model before we start changing it
+        self.table_view.setModel(None)
+
         self.data = pd.concat(
             [
                 df.rename(
@@ -327,10 +330,19 @@ da-dev@xfel.eu"""
         # Strip missing columns
         saved_cols = [col for col in saved_cols if col in df_cols]
 
-        # Sort columns such that every column not saved is pushed to the
-        # beginning, and all saved columns are inserted afterwards.
-        sorted_cols = [col for col in df_cols if col not in saved_cols]
-        sorted_cols.extend(saved_cols)
+        # Sort columns such that all static columns (proposal, run, etc) are at
+        # the beginning, followed by all the columns that have saved settings,
+        # followed by all the other columns (i.e. comment_id and any new columns
+        # added in between the last save and now).
+        static_cols = df_cols[:5]
+        non_static_cols = df_cols[5:]
+        sorted_cols = static_cols
+        # Static columns are saved too to store their visibility, but we filter
+        # them out here because they've already been added to the list.
+        sorted_cols.extend([col for col in saved_cols if col not in sorted_cols])
+        # Add all other unsaved columns
+        sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
+
         self.data = self.data[sorted_cols]
 
         self.table_view.setModel(self.table)
@@ -345,13 +357,11 @@ da-dev@xfel.eu"""
 
         # Update the column widget and plotting controls with the new columns
         self.table_view.set_columns([self.column_title(c) for c in self.data.columns],
-                                    [True for _ in self.data.columns])
+                                    [col_settings.get(col, True) for col in self.data.columns])
         self.plot.update_columns()
 
-        # Hide the comment_id column and all columns hidden by the user
-        hidden_columns = ["comment_id"] + [col for col in saved_cols if not col_settings[col]]
-        for col in hidden_columns:
-            self.table_view.set_column_visibility(col, False, for_restore=True)
+        # Hide the comment_id column
+        self.table_view.set_column_visibility("comment_id", False, for_restore=True)
 
         self._tab_widget.setEnabled(True)
 
