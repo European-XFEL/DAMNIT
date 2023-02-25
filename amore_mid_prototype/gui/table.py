@@ -37,9 +37,10 @@ class TableView(QtWidgets.QTableView):
         when the model is updated.
         """
         super().setModel(model)
-        self.model().rowsInserted.connect(self.style_comment_rows)
-        self.model().rowsInserted.connect(self.resize_new_rows)
-        self.resizeRowsToContents()
+        if model is not None:
+            self.model().rowsInserted.connect(self.style_comment_rows)
+            self.model().rowsInserted.connect(self.resize_new_rows)
+            self.resizeRowsToContents()
 
     def item_changed(self, item):
         state = item.checkState()
@@ -80,7 +81,7 @@ class TableView(QtWidgets.QTableView):
         col_offset = self._static_columns_widget.count() + 1
 
         col_from = start + col_offset
-        col_to = row + col_offset
+        col_to = self._columns_widget.currentIndex().row() + col_offset
 
         self.horizontalHeader().moveSection(col_from, col_to)
 
@@ -95,9 +96,8 @@ class TableView(QtWidgets.QTableView):
                 continue
 
             item = QtWidgets.QListWidgetItem(column)
-            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-
             self._columns_widget.insertItem(position, item)
+            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
     def create_column_widget(self):
         group = QtWidgets.QGroupBox("Column settings")
@@ -112,6 +112,7 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
 
+        self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
@@ -131,11 +132,10 @@ class TableView(QtWidgets.QTableView):
         for column, status in zip(columns, statuses):
             if column in static_columns:
                 item = QtWidgets.QListWidgetItem(column)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
                 self._static_columns_widget.addItem(item)
+                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
         self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
                                                   QtWidgets.QSizePolicy.Minimum)
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
 
         # Remove the static columns
         columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
