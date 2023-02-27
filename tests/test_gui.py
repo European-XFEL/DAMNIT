@@ -10,6 +10,7 @@ import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
 
+from amore_mid_prototype.ctxsupport.ctxrunner import ContextFile, Results
 from amore_mid_prototype.backend.db import db_path, add_user_variable
 from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.gui.editor import ContextTestResult
@@ -615,3 +616,77 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean") is None
 
+def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    # Create context file relevant variables
+    ctx_code = """
+    from damnit_ctx import Variable
+    import numpy as np
+
+    @Variable(title="Scalar")
+    def scalar(run): return 42
+
+    @Variable(title="Array", summary="mean")
+    def array(run): return np.random.rand(100)
+
+    @Variable(title="Constant array", summary="mean")
+    def constant_array(run): return np.ones(100)
+    """
+    ctx_code = textwrap.dedent(ctx_code)
+    (db_dir / "context.py").write_text(ctx_code)
+    ctx = ContextFile.from_str(ctx_code)
+
+    # Add a single run to the database
+    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment", "scalar", "array", "constant_array"]
+    runs = pd.DataFrame(np.random.randint(100, size=(1, len(runs_cols))),
+                        columns=runs_cols)
+    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
+    runs.to_sql("runs", db, index=False, if_exists="replace")
+    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+
+    # And to an HDF5 file
+    proposal = runs["proposal"][0]
+    run_number = runs["runnr"][0]
+    results = Results.create(ctx, { "run_data": mock_run }, run_number, proposal)
+    extracted_data_dir = db_dir / "extracted_data"
+    extracted_data_dir.mkdir()
+    results.save_hdf5(extracted_data_dir / f"p{proposal}_r{run_number}.h5")
+
+    # Create window
+    win = MainWindow(db_dir, False)
+
+    # Helper function to get a QModelIndex from a variable title
+    def get_index(title):
+        col = list(win.data.columns).index(title)
+        return win.table.index(0, col)
+
+    # We should be able to plot summaries
+    win.plot._combo_box_x_axis.setCurrentText("Array")
+    win.plot._combo_box_y_axis.setCurrentText("Constant array")
+
+    with patch.object(QMessageBox, "warning") as warning:
+        win.plot._button_plot_clicked(False)
+        warning.assert_not_called()
+
+    # And plot an array
+    array_index = get_index("Array")
+    assert array_index.isValid()
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(array_index)
+        warning.assert_not_called()
+
+    # And correlate two array variables
+    win.table_view.setCurrentIndex(array_index)
+    with patch.object(QMessageBox, "warning") as warning:
+        win.plot._button_plot_clicked(True)
+        warning.assert_not_called()
+
+    # Check that the text for the array that changes is bold
+    assert win.table.data(array_index, role=Qt.FontRole).bold()
+
+    # But not for the constant array
+    const_array_index = get_index("Constant array")
+    assert const_array_index.isValid()
+    assert win.table.data(const_array_index, role=Qt.FontRole) is None

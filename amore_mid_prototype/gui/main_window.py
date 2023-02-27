@@ -679,7 +679,7 @@ da-dev@xfel.eu"""
                 log.warning("{} not found...".format(file_name))
             raise e
 
-    def ds_name(self, quantity):
+    def col_name_to_title(self, quantity):
         res = quantity
 
         if quantity in self._name_to_title:
@@ -723,15 +723,10 @@ da-dev@xfel.eu"""
         run = self.data["Run"][index.row()]
 
         quantity_title = self.data.columns[index.column()]
-        quantity = self.ds_name(quantity_title)
+        quantity = self.col_title_to_name(quantity_title)
 
-        user_string_columns = set()
-        for cc in self.table.editable_columns:
-            if isinstance(self.vars[cc].get_type_class(), StringValueType):
-                user_string_columns.add(cc)
-
-        # Don't try to plot comments
-        if quantity in {"Status"} | user_string_columns:
+        # Don't try to plot strings
+        if quantity_title in { "Status" } | self.table.editable_columns:
             return
 
         log.info(
@@ -976,7 +971,7 @@ da-dev@xfel.eu"""
 
         log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
         with self.db:
-            column_title = self.ds_name(column_name)
+            column_title = self.col_name_to_title(column_name)
             if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
                 self.db.execute(
                     "UPDATE runs set {}=? WHERE proposal=? AND runnr=?".format(column_name),

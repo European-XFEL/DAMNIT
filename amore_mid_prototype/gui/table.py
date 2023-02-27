@@ -272,7 +272,7 @@ class Table(QtCore.QAbstractTableModel):
 
         try:
             file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
-        except:
+        except FileNotFoundError:
             return is_constant
 
         if quantity in run_file:
@@ -296,7 +296,7 @@ class Table(QtCore.QAbstractTableModel):
             # If the variable is not constant, make it bold
             run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
             proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
-            quantity = self._main_window.ds_name(self._data.columns[index.column()])
+            quantity = self._main_window.col_title_to_name(self._data.columns[index.column()])
 
             if not self.variable_is_constant(run, proposal, quantity):
                 font = QtGui.QFont()
