@@ -234,7 +234,7 @@ class Table(QtCore.QAbstractTableModel):
         return True
 
     @lru_cache(maxsize=500)
-    def generateThumbnail(self, index) -> QtGui.QPixmap:
+    def generateThumbnail(self, run, proposal, quantity) -> QtGui.QPixmap:
         """
         Helper function to generate a thumbnail for a 2D array.
 
@@ -244,7 +244,8 @@ class Table(QtCore.QAbstractTableModel):
         thumbnails with @lru_cache. Unfortunately ndarrays are not hashable so
         we have to take an index instead.
         """
-        image = self._data.iloc[index.row(), index.column()]
+        df_row = self._data.loc[(self._data["Run"] == run) & (self._data["Proposal"] == proposal)]
+        image = df_row[quantity].item()
 
         fig = Figure(figsize=(1, 1))
         canvas = FigureCanvas(fig)
@@ -291,13 +292,13 @@ class Table(QtCore.QAbstractTableModel):
             return
 
         value = self._data.iloc[index.row(), index.column()]
+        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+        quantity_title = self._data.columns[index.column()]
+        quantity = self._main_window.col_title_to_name(quantity_title)
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
-            run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
-            proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
-            quantity = self._main_window.col_title_to_name(self._data.columns[index.column()])
-
             if not self.variable_is_constant(run, proposal, quantity):
                 font = QtGui.QFont()
                 font.setBold(True)
@@ -305,7 +306,7 @@ class Table(QtCore.QAbstractTableModel):
 
         elif role == Qt.DecorationRole:
             if isinstance(value, np.ndarray):
-                return self.generateThumbnail(index)
+                return self.generateThumbnail(run, proposal, quantity_title)
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             if isinstance(value, np.ndarray):
                 # The image preview for this is taken care of by the DecorationRole
