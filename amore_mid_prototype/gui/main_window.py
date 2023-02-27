@@ -166,9 +166,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar.showMessage("Double-click on a cell to inspect results.")
         self._status_bar.setStyleSheet('QStatusBar {}')
 
-    def _menu_bar_edit_context(self):
-        Popen(['xdg-open', self.context_path])
-
     def _menu_create_user_var(self) -> None:
         dialog = AddUserVariableDialog(self)
         dialog.exec()
