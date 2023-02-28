@@ -8,6 +8,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
+from socket import gethostname
 
 import pandas as pd
 import numpy as np
@@ -196,6 +197,9 @@ da-dev@xfel.eu"""
         # By convention the AMORE directory is often stored at usr/Shared/amore,
         # so if this directory exists, then we use it.
         standard_path = Path(proposal_dir) / "usr/Shared/amore"
+        if gethostname().startswith('exflonc'):
+            # use separated directory if running online
+            standard_path = standard_path.parent / f'{standard_path.stem}-online'
         if standard_path.is_dir() and db_path(standard_path).is_file():
             path = standard_path
         else:
