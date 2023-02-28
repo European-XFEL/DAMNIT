@@ -7,6 +7,7 @@ import queue
 import subprocess
 import sys
 from pathlib import Path
+from socket import gethostname
 from threading import Thread
 
 from kafka import KafkaConsumer
@@ -16,8 +17,20 @@ from .extract_data import RunData
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
-BROKERS_IN = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
+# BROKERS_IN = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
 CONSUMER_ID = 'xfel-da-amore-prototype-{}'
+KAFKA_CONF = {
+    'maxwell': {
+        'brokers': [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)],
+        'topics': ["xfel-test-r2d2", "xfel-test-offline-cal"],
+        'events': ["migration_complete", "correction_complete"],
+    },
+    'onc': {
+        'brokers': ['exflwgs06:9091'],
+        'topics': ['test.euxfel.sa2.hed.daq', 'test.euxfel.sa2.hed.cal'],
+        'events': ['run_complete', 'correction_complete'],
+    }
+}
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +67,6 @@ def watch_processes_finish(q: queue.Queue):
 
 
 class EventProcessor:
-    EXPECTED_EVENTS = ["migration_complete", "correction_complete"]
 
     def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
@@ -64,10 +76,18 @@ class EventProcessor:
         self.proposal = get_meta(self.db, 'proposal')
         log.info(f"Will watch for events from proposal {self.proposal}")
 
+        if gethostname().startswith('exflonc'):
+            # running on the online cluster
+            kafka_conf = KAFKA_CONF['onc']
+        else:
+            kafka_conf = KAFKA_CONF['maxwell']
+
         consumer_id = CONSUMER_ID.format(get_meta(self.db, 'db_id'))
-        self.kafka_cns = KafkaConsumer("xfel-test-r2d2", "xfel-test-offline-cal",
-                                       bootstrap_servers=BROKERS_IN,
+        print(kafka_conf)
+        self.kafka_cns = KafkaConsumer(*kafka_conf['topics'],
+                                       bootstrap_servers=kafka_conf['brokers'],
                                        group_id=consumer_id)
+        self.events = kafka_conf['events']
 
         self.extract_procs_queue = queue.Queue()
         self.extract_procs_watcher = Thread(
@@ -95,11 +115,14 @@ class EventProcessor:
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())
         event = msg.get('event')
-        if event in self.EXPECTED_EVENTS:
+        if event in self.events:
             log.debug("Processing %s event from Kafka", event)
             getattr(self, f'handle_{event}')(record, msg)
         else:
             log.debug("Unexpected %s event from Kafka", event)
+
+    def handle_run_complete(self, record, msg: dict):
+        self.handle_event(record, msg, RunData.RAW)
 
     def handle_migration_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.RAW)
