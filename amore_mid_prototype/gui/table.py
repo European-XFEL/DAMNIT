@@ -354,29 +354,35 @@ class Table(QtCore.QAbstractTableModel):
             return False
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+            # Change the value in the table
             changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
-            try:
-                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
-                value = variable_type_class.convert(value, unwrap=True) if value != '' else None
+            if changed_column == "comment":
                 self._data.iloc[index.row(), index.column()] = value
-            except Exception as e:
-                self._main_window.show_status_message(
-                    f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
-                    timeout=5000,
-                    stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
-                )
-                return False
+            else:
+                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
+
+                try:
+                    value = variable_type_class.convert(value, unwrap=True) if value != '' else None
+                    self._data.iloc[index.row(), index.column()] = value
+                except Exception as e:
+                    self._main_window.show_status_message(
+                        f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
+                        timeout=5000,
+                        stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
+                    )
+                    return False
+
             self.dataChanged.emit(index, index)
 
+            # Send appropriate signals if we edited a standalone comment or an
+            # editable column.
             prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
 
-            if pd.isna(prop) and pd.isna(run) and index.column() == self._data.columns.get_loc("Comment"):
+            if pd.isna(prop) and pd.isna(run) and changed_column == "comment":
                 comment_id = self._data.iloc[index.row()]["comment_id"]
                 if not pd.isna(comment_id):
                     self.time_comment_changed.emit(comment_id, value)
-                    return
-
-            if self._data.columns[index.column()] in self.editable_columns:
+            elif self._data.columns[index.column()] in self.editable_columns:
                 if not (pd.isna(prop) or pd.isna(run)):
                     self.value_changed.emit(int(prop), int(run), changed_column, value)
 

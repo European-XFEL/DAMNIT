@@ -693,12 +693,10 @@ da-dev@xfel.eu"""
         return res
 
     def get_variable_from_name(self, name):
-        res = None
-
         if name in self._attributi:
-            res = self._attributi[name]
-
-        return res
+            return self._attributi[name]
+        else:
+            raise RuntimeError(f"Couldn't find variable with name '{name}'")
 
     def make_finite(self, data):
         if not isinstance(data, pd.Series):

@@ -620,7 +620,7 @@ def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    # Create context file relevant variables
+    # Create a context file with relevant variables
     ctx_code = """
     from damnit_ctx import Variable
     import numpy as np
@@ -658,9 +658,11 @@ def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
     win = MainWindow(db_dir, False)
 
     # Helper function to get a QModelIndex from a variable title
-    def get_index(title):
+    def get_index(title, row=0):
         col = list(win.data.columns).index(title)
-        return win.table.index(0, col)
+        index = win.table.index(row, col)
+        assert index.isValid()
+        return index
 
     # We should be able to plot summaries
     win.plot._combo_box_x_axis.setCurrentText("Array")
@@ -672,7 +674,6 @@ def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
 
     # And plot an array
     array_index = get_index("Array")
-    assert array_index.isValid()
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(array_index)
         warning.assert_not_called()
@@ -688,5 +689,18 @@ def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
 
     # But not for the constant array
     const_array_index = get_index("Constant array")
-    assert const_array_index.isValid()
     assert win.table.data(const_array_index, role=Qt.FontRole) is None
+
+    # Edit a comment
+    comment_index = get_index("Comment")
+    win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+    # Add a standalone comment
+    row_count = win.table.rowCount()
+    win.comment.setText("Bar")
+    win._comment_button_clicked()
+    assert win.table.rowCount() == row_count + 1
+
+    # Edit a standalone comment
+    comment_index = get_index("Comment", row=1)
+    win.table.setData(comment_index, "Foo", Qt.EditRole)
