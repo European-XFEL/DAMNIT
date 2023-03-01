@@ -351,6 +351,30 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         assert f[".reduced"]["array"].asstr()[0] == "float64: (2, 2, 2, 2)"
         assert f["array"]["data"].shape == (2, 2, 2, 2)
 
+    # Helper function to raise an exception when proc data isn't available, like
+    # open_run(data="proc") would.
+    def mock_open_run(*_, data=None):
+        if data == "proc":
+            raise FileNotFoundError("foo.h5")
+        else:
+            return mock_run
+
+    # Reprocess with `data='all'`, but as if there is no proc data
+    with patch(f"{pkg}.extra_data.open_run", side_effect=mock_open_run):
+        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
+
+    # Check that `meta_array` wasn't processed, since it requires proc data
+    with h5py.File(out_path) as f:
+        assert "meta_array" not in f
+
+    # Reprocess with proc data
+    with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
+        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
+
+    # Now `meta_array` should have been processed
+    with h5py.File(out_path) as f:
+        assert "meta_array" in f
+
 def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)

@@ -398,16 +398,29 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        ctx_whole = ContextFile.from_py_file(Path('context.py'))
-        ctx = ctx_whole.filter(
-            run_data=RunData(args.run_data), cluster=args.cluster_job, name_matches=args.match
-        )
-        log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
+        run_data = RunData(args.run_data)
 
         if args.mock:
             run_dc = mock_run()
         else:
             run_dc = extra_data.open_run(args.proposal, args.run, data="all")
+
+            # Check if we have proc data
+            proc_available = False
+            try:
+                extra_data.open_run(args.proposal, args.run, data="proc")
+                proc_available = True
+            except FileNotFoundError:
+                pass
+
+            if run_data == RunData.ALL and not proc_available:
+                run_data = RunData.RAW
+
+        ctx_whole = ContextFile.from_py_file(Path('context.py'))
+        ctx = ctx_whole.filter(
+            run_data=run_data, cluster=args.cluster_job, name_matches=args.match
+        )
+        log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
         res = Results.create(ctx, Path.cwd(), run_dc, args.run, args.proposal)
 
