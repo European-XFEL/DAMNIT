@@ -360,14 +360,27 @@ def main(argv=None):
 
     db_conn = sqlite3.connect('runs.sqlite', timeout=30)
 
+    # Check if we have proc data
+    proc_available = False
+    try:
+        extra_data.open_run(args.proposal, args.run, data="proc")
+        proc_available = True
+    except FileNotFoundError:
+        pass
+
+    run_data = RunData(args.run_data)
+    if run_data == RunData.ALL and not proc_available:
+        log.warning("Proc data is unavailable, only raw variables will be executed.")
+        run_data = RunData.RAW
+
     ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(db_conn))
     ctx = ctx_whole.filter(
-        run_data=RunData(args.run_data), cluster=args.cluster_job, name_matches=args.match
+        run_data=run_data, cluster=args.cluster_job, name_matches=args.match
     )
     log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
 
     inputs = {
-        'run_data' : extra_data.open_run(args.proposal, args.run, data="all"),
+        'run_data' : extra_data.open_run(args.proposal, args.run, data=run_data.value),
         'db_conn' : db_conn
     }
     res = Results.create(ctx, inputs, args.run, args.proposal)
