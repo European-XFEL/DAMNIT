@@ -125,17 +125,12 @@ def test_editor(mock_db, mock_ctx, qtbot):
     win.save_context()
     assert ctx_path.read_text() == warning_code
 
-def test_settings(mock_db, mock_ctx, tmp_path, monkeypatch, qtbot):
-    db_dir, db = mock_db
+def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
+    db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
     # Store fake data in the DB
-    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment"] + list(mock_ctx.vars.keys())
-    runs = pd.DataFrame(np.random.randint(100, size=(10, len(runs_cols))),
-                        columns=runs_cols)
-    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
-    runs.to_sql("runs", db, index=False, if_exists="replace")
-    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+    runs = pd.read_sql_query("SELECT * FROM runs", db)
 
     # Create the window with a mocked Path so that it saves the settings in the
     # home directory.
@@ -616,35 +611,23 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean") is None
 
-def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
-    db_dir, db = mock_db
+def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, qtbot):
+    db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
     # Create a context file with relevant variables
-    ctx_code = """
-    from damnit_ctx import Variable
-    import numpy as np
-
-    @Variable(title="Scalar")
-    def scalar(run): return 42
-
-    @Variable(title="Array", summary="mean")
-    def array(run): return np.random.rand(100)
-
+    const_array_code = """
     @Variable(title="Constant array", summary="mean")
-    def constant_array(run): return np.ones(100)
+    def constant_array(run):
+        return np.ones(2)
     """
-    ctx_code = textwrap.dedent(ctx_code)
+    ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
 
-    # Add a single run to the database
-    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment", "scalar", "array", "constant_array"]
-    runs = pd.DataFrame(np.random.randint(100, size=(1, len(runs_cols))),
-                        columns=runs_cols)
-    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
+    runs = pd.read_sql_query("SELECT * FROM runs", db)
+    runs["constant_array"] = np.ones(runs.shape[0])
     runs.to_sql("runs", db, index=False, if_exists="replace")
-    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
 
     # And to an HDF5 file
     proposal = runs["proposal"][0]

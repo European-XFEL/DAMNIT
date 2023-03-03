@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import numpy as np
+import pandas as pd
 
 from amore_mid_prototype.context import ContextFile
 from amore_mid_prototype.ctxsupport.damnit_ctx import types_map, UserEditableVariable
@@ -133,6 +134,29 @@ def mock_db(tmp_path, mock_ctx):
     yield tmp_path, db
 
     db.close()
+
+@pytest.fixture
+def mock_db_with_data(mock_ctx, mock_db):
+    db_dir, db = mock_db
+
+    # Create a DataFrame that matches the schema in the 'runs' table
+    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment"] + list(mock_ctx.vars.keys())
+    # Generate random data for a single run
+    runs = pd.DataFrame(np.random.randint(100, size=(1, len(runs_cols))),
+                        columns=runs_cols)
+    # Set a single proposal number
+    runs = runs.assign(proposal=1234)
+    # Set valid run numbers
+    runs["runnr"] = np.arange(runs.shape[0])
+
+    # Create another DataFrame matching the 'time_comments' table
+    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
+
+    # Save both to the database
+    runs.to_sql("runs", db, index=False, if_exists="replace")
+    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+
+    yield mock_db
 
 @pytest.fixture
 def bound_port():
