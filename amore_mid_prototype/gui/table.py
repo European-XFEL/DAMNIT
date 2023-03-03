@@ -248,7 +248,7 @@ class Table(QtCore.QAbstractTableModel):
         run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
         proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
         quantity_title = self._data.columns[index.column()]
-        quantity = self._main_window.col_title_to_name(quantity_title)
+        quantity = self._main_window.ds_name(quantity_title)
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
