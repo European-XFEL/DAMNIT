@@ -616,8 +616,8 @@ class Plot:
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
         file_name, dataset = self._main_window.get_run_file(proposal, run)
 
-        x_quantity = self._main_window.ds_name(xlabel)
-        y_quantity = self._main_window.ds_name(ylabel)
+        x_quantity = self._main_window.col_title_to_name(xlabel)
+        y_quantity = self._main_window.col_title_to_name(ylabel)
 
         strongly_correlated = False
         try:

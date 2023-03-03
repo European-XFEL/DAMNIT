@@ -10,6 +10,7 @@ import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
 
+from amore_mid_prototype.ctxsupport.ctxrunner import ContextFile, Results
 from amore_mid_prototype.backend.db import db_path, add_user_variable
 from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.gui.editor import ContextTestResult
@@ -124,8 +125,9 @@ def test_editor(mock_db, mock_ctx, qtbot):
     win.save_context()
     assert ctx_path.read_text() == warning_code
 
-def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
+def test_settings(mock_db, mock_ctx, tmp_path, monkeypatch, qtbot):
     db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
 
     # Store fake data in the DB
     runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment"] + list(mock_ctx.vars.keys())
@@ -140,57 +142,125 @@ def test_settings(mock_db, mock_ctx, tmp_path, qtbot):
     with patch("pathlib.Path.home", return_value=tmp_path):
         win = MainWindow(db_dir, False)
 
+    # Helper function to show the currently visible headers
+    def visible_headers():
+        header = win.table_view.horizontalHeader()
+        headers = [header.model().headerData(header.logicalIndex(i), Qt.Horizontal) for i in range(header.count())
+                   if not header.isSectionHidden(i)]
+        return headers
+
+    # Helper function to move a column from `from_idx` to `to_idx`. Column moves
+    # are triggered by the user drag-and-dropping items in a QListWidget, but
+    # unfortunately it seems well-nigh impossible to either simulate a
+    # drag-and-drop with QTest or programmatically move a row in a QListWidget
+    # (such that its models' rowsMoved() signal is emitted). Hence, this ugly
+    # hack.
+    def move_columns_manually(from_idx, to_idx):
+        headers = visible_headers()
+        col_one = headers[from_idx]
+        col_two = headers[to_idx]
+        columns = win.table_view._columns_widget
+        col_one_item = columns.findItems(col_one, Qt.MatchExactly)[0]
+        col_two_item = columns.findItems(col_two, Qt.MatchExactly)[0]
+        old_idx = columns.row(col_two_item)
+
+        from_row = columns.row(col_one_item)
+        columns.takeItem(columns.row(col_one_item))
+        columns.insertItem(old_idx, col_one_item)
+        columns.setCurrentItem(col_one_item)
+        win.table_view.item_moved(None, from_row, from_row,
+                                  None, columns.row(col_one_item))
+
+        return col_one, col_two
+
+    # Opening a database and adding columns should have triggered a save, so the
+    # settings directory should now exist.
     settings_db_path = tmp_path / ".local/state/damnit/settings.db"
-    assert not settings_db_path.parent.is_dir()
+    assert settings_db_path.parent.is_dir()
 
     columns_widget = win.table_view._columns_widget
     static_columns_widget = win.table_view._static_columns_widget
 
     last_col_item = columns_widget.item(columns_widget.count() - 1)
     last_col = last_col_item.text()
-    last_static_col = static_columns_widget.item(static_columns_widget.count() - 1).text()
 
     # Hide a column
+    assert last_col in visible_headers()
     last_col_item.setCheckState(Qt.Unchecked)
+    headers = visible_headers()
+    assert last_col not in headers
 
-    # This should have triggered a save, so the settings directory should now
-    # exist.
-    assert settings_db_path.parent.is_dir()
+    # Reload the database to make sure the changes were saved
+    win.autoconfigure(db_dir)
+    assert headers == visible_headers()
 
-    # Open the saved settings
-    with shelve.open(str(settings_db_path)) as settings_db:
-        db_key = list(settings_db.keys())[0]
-        settings = settings_db[db_key]
-    col_settings = settings[Settings.COLUMNS.value]
+    # Move a column
+    headers = visible_headers()
+    col_one, col_two = move_columns_manually(-1, -2)
+    new_headers = visible_headers()
+    assert new_headers.index(col_one) == headers.index(col_two)
 
-    # Check that the visiblity has been saved
-    assert col_settings[last_col] == False
-    assert all(visible for col, visible in col_settings.items() if col != last_col)
-
-    # Check the order has been saved by calculating the differences between
-    # indices of each column in the saved settings. If they are all one after
-    # another then the difference should always be 1.
-    df_cols = win.data.columns.tolist()
-    np.testing.assert_array_equal(np.diff([df_cols.index(col) for col in col_settings.keys()]),
-                                  np.ones(len(col_settings) - 1))
-
-    # Change the settings manually
-    col_settings = dict(reversed(col_settings.items()))
-    col_settings[last_static_col] = False
-    with shelve.open(str(settings_db_path)) as settings_db:
-        settings_db[db_key] = {Settings.COLUMNS.value: col_settings}
-
-    # Reconfigure to load the new settings
+    # Reconfigure to reload the settings
     win.autoconfigure(db_dir)
 
-    # Check the ordering
-    df_cols = win.data.columns.tolist()
-    np.testing.assert_array_equal(np.diff([df_cols.index(col) for col in col_settings.keys()]),
-                                  np.ones(len(col_settings) - 1))
+    # Check that they loaded correctly
+    assert last_col not in visible_headers()
+    assert visible_headers() == new_headers
 
-    # Check that last_static_col is hidden
-    last_static_col_idx = win.data.columns.get_loc(last_static_col)
-    assert win.table_view.isColumnHidden(last_static_col_idx)
+    # Swapping the same columns again should restore the table to the state
+    # before the first move.
+    move_columns_manually(-1, -2)
+    assert visible_headers() == headers
+
+    # Shift by more than one column
+    headers = visible_headers()
+    col_one, col_two = move_columns_manually(5, -1)
+    assert visible_headers().index(col_one) == headers.index(col_two)
+
+    # Simulate adding a new column while the GUI is running
+    msg = {
+        "Proposal": 1234,
+        "Run": 1,
+        "new_var": 42
+    }
+    runs.insert(len(runs.columns), "new_var", np.random.rand(runs.shape[0]))
+    runs.to_sql("runs", db, index=False, if_exists="replace")
+    win.handle_update(msg)
+
+    # The new column should be at the end
+    headers = visible_headers()
+    assert "new_var" == headers[-1]
+
+    # And after reloading the database, the ordering should be the same
+    win.autoconfigure(db_dir)
+    assert headers == visible_headers()
+
+    # Simulate adding a new column while the GUI is *not* running
+    runs.insert(len(runs.columns), "newer_var", np.random.rand(runs.shape[0]))
+    runs.to_sql("runs", db, index=False, if_exists="replace")
+
+    # Reload the database
+    headers = visible_headers()
+    win.autoconfigure(db_dir)
+
+    # The new column should be at the end
+    new_headers = visible_headers()
+    assert headers == new_headers[:-1]
+    assert "newer_var" == new_headers[-1]
+
+    # Test hiding a static column
+    static_columns_widget = win.table_view._static_columns_widget
+    last_static_col_item = static_columns_widget.item(static_columns_widget.count() - 1)
+    last_static_col = last_static_col_item.text()
+
+    assert last_static_col in visible_headers()
+    last_static_col_item.setCheckState(Qt.Unchecked)
+    assert last_static_col not in visible_headers()
+
+    # Reload the database
+    headers = visible_headers()
+    win.autoconfigure(db_dir)
+    assert headers == visible_headers()
 
 def test_handle_update(mock_db, qtbot):
     db_dir, db = mock_db
@@ -546,3 +616,91 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean") is None
 
+def test_table_and_plotting(mock_db, mock_run, monkeypatch, qtbot):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    # Create a context file with relevant variables
+    ctx_code = """
+    from damnit_ctx import Variable
+    import numpy as np
+
+    @Variable(title="Scalar")
+    def scalar(run): return 42
+
+    @Variable(title="Array", summary="mean")
+    def array(run): return np.random.rand(100)
+
+    @Variable(title="Constant array", summary="mean")
+    def constant_array(run): return np.ones(100)
+    """
+    ctx_code = textwrap.dedent(ctx_code)
+    (db_dir / "context.py").write_text(ctx_code)
+    ctx = ContextFile.from_str(ctx_code)
+
+    # Add a single run to the database
+    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment", "scalar", "array", "constant_array"]
+    runs = pd.DataFrame(np.random.randint(100, size=(1, len(runs_cols))),
+                        columns=runs_cols)
+    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
+    runs.to_sql("runs", db, index=False, if_exists="replace")
+    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+
+    # And to an HDF5 file
+    proposal = runs["proposal"][0]
+    run_number = runs["runnr"][0]
+    results = Results.create(ctx, { "run_data": mock_run }, run_number, proposal)
+    extracted_data_dir = db_dir / "extracted_data"
+    extracted_data_dir.mkdir()
+    results.save_hdf5(extracted_data_dir / f"p{proposal}_r{run_number}.h5")
+
+    # Create window
+    win = MainWindow(db_dir, False)
+
+    # Helper function to get a QModelIndex from a variable title
+    def get_index(title, row=0):
+        col = list(win.data.columns).index(title)
+        index = win.table.index(row, col)
+        assert index.isValid()
+        return index
+
+    # We should be able to plot summaries
+    win.plot._combo_box_x_axis.setCurrentText("Array")
+    win.plot._combo_box_y_axis.setCurrentText("Constant array")
+
+    with patch.object(QMessageBox, "warning") as warning:
+        win.plot._button_plot_clicked(False)
+        warning.assert_not_called()
+
+    # And plot an array
+    array_index = get_index("Array")
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(array_index)
+        warning.assert_not_called()
+
+    # And correlate two array variables
+    win.table_view.setCurrentIndex(array_index)
+    with patch.object(QMessageBox, "warning") as warning:
+        win.plot._button_plot_clicked(True)
+        warning.assert_not_called()
+
+    # Check that the text for the array that changes is bold
+    assert win.table.data(array_index, role=Qt.FontRole).bold()
+
+    # But not for the constant array
+    const_array_index = get_index("Constant array")
+    assert win.table.data(const_array_index, role=Qt.FontRole) is None
+
+    # Edit a comment
+    comment_index = get_index("Comment")
+    win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+    # Add a standalone comment
+    row_count = win.table.rowCount()
+    win.comment.setText("Bar")
+    win._comment_button_clicked()
+    assert win.table.rowCount() == row_count + 1
+
+    # Edit a standalone comment
+    comment_index = get_index("Comment", row=1)
+    win.table.setData(comment_index, "Foo", Qt.EditRole)

@@ -37,9 +37,10 @@ class TableView(QtWidgets.QTableView):
         when the model is updated.
         """
         super().setModel(model)
-        self.model().rowsInserted.connect(self.style_comment_rows)
-        self.model().rowsInserted.connect(self.resize_new_rows)
-        self.resizeRowsToContents()
+        if model is not None:
+            self.model().rowsInserted.connect(self.style_comment_rows)
+            self.model().rowsInserted.connect(self.resize_new_rows)
+            self.resizeRowsToContents()
 
     def item_changed(self, item):
         state = item.checkState()
@@ -80,7 +81,7 @@ class TableView(QtWidgets.QTableView):
         col_offset = self._static_columns_widget.count() + 1
 
         col_from = start + col_offset
-        col_to = row + col_offset
+        col_to = self._columns_widget.currentIndex().row() + col_offset
 
         self.horizontalHeader().moveSection(col_from, col_to)
 
@@ -95,9 +96,8 @@ class TableView(QtWidgets.QTableView):
                 continue
 
             item = QtWidgets.QListWidgetItem(column)
-            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-
             self._columns_widget.insertItem(position, item)
+            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
     def create_column_widget(self):
         group = QtWidgets.QGroupBox("Column settings")
@@ -112,6 +112,7 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
 
+        self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
@@ -131,11 +132,10 @@ class TableView(QtWidgets.QTableView):
         for column, status in zip(columns, statuses):
             if column in static_columns:
                 item = QtWidgets.QListWidgetItem(column)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
                 self._static_columns_widget.addItem(item)
+                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
         self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
                                                   QtWidgets.QSizePolicy.Minimum)
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
 
         # Remove the static columns
         columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
@@ -234,7 +234,7 @@ class Table(QtCore.QAbstractTableModel):
         return True
 
     @lru_cache(maxsize=500)
-    def generateThumbnail(self, index) -> QtGui.QPixmap:
+    def generateThumbnail(self, run, proposal, quantity) -> QtGui.QPixmap:
         """
         Helper function to generate a thumbnail for a 2D array.
 
@@ -244,7 +244,8 @@ class Table(QtCore.QAbstractTableModel):
         thumbnails with @lru_cache. Unfortunately ndarrays are not hashable so
         we have to take an index instead.
         """
-        image = self._data.iloc[index.row(), index.column()]
+        df_row = self._data.loc[(self._data["Run"] == run) & (self._data["Proposal"] == proposal)]
+        image = df_row[quantity].item()
 
         fig = Figure(figsize=(1, 1))
         canvas = FigureCanvas(fig)
@@ -272,7 +273,7 @@ class Table(QtCore.QAbstractTableModel):
 
         try:
             file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
-        except:
+        except FileNotFoundError:
             return is_constant
 
         if quantity in run_file:
@@ -291,13 +292,13 @@ class Table(QtCore.QAbstractTableModel):
             return
 
         value = self._data.iloc[index.row(), index.column()]
+        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
+        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+        quantity_title = self._data.columns[index.column()]
+        quantity = self._main_window.col_title_to_name(quantity_title)
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
-            run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
-            proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
-            quantity = self._main_window.ds_name(self._data.columns[index.column()])
-
             if not self.variable_is_constant(run, proposal, quantity):
                 font = QtGui.QFont()
                 font.setBold(True)
@@ -305,7 +306,7 @@ class Table(QtCore.QAbstractTableModel):
 
         elif role == Qt.DecorationRole:
             if isinstance(value, np.ndarray):
-                return self.generateThumbnail(index)
+                return self.generateThumbnail(run, proposal, quantity_title)
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             if isinstance(value, np.ndarray):
                 # The image preview for this is taken care of by the DecorationRole
@@ -353,29 +354,35 @@ class Table(QtCore.QAbstractTableModel):
             return False
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
+            # Change the value in the table
             changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
-            try:
-                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
-                value = variable_type_class.convert(value, unwrap=True) if value != '' else None
+            if changed_column == "comment":
                 self._data.iloc[index.row(), index.column()] = value
-            except Exception as e:
-                self._main_window.show_status_message(
-                    f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
-                    timeout=5000,
-                    stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
-                )
-                return False
+            else:
+                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
+
+                try:
+                    value = variable_type_class.convert(value, unwrap=True) if value != '' else None
+                    self._data.iloc[index.row(), index.column()] = value
+                except Exception as e:
+                    self._main_window.show_status_message(
+                        f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
+                        timeout=5000,
+                        stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
+                    )
+                    return False
+
             self.dataChanged.emit(index, index)
 
+            # Send appropriate signals if we edited a standalone comment or an
+            # editable column.
             prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
 
-            if pd.isna(prop) and pd.isna(run) and index.column() == self._data.columns.get_loc("Comment"):
+            if pd.isna(prop) and pd.isna(run) and changed_column == "comment":
                 comment_id = self._data.iloc[index.row()]["comment_id"]
                 if not pd.isna(comment_id):
                     self.time_comment_changed.emit(comment_id, value)
-                    return
-
-            if self._data.columns[index.column()] in self.editable_columns:
+            elif self._data.columns[index.column()] in self.editable_columns:
                 if not (pd.isna(prop) or pd.isna(run)):
                     self.value_changed.emit(int(prop), int(run), changed_column, value)
 
