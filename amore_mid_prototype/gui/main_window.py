@@ -59,9 +59,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._context_is_saved = True
         self._attributi = {}
 
-        self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
-        self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.log_def = LogDefinitions()
+        self._settings_path = Path.home() / ".local" / "state" / "damnit"
+        self._settings_db_path = self._settings_path / "settings.db"
+        self.log_def = LogDefinitions(self._settings_path)
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
@@ -129,9 +129,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 event.ignore()
                 return
         # delete html log files
-        _cmd = 'rm {} {}'.format(self.log_def.path_stylesheet_log, self.log_def.path_html_log)    
-        subprocess.run(_cmd, shell=True)
+        self.log_def.path_stylesheet_log.unlink(missing_ok=True)
+        self.log_def.path_html_log.unlink(missing_ok=True) 
         self.should_watch_logs = False
+
         self.log_widget.page().deleteLater()
  
         self.stop_update_listener_thread()
@@ -259,6 +260,7 @@ da-dev@xfel.eu"""
         return os.path.isdir("/gpfs/exfel/exp")
 
     def save_settings(self):
+        self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
         with shelve.open(str(self._settings_db_path)) as db:
             settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
             db[str(self._context_path)] = settings
@@ -331,11 +333,14 @@ da-dev@xfel.eu"""
         )
 
         # Load the users settings
-        try:
+        if self._settings_db_path.parent.is_dir():
             with shelve.open(str(self._settings_db_path)) as db:
                 key = str(self._context_path)
-                col_settings = db[key][Settings.COLUMNS.value]
-        except:
+                if key in db.keys():
+                    col_settings = db[key][Settings.COLUMNS.value]
+                else:
+                    col_settings = { }
+        else:
             col_settings = { }
 
         saved_cols = list(col_settings.keys())
@@ -1072,12 +1077,14 @@ da-dev@xfel.eu"""
 
 
 class LogDefinitions():
-    def __init__(self):
+    def __init__(self, settings_path):
+        self.settings_path = settings_path
+        self.settings_path.mkdir(parents=True, exist_ok=True)
         self.log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
         self.be_log_path = 'amore.log'
-        self.fe_log_path =  Path.home() / ".local" / "state" / "damnit" / "amore_gui.log"
-        self.path_stylesheet_log = Path.home() / ".local" / "state" / "damnit" / "classes.css"
-        self.path_html_log =   Path.home() / ".local" / "state" / "damnit" / "log_body.html"
+        self.fe_log_path = self.settings_path / "amore_gui.log"
+        self.path_stylesheet_log = self.settings_path / "classes.css"
+        self.path_html_log = self.settings_path / "log_body.html"
         self.log_html_format ="<div class='{}'><pre class='log'>{} <br/></pre></div>"
         self.f_handler = logging.FileHandler(str(self.fe_log_path))
         formatter = logging.Formatter(LOG_FORMAT)

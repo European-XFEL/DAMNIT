@@ -227,8 +227,22 @@ def test_handle_update(mock_db, qtbot):
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
 
+
 def test_log_widget(mock_db, qtbot):
-    pass
+    db_dir, db = mock_db
+    win = MainWindow(db_dir, False)
+
+    # check if settings folder was created as well as log
+    # related files
+    assert win._settings_path.exists()
+    assert win.log_def.path_stylesheet_log.exists()
+    assert win.log_def.path_html_log.exists()
+
+    # check if log related tmp files are deleted
+    win.close()
+    assert not win.log_def.path_stylesheet_log.exists()
+    assert not win.log_def.path_html_log.exists()
+
 
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
