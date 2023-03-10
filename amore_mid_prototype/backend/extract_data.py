@@ -194,10 +194,15 @@ class Extractor:
         return self._proposal
 
     def slurm_options(self):
+        opts = ["--time", self.db.metameta.get("slurm_time", "02:00:00")]
+
         if reservation := self.db.metameta.get('slurm_reservation', ''):
-            return ['--reservation', reservation]
-        partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
-        return ['--partition', partition]
+            opts.extend(['--reservation', reservation])
+        else:
+            partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
+            opts.extend(['--partition', partition])
+
+        return opts
 
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=(), mock=False):
@@ -246,7 +251,6 @@ class Extractor:
                 # Note: we put the run number first so that it's visible in
                 # squeue's default 11-character column for the JobName.
                 '--job-name', f"r{run}_p{proposal}_damnit",
-                '--time', '02:00:00',
                 '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
             job_id = res.stdout.partition(';')[0]
