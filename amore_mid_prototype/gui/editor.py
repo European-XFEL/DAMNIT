@@ -11,7 +11,7 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
 
-from ..backend.db import get_meta
+from ..backend.db import get_meta, db_path
 from ..backend.extract_data import get_context_file
 from ..ctxsupport.ctxrunner import extract_error_info
 from ..context import ContextFile
@@ -51,7 +51,7 @@ class Editor(QsciScintilla):
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
 
-    def test_context(self, db):
+    def test_context(self, db, db_dir):
         """
         Check if the current context file is valid.
 
@@ -73,8 +73,10 @@ class Editor(QsciScintilla):
         # process.
         else:
             with TemporaryDirectory() as d:
-                ctx_path = Path(d) / "context.py"
+                d = Path(d)
+                ctx_path = d / "context.py"
                 ctx_path.write_text(self.text())
+                db_path(d).symlink_to(db_path(db_dir))
 
                 QGuiApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
                 ctx, error_info = get_context_file(ctx_path, context_python)

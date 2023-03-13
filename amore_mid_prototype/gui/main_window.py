@@ -909,7 +909,7 @@ da-dev@xfel.eu"""
         self._context_is_saved = False
 
     def test_context(self):
-        test_result, output = self._editor.test_context(self.db)
+        test_result, output = self._editor.test_context(self.db, self._context_path.parent)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
