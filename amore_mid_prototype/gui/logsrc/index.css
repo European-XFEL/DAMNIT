@@ -1,0 +1,47 @@
+.log{
+    white-space: pre-wrap;
+    display : block;
+}
+
+.ERROR{
+    color : red;
+    display : inline;
+}
+.WARNING{
+    color : rgb(245, 148, 4);
+    display : inline;
+}
+.INFO{
+    color : black;
+    display : inline;
+}
+.DEBUG{
+    color : gray;
+    display : inline;
+}
+
+.page-divider {
+    position: relative;
+  }
+  
+  .divider-line {
+    border: none;
+    border-top: 1px solid #000;
+    margin-top: 1px;
+    margin-bottom: 1px;
+    
+  }
+  
+  .shaded-area {
+    background-color: rgba(105, 137, 206, 0.25);
+    padding: 0 20px;
+    text-align: right;
+  }
+
+  .text-divider {
+    opacity: 1;
+    font-size: small;
+    color: rgb(54, 123, 202);
+  }
+
+  

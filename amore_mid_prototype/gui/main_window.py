@@ -4,13 +4,13 @@ import logging
 import shelve
 import sys
 import time
-import subprocess
 from threading import Thread
 
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
+from queue import Queue 
 
 import pandas as pd
 import numpy as np
@@ -20,9 +20,10 @@ from kafka.errors import NoBrokersAvailable
 from extra_data.read_machinery import find_proposal
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg, QtWebEngineWidgets
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
+from PyQt5.QtWebChannel import QWebChannel
 
 from ..backend.db import db_path, open_db, get_meta
 from ..backend import initialize_and_start_backend, backend_is_running
@@ -45,7 +46,6 @@ class MainWindow(QtWidgets.QMainWindow):
     db = None
     db_id = None
     onChangedLog = pyqtSignal()
-    errorAlert = pyqtSignal()
 
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
@@ -61,7 +61,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._settings_path = Path.home() / ".local" / "state" / "damnit"
         self._settings_db_path = self._settings_path / "settings.db"
-        self.log_def = LogDefinitions(self._settings_path)
+        self.log_def = LogDefinitions(self._settings_path, context_dir)
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
@@ -87,9 +87,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self._tab_widget)
 
         self.log_widget = QtWebEngineWidgets.QWebEngineView(self)
-        self.log_widget.load(QtCore.QUrl.fromLocalFile(str(self.log_def.path_html_log)))
-        self.scroll_status = 1
-        self.log_widget.page().contentsSizeChanged.connect(self.log_scrollbar_behavior)
+        self.log_widget.page().setWebChannel(self.log_def.log_channel)
+        self.log_widget.load(self.log_def.log_view_url)
+        self.log_widget.loadFinished.connect(lambda x: self.onLoadFinished(x))
+
         self._create_log_view()
 
         self._create_view()
@@ -100,6 +101,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
+
+    def onLoadFinished(self, finished):
+        self.log_def.is_log_view_finished = finished
+        if finished:
+            self.onChangedLog.emit()
 
     def icon_path(self, name):
         """
@@ -128,9 +134,7 @@ class MainWindow(QtWidgets.QMainWindow):
             elif result == QMessageBox.Cancel:
                 event.ignore()
                 return
-        # delete html log files
-        self.log_def.path_stylesheet_log.unlink(missing_ok=True)
-        self.log_def.path_html_log.unlink(missing_ok=True) 
+
         self.should_watch_logs = False
 
         self.log_widget.page().deleteLater()
@@ -729,7 +733,7 @@ da-dev@xfel.eu"""
         self.watch_thread_fe = Thread(target=self.watch_log_files, 
                                 args=(self.log_def.fe_log_path,), daemon=True)
         self.onChangedLog.connect(self.refresh_log)
-        self.errorAlert.connect(self.error_alert)    
+        self.log_def.log_channel_obj.log_error_signal.connect(self.error_alert)    
         self.should_watch_logs = True
         self.watch_thread_be.start()
         self.watch_thread_fe.start()
@@ -740,8 +744,10 @@ da-dev@xfel.eu"""
             while self.should_watch_logs:
                 new_line = f_in.readline()
                 if new_line:
-                    self.write_html(new_line)
-                    self.onChangedLog.emit()
+                    self.log_def.log_queue.put(new_line)
+                    if self.log_def.is_log_view_finished: 
+                        self.onChangedLog.emit()
+                        
                 else:
                     time.sleep(0.5)
 
@@ -778,56 +784,16 @@ da-dev@xfel.eu"""
                 tba.append(new_line)
                 
             for line in reversed(tba):
-                self.write_html(line, on_top=True)
+                self.add_log_line(line, on_top=True)
 
-        self.refresh_log()
         self.be_pos_relative = (self.be_pos_relative -N)*int(pos != 0)
         
-    def log_scrollbar_behavior(self):
-        # scroll_status should be set as the following:
-        # 1 - scroll down, 2 - scroll up, 3 - do nothing
-        if self.scroll_status == 1:
-            content_size = self.log_widget.page().contentsSize().height()
-            self.log_widget.page().runJavaScript('''window.history.scrollRestoration = 'manual';
-                                                 window.scrollTo(0,{})'''.format(content_size))
-        elif self.scroll_status == 2 : 
-            self.log_widget.page().runJavaScript('''window.history.scrollRestoration = 'manual';
-                                                 window.onload = window.scrollTo(0,0)''') 
-        elif self.scroll_status == 3 :
-            self.log_widget.page().runJavaScript('''window.history.scrollRestoration = 'auto';''')  
-                  
-    def write_html(self, new_line, on_top = False):
-        new_line_html = self.plain_to_html(new_line)
-        if on_top:
-            cmd_ = "sed -i '3i {}' {}".format(new_line_html, self.log_def.path_html_log)
-            self.scroll_status = 2
-        else:
-            cmd_ = "sed -i '$i{}' {}".format(new_line_html, self.log_def.path_html_log)
-            self.scroll_status = 1
-
-        subprocess.run(cmd_, shell=True)
-
-    def plain_to_html(self, plain_log):
-        log_level = 'ERROR'
-        html_log = None
-        for level in self.log_def.log_levels:
-            log_level_found = level in plain_log
-            if log_level_found:
-                log_level = level
-                break
-        
-        html_log = self.log_def.log_html_format.format(log_level, 
-                plain_log[0:-1].replace('<', '&lt;'))
-
-        if log_level == 'ERROR' and self._tab_widget.currentIndex() != 2:
-            self.errorAlert.emit()
-
-        return  html_log
-
     def create_log_cboxes(self):
         horizontal_layout = QtWidgets.QHBoxLayout()
         horizontal_layout.setAlignment(QtCore.Qt.AlignLeft)
         horizontal_layout.setSpacing(10)
+
+
         log_bar_label = QtWidgets.QLabel('Showing logs for:')
         horizontal_layout.addWidget(log_bar_label)
 
@@ -853,31 +819,61 @@ da-dev@xfel.eu"""
         horizontal_layout.addWidget(self.warningC)
         horizontal_layout.addWidget(self.errorC)
 
+        horizontal_layout.addStretch()
+        self.autoScroll = QtWidgets.QCheckBox('Auto-scroll')
+        self.autoScroll.setChecked(True)
+        self.autoScroll.stateChanged.connect(lambda: \
+                self.set_scroll_behavior() if self.autoScroll.isChecked()\
+                else self.set_scroll_behavior(unset = True))
+
+        horizontal_layout.addWidget(self.autoScroll)
+
         self.log_cboxes = horizontal_layout
 
     def filter_log_level(self, level, hide = False):
-        _replace = level + '{' + 'display : '
         if hide:
-            att_old = _replace + 'inline'
-            att_new = _replace + 'none'
+            _jscmd = "changeDisplay(" 
+            _jscmd += "\"" + level + "\""
+            _jscmd += ",true)"
         else:
-            att_old = _replace + 'none'
-            att_new = _replace + 'inline'
+            _jscmd = "changeDisplay(" 
+            _jscmd += "\"" + level + "\""
+            _jscmd += ")"
 
-        self.log_def.stylesheet = self.log_def.stylesheet.replace(att_old, att_new)
-        with open(self.log_def.path_stylesheet_log, 'w') as f:
-            f.write(self.log_def.stylesheet)
-            
-        self.scroll_status = 3
-        self.refresh_log()
+        self.log_widget.page().runJavaScript(_jscmd)
+
+    def set_scroll_behavior(self, unset=False):
+        if unset:
+            _jscmd = "autoScroll = false;"
+        else:
+            _jscmd = "autoScroll = true;"
+
+        self.log_widget.page().runJavaScript(_jscmd)
+
+
+    def add_log_line(self, new_log_line, on_top=False):
+        # removing line breaks is needed, since without this JS
+        # can't run the command
+        new_log_line = new_log_line.replace('\"', '\'')
+        new_log_line = new_log_line.replace('\n', '')
+        _jscmd = "addLine(\"" + new_log_line + "\""
+        if on_top:
+            _jscmd += ', true'
+
+        _jscmd += ")"
+        self.log_widget.page().runJavaScript(_jscmd)
+
     
     @QtCore.pyqtSlot()
     def refresh_log(self):
-        self.log_widget.reload()
+        while not self.log_def.log_queue.empty():
+            new_log_line = self.log_def.log_queue.get()
+            self.add_log_line(new_log_line)
     
     @QtCore.pyqtSlot()    
     def error_alert(self):
-        self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
+        if self._tab_widget.currentIndex() != 2:
+            self._tab_widget.tabBar().setTabTextColor(2, QtGui.QColor("red"))
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
@@ -1075,44 +1071,44 @@ da-dev@xfel.eu"""
                 (value, comment_id),
             )
 
+class LogChannelObj(QObject):
+    log_error_signal = pyqtSignal()
+    test_signal = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.test_value = ''
+
+    @QtCore.pyqtSlot()
+    def send_error_signal(self):
+        self.log_error_signal.emit()
+
+    @QtCore.pyqtSlot(str)
+    def send_test_value(self, value):
+        self.test_signal.emit(value)
+
 
 class LogDefinitions():
-    def __init__(self, settings_path):
+    def __init__(self, settings_path, context_dir):
         self.settings_path = settings_path
         self.settings_path.mkdir(parents=True, exist_ok=True)
-        self.log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-        self.be_log_path = 'amore.log'
+        if context_dir is None:
+            self.be_log_path = 'amore.log'
+        else:
+            self.be_log_path = str(context_dir) + '/amore.log'
         self.fe_log_path = self.settings_path / "amore_gui.log"
-        self.path_stylesheet_log = self.settings_path / "classes.css"
-        self.path_html_log = self.settings_path / "log_body.html"
-        self.log_html_format ="<div class='{}'><pre class='log'>{} <br/></pre></div>"
         self.f_handler = logging.FileHandler(str(self.fe_log_path))
+        self.log_view_url = QtCore.QUrl.fromLocalFile(
+                str(Path(__file__).parent / "logsrc" / "index.html"))
         formatter = logging.Formatter(LOG_FORMAT)
         self.f_handler.setFormatter(formatter)
         root_logger = logging.root 
         root_logger.addHandler(self.f_handler)
-        
-        self.write_html_header()
-        
-    def write_html_header(self):
-        # creates temporary stylesheet and html file
-        self.stylesheet = """.log{white-space: pre-wrap; display : inline}
-.ERROR{display : inline; color : red;}
-.INFO{display : inline; color : black;}
-.WARNING{display : inline; color : rgb(245, 148, 4)}
-.CRITICAL{display : inline; color : red;}
-.DEBUG{display : inline; color : gray;}
-br {display: block; margin: 0px 0;}
-body{margin-bottom: 0px;}"""
-
-        with open(self.path_stylesheet_log, 'w') as f:
-            f.write(self.stylesheet)
-
-        with open(self.path_html_log, 'w') as f:
-            head_html_log = '''<!DOCTYPE HTML><html><head>
-<link rel="stylesheet" href="classes.css"></head><body>\n
-</body></html>'''
-            f.write(head_html_log)
+        self.log_channel_obj = LogChannelObj()
+        self.log_channel = QWebChannel()
+        self.log_channel.registerObject('log_channel_obj', self.log_channel_obj)
+        self.log_queue =  Queue(50)
+        self.is_log_view_finished = False
 
 class TableViewStyle(QtWidgets.QProxyStyle):
     """

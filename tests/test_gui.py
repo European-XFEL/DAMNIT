@@ -2,6 +2,7 @@ import os
 import shelve
 import textwrap
 import logging
+import subprocess
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -10,12 +11,13 @@ import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import QMessageBox, QInputDialog
+from threading import Thread
 
 from amore_mid_prototype.backend.db import db_path
 from amore_mid_prototype.gui.editor import ContextTestResult
 from amore_mid_prototype.gui.main_window import MainWindow, Settings
 
-_log = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -83,7 +85,7 @@ def test_editor(mock_db, mock_ctx, qtbot):
     new_code = "x = 2"
     editor.setText(new_code)
 
-    # Cancelling should do nothing
+        # Cancelling should do nothing
     with patch.object(QMessageBox, "exec", return_value=QMessageBox.Cancel):
         win.close()
         assert win.isVisible()
@@ -226,24 +228,30 @@ def test_handle_update(mock_db, qtbot):
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
+    
+class Helper():
+    # tiny class to retrieve values from a callback used in test_log_widget
+    def __init__(self):
+        self.value =  ''
+    def callback(self, value):
+        self.value = value 
 
-
-def test_log_widget(mock_db, qtbot):
+def test_log_widget(qtbot, mock_db):
     db_dir, db = mock_db
     win = MainWindow(db_dir, False)
+    mock_error = "1993-09-28 13:00:00 ERROR  An error was generated"
+    helper = Helper()    
+    def assert_mock_error():
+        win.log_widget.page().toHtml(helper.callback)
+        #print(helper.value)
+        assert mock_error in helper.value
+        
+    qtbot.waitUntil(lambda: win.log_def.is_log_view_finished == True)
+    with open(str(win.log_def.be_log_path), 'a') as f:
+        f.write(mock_error)
 
-    # check if settings folder was created as well as log
-    # related files
-    assert win._settings_path.exists()
-    assert win.log_def.path_stylesheet_log.exists()
-    assert win.log_def.path_html_log.exists()
-
-    # check if log related tmp files are deleted
-    win.close()
-    assert not win.log_def.path_stylesheet_log.exists()
-    assert not win.log_def.path_html_log.exists()
-
-
+    qtbot.waitUntil(assert_mock_error, timeout = 1000)
+        
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
     win = MainWindow(None, False)
