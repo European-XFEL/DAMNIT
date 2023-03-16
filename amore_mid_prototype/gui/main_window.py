@@ -300,9 +300,7 @@ da-dev@xfel.eu"""
         }
         self._name_to_title = {vv : kk for kk, vv in self._title_to_name.items()}
 
-        self._editor.setText(ctx_file.code)
-        self.test_context()
-        self.mark_context_saved()
+        self.reload_context()
 
         df = pd.read_sql_query("SELECT * FROM runs", self.db)
         df.insert(0, "Status", True)
@@ -880,6 +878,10 @@ da-dev@xfel.eu"""
         self._check_btn = QtWidgets.QPushButton("Validate")
         self._check_btn.clicked.connect(self.test_context)
 
+        self._reload_btn = QtWidgets.QPushButton("Reload")
+        self._reload_btn.setToolTip("Reload the context file from disk")
+        self._reload_btn.clicked.connect(self.reload_context)
+
         self._context_status_icon = QtSvg.QSvgWidget()
 
         font = QtGui.QFont("Monospace", pointSize=9)
@@ -892,8 +894,9 @@ da-dev@xfel.eu"""
 
         vbox.addWidget(self._save_btn, 0, 0)
         vbox.addWidget(self._check_btn, 1, 0)
-        vbox.addWidget(self._context_status_icon, 2, 0)
-        vbox.addWidget(self._error_widget, 0, 1, 3, 1)
+        vbox.addWidget(self._reload_btn, 2, 0)
+        vbox.addWidget(self._context_status_icon, 3, 0)
+        vbox.addWidget(self._error_widget, 0, 1, 4, 1)
         vbox.setColumnStretch(0, 1)
         vbox.setColumnStretch(1, 100)
 
@@ -908,6 +911,11 @@ da-dev@xfel.eu"""
         self.on_tab_changed(self._tab_widget.currentIndex())
         self._context_is_saved = False
 
+    def reload_context(self):
+        self._editor.setText(self._context_path.read_text())
+        self.test_context()
+        self.mark_context_saved()
+
     def test_context(self):
         test_result, output = self._editor.test_context(self.db, self._context_path.parent)
 
@@ -921,7 +929,7 @@ da-dev@xfel.eu"""
         else:
             # Move the error widget down
             height_unit = self.height() // 7
-            self._editor_parent_widget.setSizes([6 * height_unit, height_unit])
+            self._editor_parent_widget.setSizes([5 * height_unit, height_unit])
 
             if test_result == ContextTestResult.WARNING:
                 self.set_error_widget_text(output)
