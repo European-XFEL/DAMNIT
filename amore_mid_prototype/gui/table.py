@@ -1,5 +1,4 @@
 from functools import lru_cache
-from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -7,6 +6,7 @@ import pandas as pd
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
+from ..util import StatusbarStylesheet, timestamp2str
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
@@ -301,9 +301,7 @@ class Table(QtCore.QAbstractTableModel):
                 return None
 
             elif index.column() == self._data.columns.get_loc("Timestamp"):
-                dt_naive = datetime.fromtimestamp(value)
-                dt_local = dt_naive.replace(tzinfo=timezone.utc).astimezone()
-                return dt_local.strftime("%H:%M:%S %d/%m/%Y")
+                return timestamp2str(value)
 
             elif pd.api.types.is_float(value):
                 if value % 1 == 0 and abs(value) < 10_000:
@@ -353,7 +351,7 @@ class Table(QtCore.QAbstractTableModel):
                     self._main_window.show_status_message(
                         f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
                         timeout=5000,
-                        stylesheet='QStatusBar {background: red; color: white; font-weight: bold;}'
+                        stylesheet=StatusbarStylesheet.ERROR
                     )
                     return False
 

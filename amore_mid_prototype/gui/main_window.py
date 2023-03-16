@@ -30,12 +30,12 @@ from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
 from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, GUI_UPDATE_TOPIC
+from ..util import StatusbarStylesheet, timestamp2str
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
-
 
 log = logging.getLogger(__name__)
 pd.options.mode.use_inf_as_na = True
@@ -167,6 +167,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
 
     def show_status_message(self, message, timeout = 0, stylesheet = ''):
+        if isinstance(stylesheet, StatusbarStylesheet):
+            stylesheet = stylesheet.value
+
         self._status_bar.showMessage(message, timeout)
         self._status_bar.setStyleSheet(stylesheet)
 
@@ -470,6 +473,12 @@ da-dev@xfel.eu"""
         action_create_var.setEnabled(False)
         self.context_dir_changed.connect(lambda _: action_create_var.setEnabled(True))
 
+        action_export = QtWidgets.QAction(QtGui.QIcon(self.icon_path("export.png")), "&Export", self)
+        action_export.setStatusTip("Export to Excel/CSV")
+        action_export.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: action_export.setEnabled(True))
+        action_export.triggered.connect(self.export_table)
+
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -485,8 +494,50 @@ da-dev@xfel.eu"""
         )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_create_var)
+        fileMenu.addAction(action_export)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
+
+    def export_table(self):
+        export_path, file_type = QFileDialog.getSaveFileName(self, "Export table to file",
+                                                             str(Path.home()),
+                                                             "Excel (*.xlsx);;CSV (*.csv)")
+
+        # If the user cancelled the dialog, return
+        if len(export_path) == 0:
+            return
+
+        # Make sure the path ends with the right extension
+        export_path = Path(export_path)
+        if export_path.suffix == "":
+            extension = file_type.split()[1][2:-1]
+            export_path = export_path.with_suffix(extension)
+        else:
+            extension = export_path.suffix
+
+        # Helper function to convert 2D arrays to a string tag. Meant for
+        # applying to a DataFrame.
+        def image2str(value):
+            if isinstance(value, np.ndarray) and value.ndim == 3:
+                return "<image>"
+            else:
+                return value
+
+        # Select columns in order of their appearance in the table (note: this
+        # drops the comment_id column).
+        columns = ["Status"] + list(self.table_view.get_column_states().keys())
+        cleaned_df = self.data[columns].copy()
+        # Format timestamps nicely
+        cleaned_df["Timestamp"] = cleaned_df["Timestamp"].map(lambda x: timestamp2str(x))
+        # Format images nicely
+        cleaned_df = cleaned_df.applymap(image2str)
+
+        if extension == ".xlsx":
+            cleaned_df.to_excel(export_path, sheet_name="DAMNIT run table")
+        elif extension == ".csv":
+            cleaned_df.to_csv(export_path, index=False)
+        else:
+            self.show_status_message(f"Unrecognized file extension: {extension}")
 
     def handle_update(self, message):
 

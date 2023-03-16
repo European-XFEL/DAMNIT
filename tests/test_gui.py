@@ -5,10 +5,11 @@ import textwrap
 from contextlib import contextmanager
 from unittest.mock import patch
 
+import pytest
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
+from PyQt5.QtWidgets import QMessageBox, QInputDialog, QFileDialog, QDialog, QStyledItemDelegate, QLineEdit
 
 from amore_mid_prototype.ctxsupport.ctxrunner import ContextFile, Results
 from amore_mid_prototype.backend.db import db_path, add_user_variable
@@ -28,15 +29,17 @@ def pid_dead(pid):
 
 def test_connect_to_kafka(mock_db, qtbot):
     db_dir, db = mock_db
-    pkg = "amore_mid_prototype.gui.kafka"
+    pkg = "amore_mid_prototype.gui"
 
-    with patch(f"{pkg}.KafkaConsumer") as kafka_cns:
+    with patch(f"{pkg}.kafka.KafkaConsumer") as kafka_cns:
         MainWindow(db_dir, False).close()
         kafka_cns.assert_not_called()
 
-    with patch(f"{pkg}.KafkaConsumer") as kafka_cns:
+    with patch(f"{pkg}.kafka.KafkaConsumer") as kafka_cns, \
+         patch(f"{pkg}.main_window.KafkaProducer") as kafka_prd:
         MainWindow(db_dir, True).close()
         kafka_cns.assert_called_once()
+        kafka_prd.assert_called_once()
 
 def test_editor(mock_db, mock_ctx, qtbot):
     db_dir, db = mock_db
@@ -687,3 +690,31 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     # Edit a standalone comment
     comment_index = get_index("Comment", row=1)
     win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+@pytest.mark.parametrize("extension", [".xlsx", ".csv"])
+def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+
+    win = MainWindow(db_dir, connect_to_kafka=False)
+
+    # Check that the program doesn't crash if the user doesn't select a file
+    with patch.object(QFileDialog, "getSaveFileName", return_value=("", "")):
+        win.export_table()
+
+    # Check that the filter is used if a suffix is not explicitly set by the
+    # user.
+    export_path = (db_dir / "export").with_suffix(extension)
+    filter_str = f"Ext (*{extension})"
+    with patch.object(QFileDialog, "getSaveFileName", return_value=(str(export_path.stem), filter_str)):
+        win.export_table()
+
+    assert export_path.is_file()
+    export_path.unlink()
+
+    # Check that an explicit extension is prioritized over the filter
+    filter_str = "Ext (*.dat)"
+    with patch.object(QFileDialog, "getSaveFileName", return_value=(str(export_path), filter_str)):
+        win.export_table()
+
+    assert export_path.is_file()

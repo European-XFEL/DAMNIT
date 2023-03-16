@@ -20,6 +20,7 @@ dependencies = [
     "mplcursors",
     "mpl-interactions",
     "numpy",
+    "openpyxl",
     "pandas",
     "PyQt5",
     "PyYAML",
