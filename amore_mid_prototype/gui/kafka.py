@@ -4,19 +4,24 @@ import logging
 from kafka import KafkaConsumer
 from PyQt5 import QtCore
 
-from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
+from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC, GUI_UPDATE_TOPIC
 
 log = logging.getLogger(__name__)
 
 
 class UpdateReceiver(QtCore.QObject):
     message = QtCore.pyqtSignal(object)
+    gui_message = QtCore.pyqtSignal(dict)
 
     def __init__(self, db_id: str) -> None:
-        QtCore.QObject.__init__(self)
+        super().__init__()
+
+        self._backend_topic = UPDATE_TOPIC.format(db_id)
+        self._gui_topic = GUI_UPDATE_TOPIC.format(db_id)
 
         self.kafka_cns = KafkaConsumer(
-            UPDATE_TOPIC.format(db_id), bootstrap_servers=UPDATE_BROKERS
+            self._backend_topic, self._gui_topic,
+            bootstrap_servers=UPDATE_BROKERS
         )
         self.running = False
 

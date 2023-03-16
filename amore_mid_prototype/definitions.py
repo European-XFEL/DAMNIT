@@ -6,4 +6,6 @@ if "AMORE_BROKER" in os.environ:
 else:
     UPDATE_BROKERS = ['exflwebstor01.desy.de:9102']
 
-UPDATE_TOPIC = "amore-db-{}"  # Fill in ID stored in database
+# Fill in ID stored in database
+UPDATE_TOPIC = "amore-db-{}"
+GUI_UPDATE_TOPIC = "amore-gui-{}"
