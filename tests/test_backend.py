@@ -596,14 +596,27 @@ def test_listener(mock_db):
              patch(f"{pkg}.subprocess.Popen"):
             yield handler
 
+    def mkrecord(run, proposal=1234):
+        record = MagicMock(timestamp=time.time())
+        record.value.decode.return_value = json.dumps(dict(event="correction_complete",
+                                                           proposal=proposal, run=run))
+        return record
+
+    # Check that notifications for different proposals are ignored
+    with processor_mock() as handler:
+        record = mkrecord(1, proposal=5678)
+        processor._process_kafka_event(record)
+        time.sleep(0.5)
+
+        assert handler.call_count == 0
+        assert len(processor.kafka_event_timers) == 0
+
     # Check that getting many notification for *different* runs should not cause
     # any delays (beyond the wait time).
     with processor_mock() as handler:
         for run in range(10):
-            r = MagicMock(timestamp=time.time())
-            r.value.decode.return_value = json.dumps(dict(event="correction_complete",
-                                                          proposal=1234, run=run))
-            processor._process_kafka_event(r)
+            record = mkrecord(run)
+            processor._process_kafka_event(record)
 
         # Wait for the timers to trigger
         time.sleep(0.5)
@@ -617,10 +630,8 @@ def test_listener(mock_db):
     # trigger processing once.
     with processor_mock() as handler:
         for _ in range(10):
-            r = MagicMock(timestamp=time.time())
-            r.value.decode.return_value = json.dumps(dict(event="correction_complete",
-                                                          proposal=1234, run=1))
-            processor._process_kafka_event(r)
+            record = mkrecord(1)
+            processor._process_kafka_event(record)
 
         time.sleep(1)
 

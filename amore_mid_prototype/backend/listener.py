@@ -105,7 +105,11 @@ class EventProcessor:
     def _process_kafka_event(self, record, process_immediately=False):
         msg = json.loads(record.value.decode())
         event = msg.get('event')
-        prop_run_event = (msg['proposal'], msg['run'], event)
+        proposal = int(msg["proposal"])
+        prop_run_event = (proposal, int(msg['run']), event)
+
+        if proposal != self.proposal:
+            return
 
         now = time.time()
         wait_time = self.get_wait_time()
@@ -151,9 +155,6 @@ class EventProcessor:
     def handle_event(self, record, msg: dict, run_data: RunData):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
-
-        if proposal != self.proposal:
-            return
 
         db = open_db(db_path(self.context_dir))
         with db:
