@@ -126,6 +126,7 @@ class EventProcessor:
             new_timer = Timer(wait_time, lambda: self._process_kafka_event(record))
             self.kafka_event_timers[prop_run_event] = new_timer
             new_timer.start()
+            log.info(f"Making timer for: {prop_run_event}")
 
             return
         else:
@@ -133,6 +134,7 @@ class EventProcessor:
             # cleanup old state before running the handler.
             del self.last_kafka_ts[prop_run_event]
             del self.kafka_event_timers[prop_run_event]
+            log.info(f"Wait time over for: {prop_run_event}")
 
         if event in self.EXPECTED_EVENTS:
             log.debug("Processing %s event from Kafka", event)
