@@ -6,12 +6,13 @@ import platform
 import queue
 import subprocess
 import sys
+import time
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Timer
 
 from kafka import KafkaConsumer
 
-from .db import open_db, get_meta
+from .db import open_db, get_meta, db_path
 from .extract_data import RunData
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
@@ -68,6 +69,8 @@ class EventProcessor:
         self.kafka_cns = KafkaConsumer("xfel-test-r2d2", "xfel-test-offline-cal",
                                        bootstrap_servers=BROKERS_IN,
                                        group_id=consumer_id)
+        self.last_kafka_ts = { }
+        self.kafka_event_timers = { }
 
         self.extract_procs_queue = queue.Queue()
         self.extract_procs_watcher = Thread(
@@ -92,9 +95,45 @@ class EventProcessor:
             except Exception:
                 log.error("Unepected error handling Kafka event.", exc_info=True)
 
-    def _process_kafka_event(self, record):
+    def get_wait_time(self):
+        db = open_db(db_path(self.context_dir))
+        wait_time = get_meta(db, "kafka_notification_wait", 5)
+        db.close()
+
+        return wait_time
+
+    def _process_kafka_event(self, record, process_immediately=False):
         msg = json.loads(record.value.decode())
         event = msg.get('event')
+        prop_run_event = (msg['proposal'], msg['run'], event)
+
+        now = time.time()
+        wait_time = self.get_wait_time()
+
+        # If it's the first time seeing this event/proposal/run, or if we have
+        # seen it before and the notification interval is less than the wait
+        # time, make a timer.
+        if prop_run_event not in self.last_kafka_ts or \
+           (now - self.last_kafka_ts[prop_run_event]) < wait_time:
+            # Cancel any existing timers
+            if existing_timer := self.kafka_event_timers.get(prop_run_event):
+                existing_timer.cancel()
+
+            # Record this event
+            self.last_kafka_ts[prop_run_event] = now
+
+            # Make a new timer and return
+            new_timer = Timer(wait_time, lambda: self._process_kafka_event(record))
+            self.kafka_event_timers[prop_run_event] = new_timer
+            new_timer.start()
+
+            return
+        else:
+            # Otherwise, we've been called by a timer so we can go ahead and
+            # cleanup old state before running the handler.
+            del self.last_kafka_ts[prop_run_event]
+            del self.kafka_event_timers[prop_run_event]
+
         if event in self.EXPECTED_EVENTS:
             log.debug("Processing %s event from Kafka", event)
             getattr(self, f'handle_{event}')(record, msg)
@@ -114,11 +153,14 @@ class EventProcessor:
         if proposal != self.proposal:
             return
 
-        with self.db:
-            self.db.execute("""
+        db = open_db(db_path(self.context_dir))
+        with db:
+            db.execute("""
                 INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
                 ON CONFLICT (proposal, runnr) DO NOTHING
             """, (proposal, run, record.timestamp / 1000))
+        db.close()
+
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
         # Create subprocess to process the run

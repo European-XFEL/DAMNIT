@@ -1,5 +1,7 @@
 import os
+import json
 import stat
+import time
 import pickle
 import signal
 import logging
@@ -9,7 +11,8 @@ import tempfile
 import subprocess
 import configparser
 from pathlib import Path
-from unittest.mock import patch
+from contextlib import contextmanager
+from unittest.mock import patch, MagicMock
 
 import h5py
 import pytest
@@ -22,6 +25,7 @@ from amore_mid_prototype.backend.db import open_db, get_meta, set_meta
 from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
 from amore_mid_prototype.backend.extract_data import Extractor, add_to_db
 from amore_mid_prototype.backend.supervisord import write_supervisord_conf
+from amore_mid_prototype.backend.listener import EventProcessor
 from amore_mid_prototype.gui.main_window import MainWindow
 
 
@@ -573,3 +577,54 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
         assert initialize_and_start_backend(db_dir)
 
     assert backend_is_running(db_dir)
+
+def test_listener(mock_db):
+    db_dir, db = mock_db
+    set_meta(db, "proposal", 1234)
+
+    # Create object that processes Kafka events
+    pkg = "amore_mid_prototype.backend.listener"
+    with patch(f"{pkg}.KafkaConsumer"):
+        processor = EventProcessor(db_dir)
+
+    # Set a short wait time for testing
+    set_meta(db, "kafka_notification_wait", 0.25)
+
+    @contextmanager
+    def processor_mock():
+        with patch.object(processor, "handle_correction_complete") as handler, \
+             patch(f"{pkg}.subprocess.Popen"):
+            yield handler
+
+    # Check that getting many notification for *different* runs should not cause
+    # any delays (beyond the wait time).
+    with processor_mock() as handler:
+        for run in range(10):
+            r = MagicMock(timestamp=time.time())
+            r.value.decode.return_value = json.dumps(dict(event="correction_complete",
+                                                          proposal=1234, run=run))
+            processor._process_kafka_event(r)
+
+        # Wait for the timers to trigger
+        time.sleep(0.5)
+
+        # There should have been a call for each run
+        assert handler.call_count == 10
+        # And there shouldn't be any outstanding timers
+        assert len(processor.kafka_event_timers) == 0
+
+    # Check that getting many notifications for the *same* run should only
+    # trigger processing once.
+    with processor_mock() as handler:
+        for _ in range(10):
+            r = MagicMock(timestamp=time.time())
+            r.value.decode.return_value = json.dumps(dict(event="correction_complete",
+                                                          proposal=1234, run=1))
+            processor._process_kafka_event(r)
+
+        time.sleep(1)
+
+        # The handler should only have been called once
+        assert handler.call_count == 1
+        # There still should be no outstanding timers
+        assert len(processor.kafka_event_timers) == 0
