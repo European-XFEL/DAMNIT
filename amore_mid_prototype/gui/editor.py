@@ -2,7 +2,7 @@ import sys
 from enum import Enum
 from io import StringIO
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont, QGuiApplication, QCursor
@@ -11,7 +11,7 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
 
-from ..backend.db import get_meta, db_path
+from ..backend.db import get_meta
 from ..backend.extract_data import get_context_file
 from ..ctxsupport.ctxrunner import extract_error_info
 from ..context import ContextFile
@@ -72,11 +72,9 @@ class Editor(QsciScintilla):
         # Otherwise, write it to a temporary file to evaluate it from another
         # process.
         else:
-            with TemporaryDirectory() as d:
-                d = Path(d)
-                ctx_path = d / "context.py"
+            with NamedTemporaryFile(prefix=".tmp_ctx", dir=db_dir) as ctx_file:
+                ctx_path = Path(ctx_file.name)
                 ctx_path.write_text(self.text())
-                db_path(d).symlink_to(db_path(db_dir))
 
                 QGuiApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
                 ctx, error_info = get_context_file(ctx_path, context_python)

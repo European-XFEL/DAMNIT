@@ -415,9 +415,16 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
                                installer="pip install")
 
     # Write a context file that requires the new package
-    new_env_code = """
+    new_env_code = f"""
+    from pathlib import Path
+
     import sfollow
     from damnit_ctx import Variable
+
+    # Ensure that the context file is *always* evaluated in the database
+    # directory. This is necessary to ensure that things like relative imports
+    # and janky sys.path shenanigans work.
+    assert str(Path.cwd()) == "{db_dir}"
 
     @Variable(title="Foo")
     def foo(run):
