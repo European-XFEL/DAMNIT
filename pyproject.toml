@@ -32,7 +32,8 @@ dependencies = [
     "termcolor",
     "tomli",
     "pasha",
-    "extra_geom"
+    "extra_geom",
+    "metadata-client",
 ]
 
 [project.optional-dependencies]
