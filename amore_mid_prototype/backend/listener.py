@@ -15,9 +15,9 @@ from kafka import KafkaConsumer
 from .db import open_db, get_meta
 from .extract_data import RunData
 
+
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
-# BROKERS_IN = [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)]
 CONSUMER_ID = 'xfel-da-amore-prototype-{}'
 KAFKA_CONF = {
     'maxwell': {
@@ -27,8 +27,8 @@ KAFKA_CONF = {
     },
     'onc': {
         'brokers': ['exflwgs06:9091'],
-        'topics': ['test.euxfel.sa2.hed.daq', 'test.euxfel.sa2.hed.cal'],
-        'events': ['run_complete', 'correction_complete'],
+        'topics': ['test.euxfel.hed.daq', 'test.euxfel.hed.cal'],
+        'events': ['daq_run_complete', 'online_correction_complete'],
     }
 }
 
@@ -121,8 +121,11 @@ class EventProcessor:
         else:
             log.debug("Unexpected %s event from Kafka", event)
 
-    def handle_run_complete(self, record, msg: dict):
+    def handle_daq_run_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.RAW)
+
+    def handle_online_correction_complete(self, record, msg: dict):
+        self.handle_event(record, msg, RunData.PROC)
 
     def handle_migration_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.RAW)
