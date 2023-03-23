@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from socker import gethostname
+from socket import gethostname
 from threading import Thread, Timer
 
 from kafka import KafkaConsumer
