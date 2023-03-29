@@ -204,6 +204,9 @@ class Extractor:
 
             python_cmd = [sys.executable, '-m', 'damnit.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]
+            for m in match:
+                python_cmd.extend(["--match", m])
+
             res = subprocess.run([
                 'sbatch', '--parsable',
                 *self.slurm_options(),
@@ -222,9 +225,11 @@ if __name__ == '__main__':
     ap.add_argument('run', type=int)
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
     ap.add_argument('--cluster-job', action="store_true")
+    ap.add_argument('--match', action="append", default=[])
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
 
     Extractor().extract_and_ingest(args.proposal, args.run,
                                    cluster=args.cluster_job,
-                                   run_data=RunData(args.run_data))
+                                   run_data=RunData(args.run_data),
+                                   match=args.match)
