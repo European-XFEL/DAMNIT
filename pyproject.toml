@@ -40,6 +40,10 @@ test = [
     "pytest-qt",
     "pytest-xvfb"
 ]
+docs = [
+    "mkdocs",
+    "mkdocs-material"
+]
 
 [project.urls]
 Home = "https://git.xfel.eu/amore/mid-2833"

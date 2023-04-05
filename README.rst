@@ -35,42 +35,6 @@ To launch the GUI overview (e.g. on `max-display <https://max-display.desy.de:34
 You can open the context dir inside the GUI ('autoconfiguration'), or pass it
 at the command line.
 
-Managing the backend
---------------------
-The GUI is capable of initializing a database for a proposal and starting the
-backend automatically, using `supervisor <http://supervisord.org>`_ under the
-hood.
-
-In a nutshell:
-
-- ``supervisord`` will manage the backend using a configuration file named
-  ``supervisord.conf`` stored in the database directory. It's configured to
-  listen for commands over HTTP on a certain port with a certain
-  username/password. ``supervisord`` will save its logs to ``supervisord.log``.
-- It can be controlled with ``supervisorctl`` on any machine using the same
-  config file.
-
-So lets say you're running the GUI on FastX, and the backend is now started. If
-you open a terminal and ``cd`` to the database directory you'll see::
-
-    $ cd /gpfs/path/to/proposal/usr/Shared/amore
-    $ ls
-    amore.log  context.py  extracted_data  runs.sqlite  supervisord.conf  supervisord.log
-
-You could get the status of the backend with::
-
-    $ supervisorctl -c supervisord.conf status damnit
-    damnit                           RUNNING   pid 3793870, uptime 0:00:20
-
-And you could restart it with::
-
-    $ supervisorctl -c supervisord.conf restart damnit
-    damnit: stopped
-    damnit: started
-
-    $ supervisorctl -c supervisord.conf status damnit
-    damnit                           RUNNING   pid 3793880, uptime 0:00:04
-
 Kafka
 -----
 The GUI is updated by Kafka messages sent by the backend. Currently we use
