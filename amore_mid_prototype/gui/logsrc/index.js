@@ -1,7 +1,8 @@
 let divEl  = document.getElementById("mainDiv");
 let startEl = document.getElementById("start");
-let endEl = document.getElementById("end");
 let autoScroll = true;
+let guiDate = NaN;
+let guiDay = NaN
 
 const stylesheet = document.styleSheets[0];
 const logTypes = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
@@ -34,6 +35,9 @@ function addLine(logLine, top = false) {
   tag.classList.add(logType);
   tag.classList.add("log");
 
+  let currentDate = tag.textContent.slice(0,10);  
+  let currentDay = parseInt(currentDate.slice(-2).trim());
+
   if (top) {
     if(startEl.nextElementSibling != null) {
       let pastEl = getPastDate();
@@ -42,8 +46,6 @@ function addLine(logLine, top = false) {
       if (pastDate != null) {
         pastDay = pastDate.slice(-2); 
       }
-      let currentDate = tag.textContent.slice(0,10);  
-      let currentDay = parseInt(currentDate.slice(-2).trim());
       if(pastDay != currentDay && !isNaN(currentDay) && !isNaN(pastDay)){
         createDivider(currentDate,pastDate, pastEl)
       }
@@ -51,6 +53,9 @@ function addLine(logLine, top = false) {
     divEl.insertBefore(tag,startEl.nextSibling);
     window.scrollTo(0, 0);
   } else {
+    if (!isNaN(currentDay) && !isNaN(guiDay) && guiDay != currentDay){
+      createDivider(guiDate,currentDate,undefined,true);
+    }
     divEl.appendChild(tag);
     if (logType === "ERROR") {
       log_channel_obj.send_error_signal();
@@ -58,6 +63,8 @@ function addLine(logLine, top = false) {
     if (autoScroll) {
       window.scrollTo(0, document.body.scrollHeight);
     };
+    guiDate = currentDate;
+    guiDay = currentDay;  
   };
 };
 
@@ -96,7 +103,6 @@ function getPastDate(){
 function changeDisplay(logType, hide = false) {
   let elementRules;
   for (let i = 0; i< stylesheet.cssRules.length; i++) {
-    console.log(stylesheet.cssRules[i].selectorText)
     if(stylesheet.cssRules[i].selectorText == '.'+logType) {
       elementRules = stylesheet.cssRules[i];
     }
@@ -109,7 +115,7 @@ function changeDisplay(logType, hide = false) {
   }
 }
 
-function createDivider(pastDay = '',futureDay = '', El) {
+function createDivider(pastDay = '',futureDay = '', El = undefined, atEnd = false) {
   let divDivider = document.createElement("div");
   let divShadowArea =  document.createElement("div");
   let hrLineOne = document.createElement("hr");
@@ -126,10 +132,15 @@ function createDivider(pastDay = '',futureDay = '', El) {
   textArea.classList.add("text-divider");
 
   divDivider.appendChild(hrLineOne);
-  textArea.appendChild(textContent);
+  textArea.appendChild(textContent); 
   divShadowArea.appendChild(textArea);
   divDivider.appendChild(divShadowArea);
   divDivider.appendChild(hrLineTwo);
 
-  divEl.insertBefore(divDivider,El);
+  if (atEnd) {
+    divEl.appendChild(divDivider);
+  } else {
+    divEl.insertBefore(divDivider,El);
+  }
 }
+
