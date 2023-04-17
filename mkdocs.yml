@@ -1,0 +1,35 @@
+site_name: DAMNIT
+site_url: https://rtd.xfel.eu/docs/damnit
+
+theme:
+  name: material
+  logo: static/AMORE.png
+  favicon: static/AMORE.png
+  icon:
+    repo: fontawesome/brands/gitlab
+  palette:
+    scheme: slate
+    primary: teal
+  features:
+    - navigation.indexes
+    - content.code.copy
+
+repo_url: https://git.xfel.eu/amore/mid-2832
+
+# Enable syntax highlighting for the material theme:
+# https://squidfunk.github.io/mkdocs-material/reference/code-blocks/
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+# Navigation menu order
+nav:
+  - index.md
+  - gui.md
+  - backend.md
+  - contact.md

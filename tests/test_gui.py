@@ -336,7 +336,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
         initialize_and_start_backend.assert_called_once_with(db_dir)
 
-def test_user_vars(mock_ctx_user, mock_user_vars, mock_db):
+def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 
     proposal = 1234
     run_number = 1000
