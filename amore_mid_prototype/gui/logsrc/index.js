@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 function addLine(logLine, top = false) {
-  let logType = "ERROR"
+  let logType = "noneType"
   const tag = document.createElement("pre");
   const br = document.createElement("br");
   const logLineText = document.createTextNode(logLine);
@@ -58,7 +58,7 @@ function addLine(logLine, top = false) {
     }
     divEl.appendChild(tag);
     if (logType === "ERROR") {
-      log_channel_obj.send_error_signal();
+      //log_channel_obj.send_error_signal();
     }
     if (autoScroll) {
       window.scrollTo(0, document.body.scrollHeight);
@@ -66,6 +66,7 @@ function addLine(logLine, top = false) {
     guiDate = currentDate;
     guiDay = currentDay;  
   };
+  reorderType();
 };
 
 function getPastDate(){
@@ -141,6 +142,25 @@ function createDivider(pastDay = '',futureDay = '', El = undefined, atEnd = fals
     divEl.appendChild(divDivider);
   } else {
     divEl.insertBefore(divDivider,El);
+  }
+}
+
+function reorderType(){
+  // deals with line breaks by assigning the log type based on the 
+  // upper most log type. 
+  let noneTypeArray = document.getElementsByClassName("noneType");
+  let newType = 'noneType'
+  if (noneTypeArray.length > 0) {
+    let noneTypeElB = noneTypeArray[0].previousElementSibling;
+    while(newType === 'noneType' && noneTypeElB && noneTypeElB.classList) {
+      newType = noneTypeElB.classList[0];
+      noneTypeElB = noneTypeElB.previousElementSibling;
+    }
+    if (newType !== 'noneType' && newType){
+      while (noneTypeArray.length !== 0){
+        noneTypeArray[0].classList.replace('noneType', newType);
+      }
+    } 
   }
 }
 
