@@ -1,5 +1,4 @@
-import os
-from pathlib import Path
+from datetime import timedelta
 
 import numpy as np
 
@@ -11,36 +10,40 @@ from damnit_ctx import Variable
 # use it. By default it's set to the XGM for SASE 2.
 xgm_name = "SA2_XTD1_XGM/XGM/DOOCS"
 
-@Variable(title="XGM intensity", summary="mean")
-def xgm_intensity(run):
-    xgm = run[f"{xgm_name}:output", 'data.intensityTD'].xarray()
-    return xgm[:, np.where(xgm[0] > 1)[0]].sum(axis=1)
-
-@Variable(title="Pulses")
-def pulses(run):
-    return int(run[xgm_name, 'pulseEnergy.numberOfBunchesActual'][0].ndarray()[0])
+# Run metadata
 
 @Variable(title="Trains")
 def n_trains(run):
     return len(run.train_ids)
 
-@Variable(title="Run size (TB)")
-def raw_size(run):
-    # If the run only has one file then it's most likely the virtual overview
-    # file, which has negligible size. To get the actual run size we find the
-    # run directory and get it's size directly.
-    if len(run.files) == 1:
-        voview_path = Path(run.files[0].filename)
-        run_dir = voview_path.parts[-1].split("-")[1].lower()
-        proposal_path = voview_path.parents[2]
+@Variable(title="Run length")
+def run_length(run):
+    ts = run.train_timestamps()
+    delta = ts[-1] - ts[0]
+    delta_s = int(delta / np.timedelta64(1, 's'))
+    return str(timedelta(seconds=delta_s))
 
-        run_path = proposal_path / "raw" / run_dir
-        run_size_bytes = sum(f.stat().st_size for f in run_path.rglob('*'))
-    else:
-        # Otherwise, we just use the files opened by extra-data
-        run_size_bytes = 0
-
-        for f in run.files:
-            run_size_bytes += os.path.getsize(f.filename)
-
+def run_size_tb(path):
+    run_size_bytes = sum(f.stat().st_size for f in path.rglob('*'))
     return run_size_bytes / 1e12
+
+@Variable(title="Raw size [TB]")
+def raw_size(run, proposal_path: "meta#proposal_path", run_no: "meta#run_number"):
+    run_path = proposal_path / "raw" / f"r{run_no:04}"
+    return run_size_tb(run_path)
+
+@Variable(title="Proc size [TB]", data="proc")
+def proc_size(run, proposal_path: "meta#proposal_path", run_no: "meta#run_number"):
+    run_path = proposal_path / "proc" / f"r{run_no:04}"
+    return run_size_tb(run_path)
+
+# Beam properties
+
+@Variable(title="XGM intensity [uJ]", summary="mean")
+def xgm_intensity(run):
+    xgm = run[f"{xgm_name}:output", 'data.intensityTD'].xarray()
+    return xgm[:, np.where(xgm[0] > 1)[0]].mean(axis=1)
+
+@Variable(title="Pulses")
+def pulses(run):
+    return run[xgm_name, 'pulseEnergy.numberOfBunchesActual'].xarray()
