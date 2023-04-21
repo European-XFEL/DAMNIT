@@ -1,5 +1,6 @@
 import re
 import os
+import pickle
 import textwrap
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -9,6 +10,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QStyledItemDelegate, QLineEdit
 
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
@@ -631,11 +633,35 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     @Variable(title="Constant array", summary="mean")
     def constant_array(run):
         return np.ones(2)
+
+    @Variable(title="Image")
+    def image(run):
+        return np.random.rand(512, 512)
+
+    @Variable(title="Color image")
+    def color_image(run):
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        plt.plot([1, 2, 3, 4], [4, 3, 2, 1])
+        return fig
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
-    make_mock_db(ctx, mock_db_with_data)
+
+    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
+    runs["constant_array"] = np.ones(runs.shape[0])
+    runs["image"] = [pickle.dumps(np.random.rand(100, 100, 3)) for _ in range(runs.shape[0])]
+    runs["color_image"] = [pickle.dumps(np.random.rand(100, 100, 4)) for _ in range(runs.shape[0])]
+    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
+
+    # And to an HDF5 file
+    proposal = runs["proposal"][0]
+    run_number = runs["runnr"][0]
+    results = Results.create(ctx, { "run_data": mock_run }, run_number, proposal)
+    extracted_data_dir = db_dir / "extracted_data"
+    extracted_data_dir.mkdir()
+    results.save_hdf5(extracted_data_dir / f"p{proposal}_r{run_number}.h5")
 
     # Create window
     win = MainWindow(db_dir, False)
@@ -687,6 +713,20 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     # Edit a standalone comment
     comment_index = get_index("Comment", row=1)
     win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+    # Check that 2D arrays are treated as images
+    image_index = get_index("Image")
+    assert isinstance(win.table.data(image_index, role=Qt.DecorationRole), QPixmap)
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(image_index)
+        warning.assert_not_called()
+
+    # And that 3D image arrays are also treated as images
+    color_image_index = get_index("Color image")
+    assert isinstance(win.table.data(color_image_index, role=Qt.DecorationRole), QPixmap)
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(color_image_index)
+        warning.assert_not_called()
 
 def test_open_dialog(mock_db, qtbot):
     db_dir, db = mock_db
