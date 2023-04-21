@@ -1147,7 +1147,7 @@ def run_app(context_dir, connect_to_kafka=True):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
     )
-    application = QtWidgets.QApplication(sys.argv + ['--no-sandbox'])
+    application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
