@@ -20,6 +20,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
 
+from matplotlib.figure import Figure
+
 import extra_data
 import h5py
 import numpy as np
@@ -188,13 +190,21 @@ def get_start_time(xd_run):
         return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
+def figure2array(fig):
+    from matplotlib.backends.backend_agg import FigureCanvas
+
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    data = np.asarray(canvas.buffer_rgba())
+
+    return data
+
+
 def generate_thumbnail(image):
     from matplotlib.figure import Figure
-    from matplotlib.backends.backend_agg import FigureCanvas
 
     # Create plot
     fig = Figure(figsize=(1, 1))
-    canvas = FigureCanvas(fig)
     ax = fig.add_subplot()
     fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
     vmin = np.nanquantile(image, 0.01)
@@ -203,15 +213,8 @@ def generate_thumbnail(image):
     ax.axis('tight')
     ax.axis('off')
     ax.margins(0, 0)
-    canvas.draw()
 
-    # Store in numpy array
-    with io.BytesIO() as buff:
-        fig.savefig(buff, format="rgba")
-        data = np.frombuffer(buff.getvalue(), dtype=np.uint8)
-
-    data = data.reshape((*canvas.get_width_height(), -1))
-    return data
+    return figure2array(fig)
 
 
 def extract_error_info(exc_type, e, tb):
@@ -310,7 +313,7 @@ class Results:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(inputs)
-                if not isinstance(data, (xarray.DataArray, str, type(None))):
+                if not isinstance(data, (xarray.DataArray, str, type(None), Figure)):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
@@ -330,7 +333,13 @@ class Results:
                 for dim, coords in arr.coords.items()
             ]
         else:
-            value = arr if isinstance(arr, str) else np.asarray(arr)
+            if isinstance(arr, str):
+                value = arr
+            elif isinstance(arr, Figure):
+                value = figure2array(arr)
+            else:
+                value = np.asarray(arr)
+
             return [
                 (f'{name}/data', value)
             ]
@@ -348,22 +357,38 @@ class Results:
 
     def summarise(self, name):
         data = self.data[name]
+        is_array = isinstance(data, (np.ndarray, xarray.DataArray))
+        is_figure = isinstance(data, Figure)
 
         if isinstance(data, str):
             return data
-        elif data.ndim == 0:
+        elif is_array and data.ndim == 0:
             return data
-        elif data.ndim == 2 and self.ctx.vars[name].summary is None:
+        elif is_figure or (is_array and data.ndim == 2 and self.ctx.vars[name].summary is None):
             from scipy import ndimage
 
             # For the sake of space and memory we downsample images to a
             # resolution of 150x150.
-            zoom_ratio = 150 / max(data.shape)
-            if zoom_ratio < 1:
+            image_shape = data.get_size_inches() * data.dpi if is_figure else data.shape
+            zoom_ratio = min(1, 150 / max(image_shape))
+
+            if is_figure:
+                # If this is a matplotlib figure, we scale down the figure
+                # before rendering. That gives a better preview than scaling
+                # down the rendered image.
+                fig = data
+                old_size = fig.get_size_inches()
+                fig.set_size_inches(*(old_size * zoom_ratio))
+                data = figure2array(fig)
+
+                # Restore the original size so that the object will render
+                # correctly if it's rendered again (e.g. to save in an HDF5
+                # file).
+                fig.set_size_inches(*old_size)
+            else:
                 data = ndimage.zoom(np.nan_to_num(data),
                                     zoom_ratio)
-
-            data = generate_thumbnail(data)
+                data = generate_thumbnail(data)
 
             return data
         elif self.ctx.vars[name].summary is None:

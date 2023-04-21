@@ -251,18 +251,30 @@ class Canvas(QtWidgets.QDialog):
 
             return
         elif image is not None:
+            is_color_image = image.ndim == 3
+
             if np.all(np.isnan(image)):
                 self._nan_warning_label.show()
 
+            interpolation = "antialiased" if is_color_image else "nearest"
+
             if self._image is None:
-                self._image = self._axis.imshow(image, interpolation="nearest")
-                self.figure.colorbar(self._image, ax=self._axis)
+                self._image = self._axis.imshow(image, interpolation=interpolation)
+                if not is_color_image:
+                    self.figure.colorbar(self._image, ax=self._axis)
             else:
                 self._image.set_array(image)
 
-            vmin = np.nanquantile(image, 0.01, interpolation='nearest')
-            vmax = np.nanquantile(image, 0.99, interpolation='nearest')
-            self._image.set_clim(vmin, vmax)
+            # Specific settings for color/noncolor images
+            if is_color_image:
+                self._axis.tick_params(left=False, bottom=False,
+                                       labelleft=False, labelbottom=False)
+                self._axis.set_xlabel("")
+                self._axis.set_ylabel("")
+            else:
+                vmin = np.nanquantile(image, 0.01, interpolation='nearest')
+                vmax = np.nanquantile(image, 0.99, interpolation='nearest')
+                self._image.set_clim(vmin, vmax)
         else:
             self._axis.grid(visible=True)
             self.data_x = xs
