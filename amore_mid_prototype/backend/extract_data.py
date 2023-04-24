@@ -97,9 +97,11 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
 
     cursor = db.execute("SELECT * FROM runs")
     cols = [c[0] for c in cursor.description]
+    cursor.close()
 
-    for missing_col in set(reduced_data) - set(cols):
-        db.execute(f"ALTER TABLE runs ADD COLUMN {missing_col}")
+    with db:
+        for missing_col in set(reduced_data) - set(cols):
+            db.execute(f"ALTER TABLE runs ADD COLUMN {missing_col}")
 
     col_names = list(reduced_data.keys())
     cols_sql = ", ".join(col_names)
