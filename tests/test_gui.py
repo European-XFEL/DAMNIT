@@ -219,7 +219,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
         "new_var": 42
     }
     runs.insert(len(runs.columns), "new_var", np.random.rand(runs.shape[0]))
-    runs.to_sql("runs", db, index=False, if_exists="replace")
+    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
     win.handle_update(msg)
 
     # The new column should be at the end
@@ -232,7 +232,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
 
     # Simulate adding a new column while the GUI is *not* running
     runs.insert(len(runs.columns), "newer_var", np.random.rand(runs.shape[0]))
-    runs.to_sql("runs", db, index=False, if_exists="replace")
+    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
 
     # Reload the database
     headers = visible_headers()
@@ -356,8 +356,8 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
         "dep_string": "foofoo"
     }
 
-    with db:
-        add_to_db(reduced_data, db, proposal, run_number)
+    with db.conn:
+        add_to_db(reduced_data, db.conn, proposal, run_number)
 
 
     win = MainWindow(connect_to_kafka=False)
@@ -376,9 +376,9 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     assert not create_user_menu.isEnabled()
 
     # Adds the variables to the db
-    with db:
+    with db.conn:
         for vv in mock_user_vars.values():
-            add_user_variable(db, vv)
+            add_user_variable(db.conn, vv)
 
     # Loads the context file to do the other tests
     win.autoconfigure(db_dir)
@@ -461,12 +461,12 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
         assert add_var_win.result() == QDialog.Accepted
 
     # Check that the variable with the already existing name is not created
-    assert db.execute("SELECT COUNT(*) FROM variables WHERE title = 'My cool integer'").fetchone()[0] == 0
+    assert db.conn.execute("SELECT COUNT(*) FROM variables WHERE title = 'My cool integer'").fetchone()[0] == 0
 
     # Check that the variable with the already existing title is not created
-    assert db.execute("SELECT COUNT(*) FROM variables WHERE name = 'my_cool_integer'").fetchone()[0] == 0
+    assert db.conn.execute("SELECT COUNT(*) FROM variables WHERE name = 'my_cool_integer'").fetchone()[0] == 0
 
-    row = db.execute("SELECT name, type, title, description FROM variables WHERE name = 'my_integer'").fetchone()
+    row = db.conn.execute("SELECT name, type, title, description FROM variables WHERE name = 'my_integer'").fetchone()
 
     # Check that the variable added via the dialog is actually created
     assert row is not None
@@ -509,7 +509,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     def get_value_from_db(field_name):
         if not re.fullmatch(r"[a-zA-Z_]\w+", field_name, flags=re.A):
             raise ValueError(f"Error in field_name: the variable name '{field_name}' is not of the form '[a-zA-Z_]\\w+'")
-        return db.execute(f"SELECT {field_name} FROM runs WHERE runnr = ?", (run_number,)).fetchone()[0]
+        return db.conn.execute(f"SELECT {field_name} FROM runs WHERE runnr = ?", (run_number,)).fetchone()[0]
 
     # Check that editing is prevented when trying to modfiy a non-editable column 
     assert open_editor_and_get_delegate("dep_number").widget is None
@@ -625,9 +625,9 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
 
-    runs = pd.read_sql_query("SELECT * FROM runs", db)
+    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
     runs["constant_array"] = np.ones(runs.shape[0])
-    runs.to_sql("runs", db, index=False, if_exists="replace")
+    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
 
     # And to an HDF5 file
     proposal = runs["proposal"][0]

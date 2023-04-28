@@ -277,13 +277,13 @@ da-dev@xfel.eu"""
         log.info("Reading data from database")
         self.db = DamnitDB(sqlite_path)
 
-        user_variables = get_user_variables(self.db)
+        user_variables = get_user_variables(self.db.conn)
 
         log.info("Reading context file %s", self._context_path)
         ctx_file = ContextFile.from_py_file(self._context_path, external_vars = user_variables)
 
         for kk, vv in user_variables.items():
-            create_user_column(self.db, vv)
+            create_user_column(self.db.conn, vv)
             self.table.add_editable_column(vv.title or vv.name)
 
         self._attributi = ctx_file.vars
@@ -422,9 +422,9 @@ da-dev@xfel.eu"""
         else:
             before_pos += before
         variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
-        with self.db:
-            add_user_variable(self.db, variable)
-            create_user_column(self.db, variable)
+        with self.db.conn:
+            add_user_variable(self.db.conn, variable)
+            create_user_column(self.db.conn, variable)
         self._attributi[name] = variable
         self._name_to_title[name] = title
         self._title_to_name[title] = name

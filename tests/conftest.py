@@ -153,8 +153,8 @@ def mock_db_with_data(mock_ctx, mock_db):
     time_comments = pd.DataFrame(columns=["timestamp", "comment"])
 
     # Save both to the database
-    runs.to_sql("runs", db, index=False, if_exists="replace")
-    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
+    time_comments.to_sql("time_comments", db.conn, index=False, if_exists="replace")
 
     yield mock_db
 
