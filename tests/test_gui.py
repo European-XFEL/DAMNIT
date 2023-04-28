@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
 
 from amore_mid_prototype.ctxsupport.ctxrunner import ContextFile, Results
-from amore_mid_prototype.backend.db import db_path, add_user_variable
+from amore_mid_prototype.backend.db import db_path
 from amore_mid_prototype.backend.extract_data import add_to_db
 from amore_mid_prototype.gui.editor import ContextTestResult
 from amore_mid_prototype.gui.main_window import MainWindow, Settings, AddUserVariableDialog
@@ -378,7 +378,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Adds the variables to the db
     with db.conn:
         for vv in mock_user_vars.values():
-            add_user_variable(db.conn, vv)
+            db.add_user_variable(vv)
 
     # Loads the context file to do the other tests
     win.autoconfigure(db_dir)

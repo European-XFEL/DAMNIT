@@ -5,7 +5,7 @@ from collections.abc import MutableMapping, ValuesView, ItemsView
 from pathlib import Path
 from secrets import token_hex
 
-from ..context import Variable
+from ..context import UserEditableVariable
 
 DB_NAME = 'runs.sqlite'
 
@@ -77,27 +77,24 @@ class DamnitDB:
                 (comment, proposal, run),
             )
 
-
-def add_user_variable(conn, variable: Variable):
-
-    conn.execute(
-        "INSERT INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)", 
-        (
-            variable.name,
-            variable.variable_type,
-            variable.title,
-            variable.description
+    def add_user_variable(self, variable: UserEditableVariable):
+        self.conn.execute(
+            "INSERT INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
+            (
+                variable.name,
+                variable.variable_type,
+                variable.title,
+                variable.description
+            )
         )
-    )
 
-def create_user_column(conn, variable: Variable):
+    def create_user_column(self, variable: UserEditableVariable):
+        num_cols = self.conn.execute(
+            "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
+        ).fetchone()[0]
 
-    num_cols = conn.execute(
-        "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
-    ).fetchone()[0]
-
-    if num_cols == 0:
-        conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
+        if num_cols == 0:
+            self.conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
 
 
 class MetametaMapping(MutableMapping):

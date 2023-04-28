@@ -6,5 +6,5 @@ if ctxsupport_dir not in sys.path:
     sys.path.insert(0, ctxsupport_dir)
 
 # Exposing these here for compatibility
-from damnit_ctx import Variable, RunData
+from damnit_ctx import RunData, UserEditableVariable, Variable
 from ctxrunner import ContextFile, Results, get_proposal_path

@@ -22,7 +22,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, DamnitDB, add_user_variable, create_user_column
+from ..backend.db import db_path, DamnitDB
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
@@ -283,7 +283,7 @@ da-dev@xfel.eu"""
         ctx_file = ContextFile.from_py_file(self._context_path, external_vars = user_variables)
 
         for kk, vv in user_variables.items():
-            create_user_column(self.db.conn, vv)
+            self.db.create_user_column(vv)
             self.table.add_editable_column(vv.title or vv.name)
 
         self._attributi = ctx_file.vars
@@ -423,8 +423,8 @@ da-dev@xfel.eu"""
             before_pos += before
         variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
         with self.db.conn:
-            add_user_variable(self.db.conn, variable)
-            create_user_column(self.db.conn, variable)
+            self.db.add_user_variable(variable)
+            self.db.create_user_column(variable)
         self._attributi[name] = variable
         self._name_to_title[name] = title
         self._title_to_name[title] = name
