@@ -376,9 +376,8 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     assert not create_user_menu.isEnabled()
 
     # Adds the variables to the db
-    with db.conn:
-        for vv in mock_user_vars.values():
-            db.add_user_variable(vv)
+    for vv in mock_user_vars.values():
+        db.add_user_variable(vv, exist_ok=True)
 
     # Loads the context file to do the other tests
     win.autoconfigure(db_dir)

@@ -16,7 +16,7 @@ BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment);
 CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr);
 CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
-CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY, type TEXT, title TEXT, description TEXT, attributes TEXT);
+CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
 CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
 """
 
@@ -77,24 +77,25 @@ class DamnitDB:
                 (comment, proposal, run),
             )
 
-    def add_user_variable(self, variable: UserEditableVariable):
-        self.conn.execute(
-            "INSERT INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
-            (
-                variable.name,
-                variable.variable_type,
-                variable.title,
-                variable.description
+    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
+        v = variable
+        with self.conn:
+            or_replace = ' OR REPLACE' if exist_ok else ''
+            self.conn.execute(
+                f"INSERT{or_replace} INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
+                (v.name, v.variable_type, v.title, v.description)
             )
-        )
 
-    def create_user_column(self, variable: UserEditableVariable):
-        num_cols = self.conn.execute(
-            "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
-        ).fetchone()[0]
+            if exist_ok:
+                num_cols = self.conn.execute(
+                    "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?",
+                    (variable.name,)
+                ).fetchone()[0]
+            else:
+                num_cols = 0
 
-        if num_cols == 0:
-            self.conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
+            if num_cols == 0:
+                self.conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
 
 
 class MetametaMapping(MutableMapping):
