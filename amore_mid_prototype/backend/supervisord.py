@@ -9,7 +9,7 @@ import configparser
 from pathlib import Path
 
 from ..util import wait_until
-from .db import db_path, open_db, get_meta, set_meta
+from .db import db_path, DamnitDB
 
 
 log = logging.getLogger(__name__)
@@ -143,12 +143,12 @@ def initialize_and_start_backend(root_path, proposal=None):
             raise ValueError("Must pass a proposal number to `initialize_and_start_backend()` if the database doesn't exist yet.")
 
         # Initialize database
-        db = open_db(db_path(root_path))
-        set_meta(db, "proposal", proposal)
+        db = DamnitDB.from_dir(root_path)
+        db.metameta["proposal"] = proposal
     else:
         # Otherwise, load the proposal number
-        db = open_db(db_path(root_path))
-        proposal = get_meta(db, "proposal")
+        db = DamnitDB.from_dir(root_path)
+        proposal = db.metameta["proposal"]
 
     context_path = root_path / "context.py"
     # Copy initial context file if necessary

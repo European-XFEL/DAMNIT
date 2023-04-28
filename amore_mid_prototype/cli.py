@@ -178,7 +178,7 @@ def main():
         from .backend.extract_data import Extractor
         extr = Extractor()
         if args.run == ['all']:
-            rows = extr.db.execute("SELECT proposal, runnr FROM runs").fetchall()
+            rows = extr.db.conn.execute("SELECT proposal, runnr FROM runs").fetchall()
             print(f"Reprocessing {len(rows)} runs already recorded...")
             for proposal, run in rows:
                 extr.extract_and_ingest(proposal, run, match=args.match)
@@ -191,42 +191,41 @@ def main():
                 extr.extract_and_ingest(args.proposal, run, match=args.match)
 
     elif args.subcmd == 'proposal':
-        from .backend.db import open_db, get_meta, set_meta
-        db = open_db()
-        currently_set = get_meta(db, 'proposal', None)
+        from .backend.db import DamnitDB
+        db = DamnitDB()
+        currently_set = db.metameta.get('proposal', None)
         if args.proposal is None:
             print("Current proposal number:", currently_set)
         elif args.proposal == currently_set:
             print(f"No change - proposal {currently_set} already set")
         else:
-            set_meta(db, 'proposal', args.proposal)
+            db.metameta['proposal'] = args.proposal
             print(f"Changed proposal to {args.proposal} (was {currently_set})")
 
     elif args.subcmd == 'new-id':
         from secrets import token_hex
-        from .backend.db import open_db, set_meta, DB_NAME
+        from .backend.db import DamnitDB
 
-        db = open_db(args.db_dir / DB_NAME)
-        set_meta(db, "db_id", token_hex(20))
+        db = DamnitDB.from_dir(args.db_dir)
+        db.metameta["db_id"] = token_hex(20)
 
     elif args.subcmd == 'db-config':
-        from .backend.db import open_db, get_meta, get_all_meta, set_meta
+        from .backend.db import DamnitDB
 
-        db = open_db()
+        db = DamnitDB()
         if args.delete:
             if not args.key:
                 sys.exit("Error: no key specified to delete")
-            with db:
-                db.execute("DELETE FROM metameta WHERE key=?", (args.key,))
+            del db.metameta[args.key]
         elif args.key and (args.value is not None):
-            set_meta(db, args.key, args.value)
+            db.metameta[args.key] = args.value
         elif args.key:
             try:
-                print(repr(get_meta(db, args.key)))
+                print(repr(db.metameta[args.key]))
             except KeyError:
                 sys.exit(f"Error: key {args.key} not found")
         else:
-            for k, v in get_all_meta(db).items():
+            for k, v in db.metameta.items():
                 print(f"{k}={v!r}")
 
 if __name__ == '__main__':

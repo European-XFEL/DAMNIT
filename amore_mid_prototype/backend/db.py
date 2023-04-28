@@ -1,109 +1,171 @@
 import os
 import logging
 import sqlite3
+from collections.abc import MutableMapping, ValuesView, ItemsView
 from pathlib import Path
 from secrets import token_hex
-from typing import Any
 
-from ..context import Variable
+from ..context import UserEditableVariable
 
 DB_NAME = 'runs.sqlite'
 
 log = logging.getLogger(__name__)
 
+# More columns can be added to runs() table depending on the data
+BASE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment);
+CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr);
+CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
+CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
+CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
+"""
+
+
 def db_path(root_path: Path):
     return root_path / DB_NAME
 
-def open_db(path=DB_NAME) -> sqlite3.Connection:
-    """ Initialize the sqlite run database
+class DamnitDB:
+    def __init__(self, path=DB_NAME):
+        log.debug("Opening database at %s", path)
+        self.conn = sqlite3.connect(path, timeout=30)
+        # Ensure the database is writable by everyone
+        os.chmod(path, 0o666)
 
-    A new database is created if no pre-existing one is present. A single
-    table is created: runs, which has columns:
+        self.conn.executescript(BASE_SCHEMA)
+        self.conn.row_factory = sqlite3.Row
+        self.metameta = MetametaMapping(self.conn)
 
-        proposal, run, start_time, added_at, comment
+        # A random ID for the update topic
+        if 'db_id' not in self.metameta:
+            # The ID is not a secret and doesn't need to be cryptographically
+            # secure, but the secrets module is convenient to get a random string.
+            self.metameta.setdefault('db_id', token_hex(20))
 
-    More columns may be added later (by executing ALTER TABLE runs ADD COLUMN)
-    """
-    log.info("Opening database at %s", path)
-    conn = sqlite3.connect(path, timeout=30)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment)"
-    )
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr)"
-    )
-    conn.execute(  # data about metadata - metametadata?
-        "CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value)"
-    )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY, type TEXT, title TEXT, description TEXT, attributes TEXT)"
-    )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment)"
-    )
-    conn.row_factory = sqlite3.Row
-    get_meta(  # A random ID for the update topic
-        conn, 'db_id', set_default=True,
-        # The ID is not a secret and doesn't need to be cryptographically
-        # secure, but the secrets module is convenient to get a random string.
-        default=lambda: token_hex(20)
-    )
+    @classmethod
+    def from_dir(cls, path):
+        return cls(Path(path, DB_NAME))
 
-    # Ensure the database is writable by everyone
-    os.chmod(path, 0o666)
+    def close(self):
+        self.conn.close()
 
-    return conn
+    def add_standalone_comment(self, ts: float, comment: str):
+        """Add a comment not associated with a specific run, return its ID."""
+        with self.conn:
+            cur = self.conn.execute(
+                "INSERT INTO time_comments VALUES (?, ?)", (ts, comment)
+            )
+        return cur.lastrowid
 
-def add_user_variable(conn, variable: Variable):
+    def change_standalone_comment(self, comment_id: int, comment: str):
+        with self.conn:
+            self.conn.execute(
+                """UPDATE time_comments set comment=? WHERE rowid=?""",
+                (comment, comment_id),
+            )
 
-    conn.execute(
-        "INSERT INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)", 
-        (
-            variable.name,
-            variable.variable_type,
-            variable.title,
-            variable.description
-        )
-    )
+    def ensure_run(self, proposal: int, run: int, added_at: float):
+        with self.conn:
+            self.conn.execute("""
+                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, runnr) DO NOTHING
+            """, (proposal, run, added_at))
 
-def create_user_column(conn, variable: Variable):
+    def change_run_comment(self, proposal: int, run: int, comment: str):
+        with self.conn:
+            self.conn.execute(
+                "UPDATE runs set comment=? WHERE proposal=? AND runnr=?",
+                (comment, proposal, run),
+            )
 
-    num_cols = conn.execute(
-        "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?", (variable.name,)
-    ).fetchone()[0]
+    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
+        v = variable
+        with self.conn:
+            or_replace = ' OR REPLACE' if exist_ok else ''
+            self.conn.execute(
+                f"INSERT{or_replace} INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
+                (v.name, v.variable_type, v.title, v.description)
+            )
 
-    if num_cols == 0:
-        conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
+            if exist_ok:
+                num_cols = self.conn.execute(
+                    "SELECT COUNT(*) FROM PRAGMA_TABLE_INFO('runs') WHERE name=?",
+                    (variable.name,)
+                ).fetchone()[0]
+            else:
+                num_cols = 0
 
-def get_meta(conn, key, default: Any =KeyError, set_default=False):
-    with conn:
-        row = conn.execute(
+            if num_cols == 0:
+                self.conn.execute(f"ALTER TABLE runs ADD COLUMN {variable.name}")
+
+
+class MetametaMapping(MutableMapping):
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __getitem__(self, key):
+        row = self.conn.execute(
             "SELECT value FROM metameta WHERE key=?", (key,)
         ).fetchone()
         if row is not None:
             return row[0]
-        elif default is KeyError:
-            raise KeyError(f"No key {key} in database metadata")
-        else:
-            if callable(default):
-                default = default()
-            if set_default:
-                conn.execute(
+        raise KeyError
+
+    def __setitem__(self, key, value):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO metameta VALUES (:key, :value)"
+                "ON CONFLICT (key) DO UPDATE SET value=:value",
+                {'key': key, 'value': value}
+            )
+
+    def update(self, other=(), **kwargs):
+        # Override to do the update in one transaction
+        d = {}
+        d.update(other, **kwargs)
+
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO metameta VALUES (:key, :value)"
+                "ON CONFLICT (key) DO UPDATE SET value=:value",
+                [{'key': k, 'value': v} for (k, v) in d.items()]
+            )
+
+    def __delitem__(self, key):
+        with self.conn:
+            c = self.conn.execute("DELETE FROM metameta WHERE key=?", (key,))
+            if c.rowcount == 0:
+                raise KeyError(key)
+
+    def __iter__(self):
+        return (r[0] for r in self.conn.execute("SELECT key FROM metameta"))
+
+    def __len__(self):
+        return self.conn.execute("SELECT count(*) FROM metameta").fetchone()[0]
+
+    def setdefault(self, key, default=None):
+        with self.conn:
+            try:
+                self.conn.execute(
                     "INSERT INTO metameta VALUES (:key, :value)",
                     {'key': key, 'value': default}
                 )
-            return default
+                value = default
+            except sqlite3.IntegrityError:
+                # The key is already present
+                value = self[key]
 
-def get_all_meta(conn):
-    return dict(conn.execute('SELECT * FROM metameta'))
+        return value
 
-def set_meta(conn, key, value):
-    with conn:
-        conn.execute(
-            "INSERT INTO metameta VALUES (:key, :value)"
-            "ON CONFLICT (key) DO UPDATE SET value=:value",
-            {'key': key, 'value': value}
-        )
+    def to_dict(self):
+        return dict(self.conn.execute("SELECT * FROM metameta"))
+
+    # Reimplement .values() and .items() to use just one query.
+    def values(self):
+        return ValuesView(self.to_dict())
+
+    def items(self):
+        return ItemsView(self.to_dict())
+
 
 if __name__ == '__main__':
-    open_db()
+    DamnitDB()

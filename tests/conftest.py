@@ -8,7 +8,7 @@ import pandas as pd
 
 from amore_mid_prototype.context import ContextFile
 from amore_mid_prototype.ctxsupport.damnit_ctx import types_map, UserEditableVariable
-from amore_mid_prototype.backend.db import open_db, DB_NAME
+from amore_mid_prototype.backend.db import DamnitDB, DB_NAME
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ def mock_run():
 
 @pytest.fixture
 def mock_db(tmp_path, mock_ctx):
-    db = open_db(tmp_path / DB_NAME)
+    db = DamnitDB.from_dir(tmp_path)
 
     (tmp_path / "context.py").write_text(mock_ctx.code)
 
@@ -153,8 +153,8 @@ def mock_db_with_data(mock_ctx, mock_db):
     time_comments = pd.DataFrame(columns=["timestamp", "comment"])
 
     # Save both to the database
-    runs.to_sql("runs", db, index=False, if_exists="replace")
-    time_comments.to_sql("time_comments", db, index=False, if_exists="replace")
+    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
+    time_comments.to_sql("time_comments", db.conn, index=False, if_exists="replace")
 
     yield mock_db
 

@@ -11,7 +11,7 @@ from threading import Thread
 
 from kafka import KafkaConsumer
 
-from .db import open_db, get_meta
+from .db import DamnitDB
 from .extract_data import RunData
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
@@ -58,13 +58,13 @@ class EventProcessor:
 
     def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
-        self.db = open_db(context_dir / 'runs.sqlite')
+        self.db = DamnitDB.from_dir(context_dir)
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
-        self.db.execute("pragma user_version=0;")
-        self.proposal = get_meta(self.db, 'proposal')
+        self.db.conn.execute("pragma user_version=0;")
+        self.proposal = self.db.metameta['proposal']
         log.info(f"Will watch for events from proposal {self.proposal}")
 
-        consumer_id = CONSUMER_ID.format(get_meta(self.db, 'db_id'))
+        consumer_id = CONSUMER_ID.format(self.db.metameta['db_id'])
         self.kafka_cns = KafkaConsumer("xfel-test-r2d2", "xfel-test-offline-cal",
                                        bootstrap_servers=BROKERS_IN,
                                        group_id=consumer_id)
@@ -114,11 +114,7 @@ class EventProcessor:
         if proposal != self.proposal:
             return
 
-        with self.db:
-            self.db.execute("""
-                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
-                ON CONFLICT (proposal, runnr) DO NOTHING
-            """, (proposal, run, record.timestamp / 1000))
+        self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
         # Create subprocess to process the run
