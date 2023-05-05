@@ -7,6 +7,7 @@ possibly running in a different Python interpreter. It will run a context file
 
 import argparse
 import functools
+import inspect
 import logging
 import os
 import time
@@ -212,16 +213,28 @@ class Results:
     def create(cls, ctx_file: ContextFile, inputs, run_number, proposal):
         res = {'start_time': np.asarray(get_start_time(inputs['run_data']))}
 
+        def get_dep_or_default(var, arg_name, dep_name):
+            """
+            Helper function to get either the value returned from the dependency
+            `dep_name` of `var`, if any, or the default value of the argument in
+            the function signature.
+            """
+            value = res.get(dep_name)
+            if value is None:
+                value = inspect.signature(var.func).parameters[arg_name].default
+
+            return value
+
         for name in ctx_file.ordered_vars():
             var = ctx_file.vars[name]
 
             try:
                 # Add all variable dependencies
-                kwargs = { arg_name: res.get(dep_name)
+                kwargs = { arg_name: get_dep_or_default(var, arg_name, dep_name)
                            for arg_name, dep_name in var.arg_dependencies().items() }
 
-                # If any are None, skip this variable since we're missing a dependency
-                missing_deps = [key for key, value in kwargs.items() if value is None]
+                # Check for missing dependencies with no default value
+                missing_deps = [key for key, value in kwargs.items() if value is inspect.Parameter.empty]
                 if len(missing_deps) > 0:
                     log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
                     continue
