@@ -189,6 +189,20 @@ class TableView(QtWidgets.QTableView):
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
 
+    def contextMenuEvent(self, event):
+        self.menu = QtWidgets.QMenu(self)
+        self.reprocess_action = QtWidgets.QAction('Reprocess run(s)', self)
+        self.reprocess_action.triggered.connect(self.send_reprocess_request)
+        self.menu.addAction(self.reprocess_action)
+        self.menu.popup(QtGui.QCursor.pos())
+
+    def send_reprocess_request(self):
+        selected_runs = [self.model()._data.iloc[row.row()]['Run'] for
+                row in self.selectionModel().selectedRows()]
+        for run in selected_runs:
+            self.model()._main_window.reprocessor.reprocess_queue.put(run)
+
+
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)

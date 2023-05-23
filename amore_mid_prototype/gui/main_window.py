@@ -33,6 +33,7 @@ from .table import TableView, Table
 from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
+from .reprocess import Reprocessor
 
 
 log = logging.getLogger(__name__)
@@ -121,6 +122,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
+        self.reprocessor.stop()
+        self._reprocess_thread.exit()
+        self._reprocess_thread.wait()
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -789,8 +793,16 @@ da-dev@xfel.eu"""
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
+        self._reprocess_thread = QtCore.QThread()
+        self.reprocessor = Reprocessor()
+        self.reprocessor.moveToThread(self._reprocess_thread)
+        self._reprocess_thread.started.connect(self.reprocessor.loop)
+        QtCore.QTimer.singleShot(0, self._reprocess_thread.start)
+
+
         self.table_view.doubleClicked.connect(self.inspect_data)
         self.table_view.settings_changed.connect(self.save_settings)
+
 
         table_horizontal_layout.addWidget(self.table_view, stretch=6)
         table_horizontal_layout.addWidget(self.table_view.create_column_widget(),
