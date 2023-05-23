@@ -143,7 +143,7 @@ class Extractor:
             value_serializer=lambda d: pickle.dumps(d),
         )
         self.update_topic = UPDATE_TOPIC.format(self.db.metameta['db_id'])
-        self.ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(self.db))
+        self.ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(self.db.conn))
 
     @property
     def proposal(self):

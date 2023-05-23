@@ -30,7 +30,7 @@ class Reprocessor(QtCore.QObject):
 
                     try:
                         extr = Extractor()
-                        extr.extract_and_injest(None, run)
+                        extr.extract_and_ingest(None, run)
                     except Exception: 
                         log.error(f'Can not reprocess {run}', exc_info=True)
                         continue

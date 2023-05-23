@@ -55,7 +55,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data = None
         self._connect_to_kafka = connect_to_kafka
         self._updates_thread = None
-        self._updates_thread = None
+        self._reprocess_thread =  None
         self._received_update = False
         self._context_path = None
         self._context_is_saved = True
@@ -122,9 +122,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
-        self.reprocessor.stop()
-        self._reprocess_thread.exit()
-        self._reprocess_thread.wait()
+        self.stop_reprocess_thread()
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -133,6 +131,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self._updates_thread.exit()
             self._updates_thread.wait()
             self._updates_thread = None
+
+    def stop_reprocess_thread(self):
+        if self._reprocess_thread is not None:
+            self.reprocessor.stop()
+            self._reprocess_thread.exit()
+            self._reprocess_thread.wait()
+            self._reprocess_thread =  None
 
     def center_window(self):
         """
