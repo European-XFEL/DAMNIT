@@ -31,6 +31,8 @@ class TableView(QtWidgets.QTableView):
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
 
+        self.enable_reprocess = True
+
     def setModel(self, model):
         """
         Overload of setModel() to make sure that we restyle the comment rows
@@ -192,7 +194,11 @@ class TableView(QtWidgets.QTableView):
     def contextMenuEvent(self, event):
         self.menu = QtWidgets.QMenu(self)
         self.reprocess_action = QtWidgets.QAction('Reprocess run(s)', self)
-        self.reprocess_action.triggered.connect(self.send_reprocess_request)
+        if self.enable_reprocess: 
+            self.reprocess_action.triggered.connect(self.send_reprocess_request)
+        else: 
+            self.reprocess_action.setEnabled(False)
+
         self.menu.addAction(self.reprocess_action)
         self.menu.popup(QtGui.QCursor.pos())
 

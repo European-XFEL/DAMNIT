@@ -793,11 +793,15 @@ da-dev@xfel.eu"""
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
-        self._reprocess_thread = QtCore.QThread()
-        self.reprocessor = Reprocessor()
-        self.reprocessor.moveToThread(self._reprocess_thread)
-        self._reprocess_thread.started.connect(self.reprocessor.loop)
-        QtCore.QTimer.singleShot(0, self._reprocess_thread.start)
+        if self._connect_to_kafka:
+            self._reprocess_thread = QtCore.QThread()
+            self.reprocessor = Reprocessor()
+            self.reprocessor.moveToThread(self._reprocess_thread)
+            self._reprocess_thread.started.connect(self.reprocessor.loop)
+            QtCore.QTimer.singleShot(0, self._reprocess_thread.start)
+
+        else:
+            self.table_view.enable_reprocess = False
 
 
         self.table_view.doubleClicked.connect(self.inspect_data)

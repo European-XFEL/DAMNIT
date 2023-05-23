@@ -18,28 +18,27 @@ class Reprocessor(QtCore.QObject):
         self.running = False
 
     def loop(self) -> None:
-
         self.running = True
         run = 0
-        i = 0
-        args = ['amore-proto', 'reprocess', None]
 
-        while self.running:
+        try:
+            while self.running:
 
-            if not self.reprocess_queue.empty(): 
-                log.info(f'Request to reprocess run {run} recieved')
-                run = self.reprocess_queue.get()
+                if not self.reprocess_queue.empty(): 
+                    log.info(f'Request to reprocess run {run} recieved')
+                    run = self.reprocess_queue.get()
 
-                try:
-                    extr = Extractor()
-                    extr.extract_and_injest(None, run)
-                except Exception: 
-                    log.error(f'Can not reprocess {run}', exc_info=True)
-                    continue
-            else:
-                print('running', i)
-                i += 1
-#                sleep(0.5)
+                    try:
+                        extr = Extractor()
+                        extr.extract_and_injest(None, run)
+                    except Exception: 
+                        log.error(f'Can not reprocess {run}', exc_info=True)
+                        continue
+                else:
+                    sleep(0.5)
+
+        except Exception: 
+            log.error('An error occurred in the reprocessing loop', exc_info=True)
 
     def stop(self):
         self.running = False
