@@ -20,7 +20,7 @@ from amore_mid_prototype.util import wait_until
 from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
 from amore_mid_prototype.backend.db import DamnitDB
 from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
-from amore_mid_prototype.backend.extract_data import add_to_db
+from amore_mid_prototype.backend.extract_data import add_to_db, Extractor
 from amore_mid_prototype.backend.supervisord import write_supervisord_conf
 
 
@@ -342,14 +342,19 @@ def test_add_to_db(mock_db):
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
     db_dir, db = mock_db
+    db.metameta["proposal"] = 1234
     monkeypatch.chdir(db_dir)
-    pkg = "ctxrunner"
+    pkg = "amore_mid_prototype.backend.extract_data"
 
     # Write context file
     no_summary_var = """
     @Variable(title="Array")
     def array(run):
         return np.random.rand(2, 2, 2, 2)
+
+    @Variable(title="Scalar", cluster=True)
+    def slurm_scalar(run):
+        return 42
     """
     mock_code = mock_ctx.code + "\n\n" + textwrap.dedent(no_summary_var)
     mock_ctx = ContextFile.from_str(mock_code)
@@ -360,11 +365,25 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     out_path = db_dir / "extracted_data" / "p1234_r42.h5"
     out_path.parent.mkdir(exist_ok=True)
 
+    # Create Extractor with a mocked KafkaProducer
+    with patch(f"{pkg}.KafkaProducer") as _:
+        extractor = Extractor()
+
+    # Test regular variables and slurm variables are executed
+    reduced_data = { "array": np.arange(10) }
+    with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
+         patch(f"{pkg}.subprocess.run") as subprocess_run:
+        extractor.extract_and_ingest(1234, 42, cluster=False,
+                                     run_data=RunData.ALL)
+        extract_in_subprocess.assert_called_once()
+        extractor.kafka_prd.send.assert_called_once()
+        subprocess_run.assert_called_once()
+
     # This works because we loaded amore_mid_prototype.context above
     from ctxrunner import main
 
     # Process run
-    with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
+    with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
         main(['1234', '42', 'raw', '--save', str(out_path)])
 
     # Check that a file was created
@@ -383,7 +402,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
             return mock_run
 
     # Reprocess with `data='all'`, but as if there is no proc data
-    with patch(f"{pkg}.extra_data.open_run", side_effect=mock_open_run):
+    with patch("ctxrunner.extra_data.open_run", side_effect=mock_open_run):
         main(['1234', '42', 'all', '--save', str(out_path)])
 
     # Check that `meta_array` wasn't processed, since it requires proc data
@@ -391,7 +410,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         assert "meta_array" not in f
 
     # Reprocess with proc data
-    with patch(f"{pkg}.extra_data.open_run", return_value=mock_run):
+    with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
         main(['1234', '42', 'all', '--save', str(out_path)])
 
     # Now `meta_array` should have been processed
