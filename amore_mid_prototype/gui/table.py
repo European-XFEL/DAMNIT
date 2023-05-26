@@ -287,13 +287,26 @@ class Table(QtCore.QAbstractTableModel):
         run_file.close()
         return is_constant
 
+    _supported_roles = (
+        Qt.CheckStateRole,
+        Qt.DecorationRole,
+        Qt.DisplayRole,
+        Qt.EditRole,
+        Qt.FontRole,
+        Qt.ToolTipRole
+    )
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if role not in self._supported_roles:
+            return  # Fast exit for unused roles
+
         if not index.isValid():
             return
 
-        value = self._data.iloc[index.row(), index.column()]
-        run = self._data.iloc[index.row(), self._data.columns.get_loc("Run")]
-        proposal = self._data.iloc[index.row(), self._data.columns.get_loc("Proposal")]
+        r, c = index.row(), index.column()
+        value = self._data.iat[r, c]
+        run = self._data.iat[r, self._data.columns.get_loc("Run")]
+        proposal = self._data.iat[r, self._data.columns.get_loc("Proposal")]
         quantity_title = self._data.columns[index.column()]
         quantity = self._main_window.col_title_to_name(quantity_title)
 
