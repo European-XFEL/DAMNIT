@@ -686,3 +686,26 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     # Edit a standalone comment
     comment_index = get_index("Comment", row=1)
     win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+def test_reprocess_gui(mock_db, monkeypatch, qtbot):
+    pkg = "amore_mid_prototype.backend.extract_data"
+    db_dir, db = mock_db
+    db.metameta['proposal'] = 1234
+    monkeypatch.chdir(db_dir)
+
+    with patch("amore_mid_prototype.gui.kafka.KafkaConsumer") as _, \
+        patch(f"{pkg}.KafkaProducer") as __,\
+        patch(f"{pkg}.Extractor.extract_and_ingest") as extr:
+        win = MainWindow(db_dir, True)
+        # Tests if the reprocessing thread is running
+        qtbot.waitUntil(lambda: win._reprocess_thread.isRunning())
+
+        for run in [0,1,2]:
+            win.reprocessor.reprocess_queue.put(run)
+
+        # Test if the queue was emptied and extract_and_ingest was called 3x
+        qtbot.waitUntil(lambda: win.reprocessor.reprocess_queue.empty())
+        qtbot.waitUntil(lambda: extr.call_count == 3)
+
+    win.close()
+    

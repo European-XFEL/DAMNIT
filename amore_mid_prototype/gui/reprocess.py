@@ -19,23 +19,21 @@ class Reprocessor(QtCore.QObject):
 
     def loop(self) -> None:
         self.running = True
-        run = 0
-
+        run = None
         try:
             while self.running:
-
                 if not self.reprocess_queue.empty(): 
-                    log.info(f'Request to reprocess run {run} recieved')
                     run = self.reprocess_queue.get()
-
+                    log.info(f'Request to reprocess run {run} recieved')
                     try:
                         extr = Extractor()
                         extr.extract_and_ingest(None, run)
+
                     except Exception: 
                         log.error(f'Can not reprocess {run}', exc_info=True)
                         continue
                 else:
-                    sleep(0.5)
+                    sleep(0.1)
 
         except Exception: 
             log.error('An error occurred in the reprocessing loop', exc_info=True)
