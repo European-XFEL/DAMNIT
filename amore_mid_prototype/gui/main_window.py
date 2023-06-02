@@ -786,6 +786,28 @@ da-dev@xfel.eu"""
         )
         self._canvas_inspect[-1].show()
 
+    def reprocess_color_scheme(self, run, finished):
+        if finished:
+            self.table.reprocessing_row = None
+            if len(self.table.to_be_reprocessed) > 0:
+                self.table.to_be_reprocessed.pop(0)
+            self.table.layoutChanged.emit()
+            if run is None:
+                self.show_default_status_message()
+                return
+
+        else:
+            if len(self.table.to_be_reprocessed) > 0:
+                self.table.reprocessing_row = self.table.to_be_reprocessed[0]
+            else:
+                self.table.reprocessing_row = None
+
+            out_of = len(self.table.to_be_reprocessed)
+            status_msg = f"Reprocessing run #{run} out of {out_of}"
+            self._status_bar.showMessage(status_msg)
+
+        self.table.layoutChanged.emit()
+
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         table_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -803,6 +825,7 @@ da-dev@xfel.eu"""
             self.reprocessor = Reprocessor()
             self.reprocessor.moveToThread(self._reprocess_thread)
             self._reprocess_thread.started.connect(self.reprocessor.loop)
+            self.reprocessor.color_scheme.connect(self.reprocess_color_scheme)
             QtCore.QTimer.singleShot(0, self._reprocess_thread.start)
 
         else:

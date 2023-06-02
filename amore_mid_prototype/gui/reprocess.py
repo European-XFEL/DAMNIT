@@ -9,7 +9,7 @@ from ..backend.extract_data import Extractor
 log = logging.getLogger(__name__)
 
 class Reprocessor(QtCore.QObject):
-    message = QtCore.pyqtSignal(object)
+    color_scheme = QtCore.pyqtSignal(object, bool)
 
     def __init__(self):
         QtCore.QObject.__init__(self)
@@ -25,13 +25,27 @@ class Reprocessor(QtCore.QObject):
                 if not self.reprocess_queue.empty(): 
                     run = self.reprocess_queue.get()
                     log.info(f'Request to reprocess run {run} recieved')
+                    self.reprocess_finished = False
+                    self.color_scheme.emit(run, self.reprocess_finished)
                     try:
                         extr = Extractor()
                         extr.extract_and_ingest(None, run)
+                        self.reprocess_finished = True
+                        self.color_scheme.emit(run, self.reprocess_finished)
 
                     except Exception: 
-                        log.error(f'Can not reprocess {run}', exc_info=True)
+                        log.error(f'Can not reprocess run {run}', exc_info=True)
+                        self.reprocess_finished = True
+                        if self.reprocess_queue.empty():
+                            self.color_scheme.emit(None, self.reprocess_finished)
+                        else:
+                            self.color_scheme.emit(run, self.reprocess_finished)
                         continue
+
+                    self.reprocess_finished = True
+                    if self.reprocess_queue.empty():
+                        self.color_scheme.emit(None, self.reprocess_finished)
+
                 else:
                     sleep(0.1)
 
