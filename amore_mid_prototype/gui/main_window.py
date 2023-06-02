@@ -47,6 +47,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     db = None
     db_id = None
+    _columns_dialog = None
 
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
@@ -436,6 +437,20 @@ da-dev@xfel.eu"""
             return self._attributi[name].title or name
         return name
 
+    def open_column_dialog(self):
+        if self._columns_dialog is None:
+            self._columns_dialog = QtWidgets.QDialog(self)
+            self._columns_dialog.setWindowTitle("Column settings")
+            layout = QtWidgets.QVBoxLayout()
+
+            layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
+            layout.addWidget(self.table_view._static_columns_widget)
+            layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
+            layout.addWidget(self.table_view._columns_widget)
+            self._columns_dialog.setLayout(layout)
+
+        self._columns_dialog.show()
+
     def _create_menu_bar(self) -> None:
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
@@ -477,6 +492,12 @@ da-dev@xfel.eu"""
         fileMenu.addAction(action_create_var)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
+
+        # Table menu
+        action_columns = QtWidgets.QAction("Select & reorder columns")
+        action_columns.triggered.connect(self.open_column_dialog)
+        tableMenu = menu_bar.addMenu("Table")
+        tableMenu.addAction(action_columns)
 
     def handle_update(self, message):
 
@@ -779,7 +800,6 @@ da-dev@xfel.eu"""
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
-        table_horizontal_layout = QtWidgets.QHBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
@@ -792,11 +812,7 @@ da-dev@xfel.eu"""
         self.table_view.doubleClicked.connect(self.inspect_data)
         self.table_view.settings_changed.connect(self.save_settings)
 
-        table_horizontal_layout.addWidget(self.table_view, stretch=6)
-        table_horizontal_layout.addWidget(self.table_view.create_column_widget(),
-                                          stretch=1)
-
-        vertical_layout.addLayout(table_horizontal_layout)
+        vertical_layout.addWidget(self.table_view)
 
         # comments
         self.comment = QtWidgets.QLineEdit(self)
