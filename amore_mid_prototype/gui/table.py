@@ -401,6 +401,14 @@ class Table(QtCore.QAbstractTableModel):
             name = self._data.columns[col]
             return self._main_window.column_title(name)
 
+        elif (
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.DisplayRole
+        ):
+            row = self._data.iloc[col]['Run']
+            return row
+
+
     def flags(self, index) -> Qt.ItemFlag:
         item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
 
