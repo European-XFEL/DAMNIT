@@ -71,7 +71,6 @@ class Ui_Dialog(object):
         Dialog.setWindowTitle(_translate("Dialog", "Dialog"))
         self.label.setText(_translate("Dialog", "Please select the data to open:"))
         self.proposal_rb.setText(_translate("Dialog", "Open proposal number:"))
-        self.proposal_edit.setInputMask(_translate("Dialog", "009999"))
         self.folder_rb.setText(_translate("Dialog", "Open DAMNIT folder:"))
         self.browse_button.setText(_translate("Dialog", "Browse"))
         self.label_2.setText(_translate("Dialog", "<html><head/><body><p>DAMNIT will open an existing database if this folder contains <span style=\" font-family:\'Source Code Pro\';\">runs.sqlite</span> and <span style=\" font-family:\'Source Code Pro\';\">context.py</span>, or create a new database if not.</p></body></html>"))

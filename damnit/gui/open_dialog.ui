@@ -34,11 +34,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QLineEdit" name="proposal_edit">
-       <property name="inputMask">
-        <string>009999</string>
-       </property>
-      </widget>
+      <widget class="QLineEdit" name="proposal_edit"/>
      </item>
     </layout>
    </item>
