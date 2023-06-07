@@ -33,6 +33,7 @@ from .table import TableView, Table
 from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
+from .open_dialog import OpenDBDialog
 
 
 log = logging.getLogger(__name__)
@@ -1032,6 +1033,12 @@ def run_app(context_dir, connect_to_kafka=True):
     )
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
+
+    if context_dir is None:
+        dialog = OpenDBDialog()
+        if dialog.exec() == QtWidgets.QDialog.Rejected:
+            return 0
+        context_dir = dialog.get_chosen_dir()
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()
