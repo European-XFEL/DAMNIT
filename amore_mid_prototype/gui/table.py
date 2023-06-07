@@ -31,6 +31,18 @@ class TableView(QtWidgets.QTableView):
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
 
+        # Add the widgets to be used in the column settings dialog
+        self._columns_widget = QtWidgets.QListWidget()
+        self._static_columns_widget = QtWidgets.QListWidget()
+
+        self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+        self._columns_widget.itemChanged.connect(self.item_changed)
+        self._columns_widget.model().rowsMoved.connect(self.item_moved)
+
+        self._static_columns_widget.itemChanged.connect(self.item_changed)
+        self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+        self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+
     def setModel(self, model):
         """
         Overload of setModel() to make sure that we restyle the comment rows
@@ -98,31 +110,6 @@ class TableView(QtWidgets.QTableView):
             item = QtWidgets.QListWidgetItem(column)
             self._columns_widget.insertItem(position, item)
             item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-
-    def create_column_widget(self):
-        group = QtWidgets.QGroupBox("Column settings")
-
-        layout = QtWidgets.QVBoxLayout()
-
-        # Add the widget for static columns
-        self._static_columns_widget = QtWidgets.QListWidget()
-
-        self._columns_widget = QtWidgets.QListWidget()
-        self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
-        self._columns_widget.itemChanged.connect(self.item_changed)
-        self._columns_widget.model().rowsMoved.connect(self.item_moved)
-
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
-        self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
-        self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
-
-        layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
-        layout.addWidget(self._static_columns_widget)
-        layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
-        layout.addWidget(self._columns_widget)
-        group.setLayout(layout)
-
-        return group
 
     def set_columns(self, columns, statuses):
         self._columns_widget.clear()
