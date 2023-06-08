@@ -10,7 +10,7 @@ class ProposalFinder(QObject):
     find_result = pyqtSignal(str, str)
 
     def find_proposal(self, propnum: str):
-        if str.isdecimal() and len(str) >= 4
+        if propnum.isdecimal() and len(propnum) >= 4:
             try:
                 dir = find_proposal(f"p{int(propnum):06}")
             except:
@@ -29,16 +29,17 @@ class OpenDBDialog(QDialog):
         self.ui.setupUi(self)
         self.ui.buttonBox.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
         self.ui.proposal_rb.toggled.connect(self.update_ok)
-        self.ui.folder_edit.textChanged(self.update_ok)
+        self.ui.folder_edit.textChanged.connect(self.update_ok)
         self.ui.browse_button.clicked.connect(self.browse_for_folder)
         self.ui.proposal_edit.setFocus()
 
         self.proposal_finder_thread = QThread()
         self.proposal_finder = ProposalFinder()
         self.proposal_finder.moveToThread(self.proposal_finder_thread)
-        self.ui.proposal_edit.textChanged(self.proposal_finder.find_proposal)
+        self.ui.proposal_edit.textChanged.connect(self.proposal_finder.find_proposal)
         self.proposal_finder.find_result.connect(self.proposal_dir_result)
         self.finished.connect(self.proposal_finder_thread.quit)
+        self.proposal_finder_thread.start()
 
     def proposal_dir_result(self, propnum, dir):
         if propnum != self.ui.proposal_edit.text():
