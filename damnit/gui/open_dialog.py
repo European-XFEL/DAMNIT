@@ -45,9 +45,7 @@ class OpenDBDialog(QDialog):
         if propnum != self.ui.proposal_edit.text():
             return  # Text field has been changed
         self.proposal_dir = dir
-        if self.ui.proposal_rb.isChecked():
-            self.ui.buttonBox.button(QDialogButtonBox.StandardButton.Ok).setEnabled(bool(dir))
-
+        self.update_ok()
 
     def update_ok(self):
         if self.ui.proposal_rb.isChecked():
