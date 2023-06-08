@@ -1,4 +1,4 @@
-import os.path
+from pathlib import Path
 
 from extra_data.read_machinery import find_proposal
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
@@ -41,7 +41,7 @@ class OpenDBDialog(QDialog):
         self.finished.connect(self.proposal_finder_thread.quit)
         self.proposal_finder_thread.start()
 
-    def proposal_dir_result(self, propnum, dir):
+    def proposal_dir_result(self, propnum: str, dir: str):
         if propnum != self.ui.proposal_edit.text():
             return  # Text field has been changed
         self.proposal_dir = dir
@@ -51,7 +51,7 @@ class OpenDBDialog(QDialog):
         if self.ui.proposal_rb.isChecked():
             valid = bool(self.proposal_dir)
         else:
-            valid = os.path.isdir(self.ui.folder_edit.text())
+            valid = Path(self.ui.folder_edit.text()).is_dir()
         self.ui.buttonBox.button(QDialogButtonBox.StandardButton.Ok).setEnabled(valid)
 
     def browse_for_folder(self):
@@ -61,9 +61,9 @@ class OpenDBDialog(QDialog):
 
     def get_chosen_dir(self):
         if self.ui.proposal_rb.isChecked():
-            return os.path.join(self.proposal_dir, "usr/Shared/amore")
+            return Path(self.proposal_dir, "usr/Shared/amore")
         else:
-            return self.ui.folder_edit.text()
+            return Path(self.ui.folder_edit.text())
 
 def select_amore_dir():
     dlg = QDialog()
