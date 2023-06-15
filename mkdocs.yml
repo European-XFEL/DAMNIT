@@ -14,7 +14,7 @@ theme:
     - navigation.indexes
     - content.code.copy
 
-repo_url: https://git.xfel.eu/amore/mid-2832
+repo_url: https://github.com/European-XFEL/DAMNIT
 
 # Enable syntax highlighting for the material theme:
 # https://squidfunk.github.io/mkdocs-material/reference/code-blocks/
