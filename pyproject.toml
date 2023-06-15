@@ -3,7 +3,7 @@ requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "amore_mid_prototype"
+name = "DAMNIT"
 authors = [
     {name = "Thomas Kluyver", email = "thomas.kluyver@xfel.eu"},
     {name = "Luca Gelisio", email = "luca.gelisio@xfel.eu"},
@@ -46,7 +46,7 @@ docs = [
 ]
 
 [project.urls]
-Home = "https://git.xfel.eu/amore/mid-2833"
+Home = "https://github.com/European-XFEL/DAMNIT"
 
 [project.scripts]
 amore-proto = "amore_mid_prototype.cli:main"
