@@ -1,11 +1,11 @@
-AMORE prototype for MID
-=======================
+DAMNIT
+======
 
 Installation::
 
-    # Make an environment for AMORE
-    git clone https://git.xfel.eu/amore/mid-2832.git
-    cd mid-2832
+    # Make an environment for DAMNIT
+    git clone https://github.com/European-XFEL/DAMNIT.git
+    cd DAMNIT
     conda create -n amore python
 
     conda activate amore
@@ -41,8 +41,8 @@ The GUI is updated by Kafka messages sent by the backend. Currently we use
 XFEL's internal Kafka broker at ``exflwebstor01.desy.de:9102``, but this is only
 accessible inside the control network.
 
-AMORE can run offline, but if you want updates from the backend and you're
-running AMORE outside the network and not using a VPN, you'll first have to
+DAMNIT can run offline, but if you want updates from the backend and you're
+running DAMNIT outside the network and not using a VPN, you'll first have to
 forward the broker port to your machine::
 
     ssh -L 9102:exflwebstor01.desy.de:9102 max-exfl.desy.de
@@ -51,11 +51,11 @@ And then set the ``AMORE_BROKER`` variable::
 
     export AMORE_BROKER=localhost:9102
 
-AMORE will then connect to the broker at that address.
+DAMNIT will then connect to the broker at that address.
 
 Deployment on Maxwell
 ---------------------
-AMORE is deployed in a module on Maxwell::
+DAMNIT is deployed in a module on Maxwell::
 
     $ module load exfel amore
 
@@ -73,5 +73,5 @@ amore``. To update the module:
     $ amoremod mid
     $ git pull # Or whatever command is necessary to update the code
 
-    # Only necessary if updating dependencies since AMORE is installed in editable mode
+    # Only necessary if updating dependencies since DAMNIT is installed in editable mode
     $ pip install -e .
