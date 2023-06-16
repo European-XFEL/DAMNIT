@@ -33,15 +33,12 @@ jobs:
     - uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('**/setup.py') }}-${{ hashFiles('.github/dependabot/constraints.txt') }}
+        key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('**/pyproject.toml') }}-${{ hashFiles('.github/dependabot/constraints.txt') }}
 
     - name: Install Python dependencies
       run: |
-        python3 -m pip install --upgrade pip
         python3 -m pip install .[test] --constraint .github/dependabot/constraints.txt
 
     - name: Test with pytest
       run: |
         python3 -m pytest -v
-      env:
-        MPLBACKEND: agg
