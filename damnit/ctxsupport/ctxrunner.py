@@ -1,6 +1,6 @@
 """Machinery to run a context file in-process
 
-This is invoked by amore_mid_prototype.backend.extract_data as a subprocess,
+This is invoked by damnit.backend.extract_data as a subprocess,
 possibly running in a different Python interpreter. It will run a context file
 (or part of one) and save the results
 """

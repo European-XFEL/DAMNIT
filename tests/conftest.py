@@ -6,9 +6,9 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from amore_mid_prototype.context import ContextFile
-from amore_mid_prototype.ctxsupport.damnit_ctx import types_map, UserEditableVariable
-from amore_mid_prototype.backend.db import DamnitDB, DB_NAME
+from damnit.context import ContextFile
+from damnit.ctxsupport.damnit_ctx import types_map, UserEditableVariable
+from damnit.backend.db import DamnitDB, DB_NAME
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def mock_ctx():
     import time
     import numpy as np
     import xarray as xr
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Scalar1")
     def scalar1(run):
@@ -78,7 +78,7 @@ def mock_ctx_user(mock_user_vars):
     import time
     import numpy as np
     import xarray as xr
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Depend from user integer")
     #def dep_integer(run, user_integer: "var#user_integer"):

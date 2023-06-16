@@ -10,11 +10,11 @@ import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
 
-from amore_mid_prototype.ctxsupport.ctxrunner import ContextFile, Results
-from amore_mid_prototype.backend.db import db_path
-from amore_mid_prototype.backend.extract_data import add_to_db
-from amore_mid_prototype.gui.editor import ContextTestResult
-from amore_mid_prototype.gui.main_window import MainWindow, Settings, AddUserVariableDialog
+from damnit.ctxsupport.ctxrunner import ContextFile, Results
+from damnit.backend.db import db_path
+from damnit.backend.extract_data import add_to_db
+from damnit.gui.editor import ContextTestResult
+from damnit.gui.main_window import MainWindow, Settings, AddUserVariableDialog
 
 
 # Check if a PID exists by using `kill -0`
@@ -28,7 +28,7 @@ def pid_dead(pid):
 
 def test_connect_to_kafka(mock_db, qtbot):
     db_dir, db = mock_db
-    pkg = "amore_mid_prototype.gui.kafka"
+    pkg = "damnit.gui.kafka"
 
     with patch(f"{pkg}.KafkaConsumer") as kafka_cns:
         MainWindow(db_dir, False).close()
@@ -299,7 +299,7 @@ def test_handle_update(mock_db, qtbot):
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
     win = MainWindow(None, False)
-    pkg = "amore_mid_prototype.gui.main_window"
+    pkg = "damnit.gui.main_window"
 
     @contextmanager
     def helper_patch():

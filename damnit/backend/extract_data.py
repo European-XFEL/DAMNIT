@@ -191,7 +191,7 @@ class Extractor:
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
-            python_cmd = [sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
+            python_cmd = [sys.executable, '-m', 'damnit.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]
             res = subprocess.run([
                 'sbatch', '--parsable',
