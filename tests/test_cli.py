@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from amore_mid_prototype.cli import main, excepthook as ipython_excepthook
+from damnit.cli import main, excepthook as ipython_excepthook
 
 
 def test_new_id(mock_db, monkeypatch):
@@ -31,7 +31,7 @@ def test_debug_repl(mock_db, monkeypatch):
     # Helper context manager that mocks sys.argv, run_app(), and the sys module
     @contextmanager
     def amore_proto(args):
-        pkg = "amore_mid_prototype"
+        pkg = "damnit"
         with (patch("sys.argv", ["amore-proto", *args]),
               patch(f"{pkg}.gui.main_window.run_app"),
               patch(f"{pkg}.cli.sys") as mock_sys):
@@ -66,8 +66,8 @@ def test_gui():
     @contextmanager
     def helper_patch(args=[]):
         with (patch("sys.argv", ["amore-proto", "gui", *args]),
-              patch("amore_mid_prototype.cli.find_proposal", return_value="/tmp"),
-              patch("amore_mid_prototype.gui.main_window.run_app") as run_app):
+              patch("damnit.cli.find_proposal", return_value="/tmp"),
+              patch("damnit.gui.main_window.run_app") as run_app):
             yield run_app
 
     # Check passing neither a proposal number or directory
@@ -93,7 +93,7 @@ def test_gui():
 
 def test_listen(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    pkg = "amore_mid_prototype.backend"
+    pkg = "damnit.backend"
 
     # Helper context manager that mocks sys.argv
     @contextmanager

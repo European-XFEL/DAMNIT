@@ -119,7 +119,7 @@ class EventProcessor:
 
         # Create subprocess to process the run
         extract_proc = subprocess.Popen([
-            sys.executable, '-m', 'amore_mid_prototype.backend.extract_data',
+            sys.executable, '-m', 'damnit.backend.extract_data',
             str(proposal), str(run), run_data.value
         ], cwd=self.context_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.extract_procs_queue.put((proposal, run, extract_proc))

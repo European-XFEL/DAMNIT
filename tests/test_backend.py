@@ -16,12 +16,12 @@ import pytest
 import numpy as np
 import xarray as xr
 
-from amore_mid_prototype.util import wait_until
-from amore_mid_prototype.context import ContextFile, Results, RunData, get_proposal_path
-from amore_mid_prototype.backend.db import DamnitDB
-from amore_mid_prototype.backend import initialize_and_start_backend, backend_is_running
-from amore_mid_prototype.backend.extract_data import add_to_db, Extractor
-from amore_mid_prototype.backend.supervisord import write_supervisord_conf
+from damnit.util import wait_until
+from damnit.context import ContextFile, Results, RunData, get_proposal_path
+from damnit.backend.db import DamnitDB
+from damnit.backend import initialize_and_start_backend, backend_is_running
+from damnit.backend.extract_data import add_to_db, Extractor
+from damnit.backend.supervisord import write_supervisord_conf
 
 
 def kill_pid(pid):
@@ -37,7 +37,7 @@ def kill_pid(pid):
 
 def test_context_file(mock_ctx):
     code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Foo")
     def foo(run):
@@ -59,7 +59,7 @@ def test_context_file(mock_ctx):
     assert len(ctx.vars) == 1
 
     duplicate_titles_code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Foo")
     def foo(run): return 42
@@ -92,7 +92,7 @@ def test_context_file(mock_ctx):
 
     # Create a context file with a cycle
     cycle_code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="foo")
     def foo(run, bar: "var#bar"):
@@ -109,7 +109,7 @@ def test_context_file(mock_ctx):
 
     # Context file with raw variable's depending on proc variable's
     bad_dep_code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="foo", data="proc")
     def foo(run):
@@ -124,7 +124,7 @@ def test_context_file(mock_ctx):
         ContextFile.from_str(textwrap.dedent(bad_dep_code))
 
     var_promotion_code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="foo", data="proc")
     def foo(run):
@@ -176,7 +176,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     # Test behaviour with dependencies throwing exceptions
     raising_code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Foo")
     def foo(run):
@@ -203,7 +203,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     # Same thing, but with variables returning None
     return_none_code = """
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Foo")
     def foo(run):
@@ -231,7 +231,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     results_hdf5_path = tmp_path / "results.hdf5"
     with_coords_code = """
     import xarray as xr
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Foo")
     def foo(run): return xr.DataArray([1, 2, 3], coords={"trainId": [100, 101, 102]})
@@ -246,7 +246,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     without_coords_code = """
     import xarray as xr
-    from amore_mid_prototype.context import Variable
+    from damnit.context import Variable
 
     @Variable(title="Foo")
     def foo(run): return xr.DataArray([1, 2, 3])
@@ -344,7 +344,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     db_dir, db = mock_db
     db.metameta["proposal"] = 1234
     monkeypatch.chdir(db_dir)
-    pkg = "amore_mid_prototype.backend.extract_data"
+    pkg = "damnit.backend.extract_data"
 
     # Write context file
     no_summary_var = """
@@ -379,7 +379,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         extractor.kafka_prd.send.assert_called_once()
         subprocess_run.assert_called_once()
 
-    # This works because we loaded amore_mid_prototype.context above
+    # This works because we loaded damnit.context above
     from ctxrunner import main
 
     # Process run
@@ -465,7 +465,7 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
         with open(supervisord_config_path, "w") as f:
             config.write(f)
 
-    pkg = "amore_mid_prototype.backend.supervisord"
+    pkg = "damnit.backend.supervisord"
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
         assert initialize_and_start_backend(db_dir, 1234)
