@@ -57,7 +57,7 @@ class OpenDBDialog(QDialog):
     def browse_for_folder(self):
         path = QFileDialog.getExistingDirectory()
         if path:
-            self.ui.folder_edit.setText()
+            self.ui.folder_edit.setText(path)
 
     def get_chosen_dir(self):
         if self.ui.proposal_rb.isChecked():
