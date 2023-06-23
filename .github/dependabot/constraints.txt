@@ -11,7 +11,7 @@ pandas==1.5.3
 pasha==0.1.1
 pyflakes==3.0.1
 PyQt5==5.15.9
-pytest==7.3.2
+pytest==7.4.0
 pytest-qt==4.2.0
 pytest-xvfb==3.0.0
 PyYAML==6.0
