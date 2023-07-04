@@ -1,6 +1,8 @@
 DAMNIT
 ======
 
+[![Documentation Status](https://readthedocs.org/projects/damnit/badge/?version=latest)](https://damnit.readthedocs.io/en/latest/?badge=latest)
+
 Installation::
 
     # Make an environment for DAMNIT
