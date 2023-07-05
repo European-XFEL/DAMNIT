@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 from extra_data.read_machinery import find_proposal
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
@@ -23,8 +24,8 @@ class OpenDBDialog(QDialog):
     proposal_num_changed = pyqtSignal(str)
     proposal_dir = ''
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
         self.ui.buttonBox.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
@@ -64,3 +65,8 @@ class OpenDBDialog(QDialog):
             return Path(self.proposal_dir, "usr/Shared/amore")
         else:
             return Path(self.ui.folder_edit.text())
+
+    def get_proposal_num(self) -> Optional[int]:
+        if self.ui.proposal_rb.isChecked():
+            return int(self.ui.proposal_edit.text())
+        return None

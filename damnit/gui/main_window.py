@@ -190,71 +190,16 @@ da-dev@xfel.eu"""
         dialog.exec()
 
     def _menu_bar_autoconfigure(self) -> None:
-        proposal_dir = ""
-
-        # If we're on a system with access to GPFS, prompt for the proposal
-        # number so we can preset the prompt for the AMORE directory.
-        if self.gpfs_accessible():
-            prompt = True
-            while prompt:
-                prop_no, prompt = QtWidgets.QInputDialog.getInt(self, "Select proposal",
-                                                                "Which proposal is this for?")
-                if not prompt:
-                    break
-
-                proposal = f"p{prop_no:06}"
-                try:
-                    proposal_dir = find_proposal(proposal)
-                    prompt = False
-                except Exception:
-                    button = QtWidgets.QMessageBox.warning(self, "Bad proposal number",
-                                                           "Could not find a proposal with this number, try again?",
-                                                           buttons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-                    if button != QtWidgets.QMessageBox.Yes:
-                        prompt = False
-        else:
-            prop_no = None
-
-        # By convention the AMORE directory is often stored at usr/Shared/amore,
-        # so if this directory exists, then we use it.
-        standard_path = Path(proposal_dir) / "usr/Shared/amore"
-        if standard_path.is_dir() and db_path(standard_path).is_file():
-            path = standard_path
-        else:
-            # Helper lambda to open a prompt for the user
-            prompt_for_path = lambda: QFileDialog.getExistingDirectory(self,
-                                                                       "Select context directory",
-                                                                       proposal_dir)
-
-            if self.gpfs_accessible() and prop_no is not None:
-                button = QMessageBox.question(self, "Database not found",
-                                              f"Proposal {prop_no} does not have an AMORE database, " \
-                                              "would you like to create one and start the backend?")
-                if button == QMessageBox.Yes:
-                    initialize_and_start_backend(standard_path, prop_no)
-                    path = standard_path
-                else:
-                    # Otherwise, we prompt the user
-                    path = prompt_for_path()
-            else:
-                path = prompt_for_path()
-
-        # If we found a database, make sure we're working with a Path object
-        if path:
-            path = Path(path)
-        else:
-            # Otherwise just return
+        dialog = OpenDBDialog(self)
+        if dialog.exec() == QtWidgets.QDialog.Rejected:
+            return
+        context_dir = dialog.get_chosen_dir()
+        prop_no = dialog.get_proposal_num()
+        if not prompt_setup_db_and_backend(context_dir, prop_no, parent=self):
+            # User said no to setting up a new database
             return
 
-        # Check if the backend is running
-        if not backend_is_running(path):
-            button = QMessageBox.question(self, "Backend not running",
-                                          "The AMORE backend is not running, would you like to start it? " \
-                                          "This is only necessary if new runs are expected.")
-            if button == QMessageBox.Yes:
-                initialize_and_start_backend(path)
-
-        self.autoconfigure(Path(path), proposal=prop_no)
+        self.autoconfigure(context_dir, proposal=prop_no)
 
     def gpfs_accessible(self):
         return os.path.isdir("/gpfs/exfel/exp")
@@ -1027,6 +972,39 @@ class TabBarStyle(QtWidgets.QProxyStyle):
             super().drawControl(element, option, painter, widget)
 
 
+def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
+    if not db_path(context_dir).is_file():
+
+        button = QMessageBox.question(
+            parent, "Database not found",
+            f"{context_dir} does not contain a DAMNIT database, "
+            "would you like to create one and start the backend?"
+        )
+        if button != QMessageBox.Yes:
+            return False
+
+
+        if prop_no is None:
+            prop_no, ok = QtWidgets.QInputDialog.getInt(
+                parent, "Select proposal", "Which proposal is this for?"
+            )
+            if not ok:
+                return False
+        initialize_and_start_backend(context_dir, prop_no)
+
+    # Check if the backend is running
+    elif not backend_is_running(context_dir):
+        button = QMessageBox.question(
+            parent, "Backend not running",
+            "The DAMNIT backend is not running, would you like to start it? "
+            "This is only necessary if new runs are expected."
+        )
+        if button == QMessageBox.Yes:
+            initialize_and_start_backend(context_dir, prop_no)
+
+    return True
+
+
 def run_app(context_dir, connect_to_kafka=True):
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
@@ -1039,6 +1017,10 @@ def run_app(context_dir, connect_to_kafka=True):
         if dialog.exec() == QtWidgets.QDialog.Rejected:
             return 0
         context_dir = dialog.get_chosen_dir()
+        prop_no = dialog.get_proposal_num()
+        if not prompt_setup_db_and_backend(context_dir, prop_no):
+            # User said no to setting up a new database
+            return 0
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()
