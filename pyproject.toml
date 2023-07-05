@@ -20,6 +20,7 @@ dependencies = [
     "mplcursors",
     "mpl-pan-zoom",
     "numpy",
+    "openpyxl",
     "pandas<2",
     "PyQt5",
     "PyYAML",
