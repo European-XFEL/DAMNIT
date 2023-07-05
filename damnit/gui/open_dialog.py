@@ -69,7 +69,7 @@ class OpenDBDialog(QDialog):
 
     def get_chosen_dir(self):
         if self.ui.proposal_rb.isChecked():
-            return Path(self.proposal_dir, "usr/Shared/amore")
+            return Path(self.proposal_dir) / "usr/Shared/amore"
         else:
             return Path(self.ui.folder_edit.text())
 
