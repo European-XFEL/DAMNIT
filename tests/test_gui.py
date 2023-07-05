@@ -8,13 +8,14 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, QStyledItemDelegate, QLineEdit
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QStyledItemDelegate, QLineEdit
 
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import db_path
 from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, Settings, AddUserVariableDialog
+from damnit.gui.open_dialog import OpenDBDialog
 
 
 # Check if a PID exists by using `kill -0`
@@ -695,3 +696,29 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     # Edit a standalone comment
     comment_index = get_index("Comment", row=1)
     win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+
+def test_open_dialog(mock_db, qtbot):
+    db_dir, db = mock_db
+    dlg = OpenDBDialog()
+
+    # Test supplying a proposal number:
+    with patch("damnit.gui.open_dialog.find_proposal", return_value=str(db_dir)):
+        with qtbot.waitSignal(dlg.proposal_finder.find_result):
+            dlg.ui.proposal_edit.setText('1234')
+    with qtbot.waitSignal(dlg.proposal_finder_thread.finished):
+        dlg.accept()
+
+    assert dlg.get_chosen_dir() == db_dir / 'usr/Shared/amore'
+    assert dlg.get_proposal_num() == 1234
+
+    # Test selecting a folder:
+    dlg = OpenDBDialog()
+    dlg.ui.folder_rb.setChecked(True)
+    with patch.object(QFileDialog, 'getExistingDirectory', return_value=str(db_dir)):
+        dlg.ui.browse_button.click()
+    with qtbot.waitSignal(dlg.proposal_finder_thread.finished):
+        dlg.accept()
+
+    assert dlg.get_chosen_dir() == db_dir
+    assert dlg.get_proposal_num() is None

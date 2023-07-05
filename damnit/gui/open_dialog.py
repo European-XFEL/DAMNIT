@@ -43,7 +43,7 @@ class OpenDBDialog(QDialog):
         self.proposal_finder_thread.start()
 
     @staticmethod
-    def run_get_result(parent=None) -> (Optional[str], Optional[int]):
+    def run_get_result(parent=None) -> (Optional[Path], Optional[int]):
         dlg = OpenDBDialog(parent)
         if dlg.exec() == QDialog.Rejected:
             return None, None
