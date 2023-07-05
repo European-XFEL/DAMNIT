@@ -64,11 +64,3 @@ class OpenDBDialog(QDialog):
             return Path(self.proposal_dir, "usr/Shared/amore")
         else:
             return Path(self.ui.folder_edit.text())
-
-def select_amore_dir():
-    dlg = QDialog()
-    ui = Ui_Dialog()
-    ui.setupUi(dlg)
-    ui.browse_button.clicked.connect()
-
-    dlg.exec()
