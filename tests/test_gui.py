@@ -307,7 +307,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # p1234, and the user always wants to create a database and start the
         # backend.
         with (patch.object(win, "gpfs_accessible", return_value=True),
-              patch.object(QInputDialog, "getInt", return_value=(1234, True)),
+              patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
               patch(f"{pkg}.find_proposal", return_value=tmp_path),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
               patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
@@ -327,6 +327,15 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir.mkdir(parents=True)
     db_path(db_dir).touch()
 
+    # Autoconfigure with database present & backend 'running':
+    with (helper_patch() as initialize_and_start_backend,
+          patch(f"{pkg}.backend_is_running", return_value=True)):
+        win._menu_bar_autoconfigure()
+
+        # We expect the database to be initialized and the backend started
+        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        initialize_and_start_backend.assert_not_called()
+
     # Autoconfigure again, the GUI should start the backend again
     with (helper_patch() as initialize_and_start_backend,
           patch(f"{pkg}.backend_is_running", return_value=False)):
@@ -334,7 +343,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
         # This time the database is already initialized
         win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
-        initialize_and_start_backend.assert_called_once_with(db_dir)
+        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
 
 def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 

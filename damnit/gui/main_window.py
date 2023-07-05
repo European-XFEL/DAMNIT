@@ -190,11 +190,9 @@ da-dev@xfel.eu"""
         dialog.exec()
 
     def _menu_bar_autoconfigure(self) -> None:
-        dialog = OpenDBDialog(self)
-        if dialog.exec() == QtWidgets.QDialog.Rejected:
+        context_dir, prop_no = OpenDBDialog.run_get_result(parent=self)
+        if context_dir is None:
             return
-        context_dir = dialog.get_chosen_dir()
-        prop_no = dialog.get_proposal_num()
         if not prompt_setup_db_and_backend(context_dir, prop_no, parent=self):
             # User said no to setting up a new database
             return
@@ -1013,11 +1011,9 @@ def run_app(context_dir, connect_to_kafka=True):
     application.setStyle(TableViewStyle())
 
     if context_dir is None:
-        dialog = OpenDBDialog()
-        if dialog.exec() == QtWidgets.QDialog.Rejected:
+        context_dir, prop_no = OpenDBDialog.run_get_result()
+        if context_dir is None:
             return 0
-        context_dir = dialog.get_chosen_dir()
-        prop_no = dialog.get_proposal_num()
         if not prompt_setup_db_and_backend(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
