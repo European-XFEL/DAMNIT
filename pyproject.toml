@@ -18,7 +18,7 @@ dependencies = [
     "kafka-python",
     "matplotlib",
     "mplcursors",
-    "mpl-interactions",
+    "mpl-pan-zoom",
     "numpy",
     "pandas<2",
     "PyQt5",
