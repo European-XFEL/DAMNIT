@@ -15,11 +15,10 @@ import h5py
 from pandas.api.types import infer_dtype
 
 from kafka.errors import NoBrokersAvailable
-from extra_data.read_machinery import find_proposal
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt5.QtWidgets import QMessageBox, QTabWidget
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import db_path, DamnitDB
