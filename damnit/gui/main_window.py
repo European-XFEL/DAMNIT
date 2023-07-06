@@ -199,9 +199,6 @@ da-dev@xfel.eu"""
 
         self.autoconfigure(context_dir, proposal=prop_no)
 
-    def gpfs_accessible(self):
-        return os.path.isdir("/gpfs/exfel/exp")
-
     def save_settings(self):
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
 
