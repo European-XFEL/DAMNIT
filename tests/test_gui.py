@@ -707,8 +707,8 @@ def test_open_dialog(mock_db, qtbot):
     with patch("damnit.gui.open_dialog.find_proposal", return_value=str(db_dir)):
         with qtbot.waitSignal(dlg.proposal_finder.find_result):
             dlg.ui.proposal_edit.setText('1234')
-    with qtbot.waitSignal(dlg.proposal_finder_thread.finished):
-        dlg.accept()
+    dlg.accept()
+    dlg.proposal_finder_thread.wait(2000)
 
     assert dlg.get_chosen_dir() == db_dir / 'usr/Shared/amore'
     assert dlg.get_proposal_num() == 1234
@@ -719,8 +719,8 @@ def test_open_dialog(mock_db, qtbot):
     dlg.ui.folder_rb.setChecked(True)
     with patch.object(QFileDialog, 'getExistingDirectory', return_value=str(db_dir)):
         dlg.ui.browse_button.click()
-    with qtbot.waitSignal(dlg.proposal_finder_thread.finished):
-        dlg.accept()
+    dlg.accept()
+    dlg.proposal_finder_thread.wait(2000)
 
     assert dlg.get_chosen_dir() == db_dir
     assert dlg.get_proposal_num() is None
