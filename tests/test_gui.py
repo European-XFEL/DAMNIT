@@ -307,9 +307,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # Patch things such that the GUI thinks we're on GPFS trying to open
         # p1234, and the user always wants to create a database and start the
         # backend.
-        with (patch.object(win, "gpfs_accessible", return_value=True),
-              patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
-              patch(f"{pkg}.find_proposal", return_value=tmp_path),
+        with (patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
               patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
               patch.object(win, "autoconfigure")):
