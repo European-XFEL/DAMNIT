@@ -701,6 +701,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
 def test_open_dialog(mock_db, qtbot):
     db_dir, db = mock_db
     dlg = OpenDBDialog()
+    dlg.proposal_finder_thread.start()
 
     # Test supplying a proposal number:
     with patch("damnit.gui.open_dialog.find_proposal", return_value=str(db_dir)):
@@ -714,6 +715,7 @@ def test_open_dialog(mock_db, qtbot):
 
     # Test selecting a folder:
     dlg = OpenDBDialog()
+    dlg.proposal_finder_thread.start()
     dlg.ui.folder_rb.setChecked(True)
     with patch.object(QFileDialog, 'getExistingDirectory', return_value=str(db_dir)):
         dlg.ui.browse_button.click()

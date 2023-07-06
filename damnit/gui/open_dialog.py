@@ -34,15 +34,16 @@ class OpenDBDialog(QDialog):
         self.ui.browse_button.clicked.connect(self.browse_for_folder)
         self.ui.proposal_edit.setFocus()
 
-        self.proposal_finder_thread = QThread()
+        self.proposal_finder_thread = QThread(parent=parent)
         self.proposal_finder = ProposalFinder()
         self.proposal_finder.moveToThread(self.proposal_finder_thread)
         self.ui.proposal_edit.textChanged.connect(self.proposal_finder.find_proposal)
         self.proposal_finder.find_result.connect(self.proposal_dir_result)
         self.finished.connect(self.proposal_finder_thread.quit)
-        self.proposal_finder_thread.start()
+        self.proposal_finder_thread.finished.connect(self.proposal_finder_thread.deleteLater)
 
     def run_get_result(self) -> (Optional[Path], Optional[int]):
+        self.proposal_finder_thread.start()
         if self.exec() == QDialog.Rejected:
             return None, None
         return self.get_chosen_dir(), self.get_proposal_num()
