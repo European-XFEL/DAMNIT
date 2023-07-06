@@ -190,7 +190,8 @@ da-dev@xfel.eu"""
         dialog.exec()
 
     def _menu_bar_autoconfigure(self) -> None:
-        context_dir, prop_no = OpenDBDialog.run_get_result(parent=self)
+        open_dialog = OpenDBDialog(self)
+        context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
             return
         if not prompt_setup_db_and_backend(context_dir, prop_no, parent=self):
@@ -1011,7 +1012,8 @@ def run_app(context_dir, connect_to_kafka=True):
     application.setStyle(TableViewStyle())
 
     if context_dir is None:
-        context_dir, prop_no = OpenDBDialog.run_get_result()
+        open_dialog = OpenDBDialog()
+        context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
             return 0
         if not prompt_setup_db_and_backend(context_dir, prop_no):

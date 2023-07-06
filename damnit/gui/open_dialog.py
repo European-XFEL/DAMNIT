@@ -42,12 +42,10 @@ class OpenDBDialog(QDialog):
         self.finished.connect(self.proposal_finder_thread.quit)
         self.proposal_finder_thread.start()
 
-    @staticmethod
-    def run_get_result(parent=None) -> (Optional[Path], Optional[int]):
-        dlg = OpenDBDialog(parent)
-        if dlg.exec() == QDialog.Rejected:
+    def run_get_result(self) -> (Optional[Path], Optional[int]):
+        if self.exec() == QDialog.Rejected:
             return None, None
-        return dlg.get_chosen_dir(), dlg.get_proposal_num()
+        return self.get_chosen_dir(), self.get_proposal_num()
 
     def proposal_dir_result(self, propnum: str, dir: str):
         if propnum != self.ui.proposal_edit.text():
