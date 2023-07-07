@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
+from PyQt5.QtCore import Qt
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
 
@@ -92,6 +93,13 @@ class Canvas(QtWidgets.QDialog):
             QtCore.Qt.LayoutDirection.RightToLeft
         )
 
+        self._dynamic_aspect_checkbox = QtWidgets.QCheckBox("Dynamic aspect ratio")
+        self._dynamic_aspect_checkbox.setCheckState(Qt.Unchecked)
+        self._dynamic_aspect_checkbox.setLayoutDirection(Qt.RightToLeft)
+        self._dynamic_aspect_checkbox.stateChanged.connect(
+            lambda state: self.set_dynamic_aspect(state == Qt.Checked)
+        )
+
         self._display_annotations_checkbox = QtWidgets.QCheckBox(
             "Display hover annotations", self
         )
@@ -122,6 +130,8 @@ class Canvas(QtWidgets.QDialog):
 
         layout.addLayout(h1_layout)
         layout.addLayout(h2_layout)
+        if image is not None:
+            layout.addWidget(self._dynamic_aspect_checkbox)
 
         layout.addWidget(self._navigation_toolbar)
 
@@ -130,6 +140,13 @@ class Canvas(QtWidgets.QDialog):
         self._panmanager = PanManager(self.figure, MouseButton.LEFT)
 
         self.update_canvas(x, y, image, legend=legend)
+
+        # Take a guess at a good aspect ratio if it's an image
+        if image is not None:
+            aspect_ratio = max(image.shape[:2]) / min(image.shape[:2])
+            if aspect_ratio > 4:
+                self._dynamic_aspect_checkbox.setCheckState(Qt.Checked)
+
         self.figure.tight_layout()
 
     def toggle_annotations(self, state):
@@ -162,6 +179,11 @@ class Canvas(QtWidgets.QDialog):
             y_min = y_min - y_range * margin
             y_max = y_max + y_range * margin
             self._axis.set_ylim((y_min, y_max))
+
+    def set_dynamic_aspect(self, is_dynamic):
+        aspect = "auto" if is_dynamic else "equal"
+        self._axis.set_aspect(aspect)
+        self.figure.canvas.draw()
 
     def update_canvas(self, xs=None, ys=None, image=None, legend=None, series_names=["default"]):
         cmap = mpl_cm.get_cmap("tab20")
