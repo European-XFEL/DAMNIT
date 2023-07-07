@@ -225,6 +225,19 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         # There should be no computed variables since we treat None as a missing dependency
         assert tuple(results.data.keys()) == ("start_time",)
 
+    default_value_code = """
+    from damnit_ctx import Variable
+
+    @Variable(title="foo")
+    def foo(run): return None
+
+    @Variable(title="bar")
+    def bar(run, foo: "var#foo"=1): return 41 + foo
+    """
+    default_value_ctx = mkcontext(default_value_code)
+    results = results_create(default_value_ctx)
+    assert results.reduced["bar"].item() == 42
+
     # Test that the backend completely updates all datasets belonging to a
     # variable during reprocessing. e.g. if it had a trainId dataset but now
     # doesn't, the trainId dataset should be deleted from the HDF5 file.

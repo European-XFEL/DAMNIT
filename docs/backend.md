@@ -99,6 +99,16 @@ def bar(run, value: "var#foo"):
     return value * 2
 ```
 
+Dependencies with default values are also allowed, the default value will be
+passed to the function if the dependency did not complete execution for some
+reason:
+```python
+@Variable(title="baz")
+def baz(run, bar: "var#bar"=42):
+    # This will return the result of foo() if foo() succeeded, otherwise 42
+    return value
+```
+
 ## Reprocessing
 The context file is loaded each time a run is received, so if you edit the
 context file the changes will only take effect for the runs coming later. But,
