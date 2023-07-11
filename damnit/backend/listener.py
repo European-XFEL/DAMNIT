@@ -54,7 +54,7 @@ def watch_processes_finish(q: queue.Queue):
 
 
 class EventProcessor:
-    EXPECTED_EVENTS = ["migration_complete", "correction_complete"]
+    EXPECTED_EVENTS = ["migration_complete", "run_corrections_complete"]
 
     def __init__(self, context_dir=Path('.')):
         self.context_dir = context_dir
@@ -104,7 +104,7 @@ class EventProcessor:
     def handle_migration_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.RAW)
 
-    def handle_correction_complete(self, record, msg: dict):
+    def handle_run_corrections_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.PROC)
 
     def handle_event(self, record, msg: dict, run_data: RunData):

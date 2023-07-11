@@ -88,14 +88,13 @@ class BooleanValueType(ValueType):
         res = None
 
         if len(data) > 0:
-            match to_convert.dtype:
-                case "object":
-                    raise ValueError("The input array contains mixed object types")
-                case "string":
-                    valid_strings = pd.Series(cls._valid_values.keys(), dtype="string")
-                    res = to_convert.map(lambda x: cls._map_strings_to_values(x, valid_strings))
-                case _:
-                    res = to_convert.astype(cls.type_instance)
+            if to_convert.dtype == "object":
+                raise ValueError("The input array contains mixed object types")
+            elif to_convert.dtype == "string":
+                valid_strings = pd.Series(cls._valid_values.keys(), dtype="string")
+                res = to_convert.map(lambda x: cls._map_strings_to_values(x, valid_strings))
+            else:
+                res = to_convert.astype(cls.type_instance)
         else:
             res = pd.Series([], dtype=cls.type_instance)
 
