@@ -33,6 +33,7 @@ from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
 from .open_dialog import OpenDBDialog
+from .reprocess import Reprocessor
 
 
 log = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data = None
         self._connect_to_kafka = connect_to_kafka
         self._updates_thread = None
-        self._updates_thread = None
+        self._reprocess_thread =  None
         self._received_update = False
         self._context_path = None
         self._context_is_saved = True
@@ -122,6 +123,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
+        self.stop_reprocess_thread()
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -130,6 +132,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self._updates_thread.exit()
             self._updates_thread.wait()
             self._updates_thread = None
+            
+    def stop_reprocess_thread(self):
+        if self._reprocess_thread is not None:
+            self.reprocessor.stop()
+            self._reprocess_thread.exit()
+            self._reprocess_thread.wait()
+            self._reprocess_thread =  None
 
     def center_window(self):
         """
@@ -738,6 +747,33 @@ da-dev@xfel.eu"""
             )
         )
         self._canvas_inspect[-1].show()
+        
+    def reprocess_color_scheme(self, run, finished):
+        if finished:
+            self.table.reprocessing_row = None
+            if len(self.table.to_be_reprocessed) > 0:
+                self.table.to_be_reprocessed.pop(0)
+            self.table.layoutChanged.emit()
+            if run is None:
+                self.show_default_status_message()
+                return
+
+        else:
+            if len(self.table.to_be_reprocessed) > 0:
+                self.table.reprocessing_row = self.table.to_be_reprocessed[0]
+            else:
+                self.table.reprocessing_row = None
+
+            out_of = len(self.table.to_be_reprocessed)
+            status_msg = f"Reprocessing run #{run} out of {out_of}"
+            self._status_bar.showMessage(status_msg)
+
+        self.table.layoutChanged.emit()
+        
+    def failed_reprocessing_alert(self):
+        self.show_status_message("An error ocurred during the reprocessing. Please check the log file.",
+                                 timeout=5000,
+                                 stylesheet="""QStatusBar {background: rgb(255, 153, 102);}""")
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
@@ -749,6 +785,19 @@ da-dev@xfel.eu"""
         self.table.value_changed.connect(self.save_value)
         self.table.time_comment_changed.connect(self.save_time_comment)
         self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
+        
+        if self._connect_to_kafka:
+            self._reprocess_thread = QtCore.QThread()
+            self.reprocessor = Reprocessor()
+            self.reprocessor.moveToThread(self._reprocess_thread)
+            self._reprocess_thread.started.connect(self.reprocessor.loop)
+            self.reprocessor.color_scheme.connect(self.reprocess_color_scheme)
+            self.reprocessor.failed_reprocessing.connect(self.failed_reprocessing_alert)
+            QtCore.QTimer.singleShot(0, self._reprocess_thread.start)
+
+        else:
+            self.table_view.enable_reprocess = False
+    
 
         self.table_view.doubleClicked.connect(self.inspect_data)
         self.table_view.settings_changed.connect(self.save_settings)
