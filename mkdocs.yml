@@ -6,7 +6,7 @@ theme:
   logo: static/AMORE.png
   favicon: static/AMORE.png
   icon:
-    repo: fontawesome/brands/gitlab
+    repo: fontawesome/brands/github
   palette:
     scheme: slate
     primary: teal
