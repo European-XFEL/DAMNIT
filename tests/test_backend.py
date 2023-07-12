@@ -435,6 +435,15 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         main(["1234", "42", "all", "--mock"])
         open_run.assert_not_called()
 
+    # When only proc variables are reprocessed, the run should still be opened
+    # with `data='all'` so that raw data is available. Note that we patch
+    # Results too so that the test doesn't throw exceptions.
+    with patch("ctxrunner.extra_data.open_run") as open_run, \
+         patch("ctxrunner.Results"):
+        main(["1234", "42", "proc"])
+
+        open_run.assert_called_with(1234, 42, data="all")
+
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
     supervisord_config_path = db_dir / "supervisord.conf"

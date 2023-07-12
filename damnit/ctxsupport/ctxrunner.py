@@ -420,7 +420,10 @@ def main(argv=None):
     if args.mock:
         run_dc = mock_run()
     else:
-        run_dc = extra_data.open_run(args.proposal, args.run, data=run_data.value)
+        # Make sure that we always select the most data possible, so proc
+        # variables have access to raw data too.
+        actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
+        run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
 
     inputs = {
         'run_data' : run_dc,
