@@ -38,7 +38,8 @@ dependencies = [
 test = [
     "pytest",
     "pytest-qt",
-    "pytest-xvfb"
+    "pytest-xvfb",
+    "pytest-timeout"
 ]
 docs = [
     "mkdocs",
@@ -50,3 +51,6 @@ Home = "https://github.com/European-XFEL/DAMNIT"
 
 [project.scripts]
 amore-proto = "damnit.cli:main"
+
+[tool.pytest.ini_options]
+timeout = 120
