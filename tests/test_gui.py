@@ -722,3 +722,26 @@ def test_open_dialog(mock_db, qtbot):
 
     assert dlg.get_chosen_dir() == db_dir
     assert dlg.get_proposal_num() is None
+
+def test_reprocess_gui(mock_db, monkeypatch, qtbot):
+    pkg = "damnit.backend.extract_data"
+    db_dir, db = mock_db
+    db.metameta['proposal'] = 1234
+    monkeypatch.chdir(db_dir)
+
+    with patch("damnit.gui.kafka.KafkaConsumer") as _, \
+        patch(f"{pkg}.KafkaProducer") as __,\
+        patch(f"{pkg}.Extractor.extract_and_ingest") as extr:
+        win = MainWindow(db_dir, True)
+        # Tests if the reprocessing thread is running
+        qtbot.waitUntil(lambda: win._reprocess_thread.isRunning())
+
+        for run in [0,1,2]:
+            win.reprocessor.reprocess_queue.put(run)
+
+        # Test if the queue was emptied and extract_and_ingest was called 3x
+        qtbot.waitUntil(lambda: win.reprocessor.reprocess_queue.empty())
+        qtbot.waitUntil(lambda: extr.call_count == 3)
+
+    win.close()
+
