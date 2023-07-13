@@ -23,6 +23,8 @@ from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
 from damnit.backend.supervisord import write_supervisord_conf
 
+from .conftest import mkcontext
+
 
 def kill_pid(pid):
     """
@@ -156,7 +158,6 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
     results_create = lambda ctx: Results.create(ctx, { "run_data" : mock_run }, run_number, proposal)
-    mkcontext = lambda code: ContextFile.from_str(textwrap.dedent(code))
 
     # Simple test
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)

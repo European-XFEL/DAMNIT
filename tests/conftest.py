@@ -1,3 +1,4 @@
+import os
 import socket
 import textwrap
 from unittest.mock import MagicMock
@@ -7,9 +8,31 @@ import numpy as np
 import pandas as pd
 
 from damnit.context import ContextFile
+from damnit.backend.extract_data import extract_in_subprocess, add_to_db
 from damnit.ctxsupport.damnit_ctx import types_map, UserEditableVariable
 from damnit.backend.db import DamnitDB, DB_NAME
 
+
+def make_mock_db(ctx, mock_db):
+    db_dir, db = mock_db
+    db.metameta["proposal"] = 1234
+
+    (db_dir / "context.py").write_text(ctx.code)
+    extracted_data_dir = db_dir / "extracted_data"
+    extracted_data_dir.mkdir(exist_ok=True)
+
+    cwd = os.getcwd()
+    try:
+        os.chdir(db_dir)
+        reduced_data = extract_in_subprocess(1234, 42,
+                                             extracted_data_dir / "p1234_r42.h5",
+                                             mock=True)
+        add_to_db(reduced_data, db.conn, 1234, 42)
+    finally:
+        os.chdir(cwd)
+
+def mkcontext(code, **kwargs):
+    return ContextFile.from_str(textwrap.dedent(code), **kwargs)
 
 @pytest.fixture
 def mock_ctx():
@@ -54,7 +77,7 @@ def mock_ctx():
         return str(proposal_path)
     """
 
-    return ContextFile.from_str(textwrap.dedent(code))
+    return mkcontext(code)
 
 @pytest.fixture
 def mock_user_vars():
@@ -102,7 +125,7 @@ def mock_ctx_user(mock_user_vars):
 
     """
 
-    return ContextFile.from_str(textwrap.dedent(code), external_vars=mock_user_vars)
+    return mkcontext(code, external_vars=mock_user_vars)
 
 @pytest.fixture
 def mock_run():
@@ -137,25 +160,7 @@ def mock_db(tmp_path, mock_ctx):
 
 @pytest.fixture
 def mock_db_with_data(mock_ctx, mock_db):
-    db_dir, db = mock_db
-
-    # Create a DataFrame that matches the schema in the 'runs' table
-    runs_cols = ["proposal", "runnr", "start_time", "added_at", "comment"] + list(mock_ctx.vars.keys())
-    # Generate random data for a single run
-    runs = pd.DataFrame(np.random.randint(100, size=(1, len(runs_cols))),
-                        columns=runs_cols)
-    # Set a single proposal number
-    runs = runs.assign(proposal=1234)
-    # Set valid run numbers
-    runs["runnr"] = np.arange(runs.shape[0])
-
-    # Create another DataFrame matching the 'time_comments' table
-    time_comments = pd.DataFrame(columns=["timestamp", "comment"])
-
-    # Save both to the database
-    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
-    time_comments.to_sql("time_comments", db.conn, index=False, if_exists="replace")
-
+    make_mock_db(mock_ctx, mock_db)
     yield mock_db
 
 @pytest.fixture

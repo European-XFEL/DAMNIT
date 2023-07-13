@@ -18,6 +18,8 @@ from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.zulip_messenger import ZulipConfig
 
+from .conftest import make_mock_db
+
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -632,18 +634,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
-
-    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
-    runs["constant_array"] = np.ones(runs.shape[0])
-    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
-
-    # And to an HDF5 file
-    proposal = runs["proposal"][0]
-    run_number = runs["runnr"][0]
-    results = Results.create(ctx, { "run_data": mock_run }, run_number, proposal)
-    extracted_data_dir = db_dir / "extracted_data"
-    extracted_data_dir.mkdir()
-    results.save_hdf5(extracted_data_dir / f"p{proposal}_r{run_number}.h5")
+    make_mock_db(ctx, mock_db_with_data)
 
     # Create window
     win = MainWindow(db_dir, False)
