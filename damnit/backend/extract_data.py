@@ -178,7 +178,8 @@ class Extractor:
 
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(out_path.parent, 0o777)
+        if out_path.parent.stat().st_uid == os.getuid():
+            os.chmod(out_path.parent, 0o777)
 
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
@@ -200,7 +201,8 @@ class Extractor:
         if set(ctx_slurm.vars) > set(ctx.vars):
             slurm_logs_dir = Path.cwd() / "slurm_logs"
             slurm_logs_dir.mkdir(exist_ok=True)
-            slurm_logs_dir.chmod(0o777)
+            if slurm_logs_dir.stat().st_uid == os.getuid():
+                slurm_logs_dir.chmod(0o777)
 
             python_cmd = [sys.executable, '-m', 'damnit.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]

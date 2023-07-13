@@ -29,7 +29,8 @@ class DamnitDB:
         log.debug("Opening database at %s", path)
         self.conn = sqlite3.connect(path, timeout=30)
         # Ensure the database is writable by everyone
-        os.chmod(path, 0o666)
+        if os.stat(path).st_uid == os.getuid():
+            os.chmod(path, 0o666)
 
         self.conn.executescript(BASE_SCHEMA)
         self.conn.row_factory = sqlite3.Row

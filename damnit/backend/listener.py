@@ -157,7 +157,8 @@ def listen():
 
     # Ensure that the log file is writable by everyone (so that different users
     # can start the backend).
-    os.chmod("amore.log", 0o666)
+    if os.stat("amore.log").st_uid == os.getuid():
+        os.chmod("amore.log", 0o666)
 
 if __name__ == '__main__':
     listen()

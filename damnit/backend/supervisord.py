@@ -76,7 +76,9 @@ def write_supervisord_conf(root_path):
     config_path = root_path / "supervisord.conf"
     with open(config_path, "w") as f:
         config.write(f)
-    os.chmod(config_path, 0o666)
+
+    if config_path.stat().st_uid == os.getuid():
+        os.chmod(config_path, 0o666)
 
 def start_backend(root_path: Path, try_again=True):
     config_path = root_path / "supervisord.conf"
@@ -135,7 +137,8 @@ def start_backend(root_path: Path, try_again=True):
 def initialize_and_start_backend(root_path, proposal=None):
     # Ensure the directory exists
     root_path.mkdir(parents=True, exist_ok=True)
-    os.chmod(root_path, 0o777)
+    if root_path.stat().st_uid == os.getuid():
+        os.chmod(root_path, 0o777)
 
     # If the database doesn't exist, create it
     if not db_path(root_path).is_file():
@@ -154,7 +157,7 @@ def initialize_and_start_backend(root_path, proposal=None):
     # Copy initial context file if necessary
     if not context_path.is_file():
         shutil.copyfile(Path(__file__).parents[1] / "base_context_file.py", context_path)
-    os.chmod(context_path, 0o666)
+        os.chmod(context_path, 0o666)
 
     # Start backend
     return start_backend(root_path)
