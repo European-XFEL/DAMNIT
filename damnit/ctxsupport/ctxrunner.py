@@ -357,7 +357,8 @@ class Results:
             for path, arr in dsets:
                 f[path][()] = arr
 
-        os.chmod(hdf5_path, 0o666)
+        if os.stat(hdf5_path).st_uid == os.getuid():
+            os.chmod(hdf5_path, 0o666)
 
 def mock_run():
     run = MagicMock()
