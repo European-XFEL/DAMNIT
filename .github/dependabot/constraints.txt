@@ -14,7 +14,7 @@ PyQt5==5.15.9
 pytest==7.4.0
 pytest-qt==4.2.0
 pytest-xvfb==3.0.0
-PyYAML==6.0
+PyYAML==6.0.1
 QScintilla==2.13.0
 scipy==1.11.1
 supervisor==4.2.5
