@@ -439,6 +439,42 @@ da-dev@xfel.eu"""
         action_columns.triggered.connect(self.open_column_dialog)
         tableMenu = menu_bar.addMenu("Table")
         tableMenu.addAction(action_columns)
+        
+        #jump to run 
+        menu_bar_right = QtWidgets.QMenuBar(self)
+        searchMenu = menu_bar_right.addMenu(
+            QtGui.QIcon(self.icon_path("search_icon.png")), "&Search Run")
+        searchMenu.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self.jump_search_run = QtWidgets.QLineEdit(self)
+        self.jump_search_run.setPlaceholderText("Jump to run:")
+        self.jump_search_run.setStyleSheet("width: 120px")
+        self.jump_search_run.returnPressed.connect(lambda: self.scroll_to_run(
+            self.jump_search_run.text()))
+        actionWidget = QtWidgets.QWidgetAction(menu_bar)
+        actionWidget.setDefaultWidget(self.jump_search_run)
+        searchMenu.addAction(actionWidget)
+        menu_bar.setCornerWidget(menu_bar_right, Qt.TopRightCorner)
+
+        
+    def scroll_to_run(self, run):
+        try:
+            run = int(run)
+        except:
+            log.info("Invalid input when searching run.")
+            return
+        
+        query_df = self.data[self.data['Run'] == run].index
+        if len(query_df) == 0:
+            log.info('Run not found when searching run')
+            return
+        
+        index_row = query_df.values[0]
+        visible_column = self.table_view.columnAt(0)
+        if visible_column == -1:
+            visible_column = 0            
+        index = self.table_view.model().index(index_row,visible_column)
+
+        self.table_view.scrollTo(index)
 
     def handle_update(self, message):
 
@@ -557,6 +593,7 @@ da-dev@xfel.eu"""
                 self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
                 self.data = new_df
                 self.table.endInsertRows()
+                self.scroll_to_run(ix)
 
         # update plots and plotting controls
         self.plot.update_columns()
@@ -807,7 +844,7 @@ da-dev@xfel.eu"""
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
-
+        
         vertical_layout.addWidget(plotting_group)
 
         self._view_widget.setLayout(vertical_layout)
