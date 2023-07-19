@@ -39,7 +39,7 @@ test = [
     "pytest",
     "pytest-qt",
     "pytest-xvfb",
-    "pytest-timeout"
+    "pytest-timeout",
 ]
 docs = [
     "mkdocs",
