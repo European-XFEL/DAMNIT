@@ -29,7 +29,15 @@ class TableView(QtWidgets.QTableView):
         )
 
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
+        self.setCornerButtonEnabled(True)
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
+        self.verticalHeader().setStyleSheet("QHeaderView"
+                                            "{"
+                                            "background:white;"
+                                            "}")
+        btn = self.findChild(QtWidgets.QAbstractButton)
+        btn.setText('Run')
+        btn.installEventFilter(self)
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
@@ -42,7 +50,7 @@ class TableView(QtWidgets.QTableView):
         self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
-
+    
     def setModel(self, model):
         """
         Overload of setModel() to make sure that we restyle the comment rows
@@ -176,6 +184,34 @@ class TableView(QtWidgets.QTableView):
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
 
+    #Copied from https://stackoverflow.com/questions/22635867/is-it-possible-to-set-the-text-of-the-qtableview-corner-button
+    #to suport the run Verticalheader's header
+    def eventFilter(self, obj, event):
+        if event.type() != QtCore.QEvent.Paint or not isinstance(
+                obj, QtWidgets.QAbstractButton):
+            return False
+
+        # Paint by hand (borrowed from QTableCornerButton)
+        opt = QtWidgets.QStyleOptionHeader()
+        opt.initFrom(obj)
+        styleState = QtWidgets.QStyle.State_None
+        if obj.isEnabled():
+            styleState |= QtWidgets.QStyle.State_Enabled
+        if obj.isActiveWindow():
+            styleState |= QtWidgets.QStyle.State_Active
+        if obj.isDown():
+            styleState |= QtWidgets.QStyle.State_Sunken
+        opt.state = styleState
+        opt.rect = obj.rect()
+        # This line is the only difference to QTableCornerButton
+        opt.text = obj.text()
+        opt.position = QtWidgets.QStyleOptionHeader.OnlyOneSection
+        painter = QtWidgets.QStylePainter(obj)
+        painter.drawControl(QtWidgets.QStyle.CE_Header, opt)
+
+        return True
+    
+    
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
@@ -400,6 +436,14 @@ class Table(QtCore.QAbstractTableModel):
         ):
             name = self._data.columns[col]
             return self._main_window.column_title(name)
+        elif(
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.DisplayRole
+        ):
+            row = self._data.iloc[col]['Run']
+            if pd.isna(row):
+                row = ''
+            return row
 
     def flags(self, index) -> Qt.ItemFlag:
         item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
