@@ -1,10 +1,11 @@
 import logging
 import numpy as np
 import pandas as pd
+import tempfile
 from pandas.api.types import is_numeric_dtype
 
 from PyQt5.QtCore import Qt
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QMessageBox
 
 import mplcursors
@@ -15,6 +16,8 @@ from matplotlib.backends.backend_qtagg import (
 from matplotlib.figure import Figure
 from matplotlib import cm as mpl_cm
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
+
+from .zulip_messenger import ZulipMessenger
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +38,9 @@ class Canvas(QtWidgets.QDialog):
     ):
         super().__init__()
         self.setStyleSheet("background-color: white")
+        self.setStyleSheet("::selection{ background-color: blue }")
+
+        self.main_window = parent
 
         self.data_x, self.data_y = None, None
         self.histogram1D_bins = 5
@@ -158,6 +164,24 @@ class Canvas(QtWidgets.QDialog):
                 cursor.remove()
 
             self._cursors.clear()
+            
+    def contextMenuEvent(self, event):
+        self.menu = QtWidgets.QMenu(self)
+        self.zulip_action = QtWidgets.QAction('Send plot to Zulip', self)
+        self.zulip_action.triggered.connect(self.export_plot_to_zulip)
+        self.menu.addAction(self.zulip_action)
+        self.menu.popup(QtGui.QCursor.pos())
+    
+    def export_plot_to_zulip(self):
+        if not isinstance(self.main_window.zulip_messenger, ZulipMessenger):
+            self.main_window.zulip_messenger = ZulipMessenger(self.main_window)
+            
+        _, path_name = tempfile.mkstemp()
+        file_name = path_name + '.png'
+        self.figure.savefig(file_name, dpi=300, bbox_inches = "tight")
+        
+        with open(file_name, 'rb') as fn:
+            self.main_window.zulip_messenger.send_figure(fn)
 
     @property
     def has_data(self):

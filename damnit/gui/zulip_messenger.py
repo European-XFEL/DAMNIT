@@ -10,10 +10,17 @@ class ZulipMessenger():
         self.config_path = Path.home() / ".local" / "state" / "damnit" / ".zuliprc"
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.key, self.email, self.stream, self.topic = '','','',''
+        self.client = None
+        self.streams = []
     
     def send_table(self, tb):
         config_dialog = ZulipConfig(self.main_window, self, tb, kind = 'table')
-        config_dialog.exec()      
+        config_dialog.exec()
+        
+    def send_figure(self, fn):
+        config_dialog =  ZulipConfig(self.main_window, self, fn, kind='figure' )
+        config_dialog.exec()
+    
   
 class ZulipConfig(QtWidgets.QDialog):    
     def __init__(self, parent = None, messenger = None, msg = None, kind = None):
@@ -79,23 +86,47 @@ class ZulipConfig(QtWidgets.QDialog):
             self.edit_email.text(), self.edit_key.text(), self.edit_stream.text(), self.edit_topic.text()
             
             self.save_config_file()
+            self.update_client()
         self._send_msg()
+        
+    def update_client(self):
+        try:
+            self.messenger.client = zulip.Client(config_file=self.config_path)
+        except Exception as exc:
+            self.show_error_msg(exc)
+        
+    def show_error_msg(self, msg):
+        self.output.setStyleSheet("""QPlainTextEdit { color: red };""")
+        if msg == 'Invalid API key':
+            msg = msg + ' ' + 'or email address'
+        self.output.setPlainText(msg)
     
-    def _send_msg(self):
+    def _send_msg(self):     
         if self.kind == 'table':
             if self.edit_title.text() != '':
                 self.msg = f"### {self.edit_title.text()}" + "\n" + self.msg
+        
+        elif self.kind == 'figure':
+            try:
+                upload = self.messenger.client.upload_file(self.msg)
+                if upload['result'] == 'error':
+                    self.show_error_msg(upload['msg'])
+                    return
+                
+            except Exception as exc:
+                self.show_error_msg(exc) 
+                
+            self.msg = f"[{self.edit_title.text()}]({upload['uri']})"
             
-            request =  {
-            "type": "stream",
-            "to": f"{self.messenger.stream}",
-            "topic": f"{self.messenger.topic}",
-            "content": f"{self.msg}"
-            }
+        request =  {
+        "type": "stream",
+        "to": f"{self.messenger.stream}",
+        "topic": f"{self.messenger.topic}",
+        "content": f"{self.msg}"
+        }
         
         try:
-            client = zulip.Client(config_file=self.config_path)
-            response = client.send_message(request)
+            response = self.messenger.client.send_message(request)
         except Exception as exc:
             response = {'result' : '', 'msg': f"{exc}"}
         
@@ -105,9 +136,7 @@ class ZulipConfig(QtWidgets.QDialog):
                                                 stylesheet = "QStatusBar {background-color : green};")
             self.accept()
         else:
-            self.output.setStyleSheet("""QPlainTextEdit { color: red };""")
-            self.output.setPlainText(response['msg'])
-                
+            self.show_error_msg(response['msg'])                
         
     def save_config_file(self):
         config = ConfigParser()
@@ -142,7 +171,10 @@ class ZulipConfig(QtWidgets.QDialog):
             self.messenger.stream = config['api']['stream']
             
         if 'topic' in config['api']:
-            self.messenger.topic = config['api']['topic']      
+            self.messenger.topic = config['api']['topic']
+            
+        if not '' in [self.messenger.key, self.messenger.email]:
+            self.update_client()      
         
 
 

@@ -189,7 +189,7 @@ class TableView(QtWidgets.QTableView):
 
     def export_selection_to_zulip(self):
         if not isinstance(self.model()._main_window.zulip_messenger, ZulipMessenger):
-            self.zulip_messenger = ZulipMessenger(self.model()._main_window)       
+            self.model()._main_window.zulip_messenger = ZulipMessenger(self.model()._main_window)       
             
         selected_rows = [r.row() for r in 
                          self.selectionModel().selectedRows()]
@@ -203,10 +203,11 @@ class TableView(QtWidgets.QTableView):
             df['Timestamp'] = df['Timestamp'].apply(lambda dt: 
                 datetime.fromtimestamp(dt).replace(tzinfo=timezone.utc).\
                     astimezone().strftime("%H:%M:%S %d/%m/%Y"))
-            
-        df.fillna("",inplace=True)
+    
         msg = df.astype(str).to_markdown(index = False)
-        self.zulip_messenger.send_table(msg)
+        # Better not to hide legit nan values
+        msg = msg.replace('None', '').replace('<NA>', '')
+        self.model()._main_window.zulip_messenger.send_table(msg)
         
     def columns_with_thumbnails(self, df):
         obj_columns = df.dtypes == 'object'
