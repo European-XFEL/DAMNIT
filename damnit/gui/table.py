@@ -3,12 +3,15 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+import tabulate
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvas
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
+
+from .zulip_messenger import ZulipMessenger
 
 
 ROW_HEIGHT = 30
@@ -175,6 +178,57 @@ class TableView(QtWidgets.QTableView):
 
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
+    
+    def contextMenuEvent(self, event):
+        self.menu = QtWidgets.QMenu(self)
+        self.zulip_action = QtWidgets.QAction('Export table to Zulip', self)
+        self.zulip_action.triggered.connect(self.export_selection_to_zulip)
+
+        self.menu.addAction(self.zulip_action)
+        self.menu.popup(QtGui.QCursor.pos())
+
+    def export_selection_to_zulip(self):
+        if not isinstance(self.model()._main_window.zulip_messenger, ZulipMessenger):
+            self.zulip_messenger = ZulipMessenger(self.model()._main_window)       
+            
+        selected_rows = [r.row() for r in 
+                         self.selectionModel().selectedRows()]
+        bad_columns = ['Proposal', 'comment_id', 'Status']
+        df = self.model()._main_window.data.iloc[selected_rows]
+        bad_columns = bad_columns + self.columns_with_thumbnails(self.model()._data) \
+            + self.columns_invisible(df)
+        bad_columns = list(dict.fromkeys(bad_columns))
+        df = df.drop(bad_columns, axis=1)
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = df['Timestamp'].apply(lambda dt: 
+                datetime.fromtimestamp(dt).replace(tzinfo=timezone.utc).\
+                    astimezone().strftime("%H:%M:%S %d/%m/%Y"))
+            
+        df.fillna("",inplace=True)
+        msg = df.astype(str).to_markdown(index = False)
+        self.zulip_messenger.send_table(msg)
+        
+    def columns_with_thumbnails(self, df):
+        obj_columns = df.dtypes == 'object'
+        bad_columns = []
+        for column in obj_columns.index:
+            for item in df[column]:
+                if isinstance(item, np.ndarray):
+                    bad_columns.append(column)
+                    break
+                   
+        return bad_columns
+    
+    def columns_invisible(self, df):
+        bad_columns = []
+        for column in range(0,self.model().columnCount()-1):
+            if self.isColumnHidden(column):
+                bad_columns.append(df.columns[column])
+        
+        return bad_columns
+                
+            
+        
 
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)

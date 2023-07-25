@@ -85,6 +85,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Disable the main window at first since we haven't loaded any database yet
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
+        
+        self.zulip_messenger = None
 
         self._create_view()
         self.configure_editor()
@@ -436,7 +438,7 @@ da-dev@xfel.eu"""
 
         # Table menu
         action_columns = QtWidgets.QAction("Select && reorder columns", self)
-        action_columns.triggered.connect(self.open_column_dialog)
+        action_columns.triggered.connect(self.open_column_dialog)    
         tableMenu = menu_bar.addMenu("Table")
         tableMenu.addAction(action_columns)
 
@@ -807,7 +809,7 @@ da-dev@xfel.eu"""
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
-
+        
         vertical_layout.addWidget(plotting_group)
 
         self._view_widget.setLayout(vertical_layout)
