@@ -178,7 +178,7 @@ class Canvas(QtWidgets.QDialog):
             
         _, path_name = tempfile.mkstemp()
         file_name = path_name + '.png'
-        self.figure.savefig(file_name, dpi=300, bbox_inches = "tight")
+        self.figure.savefig(file_name, dpi=150, bbox_inches = "tight")
         
         with open(file_name, 'rb') as fn:
             self.main_window.zulip_messenger.send_figure(fn)
