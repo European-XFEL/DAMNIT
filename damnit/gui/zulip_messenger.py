@@ -9,6 +9,7 @@ from PyQt5 import QtWidgets, QtGui, QtCore
 
 log = logging.getLogger(__name__)
 
+ZULIP_SITE = "'https://euxfel-da.zulipchat.com'"
 # This class should be instantiated only per opened GUI. It's only propose is to
 # to hold cache information as well as a Zulip client, which might be updated.
 class ZulipMessenger():
@@ -16,7 +17,7 @@ class ZulipMessenger():
         self.main_window = parent
         self.config_path = Path.home() / ".local" / "state" / "damnit" / ".zuliprc"
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.key, self.email, self.stream, self.topic = '','','',''
+        self.key = self.email = self.stream = self.topic = ''
         self.client = None
         self.streams = []
         self.topics = []
@@ -37,12 +38,13 @@ class ZulipConfig(QtWidgets.QDialog):
         self.main_window = parent
         self.messenger = messenger
         self.resize(600, 300)
-        self.setWindowTitle("Zulip configuration")
+        self.setWindowTitle("Logbook configuration")
         self.setModal(False)
         self.config_path = self.messenger.config_path
         self.msg = msg
         #E.g. table or figure
         self.kind = kind
+        self.site = ZULIP_SITE
 
         layout = QtWidgets.QGridLayout()        
 
@@ -180,8 +182,6 @@ class ZulipConfig(QtWidgets.QDialog):
         self.cancel_button.clicked.connect(self.reject)
         self.ok_button.clicked.connect(self.handle_form)
 
-
-        
     def check_for_changes(self, include_streams = True):
         changes = self.messenger.email != self.edit_email.text() or \
             self.messenger.key != self.edit_key.text() or\
@@ -250,17 +250,12 @@ class ZulipConfig(QtWidgets.QDialog):
         "content": f"{self.msg}"
         }
         
-        try:
-            response = self.messenger.client.send_message(request)
-        except Exception as exc:
-            response = {'result' : '', 'msg': f"{exc}"}
-            log.error(exc, exc_info=True)
-        
+        response = self.messenger.client.send_message(request)
         if response['result'] == 'success':
-            self.main_window.show_status_message(f'{self.kind} sent successfully to Zulip', 
+            self.main_window.show_status_message(f'{self.kind} sent successfully to the Logbook', 
                                                 timeout = 7000,
                                                 stylesheet = "QStatusBar {background-color : green};")
-            log.info(f"{self.kind} posted to zulip stream {self.messenger.stream}, topic {self.messenger.topic}")
+            log.info(f"{self.kind} posted to the Logbook stream {self.messenger.stream}, topic {self.messenger.topic}")
             self.accept()
         else:
             self.show_msg(response['msg'])                
@@ -269,7 +264,7 @@ class ZulipConfig(QtWidgets.QDialog):
         config = ConfigParser()
         config['api'] = {'email': self.messenger.email,
                         'key': self.messenger.key,
-                        'site': 'https://euxfel-da.zulipchat.com',
+                        'site': self.messenger.site,
                         'stream': self.messenger.stream,
                         'topic' : self.messenger.topic}
         

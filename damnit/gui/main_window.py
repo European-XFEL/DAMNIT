@@ -438,7 +438,7 @@ da-dev@xfel.eu"""
 
         # Table menu
         action_columns = QtWidgets.QAction("Select && reorder columns", self)
-        action_columns.triggered.connect(self.open_column_dialog)    
+        action_columns.triggered.connect(self.open_column_dialog)
         tableMenu = menu_bar.addMenu("Table")
         tableMenu.addAction(action_columns)
 

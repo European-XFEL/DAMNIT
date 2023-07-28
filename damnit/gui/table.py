@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-import tabulate
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvas
@@ -181,7 +180,7 @@ class TableView(QtWidgets.QTableView):
     
     def contextMenuEvent(self, event):
         self.menu = QtWidgets.QMenu(self)
-        self.zulip_action = QtWidgets.QAction('Export table to Zulip', self)
+        self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
         self.zulip_action.triggered.connect(self.export_selection_to_zulip)
 
         self.menu.addAction(self.zulip_action)
@@ -190,43 +189,51 @@ class TableView(QtWidgets.QTableView):
     def export_selection_to_zulip(self):
         if not isinstance(self.model()._main_window.zulip_messenger, ZulipMessenger):
             self.model()._main_window.zulip_messenger = ZulipMessenger(self.model()._main_window)       
-            
+        
         selected_rows = [r.row() for r in 
                          self.selectionModel().selectedRows()]
-        bad_columns = ['Proposal', 'comment_id', 'Status']
-        df = self.model()._main_window.data.iloc[selected_rows]
-        bad_columns = bad_columns + self.columns_with_thumbnails(self.model()._data) \
+        df = pd.DataFrame(self.model()._main_window.data)
+        df = df.iloc[selected_rows]
+        
+        blacklist_columns = ['Proposal', 'Status']
+        blacklist_columns = blacklist_columns + self.columns_with_thumbnails(self.model()._data) \
             + self.columns_invisible(df)
-        bad_columns = list(dict.fromkeys(bad_columns))
-        df = df.drop(bad_columns, axis=1)
+        blacklist_columns = list(dict.fromkeys(blacklist_columns))
+        sorted_columns =['Run', 'Timestamp', 'Comment'] + \
+            [self._columns_widget.item(i).text() for i in range(self._columns_widget.count())]
+        
+        columns = [column for column in sorted_columns if column not in blacklist_columns] 
+        df = pd.DataFrame(df, columns=columns)
+        df.sort_values('Run', axis=0, inplace=True)
+        
         if 'Timestamp' in df.columns:
             df['Timestamp'] = df['Timestamp'].apply(lambda dt: 
                 datetime.fromtimestamp(dt).replace(tzinfo=timezone.utc).\
                     astimezone().strftime("%H:%M:%S %d/%m/%Y"))
-    
+        
+        df = df.astype(str)
+        df.replace(["None", '<NA>'], '', inplace=True)
         msg = df.astype(str).to_markdown(index = False)
-        # Better not to hide legit nan values
-        msg = msg.replace('None', '').replace('<NA>', '')
         self.model()._main_window.zulip_messenger.send_table(msg)
         
     def columns_with_thumbnails(self, df):
         obj_columns = df.dtypes == 'object'
-        bad_columns = []
+        blacklist_columns = []
         for column in obj_columns.index:
             for item in df[column]:
                 if isinstance(item, np.ndarray):
-                    bad_columns.append(column)
+                    blacklist_columns.append(column)
                     break
                    
-        return bad_columns
+        return blacklist_columns
     
     def columns_invisible(self, df):
-        bad_columns = []
+        blacklist_columns = []
         for column in range(0,self.model().columnCount()-1):
             if self.isColumnHidden(column):
-                bad_columns.append(df.columns[column])
+                blacklist_columns.append(df.columns[column])
         
-        return bad_columns
+        return blacklist_columns
                 
             
         

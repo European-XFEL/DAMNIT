@@ -167,7 +167,7 @@ class Canvas(QtWidgets.QDialog):
             
     def contextMenuEvent(self, event):
         self.menu = QtWidgets.QMenu(self)
-        self.zulip_action = QtWidgets.QAction('Send plot to Zulip', self)
+        self.zulip_action = QtWidgets.QAction('Send plot to the Logbook', self)
         self.zulip_action.triggered.connect(self.export_plot_to_zulip)
         self.menu.addAction(self.zulip_action)
         self.menu.popup(QtGui.QCursor.pos())
