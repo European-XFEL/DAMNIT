@@ -9,11 +9,18 @@ from PyQt5 import QtWidgets, QtGui, QtCore
 
 log = logging.getLogger(__name__)
 
-ZULIP_SITE = "'https://euxfel-da.zulipchat.com'"
+ZULIP_SITE = "euxfel-da.zulipchat.com"
 # This class should be instantiated only per opened GUI. It's only propose is to
 # to hold cache information as well as a Zulip client, which might be updated.
-class ZulipMessenger():
+class ZulipMessenger(QtCore.QObject):
+    
+    #Signal introduced to move some functionalities from ZulipConfig into
+    #this class but still log error in the QDialog. Had to make the class a QObject
+    #so it can have its own signals.
+    show_log_message = QtCore.pyqtSignal(str)
+    
     def __init__(self, parent = None):
+        super( ).__init__()
         self.main_window = parent
         self.config_path = Path.home() / ".local" / "state" / "damnit" / ".zuliprc"
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,6 +28,8 @@ class ZulipMessenger():
         self.client = None
         self.streams = []
         self.topics = []
+        self.site = ZULIP_SITE
+
     
     def send_table(self, tb):
         config_dialog = ZulipConfig(self.main_window, self, tb, kind = 'table')
@@ -29,6 +38,52 @@ class ZulipMessenger():
     def send_figure(self, fn):
         config_dialog =  ZulipConfig(self.main_window, self, fn, kind='figure')
         config_dialog.exec()
+        
+    def save_config_file(self):
+        config = ConfigParser()
+        config['api'] = {'email': self.email,
+                        'key': self.key,
+                        'site': self.site,
+                        'stream': self.stream,
+                        'topic' : self.topic}
+        
+        #Handle config_path issues?
+        with open(self.config_path, 'w') as f:
+            config.write(f)
+                    
+    def check_cache(self):
+        if not self.config_path.is_file():
+            return  
+        
+        config = ConfigParser()
+        config.read(self.config_path)
+        
+        if not 'api' in config.sections():
+            return 
+        
+        if 'key' in config['api']:
+            self.key = config['api']['key']
+            
+        if 'email' in config['api']:
+            self.email = config['api']['email']
+            
+        if 'stream' in config['api']:
+            self.stream = config['api']['stream']
+            
+        if 'topic' in config['api']:
+            self.topic = config['api']['topic']
+            
+        if not '' in [self.key, self.email]:
+            self.update_client()
+            
+    def update_client(self):
+        if '' in [self.key, self.email]:
+            return
+        try:
+            self.client = zulip.Client(config_file=self.config_path)
+        except Exception as exc:
+            self.show_log_message.emit(traceback.format_exc())
+            log.error(exc, exc_info=True)
         
 # This class handles the zulip request within a QDialog. One instance is created
 # per right click action (from e.g. the table view or the plot canvas) 
@@ -44,12 +99,12 @@ class ZulipConfig(QtWidgets.QDialog):
         self.msg = msg
         #E.g. table or figure
         self.kind = kind
-        self.site = ZULIP_SITE
 
         layout = QtWidgets.QGridLayout()        
 
         self.setLayout(layout)
         self._set_layout(layout)
+        # print(self.messenger.show_log_message)
         
     def enable_config(self, logic = True):
         self.edit_email.setEnabled(logic)
@@ -69,7 +124,7 @@ class ZulipConfig(QtWidgets.QDialog):
     def _search_streams(self):
         changes =  self.check_for_changes(include_streams=False)
         if changes:
-            self.update_client()
+            self.messenger.update_client()
             
         try:
             streams = self.messenger.client.get_streams()
@@ -105,7 +160,7 @@ class ZulipConfig(QtWidgets.QDialog):
     def update_config(self):
         changes = self.check_for_changes()
         if changes:
-            self.update_client()
+            self.messenger.update_client()
         self.enable_config(False)
         
     def clicker(self, index):
@@ -138,7 +193,7 @@ class ZulipConfig(QtWidgets.QDialog):
         self.enable_config(False)
         
         if '' in [self.messenger.key, self.messenger.email,self.messenger.stream,self.messenger.topic]:
-            self.check_cache()
+            self.messenger.check_cache()
             if '' in [self.messenger.key, self.messenger.email]:
                 self.enable_config(True)
           
@@ -192,21 +247,15 @@ class ZulipConfig(QtWidgets.QDialog):
         if changes:                
             self.messenger.email, self.messenger.key, self.messenger.stream, self.messenger.topic = \
             self.edit_email.text(), self.edit_key.text(), self._edit_stream.text(), self._edit_topic.text()
-            self.save_config_file()
+            self.messenger.save_config_file()
             
         return changes
     
     def handle_form(self):
         if self.check_for_changes(): 
-            self.update_client()
+            self.messenger.update_client()
         self._send_msg()
         
-    def update_client(self):
-        try:
-            self.messenger.client = zulip.Client(config_file=self.config_path)
-        except Exception as exc:
-            self.show_msg(traceback.format_exc())
-            log.error(exc, exc_info=True)
         
     def show_msg(self, msg, level = 'error'):
         if level == 'error':
@@ -260,40 +309,3 @@ class ZulipConfig(QtWidgets.QDialog):
         else:
             self.show_msg(response['msg'])                
         
-    def save_config_file(self):
-        config = ConfigParser()
-        config['api'] = {'email': self.messenger.email,
-                        'key': self.messenger.key,
-                        'site': self.messenger.site,
-                        'stream': self.messenger.stream,
-                        'topic' : self.messenger.topic}
-        
-        #Handle config_path issues?
-        with open(self.config_path, 'w') as f:
-            config.write(f)
-                    
-    def check_cache(self):
-        if not self.config_path.is_file():
-            return  
-        
-        config = ConfigParser()
-        config.read(self.config_path)
-        
-        if not 'api' in config.sections():
-            self.new_config = True
-            return 
-        
-        if 'key' in config['api']:
-            self.messenger.key = config['api']['key']
-            
-        if 'email' in config['api']:
-            self.messenger.email = config['api']['email']
-            
-        if 'stream' in config['api']:
-            self.messenger.stream = config['api']['stream']
-            
-        if 'topic' in config['api']:
-            self.messenger.topic = config['api']['topic']
-            
-        if not '' in [self.messenger.key, self.messenger.email]:
-            self.update_client()

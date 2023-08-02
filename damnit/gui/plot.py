@@ -37,8 +37,7 @@ class Canvas(QtWidgets.QDialog):
         autoscale=True,
     ):
         super().__init__()
-        self.setStyleSheet("background-color: white")
-        self.setStyleSheet("::selection{ background-color: blue }")
+        self.setStyleSheet("QDialog {background-color: white}")
 
         self.main_window = parent
 
