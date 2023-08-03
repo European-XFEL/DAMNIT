@@ -10,9 +10,6 @@ from matplotlib.backends.backend_qtagg import FigureCanvas
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
-from .zulip_messenger import ZulipMessenger
-
-
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
 
@@ -187,9 +184,10 @@ class TableView(QtWidgets.QTableView):
         self.menu.popup(QtGui.QCursor.pos())
 
     def export_selection_to_zulip(self):
-        if not isinstance(self.model()._main_window.zulip_messenger, ZulipMessenger):
-            self.model()._main_window.zulip_messenger = ZulipMessenger(self.model()._main_window)       
-        
+        zulip_ok = self.model()._main_window.check_zulip_messenger()
+        if not zulip_ok:
+            return
+            
         selected_rows = [r.row() for r in 
                          self.selectionModel().selectedRows()]
         df = pd.DataFrame(self.model()._main_window.data)
@@ -212,7 +210,7 @@ class TableView(QtWidgets.QTableView):
                     astimezone().strftime("%H:%M:%S %d/%m/%Y"))
         
         df = df.astype(str)
-        df.replace(["None", '<NA>'], '', inplace=True)
+        df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         msg = df.astype(str).to_markdown(index = False)
         self.model()._main_window.zulip_messenger.send_table(msg)
         

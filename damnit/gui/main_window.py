@@ -33,6 +33,7 @@ from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
 from .open_dialog import OpenDBDialog
+from .zulip_messenger import ZulipMessenger
 
 
 log = logging.getLogger(__name__)
@@ -934,7 +935,15 @@ da-dev@xfel.eu"""
 
         log.debug("Saving time-based comment ID %d", comment_id)
         self.db.change_standalone_comment(comment_id, value)
-
+        
+    def check_zulip_messenger(self):
+        if not isinstance(self.zulip_messenger, ZulipMessenger):
+            self.zulip_messenger = ZulipMessenger(self)       
+        
+        if not self.zulip_messenger.ok:
+            self.zulip_messenger = None
+            return False
+        return True
 
 class TableViewStyle(QtWidgets.QProxyStyle):
     """

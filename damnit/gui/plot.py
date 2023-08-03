@@ -172,15 +172,16 @@ class Canvas(QtWidgets.QDialog):
         self.menu.popup(QtGui.QCursor.pos())
     
     def export_plot_to_zulip(self):
-        if not isinstance(self.main_window.zulip_messenger, ZulipMessenger):
-            self.main_window.zulip_messenger = ZulipMessenger(self.main_window)
+        zulip_ok = self.main_window.check_zulip_messenger()
+        if not zulip_ok:
+            return
             
         _, path_name = tempfile.mkstemp()
         file_name = path_name + '.png'
         self.figure.savefig(file_name, dpi=150, bbox_inches = "tight")
         
         with open(file_name, 'rb') as fn:
-            self.main_window.zulip_messenger.send_figure(fn)
+            self.main_window.zulip_messenger.send_figure(img = fn)
 
     @property
     def has_data(self):
