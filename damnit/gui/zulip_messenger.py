@@ -187,7 +187,8 @@ class ZulipConfig(QtWidgets.QDialog):
             response = requests.post(self.messenger.url + '/message', 
                                  headers=headers, 
                                  params=params,
-                                 files=files)
+                                 files=files,
+                                 timeout=3)
             if response.status_code == 200:
                 response = json.loads(response.text)
                 if response['result'] == 'success':
