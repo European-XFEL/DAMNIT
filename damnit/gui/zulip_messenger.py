@@ -146,10 +146,6 @@ class ZulipConfig(QtWidgets.QDialog):
         
         self.cancel_button.clicked.connect(self.reject)
         self.ok_button.clicked.connect(self.handle_form)
-
-    def handle_form(self):
-        #Do I want to do something else here?
-        self._send_msg()
         
     def show_msg(self, msg, level = 'error'):
         if level == 'error':
@@ -164,11 +160,14 @@ class ZulipConfig(QtWidgets.QDialog):
     def show_default_msg(self):
         self.show_msg('Logs will be printed here', level='debug')
     
-    def _send_msg(self):
+    def handle_form(self):
         files = None     
-        if self.kind == 'table':
-            if self.edit_title.text() != '':
+        if self.edit_title.text() != '' and self.kind == 'table':
+            if isinstance(self.msg, list):
+                self.msg[0] = f"### {self.edit_title.text()}" + "\n" + self.msg[0]
+            else:
                 self.msg = f"### {self.edit_title.text()}" + "\n" + self.msg
+                    
         elif self.kind == "figure":
             self.msg = self.edit_title.text()
             files = { 'image' : self.img }
@@ -177,18 +176,28 @@ class ZulipConfig(QtWidgets.QDialog):
            "accept": "application/json",
            "X-API-key" : self.messenger.key,
         }
-    
-        params = {
-            'topic' : self.edit_topic.currentText(),
-            'content' : self.msg,
-        }
         
+        if not isinstance(self.msg, list):
+            params = {
+                'topic' : self.edit_topic.currentText(),
+                'content' : self.msg,
+            }
+            self._send_msg(headers, params, files)
+        else :
+            for msg in self.msg:
+                params = {
+                    'topic' : self.edit_topic.currentText(),
+                    'content' : msg,
+                }
+                self._send_msg(headers, params, files)
+                
+    def _send_msg(self, headers, params, files):
         try:         
             response = requests.post(self.messenger.url + '/message', 
                                  headers=headers, 
                                  params=params,
                                  files=files,
-                                 timeout=3)
+                                 timeout=5)
             if response.status_code == 200:
                 response = json.loads(response.text)
                 if response['result'] == 'success':

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from datetime import datetime, timezone
+import re
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,9 @@ from PyQt5.QtCore import Qt
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
+# The actual threshold for long messages is around 6200
+# not 10k, otherwise one gets a '414 URI Too Long' error
+MSG_MAX_CHAR = 6200
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -209,10 +213,29 @@ class TableView(QtWidgets.QTableView):
                 datetime.fromtimestamp(dt).replace(tzinfo=timezone.utc).\
                     astimezone().strftime("%H:%M:%S %d/%m/%Y"))
         
-        df = df.astype(str)
+        df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
-        msg = df.astype(str).to_markdown(index = False)
+        msg = self.split_md_table(df)
         self.model()._main_window.zulip_messenger.send_table(msg)
+            
+    def split_md_table(self, table: pd.DataFrame, maxchar=MSG_MAX_CHAR- 4):
+        tables, start, stop = [], 0, 0
+        while True:
+            if stop == 0:
+                md_table = table.iloc[start:].to_markdown(index=False, disable_numparse=True)
+                md_table = self.remove_empty_spaces(md_table)
+            else:
+                md_table = table.iloc[start:stop].to_markdown(index=False, disable_numparse=True)
+                md_table = self.remove_empty_spaces(md_table)
+                
+            if len(md_table) > maxchar:
+                stop -= 1
+            else:
+                tables.append(f'\n{md_table}\n')
+                if stop == 0:
+                    break
+                start, stop = stop, 0
+        return tables
         
     def columns_with_thumbnails(self, df):
         obj_columns = df.dtypes == 'object'
@@ -232,10 +255,18 @@ class TableView(QtWidgets.QTableView):
                 blacklist_columns.append(df.columns[column])
         
         return blacklist_columns
-                
-            
-        
+    
+    def remove_empty_spaces(self, tb):
+        lines = tb.strip().split('\n')
+        output_lines = []
 
+        for line in lines:
+            cells = line.split('|')
+            processed_cells = [re.sub(r'\s+', ' ', cell.strip()) for cell in cells]
+            output_lines.append('|'.join(processed_cells))
+
+        return '\n'.join(output_lines)
+    
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
@@ -381,15 +412,7 @@ class Table(QtCore.QAbstractTableModel):
                 return dt_local.strftime("%H:%M:%S %d/%m/%Y")
 
             elif pd.api.types.is_float(value):
-                if value % 1 == 0 and abs(value) < 10_000:
-                    # If it has no decimal places, display it as an int
-                    return f"{int(value)}"
-                elif 0.0001 < abs(value) < 10_000:
-                    # If it's an easily-recognized range for numbers, display as a float
-                    return f"{value:.4f}"
-                else:
-                    # Otherwise, display in scientific notation
-                    return f"{value:.3e}"
+                return prettify_notation(value)
 
             else:
                 return str(value)
@@ -491,3 +514,18 @@ class Table(QtCore.QAbstractTableModel):
             self._data.reset_index(inplace=True, drop=True)
         finally:
             self.layoutChanged.emit()
+
+def prettify_notation(value):
+    if pd.api.types.is_float(value):
+        if value % 1 == 0 and abs(value) < 10_000:
+            # If it has no decimal places, display it as an int
+            return f"{int(value)}"
+        elif 0.0001 < abs(value) < 10_000:
+            # If it's an easily-recognized range for numbers, display as a float
+            return f"{value:.4f}"
+        else:
+            # Otherwise, display in scientific notation
+            return f"{value:.3e}"
+    return f"{value}"
+
+
