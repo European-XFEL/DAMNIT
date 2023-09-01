@@ -277,7 +277,7 @@ class ZulipConfig(QtWidgets.QDialog):
         return changes
     
     def handle_form(self):
-        if self.check_for_changes(): 
+        if self.check_for_changes() or self.messenger.client is None: 
             self.messenger.update_client()
         
         if self.kind == 'table':
@@ -331,6 +331,10 @@ class ZulipConfig(QtWidgets.QDialog):
             self._send_msg(self.msg)
             
     def _send_msg(self, msg, last_one=True):
+        if self.messenger.client is None:
+            self.show_msg("Error connecting to server")
+            return
+        
         request =  {
         "type": "stream",
         "to": f"{self.messenger.stream}",
