@@ -16,6 +16,7 @@ from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, Settings, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
+from damnit.gui.zulip_messenger import ZulipMessenger, ZulipConfig
 
 
 # Check if a PID exists by using `kill -0`
@@ -722,3 +723,52 @@ def test_open_dialog(mock_db, qtbot):
 
     assert dlg.get_chosen_dir() == db_dir
     assert dlg.get_proposal_num() is None
+    
+def test_zulip(mock_db_with_data, monkeypatch, qtbot, mock_zulip_client):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+    win = MainWindow(db_dir, False)
+
+    mock_zuliprc = """
+    [api]
+    email = johndoe@email.com
+    key = 1234567890
+    stream = stream
+    topic = topic
+    """
+
+    (db_dir / ".zuliprc").write_text(mock_zuliprc)
+
+    with patch('zulip.Client', return_value = mock_zulip_client) as mock_client:
+
+        win.zulip_messenger = ZulipMessenger(win, config_path=db_dir / '.zuliprc')
+        win.zulip_messenger.check_cache()
+        
+        # Check parsing of config file        
+        assert win.zulip_messenger.key == '1234567890'
+  
+        test_dialog = ZulipConfig(win, win.zulip_messenger, 
+                                  kind='table', table=win.data)
+        
+        
+        # Check if client was created  
+        mock_client.assert_called_once()
+
+        test_dialog.handle_form()
+        
+        # Check if table was parsed into a list
+        assert isinstance(test_dialog.msg, list)
+        
+        # Check if the list is composed of strings
+        assert isinstance(test_dialog.msg[0], str)
+        
+        # Create a mock error-request 
+        test_dialog.columns.deselect_all()
+        test_dialog.table = pd.DataFrame()
+        test_dialog.handle_form()     
+        
+        # Tests if error message is printed 
+        assert test_dialog.output.toPlainText() == 'error'
+                
+        # Check if send_message was called while handling the form twice
+        assert mock_client.return_value.send_message.call_count == 2

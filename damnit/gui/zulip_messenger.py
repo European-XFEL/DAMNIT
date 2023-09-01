@@ -1,6 +1,7 @@
 import zulip
 import logging
 import traceback
+import re
 import pandas as pd
 
 from configparser import ConfigParser
@@ -10,6 +11,7 @@ from PyQt5 import QtWidgets, QtGui, QtCore
 log = logging.getLogger(__name__)
 
 ZULIP_SITE = "euxfel-da.zulipchat.com"
+MSG_MAX_CHAR = 9000
 # This class should be instantiated only per opened GUI. It's only propose is to
 # to hold cache information as well as a Zulip client, which might be updated.
 class ZulipMessenger(QtCore.QObject):
@@ -19,20 +21,24 @@ class ZulipMessenger(QtCore.QObject):
     #so it can have its own signals.
     show_log_message = QtCore.pyqtSignal(str)
     
-    def __init__(self, parent = None):
+    def __init__(self, parent = None, config_path = None):
         super( ).__init__()
         self.main_window = parent
-        self.config_path = Path.home() / ".local" / "state" / "damnit" / ".zuliprc"
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.key = self.email = self.stream = self.topic = ''
+        if config_path is None:
+            self.config_path = Path.home() / ".local" / "state" / "damnit" / ".zuliprc"
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            self.config_path = config_path
+            
+        self.key = self.email = self.stream = self.topic = self.stream_id = ''
+        
         self.client = None
-        self.streams = []
         self.topics = []
         self.site = ZULIP_SITE
+        self.selected_columns = []
 
-    
     def send_table(self, tb):
-        config_dialog = ZulipConfig(self.main_window, self, tb, kind = 'table')
+        config_dialog = ZulipConfig(self.main_window, self, table = tb, kind = 'table')
         config_dialog.exec()
         
     def send_figure(self, fn):
@@ -88,15 +94,16 @@ class ZulipMessenger(QtCore.QObject):
 # This class handles the zulip request within a QDialog. One instance is created
 # per right click action (from e.g. the table view or the plot canvas) 
 class ZulipConfig(QtWidgets.QDialog):    
-    def __init__(self, parent = None, messenger = None, msg = None, kind = None):
+    def __init__(self, parent = None, messenger = None, msg = None, kind = None, table = None):
         super().__init__(parent)        
         self.main_window = parent
         self.messenger = messenger
-        self.resize(600, 300)
+        self.resize(750, 300)
         self.setWindowTitle("Logbook configuration")
         self.setModal(False)
         self.config_path = self.messenger.config_path
         self.msg = msg
+        self.table =  table
         #E.g. table or figure
         self.kind = kind
 
@@ -104,7 +111,11 @@ class ZulipConfig(QtWidgets.QDialog):
 
         self.setLayout(layout)
         self._set_layout(layout)
-        # print(self.messenger.show_log_message)
+        
+        if len(self.messenger.topics) == 0:
+            self.search_topics()
+        else:
+            self.update_topics()
         
     def enable_config(self, logic = True):
         self.edit_email.setEnabled(logic)
@@ -114,80 +125,69 @@ class ZulipConfig(QtWidgets.QDialog):
         else:
             self.edit_key.setEchoMode(0)
         
-    def search_streams(self):
-        self.show_msg('Fetching streams and topics, please wait', level = 'warning')
+    def search_topics(self):
+        self.show_msg('Fetching topics, please wait', level = 'warning')
         timer = QtCore.QTimer(self)
         timer.setSingleShot(True)
-        timer.timeout.connect(self._search_streams)
+        timer.timeout.connect(self._search_topics)
         timer.start()
         
-    def _search_streams(self):
+    def _search_topics(self):
         changes =  self.check_for_changes(include_streams=False)
         if changes:
             self.messenger.update_client()
             
         try:
-            streams = self.messenger.client.get_streams()
-            if streams['result'] == 'success':
-                self.messenger.streams = streams['streams']
+            stream_id_res = self.messenger.client.get_stream_id(self.messenger.stream)
+            if stream_id_res['result'] == 'success':
+                self.messenger.stream_id = stream_id_res['stream_id']
+                topics_res = self.messenger.client.get_stream_topics(self.messenger.stream_id)
+                if topics_res['result'] == 'success':
+                    self.messenger.topics = [topic['name'] for topic in topics_res['topics']]
+                    self.update_topics()
+                    self.show_default_msg()
+                    return
+                
+                else:
+                    self.show_msg(topics_res['msg'])
+                    return
             else:
-                self.show_msg(streams['msg'])
+                self.show_msg(stream_id_res['msg'])
                 return 
             
-            self.messenger.topics = []
-            for stream in self.messenger.streams:
-                _topics = self.messenger.client.get_stream_topics(stream['stream_id'])
-                _topics = _topics['topics'] 
-                topics = [topic['name'] for topic in _topics]
-                self.messenger.topics.append(topics)
-    
         except Exception as exc:
             self.show_msg(traceback.format_exc())
             log.error(exc, exc_info=True)
             return
         
-        self.show_default_msg()
-        self.update_streams()
-            
-    def update_streams(self):
-        if len(self.messenger.topics) != len(self.messenger.streams) or\
-            len(self.messenger.topics) == 0 or len(self.messenger.streams) == 0:
-                return
-        for i, stream in enumerate(self.messenger.streams):
-            topics = self.messenger.topics[i]
-            self.edit_stream.addItem(stream['name'], topics)
-                
+    def update_topics(self):
+        self.edit_topic.addItems(self.messenger.topics)
+        self.edit_topic.setEditText(self.messenger.topic)
+        
     def update_config(self):
         changes = self.check_for_changes()
         if changes:
             self.messenger.update_client()
         self.enable_config(False)
-        
-    def clicker(self, index):
-        self.edit_topic.clear()
-        if self.edit_stream.itemData(index) is not None:
-            self.edit_topic.addItems(self.edit_stream.itemData(index))
 
     def _set_layout(self, layout):
         self.ok_button = QtWidgets.QPushButton('Send')
         self.cancel_button = QtWidgets.QPushButton('Cancel')
         self.output = QtWidgets.QPlainTextEdit()
         self.show_default_msg()
-        self.output.setEnabled(False)
+        self.output.setReadOnly(True)
         
         self.edit_email = QtWidgets.QLineEdit()
         self.edit_key = QtWidgets.QLineEdit()
 
-        self._edit_stream = QtWidgets.QLineEdit()
+        self.edit_stream = QtWidgets.QLineEdit()
+        self.edit_stream.setDisabled(True)
+
         self._edit_topic = QtWidgets.QLineEdit()
                 
-        self.edit_stream = QtWidgets.QComboBox()
         self.edit_topic = QtWidgets.QComboBox()
-        self.edit_stream.setEditable(True)
         self.edit_topic.setEditable(True)
-        self.edit_stream.setLineEdit(self._edit_stream)
         self.edit_topic.setLineEdit(self._edit_topic)
-        self.edit_stream.activated.connect(self.clicker)
         
         self.edit_title =  QtWidgets.QLineEdit()
         self.enable_config(False)
@@ -197,11 +197,10 @@ class ZulipConfig(QtWidgets.QDialog):
             if '' in [self.messenger.key, self.messenger.email]:
                 self.enable_config(True)
           
-        self.update_streams()
         self.edit_email.setText(self.messenger.email)
         self.edit_key.setText(self.messenger.key)
-        self._edit_stream.setText(self.messenger.stream)
-        self._edit_topic.setText(self.messenger.topic)
+        self.edit_stream.setText(self.messenger.stream)
+        self.edit_topic.setEditText(self.messenger.topic)
                 
         self.edit_key.returnPressed.connect(self.update_config)
             
@@ -213,8 +212,8 @@ class ZulipConfig(QtWidgets.QDialog):
         
         self.button_search =  QtWidgets.QPushButton()
         self.button_search.setIcon(QtGui.QIcon(self.main_window.icon_path('search_icon.png')))
-        self.button_search.setToolTip("Search or refresh available streams and topics")
-        self.button_search.clicked.connect(self.search_streams)
+        self.button_search.setToolTip("Refresh available topics in the stream")
+        self.button_search.clicked.connect(self.search_topics)
 
         layout.addWidget(QtWidgets.QLabel("<b>Email</b>*"), 0, 0)
         layout.addWidget(self.edit_email, 0, 1)
@@ -234,6 +233,32 @@ class ZulipConfig(QtWidgets.QDialog):
         layout.addWidget(self.ok_button, 5, 1, 1, 2)
         layout.addWidget(self.output, 7,0,1,3)
         
+        if self.kind == 'table':
+            line_frame = QtWidgets.QFrame()
+            line_frame.setFrameShape(QtWidgets.QFrame.VLine)
+            line_frame.setFrameShadow(QtWidgets.QFrame.Sunken)
+            layout.addWidget(line_frame, 0, 3, 8, 1)
+            
+            self.columns = CheckableListWidget(self.table.columns, self.messenger.selected_columns)
+
+            deselect_button = QtWidgets.QPushButton('Deselect all')
+            select_button = QtWidgets.QPushButton('Select all')
+            deselect_button.clicked.connect(self.columns.deselect_all)
+            select_button.clicked.connect(self.columns.select_all)
+            
+            header_layout = QtWidgets.QHBoxLayout()
+            header_layout.addWidget(QtWidgets.QLabel('<b>Column selection:<b/>'))
+            header_layout.addWidget(select_button)
+            header_layout.addWidget(deselect_button)
+            
+            layout.addLayout(header_layout, 0, 4, 1, 2)
+            
+            columns_scroll_area =  QtWidgets.QScrollArea()
+            columns_scroll_area.setWidgetResizable(True)
+            columns_scroll_area.setWidget(self.columns)
+            layout.addWidget(columns_scroll_area, 1, 4, 7, 2)
+            layout.setColumnMinimumWidth(4, 300)
+
         self.cancel_button.clicked.connect(self.reject)
         self.ok_button.clicked.connect(self.handle_form)
 
@@ -241,12 +266,12 @@ class ZulipConfig(QtWidgets.QDialog):
         changes = self.messenger.email != self.edit_email.text() or \
             self.messenger.key != self.edit_key.text() or\
             include_streams*(
-                self.messenger.stream != self._edit_stream.text() or 
+                self.messenger.stream != self.edit_stream.text() or 
                 self.messenger.topic != self._edit_topic.text())
                 
         if changes:                
             self.messenger.email, self.messenger.key, self.messenger.stream, self.messenger.topic = \
-            self.edit_email.text(), self.edit_key.text(), self._edit_stream.text(), self._edit_topic.text()
+            self.edit_email.text(), self.edit_key.text(), self.edit_stream.text(), self._edit_topic.text()
             self.messenger.save_config_file()
             
         return changes
@@ -254,7 +279,13 @@ class ZulipConfig(QtWidgets.QDialog):
     def handle_form(self):
         if self.check_for_changes(): 
             self.messenger.update_client()
-        self._send_msg()
+        
+        if self.kind == 'table':
+            self.messenger.selected_columns = self.columns.get_selected_columns()
+            _table = pd.DataFrame(self.table,columns=self.messenger.selected_columns)
+            self.msg = self.split_md_table(_table)
+        
+        self.send_msg()
         
         
     def show_msg(self, msg, level = 'error'):
@@ -273,10 +304,16 @@ class ZulipConfig(QtWidgets.QDialog):
     def show_default_msg(self):
         self.show_msg('Logs will be printed here', level='debug')
     
-    def _send_msg(self):     
+    def send_msg(self):     
         if self.kind == 'table':
             if self.edit_title.text() != '':
-                self.msg = f"### {self.edit_title.text()}" + "\n" + self.msg
+                self.msg[0] = f"### {self.edit_title.text()}" + "\n" + self.msg[0]
+            
+            for i, msg in enumerate(self.msg):
+                last_one = i == len(self.msg) - 1 
+                self._send_msg(msg, last_one)
+                                            
+            return                
         
         elif self.kind == 'figure':
             try:
@@ -291,16 +328,18 @@ class ZulipConfig(QtWidgets.QDialog):
                 return 
                 
             self.msg = f"[{self.edit_title.text()}]({upload['uri']})"
+            self._send_msg(self.msg)
             
+    def _send_msg(self, msg, last_one=True):
         request =  {
         "type": "stream",
         "to": f"{self.messenger.stream}",
         "topic": f"{self.messenger.topic}",
-        "content": f"{self.msg}"
+        "content": f"{msg}"
         }
-        
+
         response = self.messenger.client.send_message(request)
-        if response['result'] == 'success':
+        if response['result'] == 'success' and last_one:
             self.main_window.show_status_message(f'{self.kind} sent successfully to the Logbook', 
                                                 timeout = 7000,
                                                 stylesheet = "QStatusBar {background-color : green};")
@@ -309,3 +348,67 @@ class ZulipConfig(QtWidgets.QDialog):
         else:
             self.show_msg(response['msg'])                
         
+    def split_md_table(self, table: pd.DataFrame, maxchar=MSG_MAX_CHAR-4):
+        tables, start, stop = [], 0, 0
+        while True:
+            if stop == 0:
+                md_table = table.iloc[start:].to_markdown(index=False, disable_numparse=True)
+                md_table = self.remove_empty_spaces(md_table)
+            else:
+                md_table = table.iloc[start:stop].to_markdown(index=False, disable_numparse=True)
+                md_table = self.remove_empty_spaces(md_table)
+
+            if len(md_table) > maxchar:
+                stop -= 1
+            else:
+                tables.append(f'\n{md_table}\n')
+                if stop == 0:
+                    break
+                start, stop = stop, 0
+                
+        return tables
+    
+    def remove_empty_spaces(self, tb):
+        lines = tb.strip().split('\n')
+        output_lines = []
+
+        for line in lines:
+            cells = line.split('|')
+            processed_cells = [re.sub(r'\s+', ' ', cell.strip()) for cell in cells]
+            output_lines.append('|'.join(processed_cells))
+
+        return '\n'.join(output_lines)
+    
+class CheckableListWidget(QtWidgets.QWidget):
+    def __init__(self, items, selected_columns):
+        super().__init__()
+        
+        layout =  QtWidgets.QVBoxLayout()
+        self.checkboxes = []
+        for item in items:
+            checkbox = QtWidgets.QCheckBox(item)
+            if item in selected_columns:
+                checkbox.setCheckState(QtCore.Qt.Checked)
+                
+            self.checkboxes.append(checkbox)
+            layout.addWidget(checkbox)
+            
+        if len(selected_columns) == 0:
+            self.select_all()
+            
+        self.setLayout(layout)
+        
+    def get_selected_columns(self):
+        selected_columns = []
+        for checkbox in self.checkboxes:
+            if checkbox.checkState() == QtCore.Qt.Checked:
+                selected_columns.append(checkbox.text())
+        return selected_columns
+    
+    def select_all(self):
+        for checkbox in self.checkboxes:
+            checkbox.setCheckState(QtCore.Qt.Checked)
+            
+    def deselect_all(self):
+        for checkbox in self.checkboxes:
+            checkbox.setCheckState(QtCore.Qt.Unchecked)

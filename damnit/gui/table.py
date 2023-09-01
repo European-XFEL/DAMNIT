@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+import re
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvas
@@ -15,6 +16,7 @@ from .zulip_messenger import ZulipMessenger
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
+MSG_MAX_CHAR = 9000
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -211,10 +213,9 @@ class TableView(QtWidgets.QTableView):
                 datetime.fromtimestamp(dt).replace(tzinfo=timezone.utc).\
                     astimezone().strftime("%H:%M:%S %d/%m/%Y"))
         
-        df = df.astype(str)
-        df.replace(["None", '<NA>'], '', inplace=True)
-        msg = df.astype(str).to_markdown(index = False)
-        self.model()._main_window.zulip_messenger.send_table(msg)
+        df = df.applymap(prettify_notation)
+        df.replace(['None', '<NA>'], '', inplace=True)
+        self.model()._main_window.zulip_messenger.send_table(df)
         
     def columns_with_thumbnails(self, df):
         obj_columns = df.dtypes == 'object'
@@ -235,8 +236,6 @@ class TableView(QtWidgets.QTableView):
         
         return blacklist_columns
                 
-            
-        
 
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
@@ -383,15 +382,7 @@ class Table(QtCore.QAbstractTableModel):
                 return dt_local.strftime("%H:%M:%S %d/%m/%Y")
 
             elif pd.api.types.is_float(value):
-                if value % 1 == 0 and abs(value) < 10_000:
-                    # If it has no decimal places, display it as an int
-                    return f"{int(value)}"
-                elif 0.0001 < abs(value) < 10_000:
-                    # If it's an easily-recognized range for numbers, display as a float
-                    return f"{value:.4f}"
-                else:
-                    # Otherwise, display in scientific notation
-                    return f"{value:.3e}"
+                return prettify_notation(value)
 
             else:
                 return str(value)
@@ -493,3 +484,16 @@ class Table(QtCore.QAbstractTableModel):
             self._data.reset_index(inplace=True, drop=True)
         finally:
             self.layoutChanged.emit()
+
+def prettify_notation(value):
+    if pd.api.types.is_float(value):
+        if value % 1 == 0 and abs(value) < 10_000:
+            # If it has no decimal places, display it as an int
+            return f"{int(value)}"
+        elif 0.0001 < abs(value) < 10_000:
+            # If it's an easily-recognized range for numbers, display as a float
+            return f"{value:.4f}"
+        else:
+            # Otherwise, display in scientific notation
+            return f"{value:.3e}"
+    return f"{value}"

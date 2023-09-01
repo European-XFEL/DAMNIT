@@ -167,3 +167,25 @@ def bound_port():
     yield port
 
     s.close()
+
+@pytest.fixture
+def mock_zulip_client():
+    client = MagicMock()
+    
+    def send_message(req : dict):
+        if req['content'].strip() == '':
+            res = {
+            "result": "error",
+            "msg": "error",
+            }
+        else:
+            res = {
+            "result": "success",
+            "msg": "message",
+            }
+        
+        return res
+
+    client.send_message.side_effect = send_message
+
+    return client
