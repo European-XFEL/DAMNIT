@@ -485,6 +485,7 @@ da-dev@xfel.eu"""
         index = self.table_view.model().index(index_row,visible_column)
 
         self.table_view.scrollTo(index)
+        self.table_view.selectRow(index.row())
 
     def handle_update(self, message):
 
