@@ -437,7 +437,7 @@ da-dev@xfel.eu"""
         # Table menu
         action_columns = QtWidgets.QAction("Select && reorder columns", self)
         action_columns.triggered.connect(self.open_column_dialog)
-        self.autoscroll_checkbox = QtWidgets.QCheckBox('Autoscroll', self)
+        self.autoscroll_checkbox = QtWidgets.QCheckBox('Scroll to newly added runs', self)
         self.autoscroll_checkbox.setStyleSheet("QCheckBox"
                                "{"
                                "padding-left : 10px;"
