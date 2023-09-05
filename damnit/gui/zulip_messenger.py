@@ -2,15 +2,17 @@ import logging
 import traceback
 import requests
 import json
+import re
+import pandas as pd
 
 from configparser import ConfigParser
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtCore
 
 log = logging.getLogger(__name__)
+MSG_MAX_CHAR = 6200
 
 
-class ZulipMessenger():
- 
+class ZulipMessenger(): 
     # This class should be instantiated only per opened GUI. It's only propose is to
     # to hold cache information as well as a Zulip client, which might be updated.
     def __init__(self, parent = None):
@@ -23,9 +25,10 @@ class ZulipMessenger():
         
         self.last_topic = None
         self.ok = True
+        self.selected_columns = []
             
     def send_table(self, tb):
-        config_dialog = ZulipConfig(self.main_window, self, tb, kind = 'table')
+        config_dialog = ZulipConfig(self.main_window, self, table = tb, kind = 'table')
         config_dialog.exec()
         
     def send_figure(self, img):
@@ -94,16 +97,17 @@ class ZulipMessenger():
 # This class handles the zulip request within a QDialog. One instance is created
 # per right click action (from e.g. the table view or the plot canvas) 
 class ZulipConfig(QtWidgets.QDialog):    
-    def __init__(self, parent = None, messenger = None, msg = None, kind = None, img = ''):
+    def __init__(self, parent = None, messenger = None, msg = None, kind = None, img = '', table = None):
         super().__init__(parent)        
         self.main_window = parent
         self.messenger = messenger
-        self.resize(600, 300)
+        self.resize(750, 300)
         self.setModal(False)
         self.config_path = self.messenger.config_path
         self.msg = msg
         self.img = img
         self.kind = kind
+        self.table = table
         
         self.setWindowTitle(f"Post {self.kind} on Logbook")
 
@@ -144,6 +148,32 @@ class ZulipConfig(QtWidgets.QDialog):
         layout.addWidget(self.ok_button, 3, 1, 1, 2)
         layout.addWidget(self.output, 4,0,1,3)
         
+        if self.kind == 'table':
+            line_frame = QtWidgets.QFrame()
+            line_frame.setFrameShape(QtWidgets.QFrame.VLine)
+            line_frame.setFrameShadow(QtWidgets.QFrame.Sunken)
+            layout.addWidget(line_frame, 0, 3, 8, 1)
+
+            self.columns = CheckableListWidget(self.table.columns, self.messenger.selected_columns)
+
+            deselect_button = QtWidgets.QPushButton('Deselect all')
+            select_button = QtWidgets.QPushButton('Select all')
+            deselect_button.clicked.connect(self.columns.deselect_all)
+            select_button.clicked.connect(self.columns.select_all)
+
+            header_layout = QtWidgets.QHBoxLayout()
+            header_layout.addWidget(QtWidgets.QLabel('<b>Column selection:<b/>'))
+            header_layout.addWidget(select_button)
+            header_layout.addWidget(deselect_button)
+
+            layout.addLayout(header_layout, 0, 4, 1, 2)
+
+            columns_scroll_area =  QtWidgets.QScrollArea()
+            columns_scroll_area.setWidgetResizable(True)
+            columns_scroll_area.setWidget(self.columns)
+            layout.addWidget(columns_scroll_area, 1, 4, 7, 2)
+            layout.setColumnMinimumWidth(4, 300)
+        
         self.cancel_button.clicked.connect(self.reject)
         self.ok_button.clicked.connect(self.handle_form)
         
@@ -161,14 +191,16 @@ class ZulipConfig(QtWidgets.QDialog):
         self.show_msg('Logs will be printed here', level='debug')
     
     def handle_form(self):
-        files = None     
-        if self.edit_title.text() != '' and self.kind == 'table':
-            if isinstance(self.msg, list):
+        files = None 
+        if self.kind == 'table':
+            self.messenger.selected_columns = self.columns.get_selected_columns()
+            _table = pd.DataFrame(self.table,columns=self.messenger.selected_columns)
+            self.msg = self.split_md_table(_table)
+            
+            if self.edit_title.text() != '':
                 self.msg[0] = f"### {self.edit_title.text()}" + "\n" + self.msg[0]
-            else:
-                self.msg = f"### {self.edit_title.text()}" + "\n" + self.msg
                     
-        elif self.kind == "figure":
+        if self.kind == "figure":
             self.msg = self.edit_title.text()
             files = { 'image' : self.img }
         
@@ -218,3 +250,69 @@ class ZulipConfig(QtWidgets.QDialog):
         except Exception as exc:
             self.show_msg(traceback.format_exc())
             log.error(exc, exc_info=True)
+
+
+    def split_md_table(self, table: pd.DataFrame, maxchar=MSG_MAX_CHAR-4):
+        tables, start, stop = [], 0, 0
+        while True:
+            if stop == 0:
+                md_table = table.iloc[start:].to_markdown(index=False, disable_numparse=True)
+                md_table = self.remove_empty_spaces(md_table)
+            else:
+                md_table = table.iloc[start:stop].to_markdown(index=False, disable_numparse=True)
+                md_table = self.remove_empty_spaces(md_table)
+
+            if len(md_table) > maxchar:
+                stop -= 1
+            else:
+                tables.append(f'\n{md_table}\n')
+                if stop == 0:
+                    break
+                start, stop = stop, 0
+
+        return tables
+
+    def remove_empty_spaces(self, tb):
+        lines = tb.strip().split('\n')
+        output_lines = []
+
+        for line in lines:
+            cells = line.split('|')
+            processed_cells = [re.sub(r'\s+', ' ', cell.strip()) for cell in cells]
+            output_lines.append('|'.join(processed_cells))
+
+        return '\n'.join(output_lines)
+
+class CheckableListWidget(QtWidgets.QWidget):
+    def __init__(self, items, selected_columns):
+        super().__init__()
+
+        layout =  QtWidgets.QVBoxLayout()
+        self.checkboxes = []
+        for item in items:
+            checkbox = QtWidgets.QCheckBox(item)
+            if item in selected_columns:
+                checkbox.setCheckState(QtCore.Qt.Checked)
+
+            self.checkboxes.append(checkbox)
+            layout.addWidget(checkbox)
+
+        if len(selected_columns) == 0:
+            self.select_all()
+
+        self.setLayout(layout)
+
+    def get_selected_columns(self):
+        selected_columns = []
+        for checkbox in self.checkboxes:
+            if checkbox.checkState() == QtCore.Qt.Checked:
+                selected_columns.append(checkbox.text())
+        return selected_columns
+
+    def select_all(self):
+        for checkbox in self.checkboxes:
+            checkbox.setCheckState(QtCore.Qt.Checked)
+
+    def deselect_all(self):
+        for checkbox in self.checkboxes:
+            checkbox.setCheckState(QtCore.Qt.Unchecked)

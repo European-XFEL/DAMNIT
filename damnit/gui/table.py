@@ -15,7 +15,6 @@ ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
 # The actual threshold for long messages is around 6200
 # not 10k, otherwise one gets a '414 URI Too Long' error
-MSG_MAX_CHAR = 6200
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -215,27 +214,8 @@ class TableView(QtWidgets.QTableView):
         
         df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
-        msg = self.split_md_table(df)
-        self.model()._main_window.zulip_messenger.send_table(msg)
+        self.model()._main_window.zulip_messenger.send_table(df)
             
-    def split_md_table(self, table: pd.DataFrame, maxchar=MSG_MAX_CHAR- 4):
-        tables, start, stop = [], 0, 0
-        while True:
-            if stop == 0:
-                md_table = table.iloc[start:].to_markdown(index=False, disable_numparse=True)
-                md_table = self.remove_empty_spaces(md_table)
-            else:
-                md_table = table.iloc[start:stop].to_markdown(index=False, disable_numparse=True)
-                md_table = self.remove_empty_spaces(md_table)
-                
-            if len(md_table) > maxchar:
-                stop -= 1
-            else:
-                tables.append(f'\n{md_table}\n')
-                if stop == 0:
-                    break
-                start, stop = stop, 0
-        return tables
         
     def columns_with_thumbnails(self, df):
         obj_columns = df.dtypes == 'object'
@@ -256,16 +236,6 @@ class TableView(QtWidgets.QTableView):
         
         return blacklist_columns
     
-    def remove_empty_spaces(self, tb):
-        lines = tb.strip().split('\n')
-        output_lines = []
-
-        for line in lines:
-            cells = line.split('|')
-            processed_cells = [re.sub(r'\s+', ' ', cell.strip()) for cell in cells]
-            output_lines.append('|'.join(processed_cells))
-
-        return '\n'.join(output_lines)
     
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
