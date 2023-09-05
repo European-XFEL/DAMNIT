@@ -42,6 +42,8 @@ class TableView(QtWidgets.QTableView):
         self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+        self.enable_reprocess = True
+
 
     def setModel(self, model):
         """
@@ -176,6 +178,28 @@ class TableView(QtWidgets.QTableView):
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
 
+    def contextMenuEvent(self, event):
+        self.menu = QtWidgets.QMenu(self)
+        self.reprocess_action = QtWidgets.QAction('Reprocess run(s)', self)
+        if self.enable_reprocess: 
+            self.reprocess_action.triggered.connect(self.send_reprocess_request)
+        else: 
+            self.reprocess_action.setEnabled(False)
+
+        self.menu.addAction(self.reprocess_action)
+        self.menu.popup(QtGui.QCursor.pos())
+
+    def send_reprocess_request(self):
+        selected_runs = [self.model()._data.iloc[row.row()]['Run'] for
+                row in self.selectionModel().selectedRows()]
+        for row in self.selectionModel().selectedRows():
+            self.model()._main_window.reprocessor.reprocess_queue.put(
+                    self.model()._data.iloc[row.row()]['Run'])
+            self.model().to_be_reprocessed.append(row.row())
+
+        self.model().layoutChanged.emit()
+
+
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
@@ -187,6 +211,9 @@ class Table(QtCore.QAbstractTableModel):
         self.is_sorted_by = ""
         self.is_sorted_order = None
         self.editable_columns = {"Comment"}
+        self.reprocessing_row = None
+        self.to_be_reprocessed = []
+
 
     @property
     def _data(self):
@@ -280,7 +307,8 @@ class Table(QtCore.QAbstractTableModel):
         Qt.DisplayRole,
         Qt.EditRole,
         Qt.FontRole,
-        Qt.ToolTipRole
+        Qt.ToolTipRole,
+        Qt.BackgroundRole
     )
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -345,6 +373,20 @@ class Table(QtCore.QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             if index.column() == self._data.columns.get_loc("Comment"):
                 return self.data(index)
+            
+        elif role == Qt.BackgroundRole:
+            if index.row() == self.reprocessing_row:
+                bg_brush = QtGui.QBrush(QtGui.QColor(135, 237, 173))
+
+            elif index.row() in self.to_be_reprocessed:
+                 bg_brush = QtGui.QBrush(QtGui.QColor(225, 247, 252))
+
+            else:
+                bg_brush = QtGui.QBrush(Qt.white)
+
+            return bg_brush
+
+
 
     def isCommentRow(self, row):
         return row in self._data["comment_id"].dropna()
