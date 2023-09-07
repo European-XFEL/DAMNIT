@@ -42,6 +42,11 @@ def excepthook(exc_type, value, tb):
     IPython.start_ipython(argv=[], display_banner=False,
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
 
+def proposal_runs(proposal):
+    proposal_name = f"p{int(proposal):06d}"
+    raw_dir = Path(find_proposal(proposal_name)) / "raw"
+    return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
+
 def main():
     ap = ArgumentParser()
     ap.add_argument('--debug', action='store_true',
@@ -185,15 +190,41 @@ def main():
         extr = Extractor()
         if args.run == ['all']:
             rows = extr.db.conn.execute("SELECT proposal, runnr FROM runs").fetchall()
-            print(f"Reprocessing {len(rows)} runs already recorded...")
+
+            # Dictionary of proposal numbers to sets of available runs
+            available_runs = { }
+            # Lists of (proposal, run) tuples
+            runs = []
+            unavailable_runs = []
+
             for proposal, run in rows:
+                if proposal not in available_runs:
+                    available_runs[proposal] = proposal_runs(proposal)
+
+                if run in available_runs[proposal]:
+                    runs.append((proposal, run))
+                else:
+                    unavailable_runs.append((proposal, run))
+
+            print(f"Reprocessing {len(runs)} runs already recorded, skipping {len(unavailable_runs)}...")
+            for proposal, run in runs:
                 extr.extract_and_ingest(proposal, run, match=args.match, mock=args.mock)
         else:
+            available_runs = proposal_runs(extr.db.metameta["proposal"])
+
             try:
-                runs = [int(r) for r in args.run]
+                runs = set([int(r) for r in args.run])
             except ValueError as e:
                 sys.exit(f"Run numbers must be integers ({e})")
-            for run in runs:
+
+            unavailable_runs = runs - available_runs
+            if len(unavailable_runs) > 0:
+                # Note that we print unavailable_runs as a list so it's enclosed
+                # in [] brackets, which is more recognizable than the {} braces
+                # that sets are enclosed in.
+                print(f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
+
+            for run in sorted(runs & available_runs):
                 extr.extract_and_ingest(args.proposal, run, match=args.match, mock=args.mock)
 
     elif args.subcmd == 'proposal':
