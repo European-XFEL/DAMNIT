@@ -437,18 +437,12 @@ da-dev@xfel.eu"""
         # Table menu
         action_columns = QtWidgets.QAction("Select && reorder columns", self)
         action_columns.triggered.connect(self.open_column_dialog)
-        self.autoscroll_checkbox = QtWidgets.QCheckBox('Scroll to newly added runs', self)
-        self.autoscroll_checkbox.setStyleSheet("QCheckBox"
-                               "{"
-                               "padding-left : 10px;"
-                               "padding-bottom: 7px"
-                               "}")
-        self.autoscroll_checkbox.setChecked(True)        
+        self.action_autoscroll = QtWidgets.QAction('Scroll to newly added runs', self)
+        self.action_autoscroll.setCheckable(True)
         tableMenu = menu_bar.addMenu("Table")
-        action_autoscroll =  QtWidgets.QWidgetAction(menu_bar)
-        action_autoscroll.setDefaultWidget(self.autoscroll_checkbox)
+        
         tableMenu.addAction(action_columns)
-        tableMenu.addAction(action_autoscroll)
+        tableMenu.addAction(self.action_autoscroll)
         
         #jump to run 
         menu_bar_right = QtWidgets.QMenuBar(self)
@@ -604,7 +598,7 @@ da-dev@xfel.eu"""
                 self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
                 self.data = new_df
                 self.table.endInsertRows()
-                if self.autoscroll_checkbox.isChecked():
+                if self.action_autoscroll.isChecked():
                     self.scroll_to_run(message["Run"])
 
         # update plots and plotting controls
