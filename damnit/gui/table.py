@@ -30,6 +30,10 @@ class TableView(QtWidgets.QTableView):
 
         self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
+        self.verticalHeader().setStyleSheet("QHeaderView"
+                                            "{"
+                                            "background:white;"
+                                            "}")
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
@@ -42,7 +46,7 @@ class TableView(QtWidgets.QTableView):
         self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
-
+    
     def setModel(self, model):
         """
         Overload of setModel() to make sure that we restyle the comment rows
@@ -175,7 +179,8 @@ class TableView(QtWidgets.QTableView):
 
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
-
+    
+    
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
@@ -400,6 +405,14 @@ class Table(QtCore.QAbstractTableModel):
         ):
             name = self._data.columns[col]
             return self._main_window.column_title(name)
+        elif(
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.DisplayRole
+        ):
+            row = self._data.iloc[col]['Run']
+            if pd.isna(row):
+                row = ''
+            return row
 
     def flags(self, index) -> Qt.ItemFlag:
         item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
