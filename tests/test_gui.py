@@ -4,6 +4,7 @@ import shelve
 import textwrap
 from contextlib import contextmanager
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, Settings, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
+from damnit.gui.zulip_messenger import ZulipConfig
 
 
 # Check if a PID exists by using `kill -0`
@@ -722,3 +724,45 @@ def test_open_dialog(mock_db, qtbot):
 
     assert dlg.get_chosen_dir() == db_dir
     assert dlg.get_proposal_num() is None
+
+def test_zulip(mock_db_with_data, monkeypatch, qtbot):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+    win = MainWindow(db_dir, False)
+    pkg = 'damnit.gui.zulip_messenger.requests'
+
+    mock_zulip_cfg = """
+    [ZULIP]
+    key = 1234567890
+    url = url
+    """
+    res_get = SimpleNamespace(status_code = 200,
+                              text = '{"stream" : "stream"}')
+    res_post = SimpleNamespace(status_code = 200,
+                              response = '{"response" : "success"}')
+
+    (db_dir / "zulip.cfg").write_text(mock_zulip_cfg)
+
+    with patch(f'{pkg}.get', return_value =res_get) as mock_get,\
+    patch(f'{pkg}.post', return_value = res_post) as mock_post:
+        win.check_zulip_messenger()
+        mock_get.assert_called_once()
+        assert win.zulip_messenger.ok
+
+        # test parsing of configuration file
+        assert win.zulip_messenger.key == "1234567890"
+        assert win.zulip_messenger.url == "url"
+
+        # test get request for correct set up of the stream name
+        mock_get.assert_called_once()
+        assert win.zulip_messenger.stream == "stream"
+
+        test_dialog = ZulipConfig(win, win.zulip_messenger,
+                                  kind='table', table=win.data)
+        test_dialog.handle_form()
+
+        # Check if table was parsed into a list
+        assert isinstance(test_dialog.msg, list)
+
+        # Check if post was called
+        mock_post.assert_called_once()
