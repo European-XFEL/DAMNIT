@@ -6,7 +6,7 @@ kafka-python==2.0.2
 matplotlib==3.8.0
 mplcursors==0.5.2
 mpl-pan-zoom==1.0.0
-numpy==1.25.2
+numpy==1.26.0
 pandas==1.5.3
 pasha==0.1.1
 pyflakes==3.1.0
