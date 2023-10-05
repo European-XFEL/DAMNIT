@@ -406,6 +406,8 @@ def main(argv=None):
             proc_available = True
         except FileNotFoundError:
             pass
+        except Exception as e:
+            log.warning(f"Error when checking if proc data available: {e}")
 
     run_data = RunData(args.run_data)
     if run_data == RunData.ALL and not proc_available:
