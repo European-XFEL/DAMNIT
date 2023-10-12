@@ -9,7 +9,7 @@ from configparser import ConfigParser
 from PyQt5 import QtWidgets, QtCore
 
 log = logging.getLogger(__name__)
-MSG_MAX_CHAR = 6200
+MSG_MAX_CHAR = 10000
 
 
 class ZulipMessenger(): 
@@ -210,24 +210,22 @@ class ZulipConfig(QtWidgets.QDialog):
         }
         
         if not isinstance(self.msg, list):
-            params = {
-                'topic' : self.edit_topic.currentText(),
-                'content' : self.msg,
-            }
-            self._send_msg(headers, params, files)
+            params = {'topic' : self.edit_topic.currentText()}
+            data = {'content' : self.msg}
+            self._send_msg(headers, params, data, files)
         else :
             for msg in self.msg:
-                params = {
-                    'topic' : self.edit_topic.currentText(),
-                    'content' : msg,
-                }
-                self._send_msg(headers, params, files)
+                params = {'topic' : self.edit_topic.currentText()}
+                data = {'content' : msg}
+                print([len(i) for i in self.msg])
+                self._send_msg(headers, params, data, files)
                 
-    def _send_msg(self, headers, params, files):
+    def _send_msg(self, headers, params, data, files):
         try:         
-            response = requests.post(self.messenger.url + '/message', 
+            response = requests.post(self.messenger.url + '/send_message',
                                  headers=headers, 
                                  params=params,
+                                 data=data,
                                  files=files,
                                  timeout=5)
             if response.status_code == 200:
