@@ -192,13 +192,18 @@ def get_proposal_path(xd_run):
 
 def add_to_h5_file(path) -> h5py.File:
     """Open the file with exponential backoff if it's locked"""
+    ex = None
+
     for i in range(6):
         try:
             return h5py.File(path, 'a')
         except BlockingIOError as e:
             # File is locked for writing; wait 1, 2, 4, ... seconds
             time.sleep(2 ** i)
-    raise e
+            ex = e
+
+    # This should only be reached after all attempts to open the file failed
+    raise ex
 
 
 class Results:
