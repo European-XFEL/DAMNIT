@@ -14,8 +14,6 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
-from collections import namedtuple
-from itertools import chain
 
 import extra_data
 import h5py
@@ -24,7 +22,7 @@ import xarray
 import sqlite3
 from scipy import ndimage
 
-from damnit_ctx import RunData, VariableBase, Variable, UserEditableVariable
+from damnit_ctx import RunData, Variable, UserEditableVariable
 
 log = logging.getLogger(__name__)
 

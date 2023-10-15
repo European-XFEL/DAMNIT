@@ -369,7 +369,7 @@ class Table(QtCore.QAbstractTableModel):
                 try:
                     value = variable_type_class.convert(value, unwrap=True) if value != '' else None
                     self._data.iloc[index.row(), index.column()] = value
-                except Exception as e:
+                except Exception:
                     self._main_window.show_status_message(
                         f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
                         timeout=5000,

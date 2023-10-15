@@ -5,7 +5,6 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import re
-import collections
 
 from functools import wraps
 from enum import Enum
