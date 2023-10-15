@@ -11,7 +11,6 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from ctypes import CDLL
-from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -250,11 +249,7 @@ class Extractor:
         if proposal is None:
             proposal = self.proposal
 
-        with self.db.conn:
-            self.db.conn.execute("""
-                INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
-                ON CONFLICT (proposal, runnr) DO NOTHING
-            """, (proposal, run, datetime.now(tz=timezone.utc).timestamp()))
+        self.db.ensure_run(proposal, run)
         log.info("Ensured p%d r%d in database", proposal, run)
 
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
