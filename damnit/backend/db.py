@@ -2,6 +2,7 @@ import os
 import logging
 import sqlite3
 from collections.abc import MutableMapping, ValuesView, ItemsView
+from datetime import datetime, timezone
 from pathlib import Path
 from secrets import token_hex
 
@@ -64,7 +65,10 @@ class DamnitDB:
                 (comment, comment_id),
             )
 
-    def ensure_run(self, proposal: int, run: int, added_at: float):
+    def ensure_run(self, proposal: int, run: int, added_at: float = None):
+        if added_at is None:
+            added_at = datetime.now(tz=timezone.utc).timestamp()
+
         with self.conn:
             self.conn.execute("""
                 INSERT INTO runs (proposal, runnr, added_at) VALUES (?, ?, ?)
