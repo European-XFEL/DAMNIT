@@ -10,7 +10,7 @@ numpy==1.26.0
 pandas==1.5.3
 pasha==0.1.1
 pyflakes==3.1.0
-PyQt5==5.15.9
+PyQt5==5.15.10
 pytest==7.4.2
 pytest-qt==4.2.0
 pytest-xvfb==3.0.0
