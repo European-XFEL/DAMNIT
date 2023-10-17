@@ -6,6 +6,8 @@ import numpy as np
 from damnit.migrations import migrate_images
 from damnit.backend.extract_data import add_to_db
 
+from .helpers import reduced_data_from_dict
+
 
 def test_migrate_images(mock_db, monkeypatch):
     db_dir, db = mock_db
@@ -25,7 +27,8 @@ def test_migrate_images(mock_db, monkeypatch):
     with h5py.File(mock_h5_path, "w") as f:
         f.create_dataset(".reduced/foo", data=foo)
         f.create_dataset(".reduced/bar", data=np.array(bar))
-    add_to_db({"foo": foo, "bar": bar}, db.conn, proposal, run)
+    add_to_db(reduced_data_from_dict({"foo": foo, "bar": bar}),
+              db, proposal, run)
 
     migrate_images(db, db_dir)
 

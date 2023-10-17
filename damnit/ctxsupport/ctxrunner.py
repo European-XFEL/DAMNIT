@@ -16,6 +16,8 @@ import sys
 import time
 from datetime import timezone
 import traceback
+from enum import Enum
+from numbers import Number
 from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
@@ -25,13 +27,22 @@ from matplotlib.figure import Figure
 import extra_data
 import h5py
 import numpy as np
-import xarray
+import xarray as xr
 import sqlite3
 
 from damnit_ctx import RunData, Variable, UserEditableVariable
 
 log = logging.getLogger(__name__)
 
+
+class DataType(Enum):
+    String = "string"
+    Scalar = "scalar"
+    NDArray = "ndarray"
+    DataArray = "DataArray"
+    Dataset = "Dataset"
+    Image = "image"
+    Timestamp = "timestamp"
 
 class ContextFile:
 
@@ -260,6 +271,21 @@ def add_to_h5_file(path) -> h5py.File:
     raise ex
 
 
+def get_variable_type(data):
+    if isinstance(data, str):
+        return DataType.String
+    elif isinstance(data, Number) or isinstance(data, np.ndarray) and data.ndim == 0:
+        return DataType.Scalar
+    elif isinstance(data, np.ndarray) and data.ndim > 0:
+        return DataType.NDArray
+    elif isinstance(data, xr.DataArray):
+        return DataType.DataArray
+    elif isinstance(data, Figure):
+        return DataType.Image
+    else:
+        raise RuntimeError(f"Unsupported variable type: {type(data)}")
+
+
 class Results:
     def __init__(self, data, ctx):
         self.data = data
@@ -313,7 +339,7 @@ class Results:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(inputs)
-                if not isinstance(data, (xarray.DataArray, str, type(None), Figure)):
+                if not isinstance(data, (xr.DataArray, str, type(None), Figure)):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
@@ -325,7 +351,7 @@ class Results:
 
     @staticmethod
     def _datasets_for_arr(name, arr):
-        if isinstance(arr, xarray.DataArray):
+        if isinstance(arr, xr.DataArray):
             return [
                 (f'{name}/data', arr.values),
             ] + [
@@ -357,7 +383,7 @@ class Results:
 
     def summarise(self, name):
         data = self.data[name]
-        is_array = isinstance(data, (np.ndarray, xarray.DataArray))
+        is_array = isinstance(data, (np.ndarray, xr.DataArray))
         is_figure = isinstance(data, Figure)
 
         if isinstance(data, str):
@@ -398,7 +424,7 @@ class Results:
             if summary_method is None:
                 return None
 
-            if isinstance(data, xarray.DataArray):
+            if isinstance(data, xr.DataArray):
                 data = data.data
 
             return np.asarray(getattr(np, summary_method)(data))
@@ -437,8 +463,19 @@ class Results:
                 else:
                     f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
 
+            # Fill with data
             for path, arr in dsets:
                 f[path][()] = arr
+
+            # Assign attributes for reduced datasets
+            for name, data in self.data.items():
+                var_type = get_variable_type(data)
+                reduced_ds = f[f".reduced/{name}"]
+                reduced_ds.attrs["stored_type"] = var_type.value
+
+                if var_type in [DataType.NDArray, DataType.DataArray] \
+                   and data.ndim == 1 and data.shape[0] > 1:
+                    reduced_ds.attrs["max_diff"] = abs(np.nanmax(data) - np.nanmin(data))
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)

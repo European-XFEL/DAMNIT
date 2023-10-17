@@ -58,3 +58,4 @@ amore-proto = "damnit.cli:main"
 
 [tool.pytest.ini_options]
 timeout = 120
+norecursedirs = "tests/helpers"

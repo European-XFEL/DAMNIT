@@ -1,6 +1,5 @@
 import re
 import os
-import pickle
 import textwrap
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -14,15 +13,14 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QStyledItemDelegate, QLineEdit
 
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
-from damnit.backend.db import db_path
+from damnit.backend.db import db_path, ReducedData
 from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.zulip_messenger import ZulipConfig
 
-from .conftest import mkcontext, make_mock_db
-
+from .helpers import reduced_data_from_dict, mkcontext, amore_proto
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -138,9 +136,6 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
-    # Store fake data in the DB
-    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
-
     # Create the window with a mocked Path so that it saves the settings in the
     # home directory.
     with patch("pathlib.Path.home", return_value=tmp_path):
@@ -227,8 +222,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
         "Run": 1,
         "new_var": 42
     }
-    runs.insert(len(runs.columns), "new_var", np.random.rand(runs.shape[0]))
-    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
+    db.set_variable(msg["Proposal"], msg["Run"], "new_var", ReducedData(msg["new_var"]))
     win.handle_update(msg)
 
     # The new column should be at the end
@@ -240,8 +234,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     assert headers == visible_headers()
 
     # Simulate adding a new column while the GUI is *not* running
-    runs.insert(len(runs.columns), "newer_var", np.random.rand(runs.shape[0]))
-    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
+    db.set_variable(msg["Proposal"], msg["Run"], "newer_var", ReducedData("foo"))
 
     # Reload the database
     headers = visible_headers()
@@ -361,7 +354,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx_user.code)
 
-    reduced_data = {
+    reduced_data = reduced_data_from_dict({
         "user_integer": 12,
         "user_number": 10.2,
         "user_boolean": True,
@@ -370,10 +363,10 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
         "dep_number": 10.2,
         "dep_boolean": False,
         "dep_string": "foofoo"
-    }
+    })
 
     with db.conn:
-        add_to_db(reduced_data, db.conn, proposal, run_number)
+        add_to_db(reduced_data, db, proposal, run_number)
 
 
     win = MainWindow(connect_to_kafka=False)
@@ -524,7 +517,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     def get_value_from_db(field_name):
         if not re.fullmatch(r"[a-zA-Z_]\w+", field_name, flags=re.A):
             raise ValueError(f"Error in field_name: the variable name '{field_name}' is not of the form '[a-zA-Z_]\\w+'")
-        return db.conn.execute(f"SELECT {field_name} FROM runs WHERE runnr = ?", (run_number,)).fetchone()[0]
+        return db.conn.execute(f"SELECT {field_name} FROM runs WHERE run = ?", (run_number,)).fetchone()[0]
 
     # Check that editing is prevented when trying to modfiy a non-editable column 
     assert open_editor_and_get_delegate("dep_number").widget is None
@@ -650,20 +643,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
-
-    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
-    runs["constant_array"] = np.ones(runs.shape[0])
-    runs["image"] = [pickle.dumps(np.random.rand(100, 100, 3)) for _ in range(runs.shape[0])]
-    runs["color_image"] = [pickle.dumps(np.random.rand(100, 100, 4)) for _ in range(runs.shape[0])]
-    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
-
-    # And to an HDF5 file
-    proposal = runs["proposal"][0]
-    run_number = runs["runnr"][0]
-    results = Results.create(ctx, { "run_data": mock_run }, run_number, proposal)
-    extracted_data_dir = db_dir / "extracted_data"
-    extracted_data_dir.mkdir()
-    results.save_hdf5(extracted_data_dir / f"p{proposal}_r{run_number}.h5")
+    amore_proto(["reprocess", "all", "--mock"])
 
     # Create window
     win = MainWindow(db_dir, False)
@@ -800,8 +780,8 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         mock_post.assert_called_once()
 
 @pytest.mark.parametrize("extension", [".xlsx", ".csv"])
-def test_exporting(mock_db, qtbot, monkeypatch, extension):
-    db_dir, db = mock_db
+def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
+    db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
     code = """
@@ -818,7 +798,7 @@ def test_exporting(mock_db, qtbot, monkeypatch, extension):
     """
     ctx = mkcontext(code)
     (db_dir / "context.py").write_text(ctx.code)
-    make_mock_db(ctx, mock_db)
+    amore_proto(["reprocess", "all", "--mock"])
 
     win = MainWindow(db_dir, connect_to_kafka=False)
 
