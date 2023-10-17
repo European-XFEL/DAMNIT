@@ -1,38 +1,14 @@
-import os
 import socket
-import textwrap
 from unittest.mock import MagicMock
 
 import pytest
 import numpy as np
-import pandas as pd
 
-from damnit.context import ContextFile
-from damnit.backend.extract_data import extract_in_subprocess, add_to_db
 from damnit.ctxsupport.damnit_ctx import types_map, UserEditableVariable
-from damnit.backend.db import DamnitDB, DB_NAME
+from damnit.backend.db import DamnitDB
 
+from .helpers import amore_proto, mkcontext
 
-def make_mock_db(ctx, mock_db):
-    db_dir, db = mock_db
-    db.metameta["proposal"] = 1234
-
-    (db_dir / "context.py").write_text(ctx.code)
-    extracted_data_dir = db_dir / "extracted_data"
-    extracted_data_dir.mkdir(exist_ok=True)
-
-    cwd = os.getcwd()
-    try:
-        os.chdir(db_dir)
-        reduced_data = extract_in_subprocess(1234, 42,
-                                             extracted_data_dir / "p1234_r42.h5",
-                                             mock=True)
-        add_to_db(reduced_data, db.conn, 1234, 42)
-    finally:
-        os.chdir(cwd)
-
-def mkcontext(code, **kwargs):
-    return ContextFile.from_str(textwrap.dedent(code), **kwargs)
 
 @pytest.fixture
 def mock_ctx():
@@ -159,8 +135,14 @@ def mock_db(tmp_path, mock_ctx):
     db.close()
 
 @pytest.fixture
-def mock_db_with_data(mock_ctx, mock_db):
-    make_mock_db(mock_ctx, mock_db)
+def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
+    db_dir, db = mock_db
+
+    with monkeypatch.context() as m:
+        m.chdir(db_dir)
+        amore_proto(["proposal", "1234"])
+        amore_proto(["reprocess", "1", "--mock"])
+
     yield mock_db
 
 @pytest.fixture

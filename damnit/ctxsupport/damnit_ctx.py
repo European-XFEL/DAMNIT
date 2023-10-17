@@ -199,7 +199,7 @@ class UserEditableVariable(VariableBase):
         def retrieve_data(inputs, proposal_id : 'meta#proposal', run_id : 'meta#run_number'):
             db = inputs['db_conn']
             res = db.execute(
-                f'SELECT {variable_name} FROM runs WHERE proposal=:proposal_id AND runnr=:run_id',
+                f'SELECT {variable_name} FROM runs WHERE proposal=:proposal_id AND run=:run_id',
                 {
                     'proposal_id' : proposal_id,
                     'run_id' : run_id
@@ -255,5 +255,3 @@ class Variable(VariableBase):
         Return the RunData of the Variable.
         """
         return RunData.RAW if self._data is None else RunData(self._data)
-
-

@@ -241,8 +241,8 @@ def main():
     elif args.subcmd == "migrate":
         from .backend.db import open_db
         from .migrations import migrate_images
+        db = DamnitDB()
 
-        db = open_db()
         migrate_images(db, Path.cwd())
 
 if __name__ == '__main__':

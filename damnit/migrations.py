@@ -1,7 +1,7 @@
 from collections import defaultdict
 
-from .backend.extract_data import add_to_db
-from .ctxsupport.ctxrunner import generate_thumbnail, add_to_h5_file
+from .backend.extract_data import add_to_db, ReducedData
+from .ctxsupport.ctxrunner import generate_thumbnail, add_to_h5_file, DataType
 
 def migrate_images(db, db_dir):
     proposal = db.metameta.get("proposal")
@@ -27,7 +27,7 @@ def migrate_images(db, db_dir):
                         # Generate a new thumbnail
                         image = reduced[ds_name][()]
                         image = generate_thumbnail(image)
-                        reduced_data[run][ds_name] = image
+                        reduced_data[run][ds_name] = ReducedData(image, DataType.Image)
 
                         # Overwrite the dataset
                         del reduced[ds_name]
@@ -35,6 +35,6 @@ def migrate_images(db, db_dir):
 
     # And then update the summaries in the database
     for run, run_reduced_data in reduced_data.items():
-        add_to_db(run_reduced_data, db.conn, proposal, run)
+        add_to_db(run_reduced_data, db, proposal, run)
 
     print(f"Migration completed successfully, updated {len(reduced_data)} run{suffix}.")

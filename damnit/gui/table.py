@@ -308,28 +308,15 @@ class Table(QtCore.QAbstractTableModel):
         return QtGui.QPixmap(image).scaled(QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
                                            Qt.KeepAspectRatio)
 
-    @lru_cache(maxsize=1000)
     def variable_is_constant(self, run, proposal, quantity):
         """
         Check if the variable at the given index is constant throughout the run.
         """
-        is_constant = True
-
-        try:
-            file_name, run_file = self._main_window.get_run_file(proposal, run, log=False)
-        except FileNotFoundError:
-            return is_constant
-
-        if quantity in run_file:
-            ds = run_file[quantity]["data"]
-
-            # If it's an array
-            if len(ds.shape) == 1 and ds.shape[0] > 1:
-                data = ds[:]
-                is_constant = np.all(np.isclose(data, data[0]))
-
-        run_file.close()
-        return is_constant
+        is_constant_df = self._main_window.is_constant_df
+        if quantity in is_constant_df.columns:
+            return is_constant_df.loc[(proposal, run)][quantity].item()
+        else:
+            return True
 
     _supported_roles = (
         Qt.CheckStateRole,
