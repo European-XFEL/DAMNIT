@@ -20,7 +20,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QTabWidget, QFileDialog
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
-from ..backend.db import db_path, DamnitDB
+from ..backend.db import db_path, DamnitDB, ReducedData
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
@@ -211,6 +211,13 @@ da-dev@xfel.eu"""
             settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
             db[str(self._context_path)] = settings
 
+    def load_max_diffs(self):
+        max_diff_df = pd.read_sql_query("SELECT * FROM max_diffs",
+                                        self.db.conn,
+                                        index_col=["proposal", "run"]).fillna(0)
+        # 1e-9 is the default tolerance of np.isclose()
+        self.is_constant_df = max_diff_df < 1e-9
+
     def autoconfigure(self, path: Path, proposal=None):
         context_path = path / "context.py"
         if not context_path.is_file():
@@ -250,6 +257,14 @@ da-dev@xfel.eu"""
 
         df = pd.read_sql_query("SELECT * FROM runs", self.db.conn)
         df.insert(0, "Status", True)
+
+        # Ensure that the comment column is in the right spot
+        if "comment" not in df.columns:
+            df.insert(4, "comment", pd.NA)
+        else:
+            comment_column = df.pop("comment")
+            df.insert(4, "comment", comment_column)
+
         df.insert(len(df.columns), "comment_id", pd.NA)
         df.pop("added_at")
 
@@ -278,7 +293,7 @@ da-dev@xfel.eu"""
             [
                 df.rename(
                     columns={
-                        "runnr": "Run",
+                        "run": "Run",
                         "proposal": "Proposal",
                         "start_time": "Timestamp",
                         "comment": "Comment",
@@ -290,6 +305,8 @@ da-dev@xfel.eu"""
                 ),
             ]
         )
+
+        self.load_max_diffs()
 
         # Load the users settings
         col_settings = { }
@@ -563,6 +580,9 @@ da-dev@xfel.eu"""
             self._status_bar_connection_status.setText(
                 f"Getting updates ({self.db_id})"
             )
+
+        # Update the diffs
+        self.load_max_diffs()
 
         if self.data is None:
             # ingest data
@@ -1044,11 +1064,7 @@ da-dev@xfel.eu"""
         log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
         column_title = self.col_name_to_title(column_name)
         if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
-            with self.db.conn:
-                self.db.conn.execute(
-                    "UPDATE runs set {}=? WHERE proposal=? AND runnr=?".format(column_name),
-                    (value, int(prop), int(run)),
-                )
+            self.db.set_variable(prop, run, column_name, ReducedData(value))
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:

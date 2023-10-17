@@ -1,4 +1,5 @@
 import argparse
+import copy
 import getpass
 import os
 import logging
@@ -6,7 +7,6 @@ import pickle
 import re
 import shlex
 import socket
-import sqlite3
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -23,9 +23,9 @@ from extra_data.read_machinery import find_proposal
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..ctxsupport.ctxrunner import get_user_variables
+from ..ctxsupport.ctxrunner import get_user_variables, DataType
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
-from .db import DamnitDB
+from .db import DamnitDB, ReducedData
 
 
 
@@ -163,35 +163,41 @@ def load_reduced_data(h5_path):
 
     with h5py.File(h5_path, 'r') as f:
         return {
-            name: get_dset_value(dset) for name, dset in f['.reduced'].items()
+            name: ReducedData(get_dset_value(dset),
+                              DataType(dset.attrs["stored_type"]),
+                              dset.attrs.get("max_diff", np.array(None)).item())
+            for name, dset in f['.reduced'].items()
         }
 
-def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
+def add_to_db(reduced_data, db: DamnitDB, proposal, run):
+    db.ensure_run(proposal, run)
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))
+
+    # Check that none of the values are None. We don't support None for the
+    # rather bland reason of there not being a type for it in the DataType enum,
+    # and right now it doesn't really make sense to add one.
+    for name, reduced in reduced_data.items():
+        if reduced.value is None:
+            raise RuntimeError(f"Variable '{name}' has value None, this is unsupported")
 
     # We're going to be formatting column names as strings into SQL code,
     # so check that they are simple identifiers before we get there.
     for name in reduced_data:
         assert re.match(r'[a-zA-Z][a-zA-Z0-9_]*$', name), f"Bad field name {name}"
 
-    cursor = db.execute("SELECT * FROM runs")
-    cols = [c[0] for c in cursor.description]
-    cursor.close()
+    # Make a deepcopy before making modifications to the dictionary, such as
+    # removing `start_time` and pickling non-{array, scalar} values.
+    reduced_data = copy.deepcopy(reduced_data)
 
-    with db:
-        for missing_col in set(reduced_data) - set(cols):
-            db.execute(f"ALTER TABLE runs ADD COLUMN {missing_col}")
+    # Handle the start_time variable specially
+    start_time = reduced_data.pop("start_time", None)
+    if start_time is not None:
+        db.ensure_run(proposal, run, start_time=start_time.value)
 
-    col_names = list(reduced_data.keys())
-    cols_sql = ", ".join(col_names)
-    values_sql = ", ".join([f':{c}' for c in col_names])
-    updates_sql = ", ".join([f'{c} = :{c}' for c in col_names])
+    for name, reduced in reduced_data.items():
+        value = reduced.value
 
-    db_data = reduced_data.copy()
-    db_data.update({'proposal': proposal, 'run': run})
-
-    for key, value in db_data.items():
         # For convenience, all returned values from Variables are stored in
         # arrays. If a Variable returns a scalar then we'll end up with a
         # zero-dimensional array here which will be pickled, so we unbox all
@@ -200,17 +206,11 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
             value = value.item()
 
         # Serialize non-SQLite-supported types
-        if not isinstance(value, (type(None), int, float, str, bytes)):
+        if not isinstance(value, (int, float, str, bytes)):
             value = pickle.dumps(value)
 
-        db_data[key] = value
-
-    with db:
-        db.execute(f"""
-            INSERT INTO runs (proposal, runnr, {cols_sql})
-            VALUES (:proposal, :run, {values_sql})
-            ON CONFLICT (proposal, runnr) DO UPDATE SET {updates_sql}
-        """, db_data)
+        reduced.value = value
+        db.set_variable(proposal, run, name, reduced)
 
 
 class Extractor:
@@ -249,9 +249,6 @@ class Extractor:
         if proposal is None:
             proposal = self.proposal
 
-        self.db.ensure_run(proposal, run)
-        log.info("Ensured p%d r%d in database", proposal, run)
-
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if out_path.parent.stat().st_uid == os.getuid():
@@ -263,12 +260,13 @@ class Extractor:
             match=match, python_exe=python_exe, mock=mock, tee_output=tee_output,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
-        add_to_db(reduced_data, self.db.conn, proposal, run)
+        add_to_db(reduced_data, self.db, proposal, run)
 
         # Send update via Kafka
-        reduced_data['Proposal'] = proposal
-        reduced_data['Run'] = run
-        self.kafka_prd.send(self.update_topic, reduced_data).get(timeout=30)
+        update_msg = { name: reduced.value for name, reduced in reduced_data.items() }
+        update_msg['Proposal'] = proposal
+        update_msg['Run'] = run
+        self.kafka_prd.send(self.update_topic, update_msg).get(timeout=30)
         log.info("Sent Kafka update to topic %r", self.update_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
@@ -307,7 +305,7 @@ def reprocess(runs, proposal=None, match=(), mock=False):
         proposal = extr.proposal
 
     if runs == ['all']:
-        rows = extr.db.conn.execute("SELECT proposal, runnr FROM runs").fetchall()
+        rows = extr.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
 
         # Dictionary of proposal numbers to sets of available runs
         available_runs = {}
