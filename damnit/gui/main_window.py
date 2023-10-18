@@ -21,12 +21,13 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QTabWidget, QFileDialog
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
+from ..backend.api import RunVariables
 from ..backend.db import db_path, DamnitDB, ReducedData
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
-from ..ctxsupport.ctxrunner import get_user_variables
+from ..ctxsupport.ctxrunner import get_user_variables, DataType
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, timestamp2str
 from .kafka import UpdateReceiver
@@ -822,33 +823,30 @@ da-dev@xfel.eu"""
         is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 3)
 
         try:
-            file_name, dataset = self.get_run_file(proposal, run)
-        except:
+            variable = RunVariables(self._context_path.parent, run)[quantity]
+        except KeyError:
+            log.warning(f"Unrecognized variable: '{quantity}'")
             return
 
         try:
             if is_image:
-                image = dataset[quantity]["data"][:]
+                image = variable.ndarray()
             else:
-                y_ds = dataset[quantity]["data"]
-                if len(y_ds.shape) == 0:
+                if variable.stored_type == DataType.Scalar:
                     # If this is a scalar value, then we can't plot it
                     QMessageBox.warning(self, "Can't inspect variable",
                                         f"'{quantity}' is a scalar, there's nothing more to plot.")
                     return
-                else:
-                    y = y_ds[:]
 
                 # Use the train ID if it's been saved, otherwise generate an X axis
-                if "trainId" in dataset[quantity]:
-                    x = dataset[quantity]["trainId"][:]
+                y = variable.xarray()
+                if "trainId" in y.coords:
+                    x = y.trainId
                 else:
                     x = np.arange(len(y))
-        except KeyError:
-            log.warning("'{}' not found in {}...".format(quantity, file_name))
+        except KeyError as e:
+            log.warning("'{}' not found in {}...".format(quantity, variable.file))
             return
-        finally:
-            dataset.close()
 
         self._canvas_inspect.append(
             Canvas(
