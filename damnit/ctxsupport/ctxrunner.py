@@ -352,12 +352,7 @@ class Results:
     @staticmethod
     def _datasets_for_arr(name, arr):
         if isinstance(arr, xr.DataArray):
-            return [
-                (f'{name}/data', arr.values),
-            ] + [
-                (f'{name}/{dim}', coords.values)
-                for dim, coords in arr.coords.items()
-            ]
+            return [(name, arr)]
         else:
             if isinstance(arr, str):
                 value = arr
@@ -434,11 +429,17 @@ class Results:
         ctx_vars = self.ctx.vars
         implicit_vars = self.data.keys() - self.ctx.vars.keys()
 
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items() if name in implicit_vars or ctx_vars[name].store_result]
+        xarray_dsets = []
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()
+                 if name in implicit_vars or ctx_vars[name].store_result]
         if not reduced_only:
             for name, arr in self.data.items():
                 if name in implicit_vars or ctx_vars[name].store_result:
-                    dsets.extend(self._datasets_for_arr(name, arr))
+                    new_dsets = self._datasets_for_arr(name, arr)
+                    if isinstance(arr, xr.DataArray):
+                        xarray_dsets.extend(new_dsets)
+                    else:
+                        dsets.extend(new_dsets)
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -476,6 +477,19 @@ class Results:
                 if var_type in [DataType.NDArray, DataType.DataArray] \
                    and data.ndim == 1 and data.shape[0] > 1:
                     reduced_ds.attrs["max_diff"] = abs(np.nanmax(data) - np.nanmin(data))
+
+        for name, arr in xarray_dsets:
+            # HDF5 doesn't allow slashes in names :(
+            if isinstance(arr, xr.DataArray) and arr.name is not None and "/" in arr.name:
+                arr.name = arr.name.replace("/", "_")
+            elif isinstance(arr, xr.Dataset):
+                data_vars = list(arr.keys())
+                for var_name in data_vars:
+                    dataarray = arr[var_name]
+                    if dataarray.name is not None and "/" in dataarray.name:
+                        dataarray.name = dataarray.name.replace("/", "_")
+
+            arr.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
