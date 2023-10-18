@@ -1,7 +1,7 @@
 # GUI
 
 ## Open the GUI
-1. Start by opening a [FastX](https://max-exfl-display.desy.de:3443) XFCE
+1. Start by opening a [FastX](https://max-exfl-display.desy.de:3389) XFCE
    session. You can also SSH to `max-exfl.desy.de` with X forwarding enabled
    but that's not recommended because it can be slow.
 2. Open a terminal and run:

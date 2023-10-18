@@ -1,4 +1,5 @@
 import sys
+import subprocess
 from pathlib import Path
 from unittest.mock import patch, ANY
 from contextlib import contextmanager
@@ -127,4 +128,43 @@ def test_listen(tmp_path, monkeypatch):
     # Can't pass both --test and --daemonize
     with (amore_proto(["listen", "--daemonize", "--test"]),
           pytest.raises(SystemExit)):
+        main()
+
+def test_reprocess(mock_db_with_data, monkeypatch):
+    db_dir, db = mock_db_with_data
+    db.metameta["proposal"] = 1234
+    monkeypatch.chdir(db_dir)
+
+    # Create a proposal directory with raw/
+    raw_dir = db_dir / "mock_proposal" / "raw"
+    raw_dir.mkdir(parents=True)
+
+    # Helper context manager to patch KafkaProducer to do nothing and
+    # find_proposal() to return the mock proposal directory we created.
+    @contextmanager
+    def amore_proto(args):
+        with (patch("sys.argv", ["amore-proto", *args]),
+              patch("damnit.backend.extract_data.KafkaProducer"),
+              patch("damnit.cli.find_proposal", return_value=raw_dir.parent)):
+            yield
+
+    # Since none of the runs in the database exist on disk, we should skip all
+    # of them (i.e. not throw any errors).
+    with amore_proto(["reprocess", "all"]):
+        main()
+
+    # Create raw/ directories for 10 runs
+    for i in range(10):
+        (raw_dir / f"r{i:04}").mkdir()
+
+    # Reprocessing run 1 should throw an exception because while we tricked the
+    # CLI process into thinking that the run directory exists, we can't patch
+    # the extractor subprocess the CLI launched.
+    with amore_proto(["reprocess", "1"]):
+        with pytest.raises(subprocess.CalledProcessError):
+            main()
+
+    # This should not throw an exception because run 10 really doesn't exist, so
+    # the CLI shouldn't even attempt to reprocess it.
+    with amore_proto(["reprocess", "10"]):
         main()

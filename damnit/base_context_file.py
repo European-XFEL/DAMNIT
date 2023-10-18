@@ -44,6 +44,6 @@ def xgm_intensity(run):
     xgm = run[f"{xgm_name}:output", 'data.intensityTD'].xarray()
     return xgm[:, np.where(xgm[0] > 1)[0]].mean(axis=1)
 
-@Variable(title="Pulses")
+@Variable(title="Pulses", summary="mean")
 def pulses(run):
     return run[xgm_name, 'pulseEnergy.numberOfBunchesActual'].xarray()
