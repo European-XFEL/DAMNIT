@@ -294,6 +294,24 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert f["figure/data"].ndim == 3
 
+    # Test returning xarray.Datasets
+    dataset_code = """
+    from damnit_ctx import Variable
+    import xarray as xr
+
+    @Variable(title="Dataset")
+    def dataset(run):
+        return xr.Dataset(data_vars={ "foo": xr.DataArray([1, 2, 3]) })
+    """
+    dataset_ctx = mkcontext(dataset_code)
+    results = results_create(dataset_ctx)
+    results.save_hdf5(results_hdf5_path)
+
+    dataset = xr.open_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
+    assert "foo" in dataset
+    with h5py.File(results_hdf5_path) as f:
+        assert f[".reduced/dataset"].asstr()[0].startswith("Dataset")
+
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db, caplog):
 
