@@ -31,7 +31,9 @@ dependencies = [
     "termcolor",
     "tomli",
     "pasha",
-    "extra_geom"
+    "extra_geom",
+    "zulip",
+    "tabulate"
 ]
 
 [project.optional-dependencies]

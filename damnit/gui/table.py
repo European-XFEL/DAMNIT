@@ -1,5 +1,6 @@
 from functools import lru_cache
 from datetime import datetime, timezone
+import re
 
 import numpy as np
 import pandas as pd
@@ -10,9 +11,10 @@ from matplotlib.backends.backend_qtagg import FigureCanvas
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
-
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
+# The actual threshold for long messages is around 6200
+# not 10k, otherwise one gets a '414 URI Too Long' error
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -180,6 +182,64 @@ class TableView(QtWidgets.QTableView):
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
     
+    def contextMenuEvent(self, event):
+        self.menu = QtWidgets.QMenu(self)
+        self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
+        self.zulip_action.triggered.connect(self.export_selection_to_zulip)
+
+        self.menu.addAction(self.zulip_action)
+        self.menu.popup(QtGui.QCursor.pos())
+
+    def export_selection_to_zulip(self):
+        zulip_ok = self.model()._main_window.check_zulip_messenger()
+        if not zulip_ok:
+            return
+            
+        selected_rows = [r.row() for r in 
+                         self.selectionModel().selectedRows()]
+        df = pd.DataFrame(self.model()._main_window.data)
+        df = df.iloc[selected_rows]
+        
+        blacklist_columns = ['Proposal', 'Status']
+        blacklist_columns = blacklist_columns + self.columns_with_thumbnails(self.model()._data) \
+            + self.columns_invisible(df)
+        blacklist_columns = list(dict.fromkeys(blacklist_columns))
+        sorted_columns =['Run', 'Timestamp', 'Comment'] + \
+            [self._columns_widget.item(i).text() for i in range(self._columns_widget.count())]
+        
+        columns = [column for column in sorted_columns if column not in blacklist_columns] 
+        df = pd.DataFrame(df, columns=columns)
+        df.sort_values('Run', axis=0, inplace=True)
+        
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = df['Timestamp'].apply(lambda dt: 
+                datetime.fromtimestamp(dt).replace(tzinfo=timezone.utc).\
+                    astimezone().strftime("%H:%M:%S %d/%m/%Y"))
+        
+        df = df.applymap(prettify_notation)
+        df.replace(["None", '<NA>', 'nan'], '', inplace=True)
+        self.model()._main_window.zulip_messenger.send_table(df)
+            
+        
+    def columns_with_thumbnails(self, df):
+        obj_columns = df.dtypes == 'object'
+        blacklist_columns = []
+        for column in obj_columns.index:
+            for item in df[column]:
+                if isinstance(item, np.ndarray):
+                    blacklist_columns.append(column)
+                    break
+                   
+        return blacklist_columns
+    
+    def columns_invisible(self, df):
+        blacklist_columns = []
+        for column in range(0,self.model().columnCount()-1):
+            if self.isColumnHidden(column):
+                blacklist_columns.append(df.columns[column])
+        
+        return blacklist_columns
+
     
 class Table(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
@@ -326,15 +386,7 @@ class Table(QtCore.QAbstractTableModel):
                 return dt_local.strftime("%H:%M:%S %d/%m/%Y")
 
             elif pd.api.types.is_float(value):
-                if value % 1 == 0 and abs(value) < 10_000:
-                    # If it has no decimal places, display it as an int
-                    return f"{int(value)}"
-                elif 0.0001 < abs(value) < 10_000:
-                    # If it's an easily-recognized range for numbers, display as a float
-                    return f"{value:.4f}"
-                else:
-                    # Otherwise, display in scientific notation
-                    return f"{value:.3e}"
+                return prettify_notation(value)
 
             else:
                 return str(value)
@@ -444,3 +496,18 @@ class Table(QtCore.QAbstractTableModel):
             self._data.reset_index(inplace=True, drop=True)
         finally:
             self.layoutChanged.emit()
+
+def prettify_notation(value):
+    if pd.api.types.is_float(value):
+        if value % 1 == 0 and abs(value) < 10_000:
+            # If it has no decimal places, display it as an int
+            return f"{int(value)}"
+        elif 0.0001 < abs(value) < 10_000:
+            # If it's an easily-recognized range for numbers, display as a float
+            return f"{value:.4f}"
+        else:
+            # Otherwise, display in scientific notation
+            return f"{value:.3e}"
+    return f"{value}"
+
+
