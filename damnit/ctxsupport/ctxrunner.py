@@ -280,6 +280,8 @@ def get_variable_type(data):
         return DataType.NDArray
     elif isinstance(data, xr.DataArray):
         return DataType.DataArray
+    elif isinstance(data, xr.Dataset):
+        return DataType.Dataset
     elif isinstance(data, Figure):
         return DataType.Image
     else:
@@ -339,7 +341,7 @@ class Results:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(inputs)
-                if not isinstance(data, (xr.DataArray, str, type(None), Figure)):
+                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
@@ -351,7 +353,7 @@ class Results:
 
     @staticmethod
     def _datasets_for_arr(name, arr):
-        if isinstance(arr, xr.DataArray):
+        if isinstance(arr, (xr.DataArray, xr.Dataset)):
             return [(name, arr)]
         else:
             if isinstance(arr, str):
@@ -379,10 +381,14 @@ class Results:
     def summarise(self, name):
         data = self.data[name]
         is_array = isinstance(data, (np.ndarray, xr.DataArray))
+        is_dataset = isinstance(data, xr.Dataset)
         is_figure = isinstance(data, Figure)
 
         if isinstance(data, str):
             return data
+        elif is_dataset:
+            size = data.nbytes / 1e6
+            return f"Dataset ({size:.2f}MB)"
         elif is_array and data.ndim == 0:
             return data
         elif is_figure or (is_array and data.ndim == 2 and self.ctx.vars[name].summary is None):
@@ -436,7 +442,7 @@ class Results:
             for name, arr in self.data.items():
                 if name in implicit_vars or ctx_vars[name].store_result:
                     new_dsets = self._datasets_for_arr(name, arr)
-                    if isinstance(arr, xr.DataArray):
+                    if isinstance(arr, (xr.Dataset, xr.DataArray)):
                         xarray_dsets.extend(new_dsets)
                     else:
                         dsets.extend(new_dsets)
