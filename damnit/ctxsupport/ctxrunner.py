@@ -11,6 +11,7 @@ import inspect
 import logging
 import os
 import time
+from datetime import timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
@@ -180,7 +181,7 @@ def get_start_time(xd_run):
         return first_file.stat().st_mtime
     else:
         # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-        return np.datetime64(ts, 'us').item().timestamp()
+        return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
 def get_proposal_path(xd_run):
