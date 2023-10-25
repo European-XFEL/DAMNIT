@@ -1,6 +1,5 @@
 import re
 import os
-import shelve
 import textwrap
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -15,7 +14,7 @@ from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import db_path
 from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
-from damnit.gui.main_window import MainWindow, Settings, AddUserVariableDialog
+from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.zulip_messenger import ZulipConfig
 

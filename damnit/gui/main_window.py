@@ -1,5 +1,4 @@
 import pickle
-import os
 import logging
 import shelve
 import sys
@@ -55,7 +54,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.data = None
         self._connect_to_kafka = connect_to_kafka
-        self._updates_thread = None
         self._updates_thread = None
         self._received_update = False
         self._context_path = None
