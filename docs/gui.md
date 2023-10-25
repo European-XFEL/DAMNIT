@@ -78,3 +78,9 @@ information or a note about the run.
 
 You can add a user-editable variable from the menu in the top left:
 ![](static/user-editable-variables.gif)
+
+## Exporting
+All the data in the run table can be exported to an Excel/CSV file, with the
+caveat that images will not be exported (they'll be replaced with an `<image>`
+string):
+![](static/export.gif)

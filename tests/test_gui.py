@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 from types import SimpleNamespace
 
+import pytest
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
@@ -17,6 +18,8 @@ from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.zulip_messenger import ZulipConfig
+
+from .conftest import mkcontext, make_mock_db
 
 
 # Check if a PID exists by using `kill -0`
@@ -632,18 +635,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
-
-    runs = pd.read_sql_query("SELECT * FROM runs", db.conn)
-    runs["constant_array"] = np.ones(runs.shape[0])
-    runs.to_sql("runs", db.conn, index=False, if_exists="replace")
-
-    # And to an HDF5 file
-    proposal = runs["proposal"][0]
-    run_number = runs["runnr"][0]
-    results = Results.create(ctx, { "run_data": mock_run }, run_number, proposal)
-    extracted_data_dir = db_dir / "extracted_data"
-    extracted_data_dir.mkdir()
-    results.save_hdf5(extracted_data_dir / f"p{proposal}_r{run_number}.h5")
+    make_mock_db(ctx, mock_db_with_data)
 
     # Create window
     win = MainWindow(db_dir, False)
@@ -695,7 +687,6 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     # Edit a standalone comment
     comment_index = get_index("Comment", row=1)
     win.table.setData(comment_index, "Foo", Qt.EditRole)
-
 
 def test_open_dialog(mock_db, qtbot):
     db_dir, db = mock_db
@@ -765,3 +756,37 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
 
         # Check if post was called
         mock_post.assert_called_once()
+
+@pytest.mark.parametrize("extension", [".xlsx", ".csv"])
+def test_exporting(mock_db, qtbot, monkeypatch, extension):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    code = """
+    import numpy as np
+    from damnit_ctx import Variable
+
+    @Variable(title="Number")
+    def number(run):
+        return 42
+
+    @Variable(title="Image")
+    def image(run):
+        return np.random.rand(100, 100)
+    """
+    ctx = mkcontext(code)
+    (db_dir / "context.py").write_text(ctx.code)
+    make_mock_db(ctx, mock_db)
+
+    win = MainWindow(db_dir, connect_to_kafka=False)
+
+    export_path = db_dir / f"export{extension}"
+    filter_str = f"Ext (*{extension})"
+    with patch.object(QFileDialog, "getSaveFileName", return_value=(str(export_path.stem), filter_str)):
+        win.export_table()
+
+    assert export_path.is_file()
+
+    # Check that images are formatted nicely
+    df = pd.read_excel(export_path) if extension == ".xlsx" else pd.read_csv(export_path)
+    assert df["Image"][0] == "<image>"
