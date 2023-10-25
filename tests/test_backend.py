@@ -22,9 +22,10 @@ from damnit.backend.db import DamnitDB
 from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
 from damnit.backend.supervisord import write_supervisord_conf
+from damnit.backend.reduce import copy_and_reduce
 from damnit.gui.main_window import MainWindow
 
-from .helpers import reduced_data_from_dict, mkcontext
+from .helpers import reduced_data_from_dict, mkcontext, amore_proto
 
 
 def kill_pid(pid):
@@ -663,3 +664,23 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
         assert initialize_and_start_backend(db_dir)
 
     assert backend_is_running(db_dir)
+
+def test_reduce(mock_db_with_data, monkeypatch):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+
+    proposal = db.metameta["proposal"]
+    all_runs = [1, 2, 3]
+    for run in all_runs:
+        amore_proto(["reprocess", str(run), "--mock"])
+
+    assert set(db.get_runs()) == set(all_runs)
+
+    dest_dir = db_dir / "amore.new"
+    dest_data_dir = dest_dir / "extracted_data"
+    copy_and_reduce(db_dir, dest_dir, [2])
+
+    reduced_db = DamnitDB.from_dir(dest_dir)
+    assert reduced_db.get_runs() == [2]
+    assert len(list(dest_data_dir.iterdir())) == 1
+    assert (dest_data_dir / f"p{proposal}_r2.h5").is_file()

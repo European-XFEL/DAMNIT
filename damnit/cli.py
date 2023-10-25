@@ -156,6 +156,23 @@ def main():
         help="Migrate the SQLite database and HDF5 files from v0 to v1."
     )
 
+    reduce_ap = subparsers.add_parser(
+        "reduce",
+        help="Make a copy of the database with only a subset of runs."
+    )
+    reduce_ap.add_argument(
+        "start_run", type=int,
+        help="Start of the range of runs to keep."
+    )
+    reduce_ap.add_argument(
+        "end_run", type=int,
+        help="End of the range of runs to keep."
+    )
+    reduce_ap.add_argument(
+        "dest", type=Path,
+        help="Start of the range of runs to keep."
+    )
+
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
@@ -255,6 +272,11 @@ def main():
             migrate_images(db, Path.cwd())
         elif args.migrate_subcmd == "v0-to-v1":
             migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
+
+    elif args.subcmd == "reduce":
+        from .backend.reduce import copy_and_reduce
+
+        copy_and_reduce(Path.cwd(), args.dest, set(range(args.start_run, args.end_run + 1)))
 
 if __name__ == '__main__':
     sys.exit(main())

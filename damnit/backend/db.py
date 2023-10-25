@@ -98,6 +98,10 @@ class DamnitDB:
     def from_dir(cls, path):
         return cls(Path(path, DB_NAME))
 
+    @property
+    def data_format_version(self):
+        return self.metameta["data_format_version"]
+
     def close(self):
         self.conn.close()
 
@@ -134,6 +138,15 @@ class DamnitDB:
                 SET start_time = ?
                 WHERE proposal = ? AND run = ?
                 """, (start_time, proposal, run))
+
+    def get_runs(self):
+        if self.data_format_version == 0:
+            sql = "SELECT runnr FROM runs"
+        else:
+            sql = "SELECT run FROM runs"
+
+        return [record[0] for record
+                in self.conn.execute(sql).fetchall()]
 
     def change_run_comment(self, proposal: int, run: int, comment: str):
         self.set_variable(proposal, run, "comment", ReducedData(comment))
