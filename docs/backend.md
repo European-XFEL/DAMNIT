@@ -62,7 +62,7 @@ these arguments:
   def detector_preview(run):
       ...
   ```
-- `cluster` (bool): whether or not to execute this variable in a slurm job. This
+- `cluster` (bool): whether or not to execute this variable in a Slurm job. This
   should always be used if the variable does any heavy processing.
 
 Variable functions can return any of:
@@ -108,6 +108,41 @@ def baz(run, bar: "var#bar"=42):
     # This will return the result of foo() if foo() succeeded, otherwise 42
     return value
 ```
+
+## Using Slurm
+As mentioned in the previous section, variables can be marked for execution in a
+Slurm job with the `cluster=True` argument to the decorator:
+```python
+@Variable(title="Foo", cluster=True)
+def foo(run):
+    # some heavy computation ...
+    return 42
+```
+
+This should work out-of-the-box with no other configuration needed. By default
+DAMNIT will figure out an appropriate partition that user has access to, but
+that can be overridden by explicitly setting a partition or reservation:
+```bash
+# Set a reservation
+$ amore-proto db-config slurm_reservation upex_001234
+
+# Set a partition
+$ amore-proto db-config slurm_partition allgpu
+```
+
+If both `slurm_reservation` and `slurm_partition` are set, the reservation will
+be chosen. The jobs will be named something like `r42-p1234-damnit` and the logs
+will be saved to files named `r42-p1234-<jobid>.out` (containing both stdout and
+stderr) in the `slurm_logs/` directory.
+
+!!! note
+
+    Make sure to delete the reservation setting after the reservation has
+    expired, otherwise Slurm jobs will fail to launch.
+
+    ```bash
+    $ amore-proto db-config slurm_reservation --delete
+    ```
 
 ## Reprocessing
 The context file is loaded each time a run is received, so if you edit the
