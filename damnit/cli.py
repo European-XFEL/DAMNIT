@@ -198,10 +198,10 @@ def main():
             unavailable_runs = []
 
             for proposal, run in rows:
-                if proposal not in available_runs:
+                if not args.mock and proposal not in available_runs:
                     available_runs[proposal] = proposal_runs(proposal)
 
-                if run in available_runs[proposal]:
+                if args.mock or run in available_runs[proposal]:
                     runs.append((proposal, run))
                 else:
                     unavailable_runs.append((proposal, run))
@@ -210,12 +210,15 @@ def main():
             for proposal, run in runs:
                 extr.extract_and_ingest(proposal, run, match=args.match, mock=args.mock)
         else:
-            available_runs = proposal_runs(extr.db.metameta["proposal"])
-
             try:
                 runs = set([int(r) for r in args.run])
             except ValueError as e:
                 sys.exit(f"Run numbers must be integers ({e})")
+
+            if args.mock:
+                available_runs = runs
+            else:
+                available_runs = proposal_runs(extr.db.metameta["proposal"])
 
             unavailable_runs = runs - available_runs
             if len(unavailable_runs) > 0:
