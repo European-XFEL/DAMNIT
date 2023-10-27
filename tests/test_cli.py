@@ -145,7 +145,7 @@ def test_reprocess(mock_db_with_data, monkeypatch):
     def amore_proto(args):
         with (patch("sys.argv", ["amore-proto", *args]),
               patch("damnit.backend.extract_data.KafkaProducer"),
-              patch("damnit.cli.find_proposal", return_value=raw_dir.parent)):
+              patch("damnit.backend.extract_data.find_proposal", return_value=raw_dir.parent)):
             yield
 
     # Since none of the runs in the database exist on disk, we should skip all
