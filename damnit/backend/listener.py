@@ -12,7 +12,7 @@ from threading import Thread
 from kafka import KafkaConsumer
 
 from .db import DamnitDB
-from .extract_data import RunData
+from .extract_data import RunData, process_log_path
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -117,24 +117,17 @@ class EventProcessor:
         self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-        # Create subprocess to process the run
-        extract_proc = subprocess.Popen([
-            sys.executable, '-m', 'damnit.backend.extract_data',
-            str(proposal), str(run), run_data.value
-        ], cwd=self.context_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        log_path = process_log_path(run, proposal, self.context_dir)
+        log.info("Processing output will be written to %s",
+                 log_path.relative_to(self.context_dir.absolute()))
+
+        with log_path.open('ab') as logf:
+            # Create subprocess to process the run
+            extract_proc = subprocess.Popen([
+                sys.executable, '-m', 'damnit.backend.extract_data',
+                str(proposal), str(run), run_data.value
+            ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
         self.extract_procs_queue.put((proposal, run, extract_proc))
-
-        # Create thread to log the subprocess's output
-        logger_thread = Thread(target=self.log_subprocess,
-                               args=(extract_proc.stdout, run, run_data))
-        logger_thread.start()
-
-    def log_subprocess(self, stdout_pipe, run, run_data):
-        with stdout_pipe:
-            for line_bytes in iter(stdout_pipe.readline, b""):
-                # Bytes to string, and remove trailing newline
-                line = line_bytes.decode().rstrip("\n")
-                log.info(f"r{run} ({run_data.value}): {line}")
 
 def listen():
     # Set up logging to a file

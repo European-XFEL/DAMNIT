@@ -42,10 +42,6 @@ def excepthook(exc_type, value, tb):
     IPython.start_ipython(argv=[], display_banner=False,
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
 
-def proposal_runs(proposal):
-    proposal_name = f"p{int(proposal):06d}"
-    raw_dir = Path(find_proposal(proposal_name)) / "raw"
-    return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
 
 def main():
     ap = ArgumentParser()

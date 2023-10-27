@@ -5,13 +5,17 @@ import logging
 import pickle
 import re
 import shlex
+import socket
 import sqlite3
 import subprocess
 import sys
+from contextlib import contextmanager
 from ctypes import CDLL
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Thread
+from typing import Optional
 
 import h5py
 import numpy as np
@@ -51,9 +55,44 @@ def run_in_subprocess(args, **kwargs):
 
     return subprocess.run(args, env=env, **kwargs)
 
+def process_log_path(run, proposal, ctx_dir=Path('.'), create=True):
+    p = ctx_dir.absolute() / 'process_logs' / f"r{run}-p{proposal}.out"
+    if create:
+        p.parent.mkdir(exist_ok=True)
+        if p.parent.stat().st_uid == os.getuid():
+            p.parent.chmod(0o777)
+        p.touch(exist_ok=True)
+        if p.stat().st_uid == os.getuid():
+            p.chmod(0o666)
+    return p
+
+
+@contextmanager
+def tee(path: Optional[Path]):
+    if path is None:
+        yield None
+        return
+
+    with path.open('ab') as fout:
+        r, w = os.pipe()
+        def loop():
+            while b := os.read(r, 4096):
+                fout.write(b)
+                sys.stdout.buffer.write(b)
+
+        thread = Thread(target=loop)
+        thread.start()
+        try:
+            yield w
+        finally:
+            os.close(w)
+            thread.join()
+            os.close(r)
+
+
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False
+        python_exe=None, mock=False, tee_output=None
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -73,7 +112,8 @@ def extract_in_subprocess(
         reduced_out_path = Path(td, 'reduced.h5')
         args.extend(['--save-reduced', str(reduced_out_path)])
 
-        run_in_subprocess(args, check=True)
+        with tee(tee_output) as pipe:
+            run_in_subprocess(args, check=True, stdout=pipe, stderr=subprocess.STDOUT)
 
         return load_reduced_data(reduced_out_path)
 
@@ -206,7 +246,7 @@ class Extractor:
         return opts
 
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), mock=False):
+                           run_data=RunData.ALL, match=(), mock=False, tee_output=None):
         if proposal is None:
             proposal = self.proposal
 
@@ -225,7 +265,7 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe, mock=mock
+            match=match, python_exe=python_exe, mock=mock, tee_output=tee_output,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db.conn, proposal, run)
@@ -240,11 +280,6 @@ class Extractor:
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
-            slurm_logs_dir = Path.cwd() / "slurm_logs"
-            slurm_logs_dir.mkdir(exist_ok=True)
-            if slurm_logs_dir.stat().st_uid == os.getuid():
-                slurm_logs_dir.chmod(0o777)
-
             python_cmd = [sys.executable, '-m', 'damnit.backend.extract_data',
                           '--cluster-job', str(proposal), str(run), run_data.value]
             for m in match:
@@ -253,13 +288,14 @@ class Extractor:
             res = subprocess.run([
                 'sbatch', '--parsable',
                 *self.slurm_options(),
-                '-o', str(slurm_logs_dir / f"r{run}-p{proposal}-%j.out"),
+                '-o', process_log_path(run, proposal),
+                '--open-mode=append',
                 # Note: we put the run number first so that it's visible in
                 # squeue's default 11-character column for the JobName.
                 '--job-name', f"r{run}-p{proposal}-damnit",
                 '--wrap', shlex.join(python_cmd)
             ], stdout=subprocess.PIPE, text=True)
-            job_id = res.stdout.partition(';')[0]
+            job_id = res.stdout.partition(';')[0].strip()
             log.info("Launched Slurm job %s to calculate cluster variables", job_id)
 
 
@@ -272,6 +308,9 @@ def proposal_runs(proposal):
 def reprocess(runs, proposal=None, match=(), mock=False):
     """Called by the 'amore-proto reprocess' subcommand"""
     extr = Extractor()
+    if proposal is None:
+        proposal = extr.proposal
+
     if runs == ['all']:
         rows = extr.db.conn.execute("SELECT proposal, runnr FROM runs").fetchall()
 
@@ -300,7 +339,7 @@ def reprocess(runs, proposal=None, match=(), mock=False):
         if mock:
             available_runs = runs
         else:
-            available_runs = proposal_runs(extr.db.metameta["proposal"])
+            available_runs = proposal_runs(proposal)
 
         unavailable_runs = runs - available_runs
         if len(unavailable_runs) > 0:
@@ -312,8 +351,21 @@ def reprocess(runs, proposal=None, match=(), mock=False):
 
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
-    for proposal, run in props_runs:
-        extr.extract_and_ingest(proposal, run, match=match, mock=mock)
+    log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for prop, run in props_runs:
+        log_path = process_log_path(run, prop)
+        file_handler = logging.FileHandler(log_path)
+        file_handler.setFormatter(log_formatter)
+        logging.getLogger().addHandler(file_handler)
+        try:
+            log.info("----- Reprocessing r%s (p%s) -----", run, prop)
+            extr.extract_and_ingest(prop, run, match=match, mock=mock, tee_output=log_path)
+        except Exception:
+            log.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
+            raise
+        finally:
+            logging.getLogger().removeHandler(file_handler)
+            file_handler.close()
 
 
 if __name__ == '__main__':
@@ -325,7 +377,16 @@ if __name__ == '__main__':
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Hide some logging from Kafka to make things more readable
+    logging.getLogger('kafka').setLevel(logging.WARNING)
+
+    print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
+    log.info(f"{args.run_data=}, {args.match=}")
+    if args.cluster_job:
+        log.info("Extracting cluster variables in Slurm job %s on %s",
+                 os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
 
     Extractor().extract_and_ingest(args.proposal, args.run,
                                    cluster=args.cluster_job,

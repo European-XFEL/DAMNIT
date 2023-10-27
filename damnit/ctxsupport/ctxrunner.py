@@ -455,7 +455,9 @@ def main(argv=None):
         ctx = ctx_whole.filter(
             run_data=run_data, cluster=args.cluster_job, name_matches=args.match
         )
-        log.info("Using %d variables (of %d) from context file", len(ctx.vars), len(ctx_whole.vars))
+        log.info("Using %d variables (of %d) from context file %s",
+             len(ctx.vars), len(ctx_whole.vars),
+             "" if args.cluster_job else "(cluster variables will be processed later)")
 
         if args.mock:
             run_dc = mock_run()

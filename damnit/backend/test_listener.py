@@ -45,10 +45,10 @@ class TestEventProcessor(EventProcessor):
                 if run_data == RunData.RAW:
                     self.handle_migration_complete(record, msg)
                 elif run_data == RunData.PROC:
-                    self.handle_correction_complete(record, msg)
+                    self.handle_run_corrections_complete(record, msg)
                 elif run_data == RunData.ALL:
                     self.handle_migration_complete(record, msg)
-                    self.handle_correction_complete(record, msg)
+                    self.handle_run_corrections_complete(record, msg)
             except EOFError:
                 break  # Allow Ctrl-D to close it
             except Exception:
