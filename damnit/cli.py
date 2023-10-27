@@ -186,49 +186,8 @@ def main():
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
-        from .backend.extract_data import Extractor
-        extr = Extractor()
-        if args.run == ['all']:
-            rows = extr.db.conn.execute("SELECT proposal, runnr FROM runs").fetchall()
-
-            # Dictionary of proposal numbers to sets of available runs
-            available_runs = { }
-            # Lists of (proposal, run) tuples
-            runs = []
-            unavailable_runs = []
-
-            for proposal, run in rows:
-                if not args.mock and proposal not in available_runs:
-                    available_runs[proposal] = proposal_runs(proposal)
-
-                if args.mock or run in available_runs[proposal]:
-                    runs.append((proposal, run))
-                else:
-                    unavailable_runs.append((proposal, run))
-
-            print(f"Reprocessing {len(runs)} runs already recorded, skipping {len(unavailable_runs)}...")
-            for proposal, run in runs:
-                extr.extract_and_ingest(proposal, run, match=args.match, mock=args.mock)
-        else:
-            try:
-                runs = set([int(r) for r in args.run])
-            except ValueError as e:
-                sys.exit(f"Run numbers must be integers ({e})")
-
-            if args.mock:
-                available_runs = runs
-            else:
-                available_runs = proposal_runs(extr.db.metameta["proposal"])
-
-            unavailable_runs = runs - available_runs
-            if len(unavailable_runs) > 0:
-                # Note that we print unavailable_runs as a list so it's enclosed
-                # in [] brackets, which is more recognizable than the {} braces
-                # that sets are enclosed in.
-                print(f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
-
-            for run in sorted(runs & available_runs):
-                extr.extract_and_ingest(args.proposal, run, match=args.match, mock=args.mock)
+        from .backend.extract_data import reprocess
+        reprocess(args.run, args.proposal, args.match, args.mock)
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB

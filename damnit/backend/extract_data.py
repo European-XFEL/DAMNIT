@@ -15,6 +15,7 @@ from tempfile import TemporaryDirectory
 
 import h5py
 import numpy as np
+from extra_data.read_machinery import find_proposal
 
 from kafka import KafkaProducer
 
@@ -261,7 +262,62 @@ class Extractor:
             job_id = res.stdout.partition(';')[0]
             log.info("Launched Slurm job %s to calculate cluster variables", job_id)
 
+
+def proposal_runs(proposal):
+    proposal_name = f"p{int(proposal):06d}"
+    raw_dir = Path(find_proposal(proposal_name)) / "raw"
+    return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
+
+
+def reprocess(runs, proposal=None, match=(), mock=False):
+    """Called by the 'amore-proto reprocess' subcommand"""
+    extr = Extractor()
+    if runs == ['all']:
+        rows = extr.db.conn.execute("SELECT proposal, runnr FROM runs").fetchall()
+
+        # Dictionary of proposal numbers to sets of available runs
+        available_runs = {}
+        # Lists of (proposal, run) tuples
+        props_runs = []
+        unavailable_runs = []
+
+        for proposal, run in rows:
+            if not mock and proposal not in available_runs:
+                available_runs[proposal] = proposal_runs(proposal)
+
+            if mock or run in available_runs[proposal]:
+                props_runs.append((proposal, run))
+            else:
+                unavailable_runs.append((proposal, run))
+
+        print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
+    else:
+        try:
+            runs = set([int(r) for r in runs])
+        except ValueError as e:
+            sys.exit(f"Run numbers must be integers ({e})")
+
+        if mock:
+            available_runs = runs
+        else:
+            available_runs = proposal_runs(extr.db.metameta["proposal"])
+
+        unavailable_runs = runs - available_runs
+        if len(unavailable_runs) > 0:
+            # Note that we print unavailable_runs as a list so it's enclosed
+            # in [] brackets, which is more recognizable than the {} braces
+            # that sets are enclosed in.
+            print(
+                f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
+
+        props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
+
+    for proposal, run in props_runs:
+        extr.extract_and_ingest(proposal, run, match=match, mock=mock)
+
+
 if __name__ == '__main__':
+    # This runs when extraction is launched by the listener:
     ap = argparse.ArgumentParser()
     ap.add_argument('proposal', type=int)
     ap.add_argument('run', type=int)
