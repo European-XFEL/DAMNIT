@@ -252,6 +252,9 @@ def main():
     elif args.subcmd == 'db-config':
         from .backend.db import DamnitDB
 
+        if args.key:
+            args.key = args.key.replace('-', '_')
+
         db = DamnitDB()
         if args.delete:
             if not args.key:
