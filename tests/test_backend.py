@@ -22,6 +22,7 @@ from damnit.backend.db import DamnitDB
 from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
 from damnit.backend.supervisord import write_supervisord_conf
+from damnit.gui.main_window import MainWindow
 
 from .conftest import mkcontext
 
@@ -398,7 +399,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Process run
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['1234', '42', 'raw', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'raw', '--save', str(out_path)])
 
     # Check that a file was created
     assert out_path.is_file()
@@ -417,7 +418,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with `data='all'`, but as if there is no proc data
     with patch("ctxrunner.extra_data.open_run", side_effect=mock_open_run):
-        main(['1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
 
     # Check that `meta_array` wasn't processed, since it requires proc data
     with h5py.File(out_path) as f:
@@ -425,7 +426,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with proc data
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
 
     # Now `meta_array` should have been processed
     with h5py.File(out_path) as f:
@@ -433,7 +434,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Runs shouldn't be opened with open_run() when --mock is passed
     with patch("ctxrunner.extra_data.open_run") as open_run:
-        main(["1234", "42", "all", "--mock"])
+        main(["exec", "1234", "42", "all", "--mock"])
         open_run.assert_not_called()
 
     # When only proc variables are reprocessed, the run should still be opened
@@ -441,9 +442,57 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Results too so that the test doesn't throw exceptions.
     with patch("ctxrunner.extra_data.open_run") as open_run, \
          patch("ctxrunner.Results"):
-        main(["1234", "42", "proc"])
+        main(["exec", "1234", "42", "proc"])
 
         open_run.assert_called_with(1234, 42, data="all")
+
+def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    ctxrunner_deps = ["extra_data"]
+
+    # Install dependencies for ctxrunner and a light-weight package (sfollow)
+    # that isn't in our current environment.
+    virtualenv.install_package(" ".join([*ctxrunner_deps, "sfollow"]),
+                               installer="pip install")
+
+    # Write a context file that requires the new package
+    new_env_code = f"""
+    from pathlib import Path
+
+    import sfollow
+    from damnit_ctx import Variable
+
+    # Ensure that the context file is *always* evaluated in the database
+    # directory. This is necessary to ensure that things like relative imports
+    # and janky sys.path shenanigans work.
+    assert str(Path.cwd()) == {str(db_dir)!r}
+
+    @Variable(title="Foo")
+    def foo(run):
+        return 42
+    """
+    (db_dir / "context.py").write_text(textwrap.dedent(new_env_code))
+
+    pkg = "damnit.backend.extract_data"
+
+    with patch(f"{pkg}.KafkaProducer"), pytest.raises(ImportError):
+        Extractor()
+
+    # Set the context_python field in the database
+    db.metameta["context_python"] = str(virtualenv.python)
+
+    with patch(f"{pkg}.KafkaProducer"):
+        Extractor().extract_and_ingest(1234, 42, mock=True)
+
+    with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
+        assert f["foo/data"][()] == 42
+
+    # Make sure that the GUI evaluates the context file correctly (which it does
+    # upon opening a database directory).
+    win = MainWindow(db_dir, False)
+    win.show()
 
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
