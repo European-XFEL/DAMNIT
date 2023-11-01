@@ -358,7 +358,7 @@ def reprocess(runs, proposal=None, match=(), mock=False):
         file_handler.setFormatter(log_formatter)
         logging.getLogger().addHandler(file_handler)
         try:
-            log.info("----- Reprocessing r%s (p%s) -----", run, prop)
+            log.info("\n\n----- Reprocessing r%s (p%s) -----", run, prop)
             extr.extract_and_ingest(prop, run, match=match, mock=mock, tee_output=log_path)
         except Exception:
             log.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
