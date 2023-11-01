@@ -1,6 +1,6 @@
 euxfel-bunch-pattern==0.6
 EXtra-data==1.14.0
-EXtra-geom==1.10.0
+EXtra-geom==1.11.0
 ipython==8.17.2
 kafka-python==2.0.2
 matplotlib==3.8.0
