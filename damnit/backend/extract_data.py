@@ -359,6 +359,7 @@ def reprocess(runs, proposal=None, match=(), mock=False):
         logging.getLogger().addHandler(file_handler)
         try:
             log.info("\n\n----- Reprocessing r%s (p%s) -----", run, prop)
+            log.info(f"match={match}")
             extr.extract_and_ingest(prop, run, match=match, mock=mock, tee_output=log_path)
         except Exception:
             log.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
@@ -383,7 +384,7 @@ if __name__ == '__main__':
     logging.getLogger('kafka').setLevel(logging.WARNING)
 
     print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
-    log.info(f"{args.run_data=}, {args.match=}")
+    log.info(f"run_data={args.run_data}, match={args.match}")
     if args.cluster_job:
         log.info("Extracting cluster variables in Slurm job %s on %s",
                  os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
