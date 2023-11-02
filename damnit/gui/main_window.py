@@ -981,7 +981,7 @@ da-dev@xfel.eu"""
         else:
             # Move the error widget down
             height_unit = self.height() // 7
-            self._editor_parent_widget.setSizes([5 * height_unit, height_unit])
+            self._editor_parent_widget.setSizes([6 * height_unit, height_unit])
 
             if test_result == ContextTestResult.WARNING:
                 self.set_error_widget_text(output)
