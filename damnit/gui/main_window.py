@@ -845,6 +845,8 @@ da-dev@xfel.eu"""
         if file.is_file():
             log_window = LogViewWindow(file, self)
             log_window.show()
+            vsb = log_window.text_edit.verticalScrollBar()
+            vsb.setValue(vsb.maximum())
         else:
             self.show_status_message(f"No log found for run {run}")
 
