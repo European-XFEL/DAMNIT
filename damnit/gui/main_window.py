@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import QMessageBox, QTabWidget, QFileDialog
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.db import db_path, DamnitDB
-from ..backend.extract_data import get_context_file
+from ..backend.extract_data import get_context_file, process_log_path
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
@@ -218,6 +218,7 @@ da-dev@xfel.eu"""
                                  "This database is missing a context file, it cannot be opened.")
             return
         else:
+            self.context_dir = path
             self._context_path = context_path
 
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
@@ -838,6 +839,15 @@ da-dev@xfel.eu"""
         )
         self._canvas_inspect[-1].show()
 
+    def show_run_logs(self, proposal, run):
+        # Triggered from right-click menu entry in table
+        file = process_log_path(run, proposal, self.context_dir, create=False)
+        if file.is_file():
+            log_window = LogViewWindow(file, self)
+            log_window.show()
+        else:
+            self.show_status_message(f"No log found for run {run}")
+
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -851,6 +861,7 @@ da-dev@xfel.eu"""
 
         self.table_view.doubleClicked.connect(self.inspect_data)
         self.table_view.settings_changed.connect(self.save_settings)
+        self.table_view.log_view_requested.connect(self.show_run_logs)
 
         vertical_layout.addWidget(self.table_view)
 
@@ -1085,6 +1096,19 @@ class TabBarStyle(QtWidgets.QProxyStyle):
             painter.restore()
         else:
             super().drawControl(element, option, painter, widget)
+
+
+class LogViewWindow(QtWidgets.QMainWindow):
+    def __init__(self, file_path: Path, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self.text_edit = QtWidgets.QPlainTextEdit(file_path.read_text())
+        self.text_edit.setReadOnly(True)
+        font = self.text_edit.document().defaultFont()
+        font.setFamily('monospace')
+        self.text_edit.document().setDefaultFont(font)
+        self.setCentralWidget(self.text_edit)
+        self.setMinimumSize(1000, 800)
 
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
