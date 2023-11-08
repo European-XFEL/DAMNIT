@@ -18,6 +18,7 @@ THUMBNAIL_SIZE = 35
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
+    log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
 
     def __init__(self) -> None:
         super().__init__()
@@ -48,6 +49,14 @@ class TableView(QtWidgets.QTableView):
         self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+
+        self.context_menu = QtWidgets.QMenu(self)
+        self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
+        self.zulip_action.triggered.connect(self.export_selection_to_zulip)
+        self.context_menu.addAction(self.zulip_action)
+        self.show_logs_action = QtWidgets.QAction('View processing logs')
+        self.show_logs_action.triggered.connect(self.show_run_logs)
+        self.context_menu.addAction(self.show_logs_action)
     
     def setModel(self, model):
         """
@@ -183,12 +192,7 @@ class TableView(QtWidgets.QTableView):
         return self._static_columns_widget.count()
     
     def contextMenuEvent(self, event):
-        self.menu = QtWidgets.QMenu(self)
-        self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
-        self.zulip_action.triggered.connect(self.export_selection_to_zulip)
-
-        self.menu.addAction(self.zulip_action)
-        self.menu.popup(QtGui.QCursor.pos())
+        self.context_menu.popup(QtGui.QCursor.pos())
 
     def export_selection_to_zulip(self):
         zulip_ok = self.model()._main_window.check_zulip_messenger()
@@ -217,7 +221,12 @@ class TableView(QtWidgets.QTableView):
         df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         self.model()._main_window.zulip_messenger.send_table(df)
-            
+
+    def show_run_logs(self):
+        # Get first selected row
+        row = self.selectionModel().selectedRows()[0].row()
+        prop, run = self.model().row_to_proposal_run(row)
+        self.log_view_requested.emit(prop, run)
         
     def columns_with_thumbnails(self, df):
         obj_columns = df.dtypes == 'object'
@@ -492,6 +501,10 @@ class Table(QtCore.QAbstractTableModel):
             self._data.reset_index(inplace=True, drop=True)
         finally:
             self.layoutChanged.emit()
+
+    def row_to_proposal_run(self, row_ix):
+        r = self._data.iloc[row_ix]
+        return r['Proposal'], r['Run']
 
 def prettify_notation(value):
     if pd.api.types.is_float(value):
