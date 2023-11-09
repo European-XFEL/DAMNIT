@@ -1110,7 +1110,7 @@ class LogViewWindow(QtWidgets.QMainWindow):
         font.setFamily('monospace')
         self.text_edit.document().setDefaultFont(font)
         self.setCentralWidget(self.text_edit)
-        self.setMinimumSize(1000, 800)
+        self.resize(1000, 800)
 
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
