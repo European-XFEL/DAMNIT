@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
+from socket import gethostname
 
 import pandas as pd
 import numpy as np
@@ -212,6 +213,11 @@ da-dev@xfel.eu"""
             db[str(self._context_path)] = settings
 
     def autoconfigure(self, path: Path, proposal=None):
+        # use separated directory if running online to avoid file corruption
+        # during sync between clusters.
+        if gethostname().startswith('exflonc'):
+            path = path.parent / f'{path.stem}-online'
+
         context_path = path / "context.py"
         if not context_path.is_file():
             QMessageBox.critical(self, "No context file",
