@@ -22,7 +22,7 @@ KAFKA_CONF = {
     'maxwell': {
         'brokers': [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)],
         'topics': ["xfel-test-r2d2", "xfel-test-offline-cal"],
-        'events': ["migration_complete", "correction_complete"],
+        'events': ["migration_complete", "run_corrections_complete"],
     },
     'onc': {
         'brokers': ['exflwgs06:9091'],
