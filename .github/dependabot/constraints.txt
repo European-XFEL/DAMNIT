@@ -21,4 +21,4 @@ scipy==1.11.3
 supervisor==4.2.5
 termcolor==2.3.0
 tomli==2.0.1
-xarray==2023.10.1
+xarray==2023.11.0
