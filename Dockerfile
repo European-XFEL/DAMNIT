@@ -1,5 +1,7 @@
 FROM debian:bookworm AS build
 
+ENV PYTHONDONTWRITEBYTECODE=1
+
 # install build dependencies
 RUN set -eux; \
     apt update; \
@@ -37,6 +39,7 @@ COPY --from=build /.apt-deps-build /.apt-deps-build
 COPY --from=build /.python-deps-build /.python-deps-build
 
 ENV PATH="/app/bin:${PATH}"
+ENV PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
