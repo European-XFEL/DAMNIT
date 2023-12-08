@@ -361,9 +361,9 @@ class Results:
             from scipy import ndimage
 
             # For the sake of space and memory we downsample images to a
-            # resolution of 150x150.
+            # resolution of 35 pixels on the larger dimension.
             image_shape = data.get_size_inches() * data.dpi if is_figure else data.shape
-            zoom_ratio = min(1, 150 / max(image_shape))
+            zoom_ratio = min(1, 35 / max(image_shape))
 
             if is_figure:
                 # If this is a matplotlib figure, we scale down the figure
