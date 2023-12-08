@@ -67,6 +67,51 @@ def dataarray_from_group(group):
                         coords={ dim: coords[dim] for dim in dims
                                  if dim in coords })
 
+
+def migrate_dataarrays(db, db_dir, dry_run):
+    files = list((db_dir / "extracted_data").glob("*.h5"))
+    n_files = len(files)
+    suffix = "s" if n_files > 1 or n_files == 0 else ""
+
+    would = "(would) " if dry_run else ""
+
+    print(f"Looking through {n_files} HDF5 file{suffix}...")
+
+    files_modified = set()
+    total_groups = 0
+    for h5_path in files:
+        groups_to_replace = []
+        with h5py.File(h5_path) as f:
+            for name, grp in f.items():
+                if isinstance(grp, h5py.Group) and 'data' in grp and len(grp) > 1:
+                    dataarray = dataarray_from_group(grp)
+                    if dataarray is None:
+                        raise RuntimeError(
+                            f"Error: could not convert v0 array for '{name}' to a DataArray automatically"
+                        )
+                    groups_to_replace.append((name, dataarray))
+
+            for name, _ in groups_to_replace:
+                print(f"{would}Delete {name} in {h5_path.relative_to(db_dir)}")
+                if not dry_run:
+                    f[name].clear()
+                    f[name].attrs.clear()
+                    f[name].attrs['damnit_objtype'] = DataType.DataArray.value
+
+        for name, arr in groups_to_replace:
+            print(f"{would}Save {name} in {h5_path.relative_to(db_dir)}")
+            if not dry_run:
+                arr.to_netcdf(h5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
+
+            files_modified.add(h5_path)
+            total_groups += 1
+
+    print(("(would have) " if dry_run else "") +
+          f"Modified {total_groups} groups in {len(files_modified)} files")
+    if dry_run:
+        print("Dry run - no files were changed")
+
+
 def migrate_v0_to_v1(db, db_dir, dry_run):
     """
     For reference, see the V0_SCHEMA variable in db.py.
@@ -74,7 +119,6 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
     the new run_variables table. The run_info table also needs to be created,
     but that can be done by executing the v1 schema.
     """
-    arrays_to_save = defaultdict(list)
 
     # Begin a transaction, anything in here should be rolled back if there's an exception
     with db.conn:
@@ -133,26 +177,11 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
                             continue
 
                         ds = f[name]["data"]
-                        reduced_ds = f[".reduced"][name]
                         max_diff = None
 
-                        if ds.ndim > 0:
-                            if reduced_ds.ndim != 3:
-                                has_coords = len(f[name].keys()) > 1
-
-                                if ds.ndim == 1 and ds.dtype != bool:
-                                    data = ds[()]
-                                    max_diff = abs(np.nanmax(data) - np.nanmin(data)).item()
-
-                                if has_coords:
-                                    dataarray = dataarray_from_group(f[name])
-                                    if dataarray is None:
-                                        raise RuntimeError(f"Error: could not convert v0 array for '{name}' to a DataArray automatically")
-                                    else:
-                                        arrays_to_save[h5_path].append((dataarray, name))
-
-                        else:
-                            raise RuntimeError(f"Could not guess a type for '{name}' in {h5_path}")
+                        if ds.ndim == 1 and ds.dtype != bool:
+                            data = ds[()]
+                            max_diff = abs(np.nanmax(data) - np.nanmin(data)).item()
 
                         variable = {
                             "proposal": proposal,
@@ -175,15 +204,5 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
             db.metameta["data_format_version"] = 1
         else:
             print("Would copy data into `run_info` and `run_variables`")
-
-    # First we go through and delete the old groups
-    for h5_path, array_names in arrays_to_save.items():
-        with h5py.File(h5_path, "a") as f:
-            for _, name in array_names:
-                del f[name]
-
-    for h5_path, array_names in arrays_to_save.items():
-        for array, name in array_names:
-            array.to_netcdf(h5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
 
     print("Done")
