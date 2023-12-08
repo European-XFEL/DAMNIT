@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 import xarray as xr
 
-from .backend.db import V1_SCHEMA
+from .backend.db import DamnitDB, DB_NAME
 from .backend.extract_data import add_to_db, ReducedData
 from .ctxsupport.ctxrunner import generate_thumbnail, add_to_h5_file, DataType
 
@@ -28,8 +28,10 @@ def migrate_images(db, db_dir):
                 reduced = f[".reduced"]
                 run = int(h5_path.stem.split("_")[1][1:])
 
-                for ds_name in reduced:
-                    if reduced[ds_name].ndim == 2:
+                for ds_name, dset in reduced.items():
+                    if run == 145:
+                        print(f"{ds_name} {dset.ndim=}, {dset.shape=}")
+                    if dset.ndim == 2 or (dset.ndim == 3 and dset.shape[2] == 4):
                         # Generate a new thumbnail
                         image = reduced[ds_name][()]
                         image = generate_thumbnail(image)
@@ -81,8 +83,11 @@ def migrate_dataarrays(db, db_dir, dry_run):
     total_groups = 0
     for h5_path in files:
         groups_to_replace = []
-        with h5py.File(h5_path) as f:
+        with h5py.File(h5_path, "a") as f:
             for name, grp in f.items():
+                if name == '.reduced':
+                    continue
+
                 if isinstance(grp, h5py.Group) and 'data' in grp and len(grp) > 1:
                     dataarray = dataarray_from_group(grp)
                     if dataarray is None:
@@ -112,6 +117,13 @@ def migrate_dataarrays(db, db_dir, dry_run):
         print("Dry run - no files were changed")
 
 
+def main_dataset(grp: h5py.Group):
+    candidates = {name for (name, dset) in grp.items()
+                  if dset.attrs.get('CLASS', b'') != b'DIMENSION_SCALE'}
+    if len(candidates) == 1:
+        return grp[candidates.pop()]
+
+
 def migrate_v0_to_v1(db, db_dir, dry_run):
     """
     For reference, see the V0_SCHEMA variable in db.py.
@@ -119,90 +131,111 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
     the new run_variables table. The run_info table also needs to be created,
     but that can be done by executing the v1 schema.
     """
+    migrate_dataarrays(db, db_dir, dry_run)
 
-    # Begin a transaction, anything in here should be rolled back if there's an exception
-    with db.conn:
-        # Get all column and variable names
-        column_names = [rec[0] for rec in
-                        db.conn.execute("SELECT name FROM PRAGMA_TABLE_INFO('runs')").fetchall()]
-        variable_names = [name for name in column_names
-                          if name not in ["proposal", "runnr", "start_time", "added_at", "comment"]]
+    # Get all column and variable names
+    column_names = [rec[0] for rec in
+                    db.conn.execute("SELECT name FROM PRAGMA_TABLE_INFO('runs')").fetchall()]
+    variable_names = [name for name in column_names
+                      if name not in ["proposal", "runnr", "start_time", "added_at", "comment"]]
+    #
+    # And then read all run data. This is what we'll need to copy into the new
+    # `run_variables` table.
+    runs = [rec for rec in db.conn.execute("SELECT * FROM runs").fetchall()]
 
-        # And then read all run data. This is what we'll need to copy into the new
-        # `run_variables` table.
-        runs = [rec for rec in db.conn.execute("SELECT * FROM runs").fetchall()]
+    print(f"Found {len(runs)} runs, with these variables:")
+    print(variable_names)
+    print()
 
-        print(f"Found {len(runs)} runs, with these variables:")
-        print(variable_names)
-        print()
+    # Scan HDF5 files to get timestamps (from mtime) & max diff for 1D arrays
+    timestamps = {}  # keys (proposal, run)
+    max_diffs = {}  # keys (proposal, run, variable)
+    for record in runs:
+        proposal = record["proposal"]
+        run_no = record["runnr"]
+        h5_path = db_dir / f"extracted_data/p{proposal}_r{run_no}.h5"
 
-        # Now delete the runs table
-        if not dry_run:
-            db.conn.execute("DROP TABLE runs")
-        else:
-            print("Would delete the `runs` table")
+        if not h5_path.exists():
+            print(f"Skipping variables for run {run_no} because {h5_path} does not exist")
+            continue
 
-        # Execute the v1 schema to create all the new tables
-        if not dry_run:
-            db.conn.executescript(V1_SCHEMA)
-        else:
-            print("Would execute the v1 schema")
+        timestamps[(proposal, run_no)] = h5_path.stat().st_mtime
 
-        # And re-add the data from the old `runs` table
-        if not dry_run:
-            for record in runs:
-                run = dict(zip(column_names, record))
-                proposal = run["proposal"]
-                run_no = run["runnr"]
-                h5_path = db_dir / f"extracted_data/p{proposal}_r{run_no}.h5"
+        with h5py.File(h5_path, "a") as f:
+            for name in variable_names:
+                if name not in f:
+                    continue
 
-                # Add the run info to the `run_info` table
-                db.conn.execute("""
+                if (ds := main_dataset(f[name])) is None:
+                    continue
+
+                if 'max_diff' in ds.attrs:
+                    max_diffs[(proposal, run_no, name)] = ds.attrs['max_diff'].item()
+                elif ds.ndim == 1 and np.issubdtype(ds.dtype, np.number):
+                    data = ds[()]
+                    max_diff = abs(np.nanmax(data) - np.nanmin(data)).item()
+                    max_diffs[(proposal, run_no, name)] = max_diff
+                    ds.attrs['max_diff'] = max_diff
+
+    print(f"Found max difference for {len(max_diffs)} variables")
+
+    new_db_path = db_dir / "runs.v1.sqlite"
+    new_db_path.unlink(missing_ok=True)  # Clear any previous attempt
+    new_db = DamnitDB(new_db_path)
+    for k, v in db.metameta.items():
+        if k != "data_format_version":
+            new_db.metameta[k] = v
+
+    # Load the data into the new database
+    total_vars = 0
+    with new_db.conn:
+        for record in runs:
+            run = dict(zip(column_names, record))
+            proposal = run["proposal"]
+            run_no = run["runnr"]
+
+            # Add the run info to the `run_info` table
+            new_db.conn.execute("""
                 INSERT INTO run_info
                 VALUES (:proposal, :runnr, :start_time, :added_at)
                 """, run)
 
-                if not h5_path.exists():
-                    print(f"Skipping variables for run {run_no} because {h5_path} does not exist")
+            for name in variable_names:
+                value = record[name]
+                if value is None:
                     continue
 
-                h5_mtime = h5_path.stat().st_mtime
+                max_diff = max_diffs.get((proposal, run_no, name))
+                timestamp = timestamps.get((proposal, run_no))
 
-                # And then add each variable
-                with h5py.File(h5_path) as f:
-                    variables = { name: value for name, value in run.items()
-                                  if name in variable_names }
-                    for name, value in variables.items():
-                        if name not in f:
-                            continue
+                variable = {
+                    "proposal": proposal,
+                    "run": run_no,
+                    "name": name,
+                    "version": 1,
+                    "value": value,
+                    "timestamp": timestamp,
+                    "max_diff": max_diff
+                }
+                new_db.conn.execute("""
+                    INSERT INTO run_variables (proposal, run, name, version, value, timestamp, max_diff)
+                    VALUES (:proposal, :run, :name, :version, :value, :timestamp, :max_diff)
+                    """, variable)
+                total_vars += 1
 
-                        ds = f[name]["data"]
-                        max_diff = None
+        # And now that we're done, we need to recreate the `runs` view
+        new_db.update_views()
 
-                        if ds.ndim == 1 and ds.dtype != bool:
-                            data = ds[()]
-                            max_diff = abs(np.nanmax(data) - np.nanmin(data)).item()
+    new_db.close()
+    db.close()
 
-                        variable = {
-                            "proposal": proposal,
-                            "run": run_no,
-                            "name": name,
-                            "version": 1,
-                            "value": value,
-                            "timestamp": h5_mtime,
-                            "max_diff": max_diff
-                        }
-                        db.conn.execute("""
-                        INSERT INTO run_variables (proposal, run, name, version, value, timestamp, max_diff)
-                        VALUES (:proposal, :run, :name, :version, :value, :timestamp, :max_diff)
-                        """, variable)
-
-            # And now that we're done, we need to recreate the `runs` view
-            db.update_views()
-
-            # And set the new version
-            db.metameta["data_format_version"] = 1
-        else:
-            print("Would copy data into `run_info` and `run_variables`")
-
-    print("Done")
+    if dry_run:
+        print(f"Dry-run: new format DB created at {new_db_path.name}")
+        print("If all seems OK, re-run the migration without --dry-run.")
+    else:
+        db_path = db_dir / DB_NAME
+        backup_path = db_dir / "runs.v0-backup.sqlite"
+        db_path.rename(backup_path)
+        new_db_path.rename(db_path)
+        print(f"New format DB created and moved to {db_path.name}")
+        print(f"Old database backed up as {backup_path.name}")
