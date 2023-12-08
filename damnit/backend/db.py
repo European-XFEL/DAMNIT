@@ -9,7 +9,6 @@ from secrets import token_hex
 from typing import Any
 
 from ..context import UserEditableVariable
-from ..ctxsupport.ctxrunner import DataType, get_variable_type
 
 DB_NAME = Path('runs.sqlite')
 
@@ -19,7 +18,7 @@ V1_SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
 CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
 
-CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, stored_type, max_diff, provenance);
+CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance);
 CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
 
 -- These are dummy views that will be overwritten later, but they should at least
@@ -39,20 +38,8 @@ class ReducedData:
     Helper class for holding summaries and variable metdata.
     """
     value: Any
-    stored_type: DataType
     max_diff: float = None
 
-    def __init__(self, value, stored_type=None, max_diff=None):
-        self.value = value
-
-        # Note that we don't (yet?) allow returning None from a context file
-        # variable and storing it as NULL, but we do need this for user-editable
-        # variables so the constructor allows the value to be None.
-        if value is not None and stored_type is None:
-            stored_type = get_variable_type(value)
-
-        self.stored_type = stored_type
-        self.max_diff = max_diff
 
 def db_path(root_path: Path):
     return root_path / DB_NAME
@@ -195,10 +182,6 @@ class DamnitDB:
         if variable["value"] is None:
             for key in variable:
                 variable[key] = None
-        else:
-            # Otherwise it must have a DataType, which we convert to a string
-            # for saving.
-            variable["stored_type"] = variable["stored_type"].value
 
         variable["proposal"] = proposal
         variable["run"] = run
@@ -214,7 +197,7 @@ class DamnitDB:
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "stored_type", "max_diff", "provenance"]
+        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance"]
         col_list = ", ".join(cols)
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])

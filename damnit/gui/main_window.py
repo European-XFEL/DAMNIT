@@ -27,7 +27,7 @@ from ..backend.extract_data import get_context_file, process_log_path
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
-from ..ctxsupport.ctxrunner import get_user_variables, DataType
+from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, timestamp2str
 from .kafka import UpdateReceiver
@@ -832,14 +832,14 @@ da-dev@xfel.eu"""
             if is_image:
                 image = variable.ndarray()
             else:
-                if variable.stored_type == DataType.Scalar:
+                y = variable.xarray()
+                if y.ndim == 0:
                     # If this is a scalar value, then we can't plot it
                     QMessageBox.warning(self, "Can't inspect variable",
                                         f"'{quantity}' is a scalar, there's nothing more to plot.")
                     return
 
                 # Use the train ID if it's been saved, otherwise generate an X axis
-                y = variable.xarray()
                 if "trainId" in y.coords:
                     x = y.trainId
                 else:

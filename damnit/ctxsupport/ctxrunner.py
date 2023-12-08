@@ -35,12 +35,11 @@ from damnit_ctx import RunData, Variable, UserEditableVariable
 log = logging.getLogger(__name__)
 
 
+# More specific Python types beyond what HDF5/NetCDF4 know about, so we can
+# reconstruct Python objects when reading values back in.
 class DataType(Enum):
-    String = "string"
-    Scalar = "scalar"
-    NDArray = "ndarray"
-    DataArray = "DataArray"
-    Dataset = "Dataset"
+    DataArray = "dataarray"
+    Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
 
@@ -271,23 +270,6 @@ def add_to_h5_file(path) -> h5py.File:
     raise ex
 
 
-def get_variable_type(data):
-    if isinstance(data, str):
-        return DataType.String
-    elif isinstance(data, Number) or isinstance(data, np.ndarray) and data.ndim == 0:
-        return DataType.Scalar
-    elif isinstance(data, np.ndarray) and data.ndim > 0:
-        return DataType.NDArray
-    elif isinstance(data, xr.DataArray):
-        return DataType.DataArray
-    elif isinstance(data, xr.Dataset):
-        return DataType.Dataset
-    elif isinstance(data, Figure):
-        return DataType.Image
-    else:
-        raise RuntimeError(f"Unsupported variable type: {type(data)}")
-
-
 class Results:
     def __init__(self, data, ctx):
         self.data = data
@@ -350,22 +332,6 @@ class Results:
                 if data is not None:
                     res[name] = data
         return Results(res, ctx_file)
-
-    @staticmethod
-    def _datasets_for_arr(name, arr):
-        if isinstance(arr, (xr.DataArray, xr.Dataset)):
-            return [(name, arr)]
-        else:
-            if isinstance(arr, str):
-                value = arr
-            elif isinstance(arr, Figure):
-                value = figure2array(arr)
-            else:
-                value = np.asarray(arr)
-
-            return [
-                (f'{name}/data', value)
-            ]
 
     @property
     def reduced(self):
@@ -436,16 +402,28 @@ class Results:
         implicit_vars = self.data.keys() - self.ctx.vars.keys()
 
         xarray_dsets = []
+        obj_type_hints = {}
         dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()
                  if name in implicit_vars or ctx_vars[name].store_result]
         if not reduced_only:
-            for name, arr in self.data.items():
+            for name, obj in self.data.items():
                 if name in implicit_vars or ctx_vars[name].store_result:
-                    new_dsets = self._datasets_for_arr(name, arr)
-                    if isinstance(arr, (xr.Dataset, xr.DataArray)):
-                        xarray_dsets.extend(new_dsets)
+                    if isinstance(obj, (xr.DataArray, xr.Dataset)):
+                        xarray_dsets.append((name, obj))
+                        obj_type_hints[name] = (
+                            DataType.DataArray if isinstance(obj, xr.DataArray)
+                            else DataType.Dataset
+                        )
                     else:
-                        dsets.extend(new_dsets)
+                        if isinstance(obj, Figure):
+                            value =  figure2array(obj)
+                            obj_type_hints[name] = DataType.Image
+                        elif isinstance(obj, str):
+                            value = obj
+                        else:
+                            value = np.asarray(obj)
+
+                        dsets.append((f'{name}/data', value))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -458,44 +436,45 @@ class Results:
                 if name in f:
                     del f[name]
 
+            for grp_name, hint in obj_type_hints.items():
+                f.require_group(grp_name).attrs['damnit_objtype'] = hint.value
+
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, arr in dsets:
+            for path, obj in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
 
-                if isinstance(arr, str):
-                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype())
+                if isinstance(obj, str):
+                    f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 else:
-                    f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
             # Fill with data
-            for path, arr in dsets:
-                f[path][()] = arr
+            for path, obj in dsets:
+                f[path][()] = obj
 
             # Assign attributes for reduced datasets
             for name, data in self.data.items():
-                var_type = get_variable_type(data)
                 reduced_ds = f[f".reduced/{name}"]
-                reduced_ds.attrs["stored_type"] = var_type.value
 
-                if var_type in [DataType.NDArray, DataType.DataArray] \
+                if isinstance(data, (np.ndarray, xr.DataArray)) \
                    and data.ndim == 1 and data.shape[0] > 1:
                     reduced_ds.attrs["max_diff"] = abs(np.nanmax(data) - np.nanmin(data))
 
-        for name, arr in xarray_dsets:
+        for name, obj in xarray_dsets:
             # HDF5 doesn't allow slashes in names :(
-            if isinstance(arr, xr.DataArray) and arr.name is not None and "/" in arr.name:
-                arr.name = arr.name.replace("/", "_")
-            elif isinstance(arr, xr.Dataset):
-                data_vars = list(arr.keys())
+            if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
+                obj.name = obj.name.replace("/", "_")
+            elif isinstance(obj, xr.Dataset):
+                data_vars = list(obj.keys())
                 for var_name in data_vars:
-                    dataarray = arr[var_name]
+                    dataarray = obj[var_name]
                     if dataarray.name is not None and "/" in dataarray.name:
                         dataarray.name = dataarray.name.replace("/", "_")
 
-            arr.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
+            obj.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
