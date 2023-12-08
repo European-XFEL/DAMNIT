@@ -23,7 +23,7 @@ from extra_data.read_machinery import find_proposal
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..ctxsupport.ctxrunner import get_user_variables, DataType
+from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import DamnitDB, ReducedData
 
@@ -155,7 +155,9 @@ def load_reduced_data(h5_path):
     def get_dset_value(ds):
         # If it's a string, extract the string
         if h5py.check_string_dtype(ds.dtype) is not None:
-            return ds.asstr()[0]
+            return ds.asstr()[()]
+        elif ds.attrs.get('damnit_png', 0) == 1:
+            return PNGData(ds[()].tobytes())
         else:
             value = ds[()]
             # SQlite doesn't like np.float32; .item() converts to Python numbers
@@ -164,7 +166,6 @@ def load_reduced_data(h5_path):
     with h5py.File(h5_path, 'r') as f:
         return {
             name: ReducedData(get_dset_value(dset),
-                              DataType(dset.attrs["stored_type"]),
                               dset.attrs.get("max_diff", np.array(None)).item())
             for name, dset in f['.reduced'].items()
         }
