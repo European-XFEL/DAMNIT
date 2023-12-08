@@ -23,7 +23,7 @@ from extra_data.read_machinery import find_proposal
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..ctxsupport.ctxrunner import get_user_variables
+from ..ctxsupport.ctxrunner import get_user_variables, PNGData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import DamnitDB, ReducedData
 
@@ -205,6 +205,9 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         # zero-dimensional arrays first.
         if isinstance(value, (np.ndarray, np.generic)) and value.ndim == 0:
             value = value.item()
+
+        if isinstance(value, PNGData):
+            value = value.data
 
         # Serialize non-SQLite-supported types
         if not isinstance(value, (int, float, str, bytes)):

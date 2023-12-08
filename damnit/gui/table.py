@@ -6,6 +6,7 @@ import pandas as pd
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 
+from ..backend.db import BlobTypes
 from ..util import StatusbarStylesheet, timestamp2str
 
 ROW_HEIGHT = 30
@@ -349,10 +350,18 @@ class Table(QtCore.QAbstractTableModel):
                 return font
 
         elif role == Qt.DecorationRole:
+            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
+                pixmap = QtGui.QPixmap()
+                pixmap.loadFromData(value, "PNG")
+                if max(pixmap.height(), pixmap.width()) > THUMBNAIL_SIZE:
+                    pixmap = pixmap.scaled(
+                        THUMBNAIL_SIZE, THUMBNAIL_SIZE, Qt.KeepAspectRatio
+                    )
+                return pixmap
             if isinstance(value, np.ndarray):
                 return self.generateThumbnail(run, proposal, quantity_title)
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            if isinstance(value, np.ndarray):
+            if isinstance(value, (np.ndarray, bytes)):
                 # The image preview for this is taken care of by the DecorationRole
                 return None
 
