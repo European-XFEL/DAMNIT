@@ -33,7 +33,7 @@ def migrate_images(db, db_dir):
                         # Generate a new thumbnail
                         image = reduced[ds_name][()]
                         image = generate_thumbnail(image)
-                        reduced_data[run][ds_name] = ReducedData(image, DataType.Image)
+                        reduced_data[run][ds_name] = ReducedData(image)
 
                         # Overwrite the dataset
                         del reduced[ds_name]
@@ -133,23 +133,15 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
                         reduced_ds = f[".reduced"][name]
                         max_diff = None
 
-                        # Guess the type of the variable
-                        if h5py.check_string_dtype(ds.dtype) is not None:
-                            stored_type = DataType.String
-                        elif ds.ndim == 0:
-                            stored_type = DataType.Scalar
-                        elif ds.ndim > 0:
-                            if reduced_ds.ndim == 3:
-                                stored_type = DataType.Image
-                            else:
+                        if ds.ndim > 0:
+                            if reduced_ds.ndim != 3:
                                 has_coords = len(f[name].keys()) > 1
-                                stored_type = DataType.DataArray if has_coords else DataType.NDArray
 
                                 if ds.ndim == 1 and ds.dtype != bool:
                                     data = ds[()]
                                     max_diff = abs(np.nanmax(data) - np.nanmin(data)).item()
 
-                                if stored_type == DataType.DataArray:
+                                if has_coords:
                                     dataarray = dataarray_from_group(f[name])
                                     if dataarray is None:
                                         raise RuntimeError(f"Error: could not convert v0 array for '{name}' to a DataArray automatically")
@@ -166,12 +158,11 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
                             "version": 1,
                             "value": value,
                             "timestamp": h5_mtime,
-                            "stored_type": stored_type.value,
                             "max_diff": max_diff
                         }
                         db.conn.execute("""
-                        INSERT INTO run_variables (proposal, run, name, version, value, timestamp, stored_type, max_diff)
-                        VALUES (:proposal, :run, :name, :version, :value, :timestamp, :stored_type, :max_diff)
+                        INSERT INTO run_variables (proposal, run, name, version, value, timestamp, max_diff)
+                        VALUES (:proposal, :run, :name, :version, :value, :timestamp, :max_diff)
                         """, variable)
 
             # And now that we're done, we need to recreate the `runs` view

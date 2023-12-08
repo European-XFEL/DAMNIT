@@ -8,20 +8,15 @@ from matplotlib.figure import Figure
 from damnit.cli import main
 from damnit.context import ContextFile
 from damnit.backend.extract_data import ReducedData
-from damnit.ctxsupport.ctxrunner import get_variable_type
 
 
 def reduced_data_from_dict(input_dict):
     """
     Create a dictionary of name -> ReducedData objects for add_to_db().
     """
-    # Types taken from Results.create()
-    not_array_types = (xr.DataArray, str, type(None), Figure)
 
     return {
-        name: ReducedData(data,
-                          get_variable_type(data if type(data) in not_array_types \
-                                            else np.array(data)))
+        name: ReducedData(data)
         for name, data in input_dict.items()
     }
 
