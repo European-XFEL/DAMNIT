@@ -37,7 +37,10 @@ def migrate_images(db, db_dir):
 
                         # Overwrite the dataset
                         del reduced[ds_name]
-                        reduced.create_dataset(ds_name, data=image)
+                        dset = reduced.create_dataset(
+                            ds_name, data=np.frombuffer(image.data, dtype=np.uint8)
+                        )
+                        dset.attrs['damnit_png'] = 1
 
     # And then update the summaries in the database
     for run, run_reduced_data in reduced_data.items():

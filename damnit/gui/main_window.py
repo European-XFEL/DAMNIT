@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import QMessageBox, QTabWidget, QFileDialog
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.api import RunVariables
-from ..backend.db import db_path, DamnitDB, ReducedData
+from ..backend.db import db_path, DamnitDB, ReducedData, BlobTypes
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend import initialize_and_start_backend, backend_is_running
 from ..context import ContextFile
@@ -281,7 +281,9 @@ da-dev@xfel.eu"""
                                                                 errors="ignore")
         # Then we check each element and unpickle it if necessary, and
         # finally update the main DataFrame.
-        unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if isinstance(x, bytes) else x)
+        unpickled_cols = object_cols.applymap(lambda x: pickle.loads(x) if (
+                isinstance(x, bytes) and BlobTypes.identify(x) is BlobTypes.pickle
+        ) else x)
         df.update(unpickled_cols)
 
         # Read the comments and prepare them for merging with the main data
@@ -815,12 +817,12 @@ da-dev@xfel.eu"""
         )
 
         cell_data = self.data.iloc[index.row(), index.column()]
-        if not pd.api.types.is_number(cell_data) and not isinstance(cell_data, np.ndarray):
+        is_image = isinstance(cell_data, bytes) and BlobTypes.identify(cell_data) is BlobTypes.png
+
+        if not (is_image or pd.api.types.is_number(cell_data) or isinstance(cell_data, np.ndarray)):
             QMessageBox.warning(self, "Can't inspect variable",
                                 f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
             return
-
-        is_image = (isinstance(cell_data, np.ndarray) and cell_data.ndim == 3)
 
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]

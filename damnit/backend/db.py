@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import MutableMapping, ValuesView, ItemsView
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from secrets import token_hex
 from typing import Any
@@ -39,6 +40,26 @@ class ReducedData:
     """
     value: Any
     max_diff: float = None
+
+
+class BlobTypes(Enum):
+    png = 'png'
+    numpy = 'numpy'
+    pickle = 'pickle'  # We try to avoid pickle, but have used it in the past
+    unknown = 'unknown'
+
+    @classmethod
+    def identify(cls, blob: bytes):
+        if blob.startswith(b'\x89PNG\r\n\x1a\x0a'):
+            return cls.png
+        elif blob.startswith(b'\x93NUMPY'):
+            return cls.numpy
+        elif blob.startswith(b'\x80'):
+            # Since pickle v2 (Python 2.3), all pickles start with a protocol
+            # version opcode (0x80).
+            return cls.pickle
+
+        return cls.unknown
 
 
 def db_path(root_path: Path):
