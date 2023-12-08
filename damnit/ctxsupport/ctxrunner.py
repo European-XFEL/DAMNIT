@@ -34,6 +34,8 @@ from damnit_ctx import RunData, Variable, UserEditableVariable
 
 log = logging.getLogger(__name__)
 
+THUMBNAIL_SIZE = 35 # px
+
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
 # reconstruct Python objects when reading values back in.
@@ -205,9 +207,16 @@ def figure2array(fig):
 
     canvas = FigureCanvas(fig)
     canvas.draw()
-    data = np.asarray(canvas.buffer_rgba())
+    return np.asarray(canvas.buffer_rgba())
 
-    return data
+class PNGData:
+    def __init__(self, data: bytes):
+        self.data = data
+
+def figure2png(fig, dpi=None):
+    bio = io.BytesIO()
+    fig.savefig(bio, dpi=dpi, format='png')
+    return PNGData(bio.getvalue())
 
 
 def generate_thumbnail(image):
@@ -224,7 +233,9 @@ def generate_thumbnail(image):
     ax.axis('off')
     ax.margins(0, 0)
 
-    return figure2array(fig)
+    image_shape = fig.get_size_inches() * fig.dpi
+    zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
+    return figure2png(fig, dpi=(fig.dpi / zoom_ratio))
 
 
 def extract_error_info(exc_type, e, tb):
@@ -348,7 +359,6 @@ class Results:
         data = self.data[name]
         is_array = isinstance(data, (np.ndarray, xr.DataArray))
         is_dataset = isinstance(data, xr.Dataset)
-        is_figure = isinstance(data, Figure)
 
         if isinstance(data, str):
             return data
@@ -357,33 +367,17 @@ class Results:
             return f"Dataset ({size:.2f}MB)"
         elif is_array and data.ndim == 0:
             return data
-        elif is_figure or (is_array and data.ndim == 2 and self.ctx.vars[name].summary is None):
-            from scipy import ndimage
-
+        elif isinstance(data, Figure):
             # For the sake of space and memory we downsample images to a
             # resolution of 35 pixels on the larger dimension.
-            image_shape = data.get_size_inches() * data.dpi if is_figure else data.shape
-            zoom_ratio = min(1, 35 / max(image_shape))
-
-            if is_figure:
-                # If this is a matplotlib figure, we scale down the figure
-                # before rendering. That gives a better preview than scaling
-                # down the rendered image.
-                fig = data
-                old_size = fig.get_size_inches()
-                fig.set_size_inches(*(old_size * zoom_ratio))
-                data = figure2array(fig)
-
-                # Restore the original size so that the object will render
-                # correctly if it's rendered again (e.g. to save in an HDF5
-                # file).
-                fig.set_size_inches(*old_size)
-            else:
-                data = ndimage.zoom(np.nan_to_num(data),
-                                    zoom_ratio)
-                data = generate_thumbnail(data)
-
-            return data
+            image_shape = data.get_size_inches() * data.dpi
+            zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
+            return figure2png(data, dpi=(data.dpi / zoom_ratio))
+        elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
+            from scipy import ndimage
+            zoom_ratio = min(1, THUMBNAIL_SIZE / max(data.shape))
+            data = ndimage.zoom(np.nan_to_num(data), zoom_ratio)
+            return generate_thumbnail(data)
         elif self.ctx.vars[name].summary is None:
             return f"{data.dtype}: {data.shape}"
         else:
@@ -448,12 +442,18 @@ class Results:
 
                 if isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
+                elif isinstance(obj, PNGData):  # Thumbnail
+                    f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
+                    f[path].attrs['damnit_png'] = 1
                 else:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
             # Fill with data
             for path, obj in dsets:
-                f[path][()] = obj
+                if isinstance(obj, PNGData):
+                    f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
+                else:
+                    f[path][()] = obj
 
             # Assign attributes for reduced datasets
             for name, data in self.data.items():

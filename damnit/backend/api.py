@@ -84,10 +84,8 @@ class VariableData:
         if len(set(coord_sizes.keys())) != len(coord_sizes.keys()):
             raise RuntimeError(f"Could not read DataArray for variable '{self.name}', dimensions have the same length")
 
-        dims = [coord_sizes[dim] for dim in data.shape]
-        return xr.DataArray(
-            data, dims=dims, coords={ dim: coords[dim] for dim in dims }
-        )
+        dims = [coord_sizes.get(dim, f'dim_{i}') for i, dim in enumerate(data.shape)]
+        return xr.DataArray(data, dims=dims, coords=coords)
 
     def ndarray(self):
         with self._open_h5_group() as group:
