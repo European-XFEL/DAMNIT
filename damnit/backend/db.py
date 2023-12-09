@@ -19,7 +19,7 @@ V1_SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
 CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
 
-CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance);
+CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type);
 CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
 
 -- These are dummy views that will be overwritten later, but they should at least
@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
 CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
 CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
 """
+
+
+class SummaryType(Enum):
+    # We record summary object types only where it's not clear from the value:
+    # numbers, strings, thumbnails (PNG) don't need a marker.
+
+    # from datetime, stored as seconds since epoch, displayed in local time
+    timestamp = "timestamp"
 
 
 @dataclass
