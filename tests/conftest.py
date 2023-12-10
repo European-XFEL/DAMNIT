@@ -26,7 +26,7 @@ def make_mock_db(ctx, mock_db):
         os.chdir(db_dir)
         reduced_data = extract_in_subprocess(1234, 42,
                                              extracted_data_dir / "p1234_r42.h5",
-                                             mock=True)
+                                             mock=True, sandbox=False)
         add_to_db(reduced_data, db.conn, 1234, 42)
     finally:
         os.chdir(cwd)
