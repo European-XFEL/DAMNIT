@@ -114,9 +114,9 @@ class Bubblewrap:
 
         for path in paths.split():
             path = Path(path)
-            self.add_bind(Path(path), ro=True)
+            self.add_bind(path, ro=True)
             if path.is_symlink():
-                self.add_bind(Path(path).resolve(), ro=True)
+                self.add_bind(path.resolve(), ro=True)
 
     def build_command(self, command: str | list[str]) -> list[str]:
         """Builds the final command for running in the sandbox.
