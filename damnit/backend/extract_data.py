@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import getpass
 import os
 import logging
@@ -27,6 +28,7 @@ from ..context import ContextFile, RunData
 from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import DamnitDB
+from .sandboxing import Bubblewrap
 
 
 
@@ -92,7 +94,7 @@ def tee(path: Optional[Path]):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False, tee_output=None
+        python_exe=None, mock=False, tee_output=None, sandbox=True,
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -105,6 +107,16 @@ def extract_in_subprocess(
         args.append("--mock")
     for m in match:
         args.extend(['--match', m])
+
+    if sandbox:
+        bubblewrap = Bubblewrap()
+        with contextlib.suppress(Exception):
+            bubblewrap.add_bind_proposal(proposal)
+        bubblewrap.add_bind_venv(Path(sys.executable))
+        if python_exe and Path(sys.executable) != Path(python_exe):
+            bubblewrap.add_bind_venv(Path(python_exe))
+        bubblewrap.add_bind(Path(__file__).parents[1] / 'ctxsupport') # ctxsupport_dir
+        args = bubblewrap.build_command(args)
 
     with TemporaryDirectory() as td:
         # Save a separate copy of the reduced data, so we can send an update
