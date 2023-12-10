@@ -34,13 +34,15 @@ class Bubblewrap:
         for path in (
             "/bin",
             "/etc/resolv.conf",
-            "/gpfs/exfel/sw/software",
             "/lib",
             "/lib64",
             "/sbin",
             "/usr",
         ):
             self.add_bind(Path(path), ro=True)
+
+        if Path("/gpfs/exfel/sw/software").exists():
+            self.add_bind(Path("/gpfs/exfel/sw/software"), ro=True)
 
     def add_bind(
         self, source: Path, dest: Path | None = None, ro: bool = False
