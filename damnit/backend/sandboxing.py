@@ -24,12 +24,12 @@ class Bubblewrap:
             "--die-with-parent",  # Kill sandbox if parent process dies
             "--unshare-all",  # Unshare all namespaces
             "--share-net",  # Share network namespace
-            "--dev /dev",  # Bind mount /dev
+            "--dev", "/dev",  # Bind mount /dev
             "--tmpfs /tmp",  # Mount tmpfs on /tmp
-            "--dir /gpfs",  # Create empty directory at /gpfs
+            "--dir", "/gpfs",  # Create empty directory at /gpfs
         ]
 
-        self.command_binds: list[tuple[str, str]] = []
+        self.command_binds: list[tuple[str, str, str]] = []
 
         for path in (
             "/bin",
@@ -66,7 +66,8 @@ class Bubblewrap:
         self.command_binds.append(
             (
                 f"--{'ro-' if ro else ''}bind",
-                f"{shlex.quote(str(source))} {shlex.quote(str(dest))}",
+                shlex.quote(str(source)),
+                shlex.quote(str(dest)),
             )
         )
 

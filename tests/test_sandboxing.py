@@ -43,9 +43,9 @@ def mock_proposal_1111(tmp_path_factory):
 @pytest.mark.parametrize(
     "src,dest,ro,expected",
     [
-        (Path("/source"), None, False, ("--bind", "/source /source")),
-        (Path("/source"), None, True, ("--ro-bind", "/source /source")),
-        (Path("/source"), Path("/dest"), False, ("--bind", "/source /dest")),
+        (Path("/source"), None, False, ("--bind", "/source", "/source")),
+        (Path("/source"), None, True, ("--ro-bind", "/source", "/source")),
+        (Path("/source"), Path("/dest"), False, ("--bind", "/source", "/dest")),
     ],
 )
 def test_add_bind(bubblewrap, src, dest, ro, expected):
@@ -66,7 +66,7 @@ def test_add_bind_proposal(bubblewrap, monkeypatch, mock_proposal_1111):
 
     binds = [b[1] for b in bubblewrap.command_binds]
 
-    assert f"{mock_proposal_1111} {mock_proposal_1111}" in binds
+    assert str(mock_proposal_1111) in binds
 
     assert any("u/usr" in b for b in binds)
     assert any("pnfs/archive" in b for b in binds)
@@ -88,12 +88,13 @@ def test_add_bind_venv(bubblewrap, monkeypatch):
 
     bubblewrap.add_bind_venv(python_exec)
 
-    assert ("--ro-bind", "/path/venv/lib /path/venv/lib") in bubblewrap.command_binds
+    assert ("--ro-bind", "/path/venv/lib", "/path/venv/lib") in bubblewrap.command_binds
     assert (
         "--ro-bind",
-        "/path/venv/include /path/venv/include",
+        "/path/venv/include",
+        "/path/venv/include",
     ) in bubblewrap.command_binds
-    assert ("--ro-bind", "/path/venv/bin /path/venv/bin") in bubblewrap.command_binds
+    assert ("--ro-bind", "/path/venv/bin", "/path/venv/bin") in bubblewrap.command_binds
 
 
 def test_add_bind_venv_with_subprocess(bubblewrap):
@@ -101,4 +102,4 @@ def test_add_bind_venv_with_subprocess(bubblewrap):
     bubblewrap.add_bind_venv(python_exec)
 
     for path in sysconfig.get_paths().values():
-        assert ("--ro-bind", f"{path} {path}") in bubblewrap.command_binds
+        assert ("--ro-bind", str(path), str(path)) in bubblewrap.command_binds
