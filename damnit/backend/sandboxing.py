@@ -135,6 +135,8 @@ class Bubblewrap:
         for bind in self.command_binds:
             _command.extend(bind)
 
+        _command.append("--")  # End of bubblewrap arguments
+
         _command.extend(command if isinstance(command, list) else [command])
 
         return _command
