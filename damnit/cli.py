@@ -252,7 +252,7 @@ def main():
         db = DamnitDB()
 
         if args.migrate_subcmd == "images":
-            migrate_images(db, Path.cwd())
+            migrate_images(db, Path.cwd(), args.dry_run)
         elif args.migrate_subcmd == "v0-to-v1":
             migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
 
