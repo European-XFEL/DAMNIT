@@ -4,8 +4,10 @@ import sysconfig
 from pathlib import Path
 from unittest.mock import MagicMock
 import sys
+from mock import patch
 
 import pytest
+from damnit.backend.extract_data import extract_in_subprocess
 
 from damnit.backend.sandboxing import Bubblewrap
 
@@ -130,3 +132,22 @@ def test_write_in_bwrap_ro_fail(bubblewrap, tmp_path):
     )
 
     assert res != 0
+
+
+@patch("damnit.backend.extract_data.load_reduced_data")
+def test_extract_data_call(bubblewrap, tmp_path):
+    out_path = tmp_path / "out"
+    out_path.mkdir(parents=True)
+
+    with patch("subprocess.run") as subprocess_run:
+        extract_in_subprocess(0, 0, out_path)
+        subprocess_run.assert_called()
+        args = subprocess_run.call_args[0][0]
+        bwrap = args[: args.index("--")]
+
+    out_file = out_path / "touch"
+    subprocess.check_call([*bwrap, "--", "touch", str(out_file)])
+    assert out_file.exists()
+
+    root = Path(__file__).parent.parent
+    subprocess.check_call([*bwrap, "--", "stat", str(root)])
