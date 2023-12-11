@@ -74,7 +74,7 @@ def main():
         '--daemonize', action='store_true',
         help="Start the listener under a separate process managed by supervisord."
     )
-    listen_args_grp.add_argument(
+    listen_ap.add_argument(
         '--no-sandbox', action='store_true',
         help="Start with sandboxing disabled."
     )
@@ -86,6 +86,9 @@ def main():
     reprocess_ap = subparsers.add_parser(
         'reprocess',
         help="Extract data from specified runs. This does not send live updates yet."
+    )
+    reprocess_ap.add_argument(
+        "--no-sandbox", action="store_true",
     )
     reprocess_ap.add_argument(
         "--mock", action="store_true",
@@ -196,7 +199,7 @@ def main():
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
         from .backend.extract_data import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock)
+        reprocess(args.run, args.proposal, args.match, args.mock, args.no_sandbox)
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB
