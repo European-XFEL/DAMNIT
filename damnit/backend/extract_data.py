@@ -117,6 +117,10 @@ def extract_in_subprocess(
             bubblewrap.add_bind_venv(Path(python_exe))
         bubblewrap.add_bind(Path(__file__).parents[1] / 'ctxsupport') # ctxsupport_dir
         bubblewrap.add_bind(out_path.parent.absolute())
+        # NOTE: do not bind mount in the file path, this mount is done via inodes so if
+        # the file is updated by being overwritten then the mounted version will not be
+        # in sync
+        bubblewrap.add_bind(Path.cwd().absolute())
         args = bubblewrap.build_command(args)
 
     with TemporaryDirectory() as td:

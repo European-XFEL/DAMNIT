@@ -50,6 +50,12 @@ class Bubblewrap:
     ) -> None:
         """Adds a bind mount to the sandbox.
 
+        !!! warning
+
+            Bind mounts are done on inodes, if a program updates a file mounted into the
+            sandbox by overwriting it then the inode changes and the file will not be
+            in sync between host/sandbox. To avoid this mount the parent directory.
+
         Args:
             source (Path): The source path to be bind mounted.
             dest (Path, optional): The destination path in the sandbox. If not provided, the source path is used.
