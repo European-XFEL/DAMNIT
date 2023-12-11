@@ -535,10 +535,10 @@ da-dev@xfel.eu"""
         else:
             extension = export_path.suffix
 
-        # Helper function to convert 2D arrays to a string tag. Meant for
+        # Helper function to convert image blobs to a string tag. Meant for
         # applying to a DataFrame.
         def image2str(value):
-            if isinstance(value, np.ndarray) and value.ndim == 3:
+            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
                 return "<image>"
             else:
                 return value
