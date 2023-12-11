@@ -1,3 +1,5 @@
+import os
+import subprocess
 import sysconfig
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -103,3 +105,28 @@ def test_add_bind_venv_with_subprocess(bubblewrap):
 
     for path in sysconfig.get_paths().values():
         assert ("--ro-bind", str(path), str(path)) in bubblewrap.command_binds
+
+
+def test_write_in_bwrap(bubblewrap, tmp_path):
+    bubblewrap.add_bind(tmp_path)
+
+    out = tmp_path / "text"
+    cmd = ["touch", str(out.absolute())]
+    cmd = bubblewrap.build_command(cmd)
+
+    subprocess.check_call(cmd)
+
+    assert out.exists()
+
+    assert out.stat().st_uid == os.getuid()
+
+
+def test_write_in_bwrap_ro_fail(bubblewrap, tmp_path):
+    bubblewrap.add_bind(tmp_path, ro=True)
+
+    res = subprocess.call(
+        bubblewrap.build_command(["touch", str(tmp_path / "hi")]),
+        stderr=subprocess.STDOUT,
+    )
+
+    assert res != 0
