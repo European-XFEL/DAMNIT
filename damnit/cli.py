@@ -1,6 +1,7 @@
 import inspect
 import logging
 import os
+import shutil
 import sys
 import textwrap
 import traceback
@@ -72,6 +73,10 @@ def main():
     listen_args_grp.add_argument(
         '--daemonize', action='store_true',
         help="Start the listener under a separate process managed by supervisord."
+    )
+    listen_args_grp.add_argument(
+        '--no-sandbox', action='store_true',
+        help="Start with sandboxing disabled."
     )
     listen_ap.add_argument(
         'context_dir', type=Path, nargs='?', default='.',
@@ -164,11 +169,19 @@ def main():
         from .backend.db import db_path
         from .backend import initialize_and_start_backend
 
+        sandbox = not args.no_sandbox
+
+        if sandbox and not shutil.which("bwrap"):
+            raise RuntimeError(
+                "`bwrap` executable not found in $PATH, add it to $PATH or start "
+                "backend/listener with `--no-sandbox`"
+            )
+
         if args.daemonize:
             if not db_path(args.context_dir).is_file():
                 sys.exit("You must create a database with `amore-proto proposal` before starting the listener.")
 
-            return initialize_and_start_backend(args.context_dir)
+            return initialize_and_start_backend(args.context_dir, sandbox=sandbox)
         else:
             if args.test:
                 from .backend.test_listener import listen
@@ -176,7 +189,7 @@ def main():
                 from .backend.listener import listen
 
             os.chdir(args.context_dir)
-            return listen()
+            return listen(sandbox=sandbox)
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable

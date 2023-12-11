@@ -324,7 +324,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
         # We expect the database to be initialized and the backend started
         win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
+        initialize_and_start_backend.assert_called_once_with(db_dir, proposal=1234)
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
@@ -346,7 +346,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
         # This time the database is already initialized
         win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
+        initialize_and_start_backend.assert_called_once_with(db_dir, proposal=1234)
 
 def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 
@@ -522,10 +522,10 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
             raise ValueError(f"Error in field_name: the variable name '{field_name}' is not of the form '[a-zA-Z_]\\w+'")
         return db.conn.execute(f"SELECT {field_name} FROM runs WHERE runnr = ?", (run_number,)).fetchone()[0]
 
-    # Check that editing is prevented when trying to modfiy a non-editable column 
+    # Check that editing is prevented when trying to modfiy a non-editable column
     assert open_editor_and_get_delegate("dep_number").widget is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     change_to_value_and_close("15.4")
@@ -536,7 +536,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert abs(get_value_from_db("user_number") - 15.4) < 1e-5
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     # Try to assign a value of the wrong type
@@ -544,7 +544,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value is still the same as before
     assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -554,7 +554,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_number") is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_integer").widget is not None
 
     change_to_value_and_close("42")
@@ -565,7 +565,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_integer") == 42
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_integer").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -575,7 +575,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_integer") is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_string").widget is not None
 
     change_to_value_and_close("Cool string")
@@ -585,7 +585,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_string") == "Cool string"
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_string").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -595,7 +595,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_string") is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     change_to_value_and_close("T")
@@ -605,14 +605,14 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean")
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     change_to_value_and_close("no")
     # Check that the value in the table is of the correct type and value
     assert not get_value_from_field("user_boolean")
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)

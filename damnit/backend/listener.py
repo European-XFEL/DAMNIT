@@ -67,7 +67,8 @@ def watch_processes_finish(q: queue.Queue):
 
 class EventProcessor:
 
-    def __init__(self, context_dir=Path('.')):
+    def __init__(self, sandbox: bool, context_dir=Path('.')):
+        self.sandbox = sandbox
         self.context_dir = context_dir
         self.db = DamnitDB.from_dir(context_dir)
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
@@ -149,11 +150,12 @@ class EventProcessor:
             # Create subprocess to process the run
             extract_proc = subprocess.Popen([
                 sys.executable, '-m', 'damnit.backend.extract_data',
+                '' if self.sandbox else '--no-sandbox',
                 str(proposal), str(run), run_data.value
             ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
         self.extract_procs_queue.put((proposal, run, extract_proc))
 
-def listen():
+def listen(sandbox: bool):
     # Set up logging to a file
     file_handler = logging.FileHandler("amore.log")
     formatter = logging.root.handlers[0].formatter
@@ -161,8 +163,14 @@ def listen():
     logging.root.addHandler(file_handler)
 
     log.info(f"Running on {platform.node()} under user {getpass.getuser()}, PID {os.getpid()}")
+
+    if sandbox:
+        log.info("Sandboxing of processes enabled")
+    else:
+        log.warning("Sandboxing disabled")
+
     try:
-        with EventProcessor() as processor:
+        with EventProcessor(sandbox=sandbox) as processor:
             processor.run()
     except KeyboardInterrupt:
         log.error("Stopping on Ctrl + C")
@@ -176,6 +184,3 @@ def listen():
     # can start the backend).
     if os.stat("amore.log").st_uid == os.getuid():
         os.chmod("amore.log", 0o666)
-
-if __name__ == '__main__':
-    listen()

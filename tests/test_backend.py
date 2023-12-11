@@ -545,7 +545,7 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     pkg = "damnit.backend.supervisord"
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
-        assert initialize_and_start_backend(db_dir, 1234)
+        assert initialize_and_start_backend(db_dir, proposal=1234)
 
     # The directory should be created if it doesn't exist
     assert db_dir.is_dir()
