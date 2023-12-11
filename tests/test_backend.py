@@ -17,7 +17,7 @@ import numpy as np
 import xarray as xr
 
 from damnit.util import wait_until
-from damnit.context import ContextFile, Results, RunData, get_proposal_path
+from damnit.context import ContextFile, PNGData, Results, RunData, get_proposal_path
 from damnit.backend.db import DamnitDB
 from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
@@ -287,12 +287,13 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     figure_ctx = mkcontext(figure_code)
     results = results_create(figure_ctx)
-    assert results.reduced["figure"].ndim == 3
+    assert isinstance(results.reduced["figure"], PNGData)
 
     results_hdf5_path.unlink()
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         assert f["figure/data"].ndim == 3
+        assert f[".reduced/figure"].attrs['damnit_png'] == 1
 
     # Test returning xarray.Datasets
     dataset_code = """
@@ -310,7 +311,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     dataset = xr.open_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
     assert "foo" in dataset
     with h5py.File(results_hdf5_path) as f:
-        assert f[".reduced/dataset"].asstr()[0].startswith("Dataset")
+        assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db, caplog):
@@ -441,7 +442,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     assert out_path.is_file()
 
     with h5py.File(out_path) as f:
-        assert f[".reduced"]["array"].asstr()[0] == "float64: (2, 2, 2, 2)"
+        assert f[".reduced"]["array"].asstr()[()] == "float64: (2, 2, 2, 2)"
         assert f["array"]["data"].shape == (2, 2, 2, 2)
 
     # Helper function to raise an exception when proc data isn't available, like
