@@ -20,12 +20,11 @@ class Bubblewrap:
     def __init__(self):
         self.command = [
             "bwrap",
-            "--disable-userns", # Disable creation of user namespaces in sandbox
             "--die-with-parent",  # Kill sandbox if parent process dies
             "--unshare-all",  # Unshare all namespaces
             "--share-net",  # Share network namespace
             "--dev", "/dev",  # Bind mount /dev
-            "--tmpfs /tmp",  # Mount tmpfs on /tmp
+            "--bind", "/tmp", "/tmp",  # Bind mount tmp in
             "--dir", "/gpfs",  # Create empty directory at /gpfs
         ]
 
