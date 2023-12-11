@@ -116,6 +116,7 @@ def extract_in_subprocess(
         if python_exe and Path(sys.executable) != Path(python_exe):
             bubblewrap.add_bind_venv(Path(python_exe))
         bubblewrap.add_bind(Path(__file__).parents[1] / 'ctxsupport') # ctxsupport_dir
+        bubblewrap.add_bind(out_path.parent.absolute())
         args = bubblewrap.build_command(args)
 
     with TemporaryDirectory() as td:
