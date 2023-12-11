@@ -113,6 +113,18 @@ def test_listen(tmp_path, monkeypatch):
         main()
         listen.assert_called_once()
 
+    with (amore_proto(["listen", "--no-sandbox"]),
+          patch(f"{pkg}.listener.listen") as listen):
+        main()
+        listen.assert_called_once_with(sandbox=False)
+
+    with (amore_proto(["listen"]),
+          patch("shutil.which") as shutil):
+        shutil.return_value = None
+        # Check error raised when sandbox executable not found
+        with pytest.raises(RuntimeError):
+            main()
+
     # Should fail without an existing database
     with (amore_proto(["listen", "--daemonize"]) as initialize_and_start_backend,
           pytest.raises(SystemExit)):
