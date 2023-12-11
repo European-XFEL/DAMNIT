@@ -121,6 +121,9 @@ def extract_in_subprocess(
         # the file is updated by being overwritten then the mounted version will not be
         # in sync
         bubblewrap.add_bind(Path.cwd().absolute())
+        # TODO: done to get both the context file and the DB into the container, should
+        # be changed to work off of their actual paths instead of assuming it's in cwd
+
         args = bubblewrap.build_command(args)
 
     with TemporaryDirectory() as td:
