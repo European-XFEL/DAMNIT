@@ -9,7 +9,7 @@ from .backend.extract_data import add_to_db, ReducedData
 from .ctxsupport.ctxrunner import generate_thumbnail, add_to_h5_file, DataType
 
 
-def migrate_images(db, db_dir):
+def migrate_images(db, db_dir, dry_run):
     proposal = db.metameta.get("proposal")
     if proposal is None:
         raise RuntimeError("Database must have a proposal configured for it to be migrated.")
@@ -17,6 +17,7 @@ def migrate_images(db, db_dir):
     reduced_data = defaultdict(dict)
     files = list((db_dir / "extracted_data").glob("*.h5"))
     n_files = len(files)
+    files_modified = set()
     suffix = "s" if n_files > 1 or n_files == 0 else ""
 
     print(f"Looking through {n_files} HDF5 file{suffix}...")
@@ -29,26 +30,31 @@ def migrate_images(db, db_dir):
                 run = int(h5_path.stem.split("_")[1][1:])
 
                 for ds_name, dset in reduced.items():
-                    if run == 145:
-                        print(f"{ds_name} {dset.ndim=}, {dset.shape=}")
                     if dset.ndim == 2 or (dset.ndim == 3 and dset.shape[2] == 4):
                         # Generate a new thumbnail
                         image = reduced[ds_name][()]
                         image = generate_thumbnail(image)
                         reduced_data[run][ds_name] = ReducedData(image)
+                        files_modified.add(h5_path)
 
-                        # Overwrite the dataset
-                        del reduced[ds_name]
-                        dset = reduced.create_dataset(
-                            ds_name, data=np.frombuffer(image.data, dtype=np.uint8)
-                        )
-                        dset.attrs['damnit_png'] = 1
+                        if not dry_run:
+                            # Overwrite the dataset
+                            del reduced[ds_name]
+                            dset = reduced.create_dataset(
+                                ds_name, data=np.frombuffer(image.data, dtype=np.uint8)
+                            )
+                            dset.attrs['damnit_png'] = 1
 
     # And then update the summaries in the database
     for run, run_reduced_data in reduced_data.items():
-        add_to_db(run_reduced_data, db, proposal, run)
+        if not dry_run:
+            add_to_db(run_reduced_data, db, proposal, run)
 
-    print(f"Migration completed successfully, updated {len(reduced_data)} run{suffix}.")
+    info = f"updated {len(reduced_data)} variables in {len(files_modified)} files"
+    if dry_run:
+        print(f"Dry run: would have {info}.")
+    else:
+        print(f"Migration completed successfully, {info}")
 
 def dataarray_from_group(group):
     data = group["data"][()]
