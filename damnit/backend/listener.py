@@ -148,11 +148,15 @@ class EventProcessor:
 
         with log_path.open('ab') as logf:
             # Create subprocess to process the run
-            extract_proc = subprocess.Popen([
-                sys.executable, '-m', 'damnit.backend.extract_data',
-                '' if self.sandbox else '--no-sandbox',
-                str(proposal), str(run), run_data.value
-            ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
+            cmd = [sys.executable, '-m', 'damnit.backend.extract_data', str(proposal),
+                   str(run), run_data.value]
+
+            if not self.sandbox:
+                cmd.append('--no-sandbox')
+
+            extract_proc = subprocess.Popen(
+                cmd, cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT
+            )
         self.extract_procs_queue.put((proposal, run, extract_proc))
 
 def listen(sandbox: bool):
