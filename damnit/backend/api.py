@@ -31,7 +31,7 @@ class VariableData:
 
     @staticmethod
     def _type_hint(group):
-        hint_s = group.attrs.get('damnit_objtype', '')
+        hint_s = group.attrs.get('_damnit_objtype', '')
         if hint_s:
             return DataType(hint_s)
         return None
@@ -59,7 +59,11 @@ class VariableData:
 
     def _read_netcdf(self, one_array=False):
         load = xr.load_dataarray if one_array else xr.load_dataset
-        return load(self._h5_path, group=self.name, engine="h5netcdf")
+        obj = load(self._h5_path, group=self.name, engine="h5netcdf")
+        # Remove internal attributes from loaded object
+        obj.attrs = {k: v for (k, v) in obj.attrs.items()
+                     if not k.startswith('_damnit_')}
+        return obj
 
     def xarray(self):
         with self._open_h5_group() as group:
