@@ -231,7 +231,7 @@ class TableView(QtWidgets.QTableView):
         blacklist_columns = []
         for column in obj_columns.index:
             for item in df[column]:
-                if isinstance(item, np.ndarray):
+                if isinstance(item, bytes) and BlobTypes.identify(item) is BlobTypes.png:
                     blacklist_columns.append(column)
                     break
                    
@@ -291,23 +291,17 @@ class Table(QtCore.QAbstractTableModel):
         return True
 
     @lru_cache(maxsize=1000)
-    def generateThumbnail(self, run, proposal, quantity) -> QtGui.QPixmap:
+    def generateThumbnail(self, data: bytes) -> QtGui.QPixmap:
         """
-        Helper function to generate a thumbnail for a 2D array.
-
-        Note that we require an index for self._data as the argument instead of
-        an ndarray. That's because this function is quite expensive and called
-        very often by self.data(), so for performance we try to cache the
-        thumbnails with @lru_cache. Unfortunately ndarrays are not hashable so
-        we have to take an index instead.
+        Helper function to generate a thumbnail from PNG data.
         """
-        df_row = self._data.loc[(self._data["Run"] == run) & (self._data["Proposal"] == proposal)]
-        image = df_row[quantity].item()
-
-        height, width = image.shape[:2]
-        image = QtGui.QImage(image.data, width, height, QtGui.QImage.Format_ARGB32)
-        return QtGui.QPixmap(image).scaled(QtCore.QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
-                                           Qt.KeepAspectRatio)
+        pixmap = QtGui.QPixmap()
+        pixmap.loadFromData(data, "PNG")
+        if max(pixmap.height(), pixmap.width()) > THUMBNAIL_SIZE:
+            pixmap = pixmap.scaled(
+                THUMBNAIL_SIZE, THUMBNAIL_SIZE, Qt.KeepAspectRatio
+            )
+        return pixmap
 
     def variable_is_constant(self, run, proposal, quantity):
         """
@@ -351,17 +345,10 @@ class Table(QtCore.QAbstractTableModel):
 
         elif role == Qt.DecorationRole:
             if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
-                pixmap = QtGui.QPixmap()
-                pixmap.loadFromData(value, "PNG")
-                if max(pixmap.height(), pixmap.width()) > THUMBNAIL_SIZE:
-                    pixmap = pixmap.scaled(
-                        THUMBNAIL_SIZE, THUMBNAIL_SIZE, Qt.KeepAspectRatio
-                    )
-                return pixmap
-            if isinstance(value, np.ndarray):
-                return self.generateThumbnail(run, proposal, quantity_title)
+                return self.generateThumbnail(value)
+
         elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            if isinstance(value, (np.ndarray, bytes)):
+            if isinstance(value, bytes):
                 # The image preview for this is taken care of by the DecorationRole
                 return None
 

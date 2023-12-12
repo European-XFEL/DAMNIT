@@ -53,7 +53,6 @@ class ReducedData:
 class BlobTypes(Enum):
     png = 'png'
     numpy = 'numpy'
-    pickle = 'pickle'  # We try to avoid pickle, but have used it in the past
     unknown = 'unknown'
 
     @classmethod
@@ -62,10 +61,6 @@ class BlobTypes(Enum):
             return cls.png
         elif blob.startswith(b'\x93NUMPY'):
             return cls.numpy
-        elif blob.startswith(b'\x80'):
-            # Since pickle v2 (Python 2.3), all pickles start with a protocol
-            # version opcode (0x80).
-            return cls.pickle
 
         return cls.unknown
 
