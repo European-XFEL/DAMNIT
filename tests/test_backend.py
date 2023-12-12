@@ -293,7 +293,6 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         assert f["figure/data"].ndim == 3
-        assert f[".reduced/figure"].attrs['damnit_png'] == 1
 
     # Test returning xarray.Datasets
     dataset_code = """

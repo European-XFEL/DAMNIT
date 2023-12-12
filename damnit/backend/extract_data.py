@@ -156,7 +156,8 @@ def load_reduced_data(h5_path):
         # If it's a string, extract the string
         if h5py.check_string_dtype(ds.dtype) is not None:
             return ds.asstr()[()]
-        elif ds.attrs.get('damnit_png', 0) == 1:
+        elif (ds.ndim == 1 and ds.dtype == np.uint8
+              and ds[:8].tobytes() == b'\x89PNG\r\n\x1a\n'):
             return PNGData(ds[()].tobytes())
         else:
             value = ds[()]

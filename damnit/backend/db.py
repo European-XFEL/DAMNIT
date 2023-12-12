@@ -57,7 +57,7 @@ class BlobTypes(Enum):
 
     @classmethod
     def identify(cls, blob: bytes):
-        if blob.startswith(b'\x89PNG\r\n\x1a\x0a'):
+        if blob.startswith(b'\x89PNG\r\n\x1a\n'):
             return cls.png
         elif blob.startswith(b'\x93NUMPY'):
             return cls.numpy
