@@ -431,7 +431,7 @@ class Results:
                     del f[name]
 
             for grp_name, hint in obj_type_hints.items():
-                f.require_group(grp_name).attrs['damnit_objtype'] = hint.value
+                f.require_group(grp_name).attrs['_damnit_objtype'] = hint.value
 
             # Create datasets before filling them, so metadata goes near the
             # start of the file.

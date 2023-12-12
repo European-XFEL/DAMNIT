@@ -107,7 +107,7 @@ def migrate_dataarrays(db, db_dir, dry_run):
                 if not dry_run:
                     f[name].clear()
                     f[name].attrs.clear()
-                    f[name].attrs['damnit_objtype'] = DataType.DataArray.value
+                    f[name].attrs['_damnit_objtype'] = DataType.DataArray.value
 
         for name, arr in groups_to_replace:
             print(f"{would}Save {name} in {h5_path.relative_to(db_dir)}")
