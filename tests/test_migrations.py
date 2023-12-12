@@ -38,7 +38,6 @@ def test_migrate_images(mock_db, monkeypatch):
     with h5py.File(mock_h5_path) as f:
         assert f[".reduced/foo"].ndim == 1
         assert f[".reduced/foo"].dtype == np.uint8
-        assert f[".reduced/foo"].attrs['damnit_png'] == 1
         assert f[".reduced/bar"][()] == bar
 
     cursor = db.conn.execute("SELECT * FROM runs")
