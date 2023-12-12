@@ -1,6 +1,5 @@
 import os
 import stat
-import pickle
 import signal
 import logging
 import graphlib
@@ -376,7 +375,7 @@ def test_add_to_db(mock_db):
         "scalar": 42,
         "np_scalar": np.float32(10),
         "zero_dim_array": np.asarray(42),
-        "image": np.random.rand(10, 10)
+        "image": b'\x89PNG\r\n\x1a\n...'  # Not a valid PNG, but good enough for this
     }
 
     add_to_db(reduced_data_from_dict(reduced_data), db, 1234, 42)
@@ -388,7 +387,7 @@ def test_add_to_db(mock_db):
     assert row["scalar"] == reduced_data["scalar"]
     assert row["np_scalar"] == reduced_data["np_scalar"].item()
     assert row["zero_dim_array"] == reduced_data["zero_dim_array"].item()
-    np.testing.assert_array_equal(pickle.loads(row["image"]), reduced_data["image"])
+    assert row["image"] == reduced_data["image"]
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
@@ -421,7 +420,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         extractor = Extractor()
 
     # Test regular variables and slurm variables are executed
-    reduced_data = reduced_data_from_dict({ "array": np.arange(10) })
+    reduced_data = reduced_data_from_dict({ "n": 53 })
     with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
          patch(f"{pkg}.subprocess.run") as subprocess_run:
         extractor.extract_and_ingest(1234, 42, cluster=False,
