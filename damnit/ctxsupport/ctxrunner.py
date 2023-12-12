@@ -444,7 +444,6 @@ class Results:
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
-                    f[path].attrs['damnit_png'] = 1
                 else:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
