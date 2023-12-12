@@ -199,10 +199,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
     for name, reduced in reduced_data.items():
         value = reduced.value
 
-        # For convenience, all returned values from Variables are stored in
-        # arrays. If a Variable returns a scalar then we'll end up with a
-        # zero-dimensional array here which will be pickled, so we unbox all
-        # zero-dimensional arrays first.
+        # Unbox 0D arrays to get a scalar
         if isinstance(value, (np.ndarray, np.generic)) and value.ndim == 0:
             value = value.item()
 
@@ -211,7 +208,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
 
         # Serialize non-SQLite-supported types
         if not isinstance(value, (int, float, str, bytes)):
-            value = pickle.dumps(value)
+            raise TypeError(f"Unsupported type for database: {type(value)}")
 
         reduced.value = value
         db.set_variable(proposal, run, name, reduced)
