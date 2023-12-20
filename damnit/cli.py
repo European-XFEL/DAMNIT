@@ -199,7 +199,7 @@ def main():
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
         from .backend.extract_data import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock, args.no_sandbox)
+        reprocess(args.run, args.proposal, args.match, args.mock, not args.no_sandbox)
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB
