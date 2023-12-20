@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import getpass
 import os
 import logging
@@ -27,6 +28,7 @@ from ..context import ContextFile, RunData
 from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import DamnitDB
+from .sandboxing import Bubblewrap
 
 
 
@@ -92,7 +94,7 @@ def tee(path: Optional[Path]):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False, tee_output=None
+        python_exe=None, mock=False, tee_output=None, sandbox=True,
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -105,6 +107,24 @@ def extract_in_subprocess(
         args.append("--mock")
     for m in match:
         args.extend(['--match', m])
+
+    if sandbox:
+        bubblewrap = Bubblewrap()
+        with contextlib.suppress(Exception):
+            bubblewrap.add_bind_proposal(proposal)
+        bubblewrap.add_bind_venv(Path(sys.executable))
+        if python_exe and Path(sys.executable) != Path(python_exe):
+            bubblewrap.add_bind_venv(Path(python_exe))
+        bubblewrap.add_bind(Path(__file__).parents[1] / 'ctxsupport') # ctxsupport_dir
+        bubblewrap.add_bind(out_path.parent.absolute())
+        # NOTE: do not bind mount in the file path, this mount is done via inodes so if
+        # the file is updated by being overwritten then the mounted version will not be
+        # in sync
+        bubblewrap.add_bind(Path.cwd().absolute())
+        # TODO: done to get both the context file and the DB into the container, should
+        # be changed to work off of their actual paths instead of assuming it's in cwd
+
+        args = bubblewrap.build_command(args)
 
     with TemporaryDirectory() as td:
         # Save a separate copy of the reduced data, so we can send an update
@@ -217,7 +237,8 @@ def add_to_db(reduced_data, db: sqlite3.Connection, proposal, run):
 class Extractor:
     _proposal = None
 
-    def __init__(self):
+    def __init__(self, sandbox=True):
+        self.sandbox = sandbox
         self.db = DamnitDB()
         self.kafka_prd = KafkaProducer(
             bootstrap_servers=UPDATE_BROKERS,
@@ -266,6 +287,7 @@ class Extractor:
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
             match=match, python_exe=python_exe, mock=mock, tee_output=tee_output,
+            sandbox=self.sandbox
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db.conn, proposal, run)
@@ -284,6 +306,9 @@ class Extractor:
                           '--cluster-job', str(proposal), str(run), run_data.value]
             for m in match:
                 python_cmd.extend(["--match", m])
+
+            if not self.sandbox:
+                python_cmd.append("--no-sandbox")
 
             res = subprocess.run([
                 'sbatch', '--parsable',
@@ -305,9 +330,9 @@ def proposal_runs(proposal):
     return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
 
 
-def reprocess(runs, proposal=None, match=(), mock=False):
+def reprocess(runs, proposal=None, match=(), mock=False, sandbox=True):
     """Called by the 'amore-proto reprocess' subcommand"""
-    extr = Extractor()
+    extr = Extractor(sandbox=sandbox)
     if proposal is None:
         proposal = extr.proposal
 
@@ -376,6 +401,7 @@ if __name__ == '__main__':
     ap.add_argument('run', type=int)
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
     ap.add_argument('--cluster-job', action="store_true")
+    ap.add_argument('--no-sandbox', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
@@ -389,7 +415,7 @@ if __name__ == '__main__':
         log.info("Extracting cluster variables in Slurm job %s on %s",
                  os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
 
-    Extractor().extract_and_ingest(args.proposal, args.run,
+    Extractor(sandbox=not args.no_sandbox).extract_and_ingest(args.proposal, args.run,
                                    cluster=args.cluster_job,
                                    run_data=RunData(args.run_data),
                                    match=args.match)

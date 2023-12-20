@@ -80,7 +80,7 @@ def write_supervisord_conf(root_path):
     if config_path.stat().st_uid == os.getuid():
         os.chmod(config_path, 0o666)
 
-def start_backend(root_path: Path, try_again=True):
+def start_backend(root_path: Path, sandbox: bool, try_again=True):
     config_path = root_path / "supervisord.conf"
     if not config_path.is_file():
         write_supervisord_conf(root_path)
@@ -106,10 +106,10 @@ def start_backend(root_path: Path, try_again=True):
             return False
 
         if try_again:
-            return start_backend(root_path, try_again=False)
+            return start_backend(root_path, sandbox, try_again=False)
     elif rc == 3:
         # 3 means it's stopped and we need to start the program
-        cmd = subprocess.run([*supervisorctl, "start", "damnit"])
+        cmd = subprocess.run([*supervisorctl, "start", "damnit", "" if sandbox else "--no-sandbox"])
         if cmd.returncode != 0:
             log.error(f"Couldn't start supervisord, tried to run command: {' '.join(cmd)}\n"
                       f"Return code: {cmd.returncode}"
@@ -134,7 +134,7 @@ def start_backend(root_path: Path, try_again=True):
 
     return True
 
-def initialize_and_start_backend(root_path, proposal=None):
+def initialize_and_start_backend(root_path, sandbox = True, proposal=None):
     # Ensure the directory exists
     root_path.mkdir(parents=True, exist_ok=True)
     if root_path.stat().st_uid == os.getuid():
@@ -160,4 +160,4 @@ def initialize_and_start_backend(root_path, proposal=None):
         os.chmod(context_path, 0o666)
 
     # Start backend
-    return start_backend(root_path)
+    return start_backend(root_path, sandbox)

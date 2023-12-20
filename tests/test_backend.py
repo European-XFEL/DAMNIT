@@ -354,7 +354,8 @@ def test_add_to_db(mock_db):
     np.testing.assert_array_equal(pickle.loads(row["image"]), reduced_data["image"])
     assert row["none"] == reduced_data["none"]
 
-def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
+@pytest.mark.parametrize("sandbox", [True, False])
+def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch, sandbox):
     # Change to the DB directory
     db_dir, db = mock_db
     db.metameta["proposal"] = 1234
@@ -382,7 +383,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Create Extractor with a mocked KafkaProducer
     with patch(f"{pkg}.KafkaProducer") as _:
-        extractor = Extractor()
+        extractor = Extractor(sandbox=sandbox)
 
     # Test regular variables and slurm variables are executed
     reduced_data = { "array": np.arange(10) }
@@ -391,8 +392,13 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         extractor.extract_and_ingest(1234, 42, cluster=False,
                                      run_data=RunData.ALL)
         extract_in_subprocess.assert_called_once()
+        assert extract_in_subprocess.call_args[1].get("sandbox") == sandbox
         extractor.kafka_prd.send.assert_called_once()
         subprocess_run.assert_called_once()
+
+        if not sandbox:
+            # checks flag in value of sbatch wrap
+            assert "--no-sandbox" in subprocess_run.call_args[0][0][-1]
 
     # This works because we loaded damnit.context above
     from ctxrunner import main
@@ -545,7 +551,7 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     pkg = "damnit.backend.supervisord"
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
-        assert initialize_and_start_backend(db_dir, 1234)
+        assert initialize_and_start_backend(db_dir, proposal=1234)
 
     # The directory should be created if it doesn't exist
     assert db_dir.is_dir()
