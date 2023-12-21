@@ -123,6 +123,11 @@ def migrate_dataarrays(db, db_dir, dry_run):
 
 
 def main_dataset(grp: h5py.Group):
+    """Get the main dataset from a group representing an xarray or numpy array.
+
+    For an xarray DataArray, this is the one that's not coordinate labels.
+    We're assuming these groups have already been converted to NetCDF format.
+    """
     candidates = {name for (name, dset) in grp.items()
                   if dset.attrs.get('CLASS', b'') != b'DIMENSION_SCALE'}
     if len(candidates) == 1:
@@ -172,6 +177,8 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
                     continue
 
                 if (ds := main_dataset(f[name])) is None:
+                    print(f"Couldn't identify main dataset for {name} in "
+                          f"{h5_path}, skipping max_diff")
                     continue
 
                 if 'max_diff' in ds.attrs:
