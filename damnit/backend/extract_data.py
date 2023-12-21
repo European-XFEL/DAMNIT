@@ -25,7 +25,7 @@ from kafka import KafkaProducer
 from ..context import ContextFile, RunData
 from ..ctxsupport.ctxrunner import get_user_variables, PNGData
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
-from .db import DamnitDB, ReducedData
+from .db import DamnitDB, ReducedData, BlobTypes
 
 
 
@@ -157,7 +157,7 @@ def load_reduced_data(h5_path):
         if h5py.check_string_dtype(ds.dtype) is not None:
             return ds.asstr()[()]
         elif (ds.ndim == 1 and ds.dtype == np.uint8
-              and ds[:8].tobytes() == b'\x89PNG\r\n\x1a\n'):
+              and BlobTypes.identify(ds[:8].tobytes()) is BlobTypes.png):
             return PNGData(ds[()].tobytes())
         else:
             value = ds[()]
