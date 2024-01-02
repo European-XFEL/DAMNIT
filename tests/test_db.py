@@ -3,8 +3,9 @@ def test_metameta(mock_db):
     _, db = mock_db
 
     # Test various parts of the mutable mapping API
-    assert set(db.metameta.keys()) == {'db_id'}
+    assert set(db.metameta.keys()) == {'db_id', 'data_format_version'}
     del db.metameta['db_id']
+    del db.metameta['data_format_version']
     assert len(db.metameta) == 0
 
     db.metameta['a'] = 12
@@ -24,7 +25,7 @@ def test_run_comment(mock_db):
     db.ensure_run(1234, 5, added_at=1670498578.)
     db.change_run_comment(1234, 5, 'Test comment')
     runs = [tuple(r) for r in db.conn.execute(
-        "SELECT proposal, runnr, comment FROM runs"
+        "SELECT proposal, run, comment FROM runs"
     )]
     assert runs == [(1234, 5, 'Test comment')]
 

@@ -2,6 +2,7 @@ import logging
 import numpy as np
 import pandas as pd
 import tempfile
+import xarray as xr
 from pandas.api.types import is_numeric_dtype
 
 from PyQt5.QtCore import Qt
@@ -18,6 +19,7 @@ from matplotlib import cm as mpl_cm
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
 from .zulip_messenger import ZulipMessenger
+from ..backend.api import RunVariables
 
 log = logging.getLogger(__name__)
 
@@ -251,18 +253,30 @@ class Canvas(QtWidgets.QDialog):
 
             return
         elif image is not None:
+            is_color_image = image.ndim == 3
+
             if np.all(np.isnan(image)):
                 self._nan_warning_label.show()
 
+            interpolation = "antialiased" if is_color_image else "nearest"
+
             if self._image is None:
-                self._image = self._axis.imshow(image, interpolation="nearest")
-                self.figure.colorbar(self._image, ax=self._axis)
+                self._image = self._axis.imshow(image, interpolation=interpolation)
+                if not is_color_image:
+                    self.figure.colorbar(self._image, ax=self._axis)
             else:
                 self._image.set_array(image)
 
-            vmin = np.nanquantile(image, 0.01, interpolation='nearest')
-            vmax = np.nanquantile(image, 0.99, interpolation='nearest')
-            self._image.set_clim(vmin, vmax)
+            # Specific settings for color/noncolor images
+            if is_color_image:
+                self._axis.tick_params(left=False, bottom=False,
+                                       labelleft=False, labelbottom=False)
+                self._axis.set_xlabel("")
+                self._axis.set_ylabel("")
+            else:
+                vmin = np.nanquantile(image, 0.01, interpolation='nearest')
+                vmax = np.nanquantile(image, 0.99, interpolation='nearest')
+                self._image.set_clim(vmin, vmax)
         else:
             self._axis.grid(visible=True)
             self.data_x = xs
@@ -542,8 +556,8 @@ class Plot:
                 try:
                     correlated, xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
                     strongly_correlated = strongly_correlated and correlated
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning(f"Couldn't retrieve data for '{xlabel}', '{ylabel}': {e}")
                 else:
                     runs.append(r)
                     xs.append(xi)
@@ -642,30 +656,23 @@ class Plot:
             ci.update_canvas(xs, ys)
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
-        file_name, dataset = self._main_window.get_run_file(proposal, run)
+        variables = RunVariables(self._main_window._context_path.parent, run)
+        # file_name, dataset = self._main_window.get_run_file(proposal, run)
 
         x_quantity = self._main_window.col_title_to_name(xlabel)
         y_quantity = self._main_window.col_title_to_name(ylabel)
+        x_variable = variables[x_quantity]
+        y_variable = variables[y_quantity]
 
         strongly_correlated = False
-        try:
-            x_ds, y_ds = dataset[x_quantity], dataset[y_quantity]
 
-            # If these variables are train-resolved, correlate by train ID
-            if "trainId" in x_ds and "trainId" in y_ds:
-                x_tids, y_tids = x_ds["trainId"][:], y_ds["trainId"][:]
-                tids, x_idxs, y_idxs = np.intersect1d(x_tids, y_tids, return_indices=True)
-
-                x = x_ds["data"][x_idxs]
-                y = y_ds["data"][y_idxs]
-                strongly_correlated = True
-            else:
-                x = x_ds["data"][:]
-                y = y_ds["data"][:]
-        except KeyError as e:
-            log.warning(f"{xlabel} or {ylabel} could not be found in {file_name}")
-            raise e
-        finally:
-            dataset.close()
+        x = x_variable.read()
+        y = y_variable.read()
+        if isinstance(x, xr.DataArray) and "trainId" in x.coords and \
+           isinstance(y, xr.DataArray) and "trainId" in y.coords:
+            tids = np.intersect1d(x.trainId, y.trainId)
+            x = x.sel(trainId=tids)
+            y = y.sel(trainId=tids)
+            strongly_correlated = True
 
         return strongly_correlated, x, y
