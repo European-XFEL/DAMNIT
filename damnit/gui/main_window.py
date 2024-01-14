@@ -1137,7 +1137,7 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             )
             if not ok:
                 return False
-        initialize_and_start_backend(context_dir, prop_no)
+        initialize_and_start_backend(context_dir, proposal=prop_no)
 
     # Check if the backend is running
     elif not backend_is_running(context_dir):
@@ -1147,7 +1147,7 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             "This is only necessary if new runs are expected."
         )
         if button == QMessageBox.Yes:
-            initialize_and_start_backend(context_dir, prop_no)
+            initialize_and_start_backend(context_dir, proposal=prop_no)
 
     return True
 

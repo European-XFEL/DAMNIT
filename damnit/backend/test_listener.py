@@ -55,9 +55,9 @@ class TestEventProcessor(EventProcessor):
                 log.error("Error processing event", exc_info=True)
 
 
-def listen():
+def listen(sandbox: bool):
     try:
-        with TestEventProcessor() as processor:
+        with TestEventProcessor(sandbox) as processor:
             processor.run()
     except KeyboardInterrupt:
         print("Stopping on Ctrl-C")

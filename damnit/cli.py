@@ -1,6 +1,7 @@
 import inspect
 import logging
 import os
+import shutil
 import sys
 import textwrap
 import traceback
@@ -74,6 +75,10 @@ def main():
         help="Start the listener under a separate process managed by supervisord."
     )
     listen_ap.add_argument(
+        '--no-sandbox', action='store_true',
+        help="Start with sandboxing disabled."
+    )
+    listen_ap.add_argument(
         'context_dir', type=Path, nargs='?', default='.',
         help="Directory to store summarised results"
     )
@@ -81,6 +86,9 @@ def main():
     reprocess_ap = subparsers.add_parser(
         'reprocess',
         help="Extract data from specified runs. This does not send live updates yet."
+    )
+    reprocess_ap.add_argument(
+        "--no-sandbox", action="store_true",
     )
     reprocess_ap.add_argument(
         "--mock", action="store_true",
@@ -164,11 +172,19 @@ def main():
         from .backend.db import db_path
         from .backend import initialize_and_start_backend
 
+        sandbox = not args.no_sandbox
+
+        if sandbox and not shutil.which("bwrap"):
+            raise RuntimeError(
+                "`bwrap` executable not found in $PATH, add it to $PATH or start "
+                "backend/listener with `--no-sandbox`"
+            )
+
         if args.daemonize:
             if not db_path(args.context_dir).is_file():
                 sys.exit("You must create a database with `amore-proto proposal` before starting the listener.")
 
-            return initialize_and_start_backend(args.context_dir)
+            return initialize_and_start_backend(args.context_dir, sandbox=sandbox)
         else:
             if args.test:
                 from .backend.test_listener import listen
@@ -176,14 +192,14 @@ def main():
                 from .backend.listener import listen
 
             os.chdir(args.context_dir)
-            return listen()
+            return listen(sandbox=sandbox)
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
         from .backend.extract_data import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock)
+        reprocess(args.run, args.proposal, args.match, args.mock, not args.no_sandbox)
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB

@@ -30,6 +30,9 @@ jobs:
       with:
         packages: ${{ env.SYSTEM_PACKAGES }}
 
+    - name: Install bubblewrap
+      run: sudo apt update -y && sudo apt install bubblewrap -y
+
     - uses: actions/cache@v3
       with:
         path: ~/.cache/pip
