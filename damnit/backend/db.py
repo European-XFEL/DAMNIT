@@ -19,7 +19,7 @@ V1_SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
 CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
 
-CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type);
+CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type, summary_method);
 CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
 
 -- These are dummy views that will be overwritten later, but they should at least
@@ -48,6 +48,7 @@ class ReducedData:
     """
     value: Any
     max_diff: float = None
+    summary_method: str = ''
 
 
 class BlobTypes(Enum):
@@ -226,7 +227,7 @@ class DamnitDB:
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance"]
+        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method"]
         col_list = ", ".join(cols)
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])

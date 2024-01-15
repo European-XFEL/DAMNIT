@@ -166,8 +166,11 @@ def load_reduced_data(h5_path):
 
     with h5py.File(h5_path, 'r') as f:
         return {
-            name: ReducedData(get_dset_value(dset),
-                              dset.attrs.get("max_diff", np.array(None)).item())
+            name: ReducedData(
+                get_dset_value(dset),
+                max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
+                summary_method=dset.attrs.get("summary_method", "")
+            )
             for name, dset in f['.reduced'].items()
         }
 
