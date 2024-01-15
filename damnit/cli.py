@@ -249,7 +249,7 @@ def main():
         from .backend.db import DamnitDB
         from .migrations import migrate_images, migrate_v0_to_v1
 
-        db = DamnitDB()
+        db = DamnitDB(allow_old=True)
 
         if args.migrate_subcmd == "images":
             migrate_images(db, Path.cwd(), args.dry_run)
