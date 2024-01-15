@@ -199,9 +199,23 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
     new_db_path = db_dir / "runs.v1.sqlite"
     new_db_path.unlink(missing_ok=True)  # Clear any previous attempt
     new_db = DamnitDB(new_db_path)
+
+    # Copy the metadata
     for k, v in db.metameta.items():
         if k != "data_format_version":
             new_db.metameta[k] = v
+
+    # Copy the user-editable variables and standalone comments
+    for table in ["variables", "time_comments"]:
+        rows = db.conn.execute(f"SELECT * FROM {table}").fetchall()
+        if len(rows) == 0:
+            continue
+
+        placeholder = ", ".join(["?" for _ in rows[0]])
+        new_db.conn.executemany(f"""
+            INSERT INTO {table}
+            VALUES ({placeholder})
+        """, rows)
 
     # Load the data into the new database
     total_vars = 0
