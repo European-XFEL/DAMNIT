@@ -14,6 +14,7 @@ dynamic = ["version", "description"]
 dependencies = [
     "EXtra-data",
     "euxfel_bunch_pattern",
+    "h5netcdf",
     "ipython",
     "kafka-python",
     "matplotlib",
@@ -58,3 +59,4 @@ amore-proto = "damnit.cli:main"
 
 [tool.pytest.ini_options]
 timeout = 120
+norecursedirs = "tests/helpers"

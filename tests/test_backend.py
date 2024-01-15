@@ -1,6 +1,5 @@
 import os
 import stat
-import pickle
 import signal
 import logging
 import graphlib
@@ -17,14 +16,14 @@ import numpy as np
 import xarray as xr
 
 from damnit.util import wait_until
-from damnit.context import ContextFile, Results, RunData, get_proposal_path
+from damnit.context import ContextFile, PNGData, Results, RunData, get_proposal_path
 from damnit.backend.db import DamnitDB
 from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
 from damnit.backend.supervisord import write_supervisord_conf
 from damnit.gui.main_window import MainWindow
 
-from .conftest import mkcontext
+from .helpers import reduced_data_from_dict, mkcontext
 
 
 def kill_pid(pid):
@@ -274,6 +273,44 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert "foo/trainId" not in f
 
+    figure_code = """
+    from damnit_ctx import Variable
+    from matplotlib import pyplot as plt
+
+    @Variable(title="Figure")
+    def figure(run):
+        fig = plt.figure()
+        plt.plot([1, 2, 3, 4], [4, 3, 2, 1])
+
+        return fig
+    """
+    figure_ctx = mkcontext(figure_code)
+    results = results_create(figure_ctx)
+    assert isinstance(results.reduced["figure"], PNGData)
+
+    results_hdf5_path.unlink()
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        assert f["figure/data"].ndim == 3
+
+    # Test returning xarray.Datasets
+    dataset_code = """
+    from damnit_ctx import Variable
+    import xarray as xr
+
+    @Variable(title="Dataset")
+    def dataset(run):
+        return xr.Dataset(data_vars={ "foo": xr.DataArray([1, 2, 3]) })
+    """
+    dataset_ctx = mkcontext(dataset_code)
+    results = results_create(dataset_ctx)
+    results.save_hdf5(results_hdf5_path)
+
+    dataset = xr.open_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
+    assert "foo" in dataset
+    with h5py.File(results_hdf5_path) as f:
+        assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
+
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db, caplog):
 
@@ -289,7 +326,7 @@ def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db
         "user_string": "foo"
     }
 
-    add_to_db(reduced_data, db, proposal, run_number)
+    add_to_db(reduced_data_from_dict(reduced_data), db, proposal, run_number)
 
     results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, additional_inputs={ "db_conn" : db})
 
@@ -334,15 +371,14 @@ def test_add_to_db(mock_db):
     db_dir, db = mock_db
 
     reduced_data = {
-        "none": None,
         "string": "foo",
         "scalar": 42,
         "np_scalar": np.float32(10),
         "zero_dim_array": np.asarray(42),
-        "image": np.random.rand(10, 10)
+        "image": b'\x89PNG\r\n\x1a\n...'  # Not a valid PNG, but good enough for this
     }
 
-    add_to_db(reduced_data, db.conn, 1234, 42)
+    add_to_db(reduced_data_from_dict(reduced_data), db, 1234, 42)
 
     cursor = db.conn.execute("SELECT * FROM runs")
     row = cursor.fetchone()
@@ -351,8 +387,7 @@ def test_add_to_db(mock_db):
     assert row["scalar"] == reduced_data["scalar"]
     assert row["np_scalar"] == reduced_data["np_scalar"].item()
     assert row["zero_dim_array"] == reduced_data["zero_dim_array"].item()
-    np.testing.assert_array_equal(pickle.loads(row["image"]), reduced_data["image"])
-    assert row["none"] == reduced_data["none"]
+    assert row["image"] == reduced_data["image"]
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
@@ -385,7 +420,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         extractor = Extractor()
 
     # Test regular variables and slurm variables are executed
-    reduced_data = { "array": np.arange(10) }
+    reduced_data = reduced_data_from_dict({ "n": 53 })
     with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
          patch(f"{pkg}.subprocess.run") as subprocess_run:
         extractor.extract_and_ingest(1234, 42, cluster=False,
@@ -405,7 +440,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     assert out_path.is_file()
 
     with h5py.File(out_path) as f:
-        assert f[".reduced"]["array"].asstr()[0] == "float64: (2, 2, 2, 2)"
+        assert f[".reduced"]["array"].asstr()[()] == "float64: (2, 2, 2, 2)"
         assert f["array"]["data"].shape == (2, 2, 2, 2)
 
     # Helper function to raise an exception when proc data isn't available, like
@@ -450,7 +485,7 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    ctxrunner_deps = ["extra_data"]
+    ctxrunner_deps = ["extra_data", "matplotlib"]
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.

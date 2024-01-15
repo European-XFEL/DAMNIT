@@ -8,6 +8,7 @@ possibly running in a different Python interpreter. It will run a context file
 import argparse
 import functools
 import inspect
+import io
 import logging
 import os
 import pickle
@@ -15,20 +16,34 @@ import sys
 import time
 from datetime import timezone
 import traceback
+from enum import Enum
+from numbers import Number
 from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
 
+from matplotlib.figure import Figure
+
 import extra_data
 import h5py
 import numpy as np
-import xarray
+import xarray as xr
 import sqlite3
 
 from damnit_ctx import RunData, Variable, UserEditableVariable
 
 log = logging.getLogger(__name__)
 
+THUMBNAIL_SIZE = 35 # px
+
+
+# More specific Python types beyond what HDF5/NetCDF4 know about, so we can
+# reconstruct Python objects when reading values back in.
+class DataType(Enum):
+    DataArray = "dataarray"
+    Dataset = "dataset"
+    Image = "image"
+    Timestamp = "timestamp"
 
 class ContextFile:
 
@@ -187,6 +202,42 @@ def get_start_time(xd_run):
         return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
+def figure2array(fig):
+    from matplotlib.backends.backend_agg import FigureCanvas
+
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    return np.asarray(canvas.buffer_rgba())
+
+class PNGData:
+    def __init__(self, data: bytes):
+        self.data = data
+
+def figure2png(fig, dpi=None):
+    bio = io.BytesIO()
+    fig.savefig(bio, dpi=dpi, format='png')
+    return PNGData(bio.getvalue())
+
+
+def generate_thumbnail(image):
+    from matplotlib.figure import Figure
+
+    # Create plot
+    fig = Figure(figsize=(1, 1))
+    ax = fig.add_subplot()
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+    vmin = np.nanquantile(image, 0.01)
+    vmax = np.nanquantile(image, 0.99)
+    ax.imshow(image, vmin=vmin, vmax=vmax, extent=(0, 1, 1, 0))
+    ax.axis('tight')
+    ax.axis('off')
+    ax.margins(0, 0)
+
+    image_shape = fig.get_size_inches() * fig.dpi
+    zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
+    return figure2png(fig, dpi=(fig.dpi / zoom_ratio))
+
+
 def extract_error_info(exc_type, e, tb):
     lineno = -1
     offset = 0
@@ -283,7 +334,7 @@ class Results:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(inputs)
-                if not isinstance(data, (xarray.DataArray, str, type(None))):
+                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
                     data = np.asarray(data)
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
@@ -292,21 +343,6 @@ class Results:
                 if data is not None:
                     res[name] = data
         return Results(res, ctx_file)
-
-    @staticmethod
-    def _datasets_for_arr(name, arr):
-        if isinstance(arr, xarray.DataArray):
-            return [
-                (f'{name}/data', arr.values),
-            ] + [
-                (f'{name}/{dim}', coords.values)
-                for dim, coords in arr.coords.items()
-            ]
-        else:
-            value = arr if isinstance(arr, str) else np.asarray(arr)
-            return [
-                (f'{name}/data', value)
-            ]
 
     @property
     def reduced(self):
@@ -321,22 +357,27 @@ class Results:
 
     def summarise(self, name):
         data = self.data[name]
+        is_array = isinstance(data, (np.ndarray, xr.DataArray))
+        is_dataset = isinstance(data, xr.Dataset)
 
         if isinstance(data, str):
             return data
-        elif data.ndim == 0:
+        elif is_dataset:
+            size = data.nbytes / 1e6
+            return f"Dataset ({size:.2f}MB)"
+        elif is_array and data.ndim == 0:
             return data
-        elif data.ndim == 2 and self.ctx.vars[name].summary is None:
-            from scipy import ndimage
-
+        elif isinstance(data, Figure):
             # For the sake of space and memory we downsample images to a
-            # resolution of 150x150.
-            zoom_ratio = 150 / max(data.shape)
-            if zoom_ratio < 1:
-                data = ndimage.zoom(np.nan_to_num(data),
-                                    zoom_ratio)
-
-            return data
+            # resolution of 35 pixels on the larger dimension.
+            image_shape = data.get_size_inches() * data.dpi
+            zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
+            return figure2png(data, dpi=(data.dpi / zoom_ratio))
+        elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
+            from scipy import ndimage
+            zoom_ratio = min(1, THUMBNAIL_SIZE / max(data.shape))
+            data = ndimage.zoom(np.nan_to_num(data), zoom_ratio)
+            return generate_thumbnail(data)
         elif self.ctx.vars[name].summary is None:
             return f"{data.dtype}: {data.shape}"
         else:
@@ -344,7 +385,7 @@ class Results:
             if summary_method is None:
                 return None
 
-            if isinstance(data, xarray.DataArray):
+            if isinstance(data, xr.DataArray):
                 data = data.data
 
             return np.asarray(getattr(np, summary_method)(data))
@@ -354,11 +395,29 @@ class Results:
         ctx_vars = self.ctx.vars
         implicit_vars = self.data.keys() - self.ctx.vars.keys()
 
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items() if name in implicit_vars or ctx_vars[name].store_result]
+        xarray_dsets = []
+        obj_type_hints = {}
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()
+                 if name in implicit_vars or ctx_vars[name].store_result]
         if not reduced_only:
-            for name, arr in self.data.items():
+            for name, obj in self.data.items():
                 if name in implicit_vars or ctx_vars[name].store_result:
-                    dsets.extend(self._datasets_for_arr(name, arr))
+                    if isinstance(obj, (xr.DataArray, xr.Dataset)):
+                        xarray_dsets.append((name, obj))
+                        obj_type_hints[name] = (
+                            DataType.DataArray if isinstance(obj, xr.DataArray)
+                            else DataType.Dataset
+                        )
+                    else:
+                        if isinstance(obj, Figure):
+                            value =  figure2array(obj)
+                            obj_type_hints[name] = DataType.Image
+                        elif isinstance(obj, str):
+                            value = obj
+                        else:
+                            value = np.asarray(obj)
+
+                        dsets.append((f'{name}/data', value))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -371,20 +430,50 @@ class Results:
                 if name in f:
                     del f[name]
 
+            for grp_name, hint in obj_type_hints.items():
+                f.require_group(grp_name).attrs['_damnit_objtype'] = hint.value
+
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, arr in dsets:
+            for path, obj in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
 
-                if isinstance(arr, str):
-                    f.create_dataset(path, shape=(1,), dtype=h5py.string_dtype())
+                if isinstance(obj, str):
+                    f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
+                elif isinstance(obj, PNGData):  # Thumbnail
+                    f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
                 else:
-                    f.create_dataset(path, shape=arr.shape, dtype=arr.dtype)
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
-            for path, arr in dsets:
-                f[path][()] = arr
+            # Fill with data
+            for path, obj in dsets:
+                if isinstance(obj, PNGData):
+                    f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
+                else:
+                    f[path][()] = obj
+
+            # Assign attributes for reduced datasets
+            for name, data in self.data.items():
+                reduced_ds = f[f".reduced/{name}"]
+
+                if isinstance(data, (np.ndarray, xr.DataArray)) \
+                   and data.ndim == 1 and data.shape[0] > 1:
+                    reduced_ds.attrs["max_diff"] = abs(np.nanmax(data) - np.nanmin(data))
+
+        for name, obj in xarray_dsets:
+            # HDF5 doesn't allow slashes in names :(
+            if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
+                obj.name = obj.name.replace("/", "_")
+            elif isinstance(obj, xr.Dataset):
+                data_vars = list(obj.keys())
+                for var_name in data_vars:
+                    dataarray = obj[var_name]
+                    if dataarray.name is not None and "/" in dataarray.name:
+                        dataarray.name = dataarray.name.replace("/", "_")
+
+            obj.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
