@@ -462,6 +462,10 @@ class Results:
                    and data.ndim == 1 and data.shape[0] > 1:
                     reduced_ds.attrs["max_diff"] = abs(np.nanmax(data) - np.nanmin(data))
 
+                var_obj = ctx_vars.get(name)
+                if var_obj is not None:
+                    reduced_ds.attrs['summary_method'] = var_obj.summary or ''
+
         for name, obj in xarray_dsets:
             # HDF5 doesn't allow slashes in names :(
             if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
