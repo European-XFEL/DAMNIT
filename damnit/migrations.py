@@ -147,8 +147,8 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
     column_names = [rec[0] for rec in
                     db.conn.execute("SELECT name FROM PRAGMA_TABLE_INFO('runs')").fetchall()]
     variable_names = [name for name in column_names
-                      if name not in ["proposal", "runnr", "start_time", "added_at", "comment"]]
-    #
+                      if name not in ["proposal", "runnr", "start_time", "added_at"]]
+
     # And then read all run data. This is what we'll need to copy into the new
     # `run_variables` table.
     runs = [rec for rec in db.conn.execute("SELECT * FROM runs").fetchall()]
