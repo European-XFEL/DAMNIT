@@ -71,7 +71,7 @@ def db_path(root_path: Path):
 DATA_FORMAT_VERSION = 1
 
 class DamnitDB:
-    def __init__(self, path=DB_NAME):
+    def __init__(self, path=DB_NAME, allow_old=False):
         db_existed = path.exists()
         log.debug("Opening database at %s", path)
         self.conn = sqlite3.connect(path, timeout=30)
@@ -100,10 +100,15 @@ class DamnitDB:
 
         if not db_existed:
             # If this is a new database, set the latest current version
-            self.metameta["data_format_version"] = DATA_FORMAT_VERSION
-        elif db_existed and "data_format_version" not in self.metameta:
-            # Otherwise this is a legacy database
-            self.metameta["data_format_version"] = 0
+            db_version = self.metameta["data_format_version"] = DATA_FORMAT_VERSION
+        else:
+            db_version = self.metameta.setdefault("data_format_version", 0)
+
+        if (not allow_old) and db_version < DATA_FORMAT_VERSION:
+            raise RuntimeError(
+                f"Cannot open older (v{db_version}) database, please contact DA "
+                "for help migrating"
+            )
 
     @classmethod
     def from_dir(cls, path):
