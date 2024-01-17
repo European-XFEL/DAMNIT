@@ -26,6 +26,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, r
 -- exist on startup.
 CREATE VIEW IF NOT EXISTS runs      AS SELECT * FROM run_info;
 CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
+CREATE VIEW IF NOT EXISTS run_variables_timestamps AS SELECT * FROM run_info;
 
 CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
 CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
@@ -186,6 +187,8 @@ class DamnitDB:
                                for var in variables])
         max_diff_cols = ", ".join([col_select_sql.format(var=var, col="max_diff")
                                for var in variables])
+        timestamp_cols = ", ".join([col_select_sql.format(var=var, col="timestamp")
+                                    for var in variables])
 
         self.conn.executescript(f"""
             DROP VIEW IF EXISTS runs;
@@ -199,6 +202,12 @@ class DamnitDB:
             AS SELECT proposal, run, {max_diff_cols}
                FROM run_variables
                GROUP BY run;
+
+        DROP VIEW IF EXISTS run_variables_timestamps;
+        CREATE VIEW run_variables_timestamps
+        AS SELECT proposal, run, {timestamp_cols}
+           FROM run_variables
+           GROUP BY run;
         """)
 
     def set_variable(self, proposal: int, run: int, name: str, reduced):
