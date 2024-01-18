@@ -104,7 +104,7 @@ passed to the function if the dependency did not complete execution for some
 reason:
 ```python
 @Variable(title="baz")
-def baz(run, bar: "var#bar"=42):
+def baz(run, value: "var#foo"=42):
     # This will return the result of foo() if foo() succeeded, otherwise 42
     return value
 ```
