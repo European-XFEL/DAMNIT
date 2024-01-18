@@ -307,6 +307,10 @@ class Table(QtCore.QAbstractTableModel):
         """
         Check if the variable at the given index is constant throughout the run.
         """
+        # If the run/proposal is a pd.NA then the row belongs to a standalone comment
+        if pd.isna(run) or pd.isna(proposal):
+            return True
+
         is_constant_df = self._main_window.is_constant_df
         if quantity in is_constant_df.columns:
             return is_constant_df.loc[(proposal, run)][quantity].item()
