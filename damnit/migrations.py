@@ -279,3 +279,92 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
         new_db_path.rename(db_path)
         print(f"New format DB created and moved to {db_path.name}")
         print(f"Old database backed up as {backup_path.name}")
+
+def migrate_intermediate_v1(db, db_dir, dry_run):
+    """Migrate intermediate v1 (v0.5) databases.
+
+    Before v1 rose over the world, resplendent and glorious, there was a humble
+    antecedent that was used for some proposals:
+    - p3338 (FXE)
+    - p6616 (FXE)
+    - p4507 (FXE)
+    - p5639 (SXP)
+    - p4656 (MID)
+    - p3118 (MID)
+    - p6976 (MID)
+    - p4559 (MID)
+    - p5397 (MID)
+    - p4239 (MID)
+    - p4442 (MID)
+    - p2956 (SCS)
+
+    To push these databases into their destiny of v1 we must make some changes:
+    - Remove the `run_variables.stored_type` column
+    - Re-do image migration to convert the thumbnails to PNGs
+    - Move the `stored_type` attribute on `.reduced/<var>` datasets to a
+      `_damnit_objtype` attribute on the `<var>` group.
+    """
+    # Create a new database, overwriting any previous attempts
+    new_db_path = db_dir / "runs.v1.sqlite"
+    new_db_path.unlink(missing_ok=True)
+    new_db = DamnitDB(new_db_path)
+
+    # Copy everything but `run_variables` to the new database
+    for k, v in db.metameta.items():
+        if k != "data_format_version":
+            new_db.metameta[k] = v
+
+    for table in ["run_info", "time_comments", "variables"]:
+        copy_table(table, db, new_db)
+
+    # Note that we skip the `stored_type` column because that was removed
+    run_variables = db.conn.execute("""
+        SELECT proposal, run, name, version, value, timestamp, max_diff, provenance
+        FROM run_variables
+    """).fetchall()
+    for row in run_variables:
+        new_db.conn.execute("""
+        INSERT INTO run_variables (proposal, run, name, version, value, timestamp, max_diff, provenance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, row)
+
+    new_db.update_views()
+
+    # Convert the old `stored_type` attribute into `_damnit_objtype`
+    runs = db.conn.execute("SELECT proposal, run FROM runs").fetchall()
+    for proposal, run_no in runs:
+        h5_path = db_dir / "extracted_data" / f"p{proposal}_r{run_no}.h5"
+        if not h5_path.is_file():
+            continue
+
+        with add_to_h5_file(h5_path) as f:
+            reduced = f[".reduced"]
+            for ds_name, dset in reduced.items():
+                if "stored_type" in dset.attrs:
+                    stored_type = dset.attrs["stored_type"]
+
+                    obj_type = None
+                    if stored_type in ["DataArray", "Dataset", "image", "timestamp"]:
+                        obj_type = stored_type.lower()
+
+                    if not dry_run:
+                        if obj_type is not None:
+                            f[ds_name].attrs["_damnit_objtype"] = obj_type
+                        del dset.attrs["stored_type"]
+
+    # Migrate images to use PNGs for thumbnails
+    migrate_images(new_db, db_dir, dry_run)
+
+    new_db.close()
+    db.close()
+
+    if dry_run:
+        print(f"Dry-run: new format DB created at {new_db_path.name}")
+        print("If all seems OK, re-run the migration without --dry-run.")
+    else:
+        db_path = db_dir / DB_NAME
+        backup_path = db_dir / "runs.intermediate-v1-backup.sqlite"
+        db_path.rename(backup_path)
+        new_db_path.rename(db_path)
+        print(f"New format DB created and moved to {db_path.name}")
+        print(f"Old database backed up as {backup_path.name}")
