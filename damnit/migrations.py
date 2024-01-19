@@ -141,6 +141,18 @@ def main_dataset(grp: h5py.Group):
         return grp[candidates.pop()]
 
 
+def copy_table(table, old_db, new_db):
+    """Copy an entire table from one database to another."""
+    rows = old_db.conn.execute(f"SELECT * FROM {table}").fetchall()
+    if len(rows) == 0:
+        return
+
+    placeholder = ", ".join(["?" for _ in rows[0]])
+    new_db.conn.executemany(f"""
+    INSERT INTO {table}
+    VALUES ({placeholder})
+    """, rows)
+
 def migrate_v0_to_v1(db, db_dir, dry_run):
     """
     For reference, see the V0_SCHEMA variable in db.py.
@@ -209,15 +221,7 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
 
     # Copy the user-editable variables and standalone comments
     for table in ["variables", "time_comments"]:
-        rows = db.conn.execute(f"SELECT * FROM {table}").fetchall()
-        if len(rows) == 0:
-            continue
-
-        placeholder = ", ".join(["?" for _ in rows[0]])
-        new_db.conn.executemany(f"""
-            INSERT INTO {table}
-            VALUES ({placeholder})
-        """, rows)
+        copy_table(table, db, new_db)
 
     # Load the data into the new database
     total_vars = 0
