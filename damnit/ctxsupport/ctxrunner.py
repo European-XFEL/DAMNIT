@@ -235,7 +235,7 @@ def generate_thumbnail(image):
 
     image_shape = fig.get_size_inches() * fig.dpi
     zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-    return figure2png(fig, dpi=(fig.dpi / zoom_ratio))
+    return figure2png(fig, dpi=(fig.dpi * zoom_ratio))
 
 
 def extract_error_info(exc_type, e, tb):
@@ -372,7 +372,7 @@ class Results:
             # resolution of 35 pixels on the larger dimension.
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-            return figure2png(data, dpi=(data.dpi / zoom_ratio))
+            return figure2png(data, dpi=(data.dpi * zoom_ratio))
         elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
             from scipy import ndimage
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(data.shape))
