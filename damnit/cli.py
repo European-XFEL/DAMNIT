@@ -149,6 +149,11 @@ def main():
         "v0-to-v1",
         help="Migrate the SQLite database and HDF5 files from v0 to v1."
     )
+    migrate_subparsers.add_parser(
+        "intermediate-v1",
+        help="Migrate the SQLite database HDF5 files from an initial implementation of v1 to the final"
+             " v1. Don't use this unless you know what you're doing."
+    )
 
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
@@ -241,12 +246,14 @@ def main():
 
     elif args.subcmd == "migrate":
         from .backend.db import DamnitDB
-        from .migrations import migrate_v0_to_v1
+        from .migrations import migrate_intermediate_v1, migrate_v0_to_v1
 
         db = DamnitDB(allow_old=True)
 
         if args.migrate_subcmd == "v0-to-v1":
             migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
+        elif args.migrate_subcmd == "intermediate-v1":
+            migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
 
 if __name__ == '__main__':
     sys.exit(main())
