@@ -73,6 +73,8 @@ DATA_FORMAT_VERSION = 1
 
 class DamnitDB:
     def __init__(self, path=DB_NAME, allow_old=False):
+        self.path = path.absolute()
+
         db_existed = path.exists()
         log.debug("Opening database at %s", path)
         self.conn = sqlite3.connect(path, timeout=30)
@@ -187,19 +189,20 @@ class DamnitDB:
         max_diff_cols = ", ".join([col_select_sql.format(var=var, col="max_diff")
                                for var in variables])
 
-        self.conn.executescript(f"""
-            DROP VIEW IF EXISTS runs;
-            CREATE VIEW runs
-            AS SELECT run_info.proposal, run_info.run, start_time, added_at, {runs_cols}
-               FROM run_variables INNER JOIN run_info ON run_variables.proposal = run_info.proposal AND run_variables.run = run_info.run
-               GROUP BY run_info.run;
+        with self.conn:
+            self.conn.executescript(f"""
+                DROP VIEW IF EXISTS runs;
+                CREATE VIEW runs
+                AS SELECT run_info.proposal, run_info.run, start_time, added_at, {runs_cols}
+                   FROM run_variables INNER JOIN run_info ON run_variables.proposal = run_info.proposal AND run_variables.run = run_info.run
+                   GROUP BY run_info.run;
 
-            DROP VIEW IF EXISTS max_diffs;
-            CREATE VIEW max_diffs
-            AS SELECT proposal, run, {max_diff_cols}
-               FROM run_variables
-               GROUP BY run;
-        """)
+                DROP VIEW IF EXISTS max_diffs;
+                CREATE VIEW max_diffs
+                AS SELECT proposal, run, {max_diff_cols}
+                   FROM run_variables
+                   GROUP BY run;
+            """)
 
     def set_variable(self, proposal: int, run: int, name: str, reduced):
         timestamp = datetime.now(tz=timezone.utc).timestamp()
@@ -244,6 +247,22 @@ class DamnitDB:
 
             if is_new:
                 self.update_views()
+
+    def delete_variable(self, name: str):
+        with self.conn:
+            # First delete from the `variables` table
+            self.conn.execute("""
+            DELETE FROM variables
+            WHERE name = ?
+            """, (name,))
+
+            # And then `run_variables`
+            self.conn.execute("""
+            DELETE FROM run_variables
+            WHERE name = ?
+            """, (name, ))
+
+            self.update_views()
 
 class MetametaMapping(MutableMapping):
     def __init__(self, conn):

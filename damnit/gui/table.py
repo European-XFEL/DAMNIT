@@ -5,7 +5,9 @@ import pandas as pd
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QMessageBox
 
+from ..backend.api import delete_variable
 from ..backend.db import BlobTypes
 from ..util import StatusbarStylesheet, timestamp2str
 
@@ -43,6 +45,9 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
+
+        self._columns_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._columns_widget.customContextMenuRequested.connect(self.show_delete_menu)
 
         self._static_columns_widget.itemChanged.connect(self.item_changed)
         self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
@@ -111,6 +116,38 @@ class TableView(QtWidgets.QTableView):
         self.horizontalHeader().moveSection(col_from, col_to)
 
         self.settings_changed.emit()
+
+    def show_delete_menu(self, pos):
+        item = self._columns_widget.itemAt(pos)
+        if item is None:
+            # This happens if the user clicks on blank space inside the widget
+            return
+
+        global_pos = self._columns_widget.mapToGlobal(pos)
+        menu = QtWidgets.QMenu()
+        menu.addAction("Delete")
+        action = menu.exec(global_pos)
+        if action is not None:
+            name = self.model()._main_window.col_title_to_name(item.text())
+            self.confirm_delete_variable(name)
+
+    def confirm_delete_variable(self, name):
+        button = QMessageBox.warning(self, "Confirm deletion",
+                                     f"You are about to permanently delete the variable <b>'{name}'</b> "
+                                     "from the database and HDF5 files. This cannot be undone. "
+                                     "Are you sure you want to continue?",
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     defaultButton=QMessageBox.No)
+        if button == QMessageBox.Yes:
+            main_window = self.model()._main_window
+            delete_variable(main_window.db, name)
+
+            # TODO: refactor this into simply removing the column from the table
+            # if we fix the bugs around adding/removing columns
+            # on-the-fly. Currently there are some lingering off-by-one errors
+            # or something that cause the wrong columns to be moved when moving
+            # a column after the number of columns has changed.
+            main_window.autoconfigure(main_window.context_dir)
 
     def add_new_columns(self, columns, statuses, positions = None):
         if positions is None:

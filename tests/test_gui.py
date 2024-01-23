@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 from types import SimpleNamespace
 
+import h5py
 import pytest
 import numpy as np
 import pandas as pd
@@ -810,3 +811,29 @@ def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
     # Check that images are formatted nicely
     df = pd.read_excel(export_path) if extension == ".xlsx" else pd.read_csv(export_path)
     assert df["Image"][0] == "<image>"
+
+def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+
+    # We'll delete the 'array' variable
+    assert "array" in db.variable_names()
+    win = MainWindow(db_dir, connect_to_kafka=False)
+
+    # If the user clicks 'No' then we should do nothing
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.No) as warning:
+        win.table_view.confirm_delete_variable("array")
+        warning.assert_called_once()
+    assert "array" in db.variable_names()
+
+    # Otherwise it should be deleted from the database and HDF5 files
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes) as warning:
+        win.table_view.confirm_delete_variable("array")
+        warning.assert_called_once()
+
+    assert "array" not in db.variable_names()
+
+    proposal = db.metameta['proposal']
+    with h5py.File(db_dir / f"extracted_data/p{proposal}_r1.h5") as f:
+        assert "array" not in f.keys()
+        assert "array" not in f[".reduced"].keys()
