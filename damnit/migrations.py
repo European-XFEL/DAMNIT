@@ -42,7 +42,7 @@ def migrate_images(new_db, db_dir, dry_run):
                         # Generate a new thumbnail
                         image = reduced[ds_name][()]
                         image = generate_thumbnail(image)
-                        reduced_data[run][ds_name] = ReducedData(image)
+                        reduced_data[run][ds_name] = ReducedData(image.data)
                         files_modified.add(h5_path)
 
                         if not dry_run:
