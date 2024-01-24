@@ -20,8 +20,8 @@ from .extract_data import RunData, process_log_path
 CONSUMER_ID = 'xfel-da-amore-prototype-{}'
 KAFKA_CONF = {
     'maxwell': {
-        'brokers': [f'it-kafka-broker{i:02}.desy.de' for i in range(1, 4)],
-        'topics': ["xfel-test-r2d2", "xfel-test-offline-cal"],
+        'brokers': ['exflwgs06:9091'],
+        'topics': ["xfel-test-r2d2", "cal.offline-corrections"],
         'events': ["migration_complete", "run_corrections_complete"],
     },
     'onc': {
