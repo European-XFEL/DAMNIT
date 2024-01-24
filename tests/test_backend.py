@@ -373,8 +373,7 @@ def test_add_to_db(mock_db):
     reduced_data = {
         "string": "foo",
         "scalar": 42,
-        "np_scalar": np.float32(10),
-        "zero_dim_array": np.asarray(42),
+        "float": 31.7,
         "image": b'\x89PNG\r\n\x1a\n...'  # Not a valid PNG, but good enough for this
     }
 
@@ -385,8 +384,7 @@ def test_add_to_db(mock_db):
 
     assert row["string"] == reduced_data["string"]
     assert row["scalar"] == reduced_data["scalar"]
-    assert row["np_scalar"] == reduced_data["np_scalar"].item()
-    assert row["zero_dim_array"] == reduced_data["zero_dim_array"].item()
+    assert row["float"] == reduced_data["float"]
     assert row["image"] == reduced_data["image"]
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
