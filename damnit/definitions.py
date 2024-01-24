@@ -4,6 +4,6 @@ import os
 if "AMORE_BROKER" in os.environ:
     UPDATE_BROKERS = [os.environ["AMORE_BROKER"]]
 else:
-    UPDATE_BROKERS = ['exflwebstor01.desy.de:9102']
+    UPDATE_BROKERS = ['exflwgs06.desy.de:9091']
 
-UPDATE_TOPIC = "amore-db-{}"  # Fill in ID stored in database
+UPDATE_TOPIC = "test.damnit.db-{}"  # Fill in ID stored in database
