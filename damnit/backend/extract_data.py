@@ -23,7 +23,7 @@ from extra_data.read_machinery import find_proposal
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..ctxsupport.ctxrunner import get_user_variables, PNGData
+from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import DamnitDB, ReducedData, BlobTypes
 
@@ -158,11 +158,12 @@ def load_reduced_data(h5_path):
             return ds.asstr()[()]
         elif (ds.ndim == 1 and ds.dtype == np.uint8
               and BlobTypes.identify(ds[:8].tobytes()) is BlobTypes.png):
-            return PNGData(ds[()].tobytes())
+            # PNG: pass around as bytes
+            return ds[()].tobytes()
         else:
             value = ds[()]
             # SQlite doesn't like np.float32; .item() converts to Python numbers
-            return value.item() if np.isscalar(value) else value
+            return value.item() if (value.ndim == 0) else value
 
     with h5py.File(h5_path, 'r') as f:
         return {
@@ -201,20 +202,9 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         db.ensure_run(proposal, run, start_time=start_time.value)
 
     for name, reduced in reduced_data.items():
-        value = reduced.value
+        if not isinstance(reduced.value, (int, float, str, bytes)):
+            raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
 
-        # Unbox 0D arrays to get a scalar
-        if isinstance(value, (np.ndarray, np.generic)) and value.ndim == 0:
-            value = value.item()
-
-        if isinstance(value, PNGData):
-            value = value.data
-
-        # Serialize non-SQLite-supported types
-        if not isinstance(value, (int, float, str, bytes)):
-            raise TypeError(f"Unsupported type for database: {type(value)}")
-
-        reduced.value = value
         db.set_variable(proposal, run, name, reduced)
 
 
