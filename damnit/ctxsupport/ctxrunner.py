@@ -34,7 +34,7 @@ from damnit_ctx import RunData, Variable, UserEditableVariable
 
 log = logging.getLogger(__name__)
 
-THUMBNAIL_SIZE = 35 # px
+THUMBNAIL_SIZE = 300 # px
 
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
