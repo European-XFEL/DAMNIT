@@ -35,6 +35,8 @@ from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
 from .open_dialog import OpenDBDialog
+from .utils import icon_path
+from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
 log = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
-        self.setWindowIcon(QtGui.QIcon(self.icon_path("AMORE.png")))
+        self.setWindowIcon(QtGui.QIcon(icon_path("AMORE.png")))
         self._create_status_bar()
         self._create_menu_bar()
 
@@ -97,12 +99,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
-
-    def icon_path(self, name):
-        """
-        Helper function to get the path to an icon file stored under ico/.
-        """
-        return str(Path(__file__).parent / "ico" / name)
 
     def on_tab_changed(self, index):
         if index == 0:
@@ -434,7 +430,7 @@ da-dev@xfel.eu"""
         action_create_var.setEnabled(False)
         self.context_dir_changed.connect(lambda _: action_create_var.setEnabled(True))
 
-        action_export = QtWidgets.QAction(QtGui.QIcon(self.icon_path("export.png")), "&Export", self)
+        action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
         action_export.setStatusTip("Export to Excel/CSV")
         action_export.setEnabled(False)
         self.context_dir_changed.connect(lambda _: action_export.setEnabled(True))
@@ -451,7 +447,7 @@ da-dev@xfel.eu"""
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
 
         fileMenu = menu_bar.addMenu(
-            QtGui.QIcon(self.icon_path("AMORE.png")), "&AMORE"
+            QtGui.QIcon(icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_create_var)
@@ -472,7 +468,7 @@ da-dev@xfel.eu"""
         #jump to run 
         menu_bar_right = QtWidgets.QMenuBar(self)
         searchMenu = menu_bar_right.addMenu(
-            QtGui.QIcon(self.icon_path("search_icon.png")), "&Search Run")
+            QtGui.QIcon(icon_path("search_icon.png")), "&Search Run")
         searchMenu.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.jump_search_run = QtWidgets.QLineEdit(self)
         self.jump_search_run.setPlaceholderText("Jump to run:")
@@ -881,6 +877,10 @@ da-dev@xfel.eu"""
 
         vertical_layout.addWidget(self.table_view)
 
+        # add all other widgets on a collapsible layout
+        collapsible = CollapsibleWidget()
+        vertical_layout.addWidget(collapsible)
+
         # comments
         self.comment = QtWidgets.QLineEdit(self)
         self.comment.setText("Time can be edited in the field on the right.")
@@ -897,7 +897,7 @@ da-dev@xfel.eu"""
         comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
         comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
 
-        vertical_layout.addLayout(comment_horizontal_layout)
+        collapsible.add_layout(comment_horizontal_layout)
 
         comment_timer = QtCore.QTimer()
         self._set_comment_date()
@@ -936,8 +936,10 @@ da-dev@xfel.eu"""
 
         plotting_group.setLayout(plot_vertical_layout)
         
-        vertical_layout.addWidget(plotting_group)
+        collapsible.add_widget(plotting_group)
 
+        vertical_layout.setSpacing(0)
+        vertical_layout.setContentsMargins(0, 0, 0, 0)
         self._view_widget.setLayout(vertical_layout)
 
     def configure_editor(self):
@@ -1025,7 +1027,7 @@ da-dev@xfel.eu"""
         return test_result
 
     def set_error_icon(self, icon):
-        self._context_status_icon.load(self.icon_path(f"{icon}_circle.svg"))
+        self._context_status_icon.load(icon_path(f"{icon}_circle.svg"))
         self._context_status_icon.renderer().setAspectRatioMode(Qt.KeepAspectRatio)
 
     def set_error_widget_text(self, text):

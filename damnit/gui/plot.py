@@ -18,7 +18,6 @@ from matplotlib.figure import Figure
 from matplotlib import cm as mpl_cm
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
-from .zulip_messenger import ZulipMessenger
 from ..backend.api import RunVariables
 
 log = logging.getLogger(__name__)
