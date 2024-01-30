@@ -402,9 +402,9 @@ da-dev@xfel.eu"""
             self._columns_dialog.setWindowTitle("Column settings")
             layout = QtWidgets.QVBoxLayout()
 
-            layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered:"))
+            layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered or deleted:"))
             layout.addWidget(self.table_view._static_columns_widget)
-            layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them:"))
+            layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them, right-click to delete:"))
             layout.addWidget(self.table_view._columns_widget)
             self._columns_dialog.setLayout(layout)
 
@@ -460,7 +460,7 @@ da-dev@xfel.eu"""
         fileMenu.addAction(action_exit)
 
         # Table menu
-        action_columns = QtWidgets.QAction("Select && reorder columns", self)
+        action_columns = QtWidgets.QAction("Select, delete, && reorder columns", self)
         action_columns.triggered.connect(self.open_column_dialog)
         self.action_autoscroll = QtWidgets.QAction('Scroll to newly added runs', self)
         self.action_autoscroll.setCheckable(True)

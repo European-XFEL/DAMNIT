@@ -1,3 +1,4 @@
+import glob
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -5,7 +6,7 @@ import h5py
 import xarray as xr
 
 from .db import DamnitDB
-from ..ctxsupport.ctxrunner import DataType
+from ..ctxsupport.ctxrunner import DataType, add_to_h5_file
 
 
 class VariableData:
@@ -117,3 +118,14 @@ class RunVariables:
     @property
     def file(self):
         return self._h5_path
+
+def delete_variable(db, name):
+    # Remove from the database
+    db.delete_variable(name)
+
+    # And the HDF5 files
+    for h5_path in glob.glob(f"{db.path.parent}/extracted_data/*.h5"):
+        with add_to_h5_file(h5_path) as f:
+            if name in f:
+                del f[f".reduced/{name}"]
+                del f[name]
