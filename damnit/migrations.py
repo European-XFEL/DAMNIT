@@ -66,20 +66,21 @@ def dataarray_from_group(group):
     data = group["data"][()]
     coords = { ds_name: group[ds_name][()] for ds_name in group.keys()
                if ds_name != "data" }
+    scalar_coords = {name: co for (name, co) in coords.items() if np.ndim(co) == 0}
 
     # Attempt to map the coords to the right dimensions. This
     # will fail if there are two coordinates/dimensions with the
     # same length.
-    coord_sizes = { len(coord_data): coord for coord, coord_data in coords.items() }
-    if len(set(coord_sizes.keys())) != len(coord_sizes.keys()):
+    length_to_dim = {len(co): name for name, co in coords.items() if np.ndim(co) > 1}
+    if len(set(length_to_dim.keys())) != len(length_to_dim):
         return None
 
-    dims = [coord_sizes[dim] if dim in coord_sizes else f"dim_{i}"
-            for i, dim in enumerate(data.shape)]
+    dims = [length_to_dim[l] if l in length_to_dim else f"dim_{i}"
+            for i, l in enumerate(data.shape)]
     return xr.DataArray(data,
                         dims=dims,
                         coords={ dim: coords[dim] for dim in dims
-                                 if dim in coords })
+                                 if dim in coords } | scalar_coords)
 
 
 def migrate_dataarrays(db, db_dir, dry_run):
