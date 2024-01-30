@@ -202,7 +202,7 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
 
                 if 'max_diff' in ds.attrs:
                     max_diffs[(proposal, run_no, name)] = ds.attrs['max_diff'].item()
-                elif ds.ndim == 1 and np.issubdtype(ds.dtype, np.number):
+                elif ds.ndim == 1 and ds.size > 0 and np.issubdtype(ds.dtype, np.number):
                     data = ds[()]
                     max_diff = abs(np.nanmax(data) - np.nanmin(data)).item()
                     max_diffs[(proposal, run_no, name)] = max_diff
