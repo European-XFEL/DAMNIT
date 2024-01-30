@@ -1,6 +1,7 @@
 import time
-from enum import Enum
 from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
 
 import pandas as pd
 
@@ -24,6 +25,7 @@ def wait_until(condition, timeout=1):
     if slept_for >= timeout:
         raise TimeoutError("Condition timed out")
 
+
 def timestamp2str(timestamp):
     if timestamp is None or pd.isna(timestamp):
         return None
@@ -31,3 +33,10 @@ def timestamp2str(timestamp):
     dt_utc = datetime.fromtimestamp(timestamp, timezone.utc)
     dt_local = dt_utc.astimezone()
     return dt_local.strftime("%H:%M:%S %d/%m/%Y")
+
+
+def icon_path(name):
+    """
+    Helper function to get the path to an icon file stored under ico/.
+    """
+    return str(Path(__file__).parent / "gui/ico" / name)
