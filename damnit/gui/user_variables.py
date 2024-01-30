@@ -3,6 +3,8 @@ import re
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from ..ctxsupport.damnit_ctx import types_map
+from .utils import icon_path
+
 
 class AddUserVariableDialog(QtWidgets.QDialog):
 
@@ -42,7 +44,9 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         button_cancel.clicked.connect(self.reject)
 
     def _load_icons(self):
-        build_icon = lambda ii: QtGui.QIcon(self._main_window.icon_path(f"lock_{ii}_icon.png"))
+        def build_icon(idx):
+            return QtGui.QIcon(icon_path(f"lock_{idx}_icon.png"))
+
         self._icons = { status : build_icon(status) for status in ["closed", "open"] }
 
     def _create_form_fields(self):
