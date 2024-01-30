@@ -4,10 +4,10 @@ from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import pyqtSignal, Qt
 
-from .utils import icon_path
+from ..util import icon_path
 
 
-class _Arrow(QLabel):
+class Arrow(QLabel):
 
     is_open = pyqtSignal(bool)
 
@@ -54,13 +54,11 @@ class CollapsibleWidget(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.header = _Arrow()
+        self.header = Arrow()
         self.header.is_open.connect(self.collapse)
 
         self.content = QWidget()
         self.content_layout = QVBoxLayout()
-        self.content_layout.setSpacing(0)
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content.setLayout(self.content_layout)
         self.content.setVisible(self.header.open)
 
@@ -71,10 +69,10 @@ class CollapsibleWidget(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
     def add_widget(self, widget):
-        self.content_layout.addWidget(widget, 0)
+        self.content_layout.addWidget(widget)
 
     def add_layout(self, layout):
-        self.content_layout.addLayout(layout, 0)
+        self.content_layout.addLayout(layout)
 
     def collapse(self, is_open):
         self.content.setVisible(is_open)

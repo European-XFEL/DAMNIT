@@ -28,14 +28,13 @@ from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
 from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS
-from ..util import StatusbarStylesheet, timestamp2str
+from ..util import icon_path, StatusbarStylesheet, timestamp2str
 from .kafka import UpdateReceiver
 from .table import TableView, Table
 from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
 from .open_dialog import OpenDBDialog
-from .utils import icon_path
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
