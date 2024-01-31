@@ -40,26 +40,26 @@ at the command line.
 
 ## Kafka
 The GUI is updated by Kafka messages sent by the backend. Currently we use
-XFEL's internal Kafka broker at `exflwebstor01.desy.de:9102`, but this is only
+XFEL's internal Kafka broker at `exflwgs06.desy.de:9091`, but this is only
 accessible inside the DESY network.
 
 DAMNIT can run offline, but if you want updates from the backend and you're
 running DAMNIT outside the network and not using a VPN, you'll first have to
 forward the broker port to your machine:
 ```bash
-ssh -L 9102:exflwebstor01.desy.de:9102 max-exfl.desy.de
+ssh -L 9091:exflwgs06.desy.de:9091 max-exfl.desy.de
 ```
 
-And then add a line in your `/etc/hosts` file to resolve `exflwebstor01.desy.de`
+And then add a line in your `/etc/hosts` file to resolve `exflwgs06.desy.de`
 to `localhost` (remember to remove it afterwards!):
 ```
-127.0.0.1 exflwebstor01.desy.de
+127.0.0.1 exflwgs06.desy.de
 ```
 
 And then DAMNIT should be able to use XFELs broker. If you want to use a specific
 broker you can set the `AMORE_BROKER` variable:
 ```bash
-export AMORE_BROKER=localhost:9102
+export AMORE_BROKER=localhost:9091
 ```
 
 DAMNIT will then connect to the broker at that address.
