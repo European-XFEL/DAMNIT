@@ -21,7 +21,7 @@ CONSUMER_ID = 'xfel-da-amore-prototype-{}'
 KAFKA_CONF = {
     'maxwell': {
         'brokers': ['exflwgs06:9091'],
-        'topics': ["xfel-test-r2d2", "cal.offline-corrections"],
+        'topics': ["test.r2d2", "cal.offline-corrections"],
         'events': ["migration_complete", "run_corrections_complete"],
     },
     'onc': {
