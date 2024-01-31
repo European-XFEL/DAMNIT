@@ -38,6 +38,12 @@ class Canvas(QtWidgets.QDialog):
         autoscale=True,
     ):
         super().__init__()
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.WindowMinimizeButtonHint |
+            Qt.WindowMaximizeButtonHint |
+            Qt.WindowCloseButtonHint
+        )
         self.setStyleSheet("QDialog {background-color: white}")
 
         self.main_window = parent
