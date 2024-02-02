@@ -43,6 +43,10 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         button_add_var.clicked.connect(self.check_if_variable_is_unique)
         button_cancel.clicked.connect(self.reject)
 
+    @property
+    def table(self):
+        return self._main_window.table
+
     def _load_icons(self):
         def build_icon(idx):
             return QtGui.QIcon(icon_path(f"lock_{idx}_icon.png"))
@@ -159,14 +163,12 @@ class AddUserVariableDialog(QtWidgets.QDialog):
             self.formStatusChanged.emit(new_status)
 
     def check_if_variable_is_unique(self, x):
-        name_already_exists = self._main_window.has_variable(self.variable_name.text())
-        title_already_exists = self._main_window.has_variable(self.variable_title.text(), by_title=True)
         error_type = []
 
-        if name_already_exists:
+        if self.table.has_column(self.variable_name.text()):
             error_type.append('<b>name</b>')
 
-        if title_already_exists:
+        if self.table.has_column(self.variable_title.text(), by_title=True):
             error_type.append('<b>title</b>')
 
         if len(error_type) > 0:

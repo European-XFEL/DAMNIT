@@ -276,10 +276,9 @@ def test_handle_update(mock_db, qtbot):
         "string": "foo"
     }
 
-    assert win.data.shape[0] == 0
+    assert win.table.rowCount() == 0
     win.handle_update(msg)
-    assert win.data.shape[0] == 1
-    assert win.table_view.model().rowCount() == 1
+    assert win.table.rowCount() == 1
 
     # Columns should be added for the new variables
     headers = get_headers()
@@ -481,8 +480,6 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the fields of the variable added via the dialog was created
     assert tuple(row) == ("my_integer", "integer", "My integer", "My cool description")
 
-    col_to_pos = {win.col_title_to_name(cc) : ii for ii, cc in enumerate(win.data.columns)}
-
     class CaptureEditorDelegate(QStyledItemDelegate):
 
         def __init__(self, *args, **kwargs):
@@ -501,7 +498,8 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     table_model = table_view.model()
 
     def open_editor_and_get_delegate(field_name, row_number = 0):
-        table_view.edit(table_model.index(row_number, col_to_pos[field_name]))
+        col_num = table_model.find_column(field_name)
+        table_view.edit(table_model.index(row_number, col_num))
         return table_view.itemDelegate()
 
     def change_to_value_and_close(value):
@@ -511,7 +509,8 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
         table_view.closeEditor(delegate.widget, 0)
 
     def get_value_from_field(field_name, row_number = 0):
-        return win.data.iloc[row_number, col_to_pos[field_name]]
+        col_num = table_model.find_column(field_name)
+        return table_model.get_value_at(table_model.index(row_number, col_num))
 
     def get_value_from_db(field_name):
         if not re.fullmatch(r"[a-zA-Z_]\w+", field_name, flags=re.A):
@@ -521,7 +520,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that editing is prevented when trying to modfiy a non-editable column 
     assert open_editor_and_get_delegate("dep_number").widget is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modify a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     change_to_value_and_close("15.4")
@@ -649,7 +648,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
 
     # Helper function to get a QModelIndex from a variable title
     def get_index(title, row=0):
-        col = list(win.data.columns).index(title)
+        col = win.table.find_column(title, by_title=True)
         index = win.table.index(row, col)
         assert index.isValid()
         return index
@@ -768,8 +767,9 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         mock_get.assert_called_once()
         assert win.zulip_messenger.stream == "stream"
 
+        df = win.table.dataframe_for_export(columns=['Proposal', 'Run', 'Comment'])
         test_dialog = ZulipConfig(win, win.zulip_messenger,
-                                  kind='table', table=win.data)
+                                  kind='table', table=df)
         test_dialog.handle_form()
 
         # Check if table was parsed into a list
