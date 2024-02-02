@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 
 import numpy as np
@@ -10,6 +11,8 @@ from PyQt5.QtWidgets import QMessageBox
 from ..backend.api import delete_variable
 from ..backend.db import BlobTypes
 from ..util import StatusbarStylesheet, timestamp2str
+
+log = logging.getLogger(__name__)
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
@@ -55,21 +58,26 @@ class TableView(QtWidgets.QTableView):
 
         self.context_menu = QtWidgets.QMenu(self)
         self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
-        self.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.context_menu.addAction(self.zulip_action)
         self.show_logs_action = QtWidgets.QAction('View processing logs')
         self.show_logs_action.triggered.connect(self.show_run_logs)
         self.context_menu.addAction(self.show_logs_action)
-    
+
     def setModel(self, model):
         """
         Overload of setModel() to make sure that we restyle the comment rows
         when the model is updated.
         """
         super().setModel(model)
+        # When loading a new model, the saved column order is applied at the
+        # model level (changing column logical indices). So we need to reset
+        # any reordering from the view level, which maps logical indices to
+        # different visual indices, to show the columns as in the model.
+        self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
         if model is not None:
             self.model().rowsInserted.connect(self.style_comment_rows)
             self.model().rowsInserted.connect(self.resize_new_rows)
+            self.model().columnsInserted.connect(self.on_columns_inserted)
             self.resizeRowsToContents()
 
     def item_changed(self, item):
@@ -161,6 +169,10 @@ class TableView(QtWidgets.QTableView):
             self._columns_widget.insertItem(position, item)
             item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
+    def on_columns_inserted(self, _parent, first, last):
+        titles = [self.model().column_title(i) for i in range(first, last + 1)]
+        self.add_new_columns(titles, [True for _ in list(titles)])
+
     def set_columns(self, columns, statuses):
         self._columns_widget.clear()
         self._static_columns_widget.clear()
@@ -225,79 +237,166 @@ class TableView(QtWidgets.QTableView):
 
     def get_static_columns_count(self):
         return self._static_columns_widget.count()
-    
+
     def contextMenuEvent(self, event):
         self.context_menu.popup(QtGui.QCursor.pos())
-
-    def export_selection_to_zulip(self):
-        zulip_ok = self.model()._main_window.check_zulip_messenger()
-        if not zulip_ok:
-            return
-            
-        selected_rows = [r.row() for r in 
-                         self.selectionModel().selectedRows()]
-        df = pd.DataFrame(self.model()._main_window.data)
-        df = df.iloc[selected_rows]
-        
-        blacklist_columns = ['Proposal', 'Status']
-        blacklist_columns = blacklist_columns + self.columns_with_thumbnails(self.model()._data) \
-            + self.columns_invisible(df)
-        blacklist_columns = list(dict.fromkeys(blacklist_columns))
-        sorted_columns =['Run', 'Timestamp', 'Comment'] + \
-            [self._columns_widget.item(i).text() for i in range(self._columns_widget.count())]
-        
-        columns = [column for column in sorted_columns if column not in blacklist_columns] 
-        df = pd.DataFrame(df, columns=columns)
-        df.sort_values('Run', axis=0, inplace=True)
-        
-        if 'Timestamp' in df.columns:
-            df['Timestamp'] = df['Timestamp'].apply(timestamp2str)
-        
-        df = df.applymap(prettify_notation)
-        df.replace(["None", '<NA>', 'nan'], '', inplace=True)
-        self.model()._main_window.zulip_messenger.send_table(df)
 
     def show_run_logs(self):
         # Get first selected row
         row = self.selectionModel().selectedRows()[0].row()
         prop, run = self.model().row_to_proposal_run(row)
         self.log_view_requested.emit(prop, run)
-        
-    def columns_with_thumbnails(self, df):
-        obj_columns = df.dtypes == 'object'
-        blacklist_columns = []
-        for column in obj_columns.index:
-            for item in df[column]:
-                if isinstance(item, bytes) and BlobTypes.identify(item) is BlobTypes.png:
-                    blacklist_columns.append(column)
-                    break
-                   
-        return blacklist_columns
-    
-    def columns_invisible(self, df):
-        blacklist_columns = []
-        for column in range(0,self.model().columnCount()-1):
-            if self.isColumnHidden(column):
-                blacklist_columns.append(df.columns[column])
-        
-        return blacklist_columns
 
-    
-class Table(QtCore.QAbstractTableModel):
+
+class DamnitTableModel(QtCore.QAbstractTableModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
-    def __init__(self, main_window):
-        super().__init__()
-        self._main_window = main_window
+    def __init__(self, dataframe, column_ids, is_constant_df, parent):
+        super().__init__(parent)
+        # Dataframes use titles ('XGM intensity') as column names.
+        # column_ids holds a matching list of IDs ('xgm_intensity')
+        self._data: pd.DataFrame = dataframe
+        self.column_ids: list = column_ids
+        self.is_constant_df: pd.DataFrame = is_constant_df
+        self._main_window = parent
         self.is_sorted_by = ""
         self.is_sorted_order = None
         self.editable_columns = {"Comment"}
 
-    @property
-    def _data(self):
-        return self._main_window.data
+    def has_column(self, name, by_title=False):
+        if by_title:
+            return name in self._data.columns
+        else:
+            return name in self.column_ids
+
+    def find_column(self, name, by_title=False):
+        if by_title:
+            return self._data.columns.get_loc(name)
+        else:
+            try:
+                return self.column_ids.index(name)
+            except ValueError:  # Convert to KeyError, matching .get_loc()
+                raise KeyError(name)
+
+    def column_title(self, col_ix):
+        return self._data.columns[col_ix]
+
+    def column_titles(self):
+        return list(self._data.columns)
+
+    def column_id(self, col_ix):
+        return self.column_ids[col_ix]
+
+    def find_row(self, proposal, run):
+        df = self._data
+        row = df.loc[(df["Proposal"] == proposal) & (df["Run"] == run)]
+        if row.size:
+            return row.index[0]
+        else:
+            raise KeyError((proposal, run))
+
+    def row_to_proposal_run(self, row_ix):
+        return self._data.at[row_ix, "Proposal"], self._data.at[row_ix, "Run"]
+
+    def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
+        if column_ids is None:
+            column_ids = titles
+        else:
+            assert len(column_ids) == len(titles)
+        dtype = 'object' if (type_cls is None) else type_cls.type_instance
+        self.beginInsertColumns(QtCore.QModelIndex(), before, before + len(titles) - 1)
+        for i, (title, column_id) in enumerate(zip(titles, column_ids)):
+            self._data.insert(before + i, title, pd.Series(
+                index=self._data.index, dtype=dtype
+            ))
+            self.column_ids.insert(before + i, column_id)
+            if editable:
+                self.add_editable_column(title)
+
+        self.endInsertColumns()
+
+    def insert_row(self, contents: dict):
+        # Extract the high-rank arrays from the messages, because
+        # DataFrames can only handle 1D cell elements by default. The
+        # way around this is to create a column manually with a dtype of
+        # 'object'.
+        ndarray_cols = {k: v for (k, v) in contents.items()
+                        if isinstance(v, np.ndarray) and v.ndim > 1}
+        plain_cols = {k: v for (k, v) in contents.items() if k not in ndarray_cols}
+
+        sort_col = self.is_sorted_by
+        if sort_col and not pd.isna(plain_cols.get(sort_col)):
+            newval = plain_cols[sort_col]
+            if self.is_sorted_order == Qt.SortOrder.AscendingOrder:
+                ix = self._data[sort_col].searchsorted(newval)
+            else:
+                ix_back = self._data[sort_col][::-1].searchsorted(newval)
+                ix = len(self._data) - ix_back
+        else:
+            ix = len(self._data)
+        log.debug("New row in table at index %d", ix)
+
+        # Create a DataFrame with the new data to insert into the main table
+        new_entries = pd.DataFrame(plain_cols, index=[0])
+
+        # Insert columns with 'object' dtype for the special columns
+        # with arrays that are >1D.
+        for col_name, value in ndarray_cols.items():
+            col = pd.Series([value], index=[0], dtype="object")
+            new_entries.insert(len(new_entries.columns), col_name, col)
+
+        new_df = pd.concat(
+            [
+                self._data.iloc[:ix],
+                new_entries,
+                self._data.iloc[ix:],
+            ],
+            ignore_index=True,
+        )
+
+        self.beginInsertRows(QtCore.QModelIndex(), ix, ix)
+        self._data = new_df
+        self.generateThumbnail.cache_clear()
+        self.endInsertRows()
+
+    def handle_update(self, message: dict, is_constant_df):
+        message = message.copy()   # Modify a copy
+        run = message.pop("Run")
+        proposal = message.pop("Proposal")
+        known_col_ids = set(self.column_ids)
+        new_col_ids = [c for c in message if c not in known_col_ids]
+
+        if new_col_ids:
+            log.info("New columns for table: %s", new_col_ids)
+            # TODO: retrieve titles for new columns
+            self.insert_columns(self.columnCount(), new_col_ids)
+
+        try:
+            row_ix = self.find_row(proposal, run)
+        except KeyError:
+            row_ix = None
+
+        self.is_constant_df = is_constant_df
+
+        column_ids_to_titles = dict(zip(self.column_ids, self._data.columns))
+
+        if row_ix is not None:
+            log.debug("Update existing row %s for run %s", row_ix, run)
+            for ki, vi in message.items():
+                title = column_ids_to_titles[ki]
+                self._data.at[row_ix, title] = vi
+
+                index = self.index(row_ix, self._data.columns.get_loc(title))
+                self.dataChanged.emit(index, index)
+
+        else:
+            # Convert from column ID keys to column titles
+            row_contents = {column_ids_to_titles[k]: v for (k, v) in message.items()}
+            self.insert_row(row_contents | {
+                "Proposal": proposal, "Run": run, "Comment": ""
+            })
 
     def add_editable_column(self, name):
         if name == "Status":
@@ -348,7 +447,7 @@ class Table(QtCore.QAbstractTableModel):
         if pd.isna(run) or pd.isna(proposal):
             return True
 
-        is_constant_df = self._main_window.is_constant_df
+        is_constant_df = self.is_constant_df
         if quantity in is_constant_df.columns:
             return is_constant_df.loc[(proposal, run)][quantity].item()
         else:
@@ -362,6 +461,21 @@ class Table(QtCore.QAbstractTableModel):
         Qt.FontRole,
         Qt.ToolTipRole
     )
+
+    def column_series(self, name, by_title=False, filter_status=True):
+        if by_title:
+           title = name
+        else:
+            title = self._data.columns[self.find_column(name, by_title=False)]
+        series =  self._data[title].values
+        if filter_status:
+            series = series[self._data["Status"]]
+        return series
+
+
+    def get_value_at(self, index):
+        """Get the value for programmatic use, not for display"""
+        return self._data.iloc[index.row(), index.column()]
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if role not in self._supported_roles:
@@ -511,9 +625,36 @@ class Table(QtCore.QAbstractTableModel):
         finally:
             self.layoutChanged.emit()
 
-    def row_to_proposal_run(self, row_ix):
-        r = self._data.iloc[row_ix]
-        return r['Proposal'], r['Run']
+    def dataframe_for_export(self, columns, rows=None, drop_image_cols=False):
+        """Create a cleaned-up dataframe to be saved as a spreadsheet"""
+        # Helper function to convert image blobs to a string tag.
+        def image2str(value):
+            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
+                return "<image>"
+            else:
+                return value
+
+        if drop_image_cols:
+            image_cols = self._columns_with_thumbnails()
+            columns = [c for c in columns if c not in image_cols]
+
+        cleaned_df = self._data[columns].copy()
+        # Format timestamps nicely
+        if "Timestamp" in cleaned_df:
+            cleaned_df["Timestamp"] = cleaned_df["Timestamp"].map(timestamp2str)
+        # Format images nicely
+        return cleaned_df.applymap(image2str)
+
+    def _columns_with_thumbnails(self):
+        obj_columns = self._data.dtypes == 'object'
+        image_cols = set()
+        for column in obj_columns.index:
+            for item in self._data[column]:
+                if isinstance(item, bytes) and BlobTypes.identify(item) is BlobTypes.png:
+                    image_cols.add(column)
+                    break
+
+        return image_cols
 
 def prettify_notation(value):
     if pd.api.types.is_float(value):

@@ -28,9 +28,9 @@ from ..context import ContextFile
 from ..ctxsupport.damnit_ctx import UserEditableVariable
 from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS
-from ..util import icon_path, StatusbarStylesheet, timestamp2str
+from ..util import icon_path, StatusbarStylesheet
 from .kafka import UpdateReceiver
-from .table import TableView, Table
+from .table import TableView, DamnitTableModel, prettify_notation
 from .plot import Canvas, Plot
 from .user_variables import AddUserVariableDialog
 from .editor import Editor, ContextTestResult
@@ -55,7 +55,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
         super().__init__()
 
-        self.data = None
         self._connect_to_kafka = connect_to_kafka
         self._updates_thread = None
         self._received_update = False
@@ -87,6 +86,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Disable the main window at first since we haven't loaded any database yet
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
+
+        self.table = self._create_table_model()
         
         self.zulip_messenger = None
 
@@ -212,7 +213,7 @@ da-dev@xfel.eu"""
                                         self.db.conn,
                                         index_col=["proposal", "run"]).fillna(0)
         # 1e-9 is the default tolerance of np.isclose()
-        self.is_constant_df = max_diff_df < 1e-9
+        return max_diff_df < 1e-9
 
     def autoconfigure(self, path: Path, proposal=None):
         # use separated directory if running online to avoid file corruption
@@ -245,9 +246,6 @@ da-dev@xfel.eu"""
         ctx_file, error_info = get_context_file(self._context_path, context_python)
         assert error_info is None, error_info
 
-        for kk, vv in user_variables.items():
-            self.table.add_editable_column(vv.title or vv.name)
-
         self._attributi = ctx_file.vars
         self._title_to_name = { "Comment" : "comment"} | {
             (aa.title or kk) : kk for kk, aa in self._attributi.items()
@@ -278,10 +276,7 @@ da-dev@xfel.eu"""
         # Don't try to plot comments
         comments_df.insert(2, "Status", False)
 
-        # Unset the table_view model before we start changing it
-        self.table_view.setModel(None)
-
-        self.data = pd.concat(
+        data = pd.concat(
             [
                 df.rename(
                     columns={
@@ -298,7 +293,7 @@ da-dev@xfel.eu"""
             ]
         )
 
-        self.load_max_diffs()
+        is_constant_df = self.load_max_diffs()
 
         # Load the users settings
         col_settings = { }
@@ -309,7 +304,7 @@ da-dev@xfel.eu"""
                     col_settings = db[key][Settings.COLUMNS.value]
 
         saved_cols = list(col_settings.keys())
-        df_cols = self.data.columns.tolist()
+        df_cols = data.columns.tolist()
 
         # Strip missing columns
         saved_cols = [col for col in saved_cols if col in df_cols]
@@ -327,27 +322,33 @@ da-dev@xfel.eu"""
         # Add all other unsaved columns
         sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
 
-        self.data = self.data[sorted_cols]
+        data = data[sorted_cols]
 
-        for cc in self.data:
+        column_ids = []
+        for cc in data:
             col_name = self.col_title_to_name(cc)
+            column_ids.append(col_name)
             if col_name in self._attributi and hasattr(self._attributi[col_name], 'variable_type'):
                 var_type_class = self._attributi[col_name].get_type_class()
-                self.data[cc] = var_type_class.convert(self.data[cc])
+                data[cc] = var_type_class.convert(data[cc])
+
+        self.table = self._create_table_model(data, column_ids, is_constant_df)
+        for kk, vv in user_variables.items():
+            self.table.add_editable_column(vv.title or vv.name)
 
         self.table_view.setModel(self.table)
-        self.table_view.sortByColumn(self.data.columns.get_loc("Timestamp"),
+        self.table_view.sortByColumn(data.columns.get_loc("Timestamp"),
                                      Qt.SortOrder.AscendingOrder)
 
         # Always keep these columns as small as possible to save space
         header = self.table_view.horizontalHeader()
         for column in ["Status", "Proposal", "Run", "Timestamp"]:
-            column_index = self.data.columns.get_loc(column)
+            column_index = data.columns.get_loc(column)
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         # Update the column widget and plotting controls with the new columns
-        self.table_view.set_columns([self.column_title(c) for c in self.data.columns],
-                                    [col_settings.get(col, True) for col in self.data.columns])
+        self.table_view.set_columns([self.column_title(c) for c in data.columns],
+                                    [col_settings.get(col, True) for col in data.columns])
         self.plot.update_columns()
 
         # Hide the comment_id column
@@ -359,14 +360,6 @@ da-dev@xfel.eu"""
 
     def column_renames(self):
         return {name: v.title for name, v in self._attributi.items() if v.title}
-
-    def has_variable(self, name, by_title=False):
-        if by_title:
-            haystack = set(self._title_to_name.keys()) | set(self.data.columns.values)
-        else:
-            haystack = set(self._name_to_title.keys())
-
-        return name in haystack
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
@@ -380,7 +373,9 @@ da-dev@xfel.eu"""
         self._attributi[name] = variable
         self._name_to_title[name] = title
         self._title_to_name[title] = name
-        self.data.insert(before_pos, title, variable.get_type_class().convert(pd.Series(index=self.data.index, dtype='object')))
+        self.table.insert_columns(
+            before_pos, [title], [name], variable.get_type_class(), editable=True
+        )
         self.table.insertColumn(before_pos)
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(title)
@@ -486,20 +481,27 @@ da-dev@xfel.eu"""
         except:
             log.info("Invalid input when searching run.")
             return
-        
-        query_df = self.data[self.data['Run'] == run].index
-        if len(query_df) == 0:
-            log.info('Run not found when searching run')
+
+        proposal = self.db.metameta['proposal']
+        try:
+            index_row = self.table.find_row(proposal, run)
+        except KeyError:
+            log.info('p%d r%d not found when searching run', proposal, run)
             return
-        
-        index_row = query_df.values[0]
+        self.scroll_to_row(index_row)
+
+    def scroll_to_row(self, index_row):
         visible_column = self.table_view.columnAt(0)
         if visible_column == -1:
-            visible_column = 0            
-        index = self.table_view.model().index(index_row,visible_column)
+            visible_column = 0
+        index = self.table_view.model().index(index_row, visible_column)
 
         self.table_view.scrollTo(index)
         self.table_view.selectRow(index.row())
+
+    def on_rows_inserted(self, _modelix, first, _last):
+        if self.action_autoscroll.isChecked():
+            self.scroll_to_row(first)
 
     def export_table(self):
         export_path, file_type = QFileDialog.getSaveFileName(self, "Export table to file",
@@ -518,22 +520,10 @@ da-dev@xfel.eu"""
         else:
             extension = export_path.suffix
 
-        # Helper function to convert image blobs to a string tag. Meant for
-        # applying to a DataFrame.
-        def image2str(value):
-            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
-                return "<image>"
-            else:
-                return value
-
         # Select columns in order of their appearance in the table (note: this
         # drops the comment_id column).
         columns = ["Status"] + list(self.table_view.get_column_states().keys())
-        cleaned_df = self.data[columns].copy()
-        # Format timestamps nicely
-        cleaned_df["Timestamp"] = cleaned_df["Timestamp"].map(lambda x: timestamp2str(x))
-        # Format images nicely
-        cleaned_df = cleaned_df.applymap(image2str)
+        cleaned_df = self.table.dataframe_for_export(columns)
 
         if extension == ".xlsx":
             proposal = self.db.metameta["proposal"]
@@ -545,25 +535,6 @@ da-dev@xfel.eu"""
                                      stylesheet=StatusbarStylesheet.ERROR)
 
     def handle_update(self, message):
-
-        # is the message OK?
-        if "Run" not in message.keys():
-            raise ValueError("Malformed message.")
-
-        # log.info("Updating for message: %s", message)
-
-        # Rename:
-        #  start_time -> Timestamp
-        renames = {
-            "start_time": "Timestamp",
-            **self.column_renames(),
-        }
-        message = {
-            "Status": True,
-            **{renames.get(k, k): v for (k, v) in message.items()},
-        }
-
-        # initialize the view
         if not self._received_update:
             self._received_update = True
             self._status_bar_connection_status.setStyleSheet(
@@ -573,106 +544,13 @@ da-dev@xfel.eu"""
                 f"Getting updates ({self.db_id})"
             )
 
-        # Update the diffs
-        self.load_max_diffs()
-
-        if self.data is None:
-            # ingest data
-            self.data = pd.DataFrame({**message, **{"Comment": ""}}, index=[0])
-
-            # build the table
-            self._create_view()
-
-        else:
-            # is the run already in?
-            row = self.data.loc[self.data["Run"] == message["Run"]]
-
-            # additional columns?
-            new_cols = set(message) - set(self.data.columns)
-
-            if new_cols:
-                log.info("New columns for table: %s", new_cols)
-                ncols_before = self.table.columnCount()
-                self.table.beginInsertColumns(
-                    QtCore.QModelIndex(), ncols_before, ncols_before + len(new_cols) - 1
-                )
-                for col_name in new_cols:
-                    self.data.insert(len(self.data.columns), col_name, np.nan)
-                    if isinstance(message[col_name], np.ndarray):
-                        self.data[col_name] = self.data[col_name].astype('object')
-
-                self.table.endInsertColumns()
-
-                self.table_view.add_new_columns(
-                    list(new_cols), [True for _ in list(new_cols)]
-                )
-
-            if row.size:
-                log.debug(
-                    "Update existing row %s for run %s", row.index, message["Run"]
-                )
-                for ki, vi in message.items():
-                    self.data.at[row.index[0], ki] = vi
-
-                    index = self.table.index(
-                        row.index[0], self.data.columns.get_loc(ki)
-                    )
-                    self.table.dataChanged.emit(index, index)
-
-            else:
-                sort_col = self.table.is_sorted_by
-                if self.table.is_sorted_by and message.get(sort_col):
-                    newval = message[sort_col]
-                    if self.table.is_sorted_order == Qt.SortOrder.AscendingOrder:
-                        ix = self.data[sort_col].searchsorted(newval)
-                    else:
-                        ix_back = self.data[sort_col][::-1].searchsorted(newval)
-                        ix = len(self.data) - ix_back
-                else:
-                    ix = len(self.data)
-                log.debug("New row in table at index %d", ix)
-
-                # Extract the high-rank arrays from the messages, because
-                # DataFrames can only handle 1D cell elements by default. The
-                # way around this is to create a column manually with a dtype of
-                # 'object'.
-                ndarray_cols = { }
-                for key, value in message.copy().items():
-                    if isinstance(value, np.ndarray) and value.ndim > 1:
-                        ndarray_cols[key] = value
-                        del message[key]
-
-                # Create a DataFrame with the new data to insert into the main table
-                new_entries = pd.DataFrame({**message, **{"Comment": ""}},
-                                           index=[self.table.rowCount()])
-
-                # Insert columns with 'object' dtype for the special columns
-                # with arrays that are >1D.
-                for col_name, value in ndarray_cols.items():
-                    col = pd.Series([value], index=[self.table.rowCount()], dtype="object")
-                    new_entries.insert(len(new_entries.columns), col_name, col)
-
-                new_df = pd.concat(
-                    [
-                        self.data.iloc[:ix],
-                        new_entries,
-                        self.data.iloc[ix:],
-                    ],
-                    ignore_index=True,
-                )
-
-                self.table.beginInsertRows(QtCore.QModelIndex(), ix, ix)
-                self.data = new_df
-                self.table.endInsertRows()
-                if self.action_autoscroll.isChecked():
-                    self.scroll_to_run(message["Run"])
+        is_constant_df = self.load_max_diffs()
+        self.table.handle_update(message, is_constant_df)
 
         # update plots and plotting controls
         self.plot.update_columns()
         self.plot.update()
 
-        # Clear caches in the table
-        self.table.generateThumbnail.cache_clear()
 
     def _updates_thread_launcher(self) -> None:
         if not self._connect_to_kafka:
@@ -704,34 +582,14 @@ da-dev@xfel.eu"""
         ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
         text = self.comment.text()
         comment_id = self.db.add_standalone_comment(ts, text)
-        self.data = pd.concat(
-            [
-                self.data,
-                pd.DataFrame(
-                    {
-                        "Status": False,
-                        "Timestamp": ts,
-                        "Run": pd.NA,
-                        "Proposal": pd.NA,
-                        "Comment": text,
-                        "comment_id": comment_id,
-                    },
-                    index=[0],
-                ),
-            ],
-            ignore_index=True,
-        )
-
-        # this block is ugly
-        if len(self.table.is_sorted_by):
-            self.data.sort_values(
-                self.table.is_sorted_by,
-                ascending=self.table.is_sorted_order == QtCore.Qt.AscendingOrder,
-                inplace=True,
-            )
-            self.data.reset_index(inplace=True, drop=True)
-        self.table.insertRows(self.table.rowCount())
-
+        self.table.insert_row({
+            "Status": False,
+            "Timestamp": ts,
+            "Run": pd.NA,
+            "Proposal": pd.NA,
+            "Comment": text,
+            "comment_id": comment_id,
+        })
         self.comment.clear()
 
     def get_run_file(self, proposal, run, log=True):
@@ -783,11 +641,9 @@ da-dev@xfel.eu"""
         return self.bool_to_numeric(self.make_finite(data))
 
     def inspect_data(self, index):
-        proposal = self.data["Proposal"][index.row()]
-        run = self.data["Run"][index.row()]
-
-        quantity_title = self.data.columns[index.column()]
-        quantity = self.col_title_to_name(quantity_title)
+        proposal, run = self.table.row_to_proposal_run(index.row())
+        quantity_title = self.table.column_title(index.column())
+        quantity = self.table.column_id(index.column())
 
         # Don't try to plot strings
         if quantity_title in { "Status" } | self.table.editable_columns:
@@ -799,7 +655,7 @@ da-dev@xfel.eu"""
             )
         )
 
-        cell_data = self.data.iloc[index.row(), index.column()]
+        cell_data = self.table.get_value_at(index)
         is_image = isinstance(cell_data, bytes) and BlobTypes.identify(cell_data) is BlobTypes.png
 
         if not (is_image or pd.api.types.is_number(cell_data) or isinstance(cell_data, np.ndarray)):
@@ -859,19 +715,28 @@ da-dev@xfel.eu"""
         else:
             self.show_status_message(f"No log found for run {run}")
 
+    def _create_table_model(self, df=None, column_ids=(), is_constant_df=None):
+        if df is None:
+            df = pd.DataFrame()
+        if is_constant_df is None:
+            is_constant_df = pd.DataFrame()
+        table = DamnitTableModel(df, column_ids, is_constant_df, self)
+        table.value_changed.connect(self.save_value)
+        table.time_comment_changed.connect(self.save_time_comment)
+        table.run_visibility_changed.connect(lambda row, state: self.plot.update())
+        table.rowsInserted.connect(self.on_rows_inserted)
+        return table
+
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
         comment_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
         self.table_view = TableView()
-        self.table = Table(self)
-        self.table.value_changed.connect(self.save_value)
-        self.table.time_comment_changed.connect(self.save_time_comment)
-        self.table.run_visibility_changed.connect(lambda row, state: self.plot.update())
 
         self.table_view.doubleClicked.connect(self.inspect_data)
         self.table_view.settings_changed.connect(self.save_settings)
+        self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.log_view_requested.connect(self.show_run_logs)
 
         vertical_layout.addWidget(self.table_view)
@@ -1077,6 +942,25 @@ da-dev@xfel.eu"""
             self.zulip_messenger = None
             return False
         return True
+
+    def export_selection_to_zulip(self):
+        if not self.check_zulip_messenger():
+            log.warning("Unable to connect to Zulip to export table")
+            return
+
+        selected_rows = [ix.row() for ix in
+                         self.table_view.selectionModel().selectedRows()]
+
+        blacklist_columns = ['Proposal', 'Status']
+        columns = [title for (title, vis) in self.get_column_states()
+                   if vis and (title not in blacklist_columns)]
+
+        df = self.table.dataframe_for_export(columns, selected_rows, drop_image_cols=True)
+        df.sort_values('Run', axis=0, inplace=True)
+
+        df = df.applymap(prettify_notation)
+        df.replace(["None", '<NA>', 'nan'], '', inplace=True)
+        self.zulip_messenger.send_table(df)
 
 class TableViewStyle(QtWidgets.QProxyStyle):
     """

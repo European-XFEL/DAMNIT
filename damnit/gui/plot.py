@@ -473,7 +473,7 @@ class Plot:
         }
 
     def update_columns(self):
-        keys = list(self._main_window.data.columns)
+        keys = self.table.column_titles()
 
         current_x = self._combo_box_x_axis.currentText()
         current_y = self._combo_box_y_axis.currentText()
@@ -500,8 +500,8 @@ class Plot:
         self._combo_box_x_axis.setCurrentText(new_x)
 
     @property
-    def _data(self):
-        return self._main_window.data
+    def table(self):
+        return self._main_window.table
 
     def _button_plot_clicked(self, runs_as_series):
         selected_rows = self._main_window.table_view.selectionModel().selectedRows()
@@ -515,8 +515,8 @@ class Plot:
         # given a timestamp).
         safe_cols = ["Proposal", "Run"]
         for label in [xlabel, ylabel]:
-            finite_data = self._main_window.fix_data_for_plotting(self._data[label])
-            if not label in safe_cols and not is_numeric_dtype(finite_data.dtype):
+            arr = self.table.column_series(label, by_title=True)
+            if not label in safe_cols and not is_numeric_dtype(arr.dtype):
                 QMessageBox.warning(self._main_window,
                                     "Plotting failed",
                                     f"'{label}' could not be plotted, its column has non-numeric data.")
@@ -537,10 +537,10 @@ class Plot:
                 return
 
         # Find the proposals of currently selected runs
-        proposals = [self._data.iloc[index.row()]["Proposal"] for index in selected_rows]
-        proposals = [pi for pi in proposals if pi is not pd.NA]
+        props_runs = [self.table.row_to_proposal_run(ix.row()) for ix in selected_rows]
+        proposals = {p for (p, r) in props_runs if p is not pd.NA}
 
-        if len(set(proposals)) > 1:
+        if len(proposals) > 1:
             QMessageBox.warning(
                 self._main_window,
                 "Multiple proposals selected",
@@ -551,13 +551,11 @@ class Plot:
         if self.plot_type == "histogram1D":
             ylabel = xlabel
 
-        selected_runs = [self._data.iloc[index.row()]["Run"] for index in selected_rows]
-
         runs = []
         xs, ys = [], []
         strongly_correlated = True
         if runs_as_series:
-            for p, r in zip(proposals, selected_runs):
+            for p, r in props_runs:
                 try:
                     correlated, xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
                     strongly_correlated = strongly_correlated and correlated
@@ -651,10 +649,10 @@ class Plot:
             else:
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
-                    self._main_window.fix_data_for_plotting(self._data[xi])[self._data["Status"]]
+                    self._main_window.fix_data_for_plotting(self.table.column_series(xi, by_title=True))
                 )
                 ys.append(
-                    self._main_window.fix_data_for_plotting(self._data[yi])[self._data["Status"]]
+                    self._main_window.fix_data_for_plotting(self.table.column_series(yi, by_title=True))
                 )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
