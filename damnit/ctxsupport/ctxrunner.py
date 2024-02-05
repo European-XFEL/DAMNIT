@@ -167,6 +167,62 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
+    def execute(self, inputs, run_number, proposal) -> 'Results':
+        res = {'start_time': np.asarray(get_start_time(inputs['run_data']))}
+
+        def get_dep_or_default(var, arg_name, dep_name):
+            """
+            Helper function to get either the value returned from the dependency
+            `dep_name` of `var`, if any, or the default value of the argument in
+            the function signature.
+            """
+            value = res.get(dep_name)
+            if value is None:
+                value = inspect.signature(var.func).parameters[arg_name].default
+
+            return value
+
+        for name in self.ordered_vars():
+            var = self.vars[name]
+
+            try:
+                # Add all variable dependencies
+                kwargs = { arg_name: get_dep_or_default(var, arg_name, dep_name)
+                           for arg_name, dep_name in var.arg_dependencies().items() }
+
+                # Check for missing dependencies with no default value
+                missing_deps = [key for key, value in kwargs.items() if value is inspect.Parameter.empty]
+                if len(missing_deps) > 0:
+                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                    continue
+
+                # And all meta dependencies
+                for arg_name, annotation in var.annotations().items():
+                    if not annotation.startswith("meta#"):
+                        continue
+
+                    if annotation == "meta#run_number":
+                        kwargs[arg_name] = run_number
+                    elif annotation == "meta#proposal":
+                        kwargs[arg_name] = proposal
+                    elif annotation == "meta#proposal_path":
+                        kwargs[arg_name] = get_proposal_path(inputs['run_data'])
+                    else:
+                        raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
+
+                func = functools.partial(var.func, **kwargs)
+
+                data = func(inputs)
+                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
+                    data = np.asarray(data)
+            except Exception:
+                log.error("Could not get data for %s", name, exc_info=True)
+            else:
+                # Only save the result if it's not None
+                if data is not None:
+                    res[name] = data
+        return Results(res, self)
+
 
 def get_user_variables(conn):
     user_variables = {}
@@ -286,63 +342,6 @@ class Results:
         self.data = data
         self.ctx = ctx
         self._reduced = None
-
-    @classmethod
-    def create(cls, ctx_file: ContextFile, inputs, run_number, proposal):
-        res = {'start_time': np.asarray(get_start_time(inputs['run_data']))}
-
-        def get_dep_or_default(var, arg_name, dep_name):
-            """
-            Helper function to get either the value returned from the dependency
-            `dep_name` of `var`, if any, or the default value of the argument in
-            the function signature.
-            """
-            value = res.get(dep_name)
-            if value is None:
-                value = inspect.signature(var.func).parameters[arg_name].default
-
-            return value
-
-        for name in ctx_file.ordered_vars():
-            var = ctx_file.vars[name]
-
-            try:
-                # Add all variable dependencies
-                kwargs = { arg_name: get_dep_or_default(var, arg_name, dep_name)
-                           for arg_name, dep_name in var.arg_dependencies().items() }
-
-                # Check for missing dependencies with no default value
-                missing_deps = [key for key, value in kwargs.items() if value is inspect.Parameter.empty]
-                if len(missing_deps) > 0:
-                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
-                    continue
-
-                # And all meta dependencies
-                for arg_name, annotation in var.annotations().items():
-                    if not annotation.startswith("meta#"):
-                        continue
-
-                    if annotation == "meta#run_number":
-                        kwargs[arg_name] = run_number
-                    elif annotation == "meta#proposal":
-                        kwargs[arg_name] = proposal
-                    elif annotation == "meta#proposal_path":
-                        kwargs[arg_name] = get_proposal_path(inputs['run_data'])
-                    else:
-                        raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
-
-                func = functools.partial(var.func, **kwargs)
-
-                data = func(inputs)
-                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
-                    data = np.asarray(data)
-            except Exception:
-                log.error("Could not get data for %s", name, exc_info=True)
-            else:
-                # Only save the result if it's not None
-                if data is not None:
-                    res[name] = data
-        return Results(res, ctx_file)
 
     @property
     def reduced(self):
@@ -564,7 +563,7 @@ def main(argv=None):
             'run_data' : run_dc,
             'db_conn' : db_conn
         }
-        res = Results.create(ctx, inputs, args.run, args.proposal)
+        res = ctx.execute(inputs, args.run, args.proposal)
 
         for path in args.save:
             res.save_hdf5(path)

@@ -148,7 +148,7 @@ def run_ctx_helper(context, run, run_number, proposal, caplog, additional_inputs
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = Results.create(context, {"run_data" : run} | additional_inputs, run_number, proposal)
+        results = context.execute({"run_data" : run} | additional_inputs, run_number, proposal)
 
     # Check that there were no errors
     assert caplog.records == []
@@ -157,7 +157,7 @@ def run_ctx_helper(context, run, run_number, proposal, caplog, additional_inputs
 def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
-    results_create = lambda ctx: Results.create(ctx, { "run_data" : mock_run }, run_number, proposal)
+    results_create = lambda ctx: ctx.execute({ "run_data" : mock_run }, run_number, proposal)
 
     # Simple test
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
