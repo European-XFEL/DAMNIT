@@ -540,11 +540,11 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
             # Change the value in the table
-            changed_column = self._main_window.col_title_to_name(self._data.columns[index.column()])
+            changed_column = self.column_id(index.column())
             if changed_column == "comment":
                 self._data.iloc[index.row(), index.column()] = value
             else:
-                variable_type_class = self._main_window.get_variable_from_name(changed_column).get_type_class()
+                variable_type_class = self._main_window.user_variables[changed_column].get_type_class()
 
                 try:
                     value = variable_type_class.convert(value, unwrap=True) if value != '' else None

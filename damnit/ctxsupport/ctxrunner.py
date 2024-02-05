@@ -28,9 +28,8 @@ import extra_data
 import h5py
 import numpy as np
 import xarray as xr
-import sqlite3
 
-from damnit_ctx import RunData, Variable, UserEditableVariable
+from damnit_ctx import RunData, Variable
 
 log = logging.getLogger(__name__)
 
@@ -57,14 +56,6 @@ class ContextFile:
         except CycleError as e:
             # Tweak the error message to make it clearer
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
-
-        # Temporarily prevent User Editable Variables as dependencies
-        user_var_deps = set()
-        for name, var in self.vars.items():
-            user_var_deps |= {dep for dep in self.all_dependencies(var) if isinstance(self.vars[dep], UserEditableVariable)}
-        if len(user_var_deps):
-            all_vars_quoted = ", ".join(f'"{name}"' for name in sorted(user_var_deps))
-            raise ValueError(f"The following user-editable variables are used as dependencies, this is currently unsupported: {all_vars_quoted}")
 
         # Check for raw-data variables that depend on proc-data variables
         raw_vars = { name: var for name, var in self.vars.items()
@@ -124,22 +115,18 @@ class ContextFile:
         return dependencies
 
     @classmethod
-    def from_py_file(cls, path: Path, external_vars={}):
+    def from_py_file(cls, path: Path):
         code = path.read_text()
         log.debug("Loading context from %s", path)
-        return ContextFile.from_str(code, external_vars)
+        return ContextFile.from_str(code)
 
     @classmethod
-    def from_str(cls, code: str, external_vars={}):
+    def from_str(cls, code: str):
         d = {}
         exec(code, d)
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
         log.debug("Loaded %d variables", len(vars))
-        clashing_vars = vars.keys() & external_vars.keys()
-
-        if len(clashing_vars) > 0:
-            raise RuntimeError(f"These Variables have clashing names: {', '.join(clashing_vars)}")
-        return cls(vars | external_vars, code)
+        return cls(vars, code)
 
     def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
         new_vars = {}
@@ -167,52 +154,57 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, inputs, run_number, proposal) -> 'Results':
-        res = {'start_time': np.asarray(get_start_time(inputs['run_data']))}
-
-        def get_dep_or_default(var, arg_name, dep_name):
-            """
-            Helper function to get either the value returned from the dependency
-            `dep_name` of `var`, if any, or the default value of the argument in
-            the function signature.
-            """
-            value = res.get(dep_name)
-            if value is None:
-                value = inspect.signature(var.func).parameters[arg_name].default
-
-            return value
+    def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
+        res = {'start_time': np.asarray(get_start_time(run_data))}
 
         for name in self.ordered_vars():
             var = self.vars[name]
 
             try:
-                # Add all variable dependencies
-                kwargs = { arg_name: get_dep_or_default(var, arg_name, dep_name)
-                           for arg_name, dep_name in var.arg_dependencies().items() }
+                kwargs = {}
+                missing_deps = []
+                missing_input = []
 
-                # Check for missing dependencies with no default value
-                missing_deps = [key for key, value in kwargs.items() if value is inspect.Parameter.empty]
-                if len(missing_deps) > 0:
-                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
-                    continue
-
-                # And all meta dependencies
-                for arg_name, annotation in var.annotations().items():
-                    if not annotation.startswith("meta#"):
+                for arg_name, param in inspect.signature(var.func).parameters.items():
+                    annotation = param.annotation
+                    if not isinstance(annotation, str):
                         continue
 
-                    if annotation == "meta#run_number":
+                    # Dependency within the context file
+                    if annotation.startswith("var#"):
+                        dep_name = annotation.removeprefix("var#")
+                        if dep_name in res:
+                            kwargs[arg_name] = res[dep_name]
+                        elif param.default is inspect.Parameter.empty:
+                            missing_deps.append(dep_name)
+
+                    # Input variable passed from outside
+                    elif annotation.startswith("input#"):
+                        inp_name = annotation.removeprefix("input#")
+                        if inp_name in input_vars:
+                            kwargs[arg_name] = input_vars[inp_name]
+                        elif param.default is inspect.Parameter.empty:
+                            missing_input.append(inp_name)
+
+                    elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number
                     elif annotation == "meta#proposal":
                         kwargs[arg_name] = proposal
                     elif annotation == "meta#proposal_path":
-                        kwargs[arg_name] = get_proposal_path(inputs['run_data'])
+                        kwargs[arg_name] = get_proposal_path(run_data)
                     else:
                         raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
 
+                if missing_deps:
+                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                    continue
+                elif missing_input:
+                    log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
+                    continue
+
                 func = functools.partial(var.func, **kwargs)
 
-                data = func(inputs)
+                data = func(run_data)  # TODO - fix methods
                 if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
                     data = np.asarray(data)
             except Exception:
@@ -222,24 +214,6 @@ class ContextFile:
                 if data is not None:
                     res[name] = data
         return Results(res, self)
-
-
-def get_user_variables(conn):
-    user_variables = {}
-    rows = conn.execute("SELECT name, title, type, description, attributes FROM variables")
-    name_to_pos = {ff[0] : ii for ii, ff in enumerate(rows.description)}
-    for rr in rows:
-        var_name = rr[name_to_pos["name"]]
-        new_var = UserEditableVariable(
-            var_name,
-            title=rr[name_to_pos["title"]],
-            variable_type=rr[name_to_pos["type"]],
-            description=rr[name_to_pos["description"]],
-            attributes=rr[name_to_pos["attributes"]]
-        )
-        user_variables[var_name] = new_var
-    log.debug("Loaded %d user variables", len(user_variables))
-    return user_variables
 
 
 def get_start_time(xd_run):
@@ -525,8 +499,6 @@ def main(argv=None):
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
 
-    db_conn = sqlite3.connect('runs.sqlite', timeout=30)
-
     if args.subcmd == "exec":
         # Check if we have proc data
         proc_available = False
@@ -548,7 +520,7 @@ def main(argv=None):
             log.warning("Proc data is unavailable, only raw variables will be executed.")
             run_data = RunData.RAW
 
-        ctx_whole = ContextFile.from_py_file(Path('context.py'), external_vars = get_user_variables(db_conn))
+        ctx_whole = ContextFile.from_py_file(Path('context.py'))
         ctx = ctx_whole.filter(
             run_data=run_data, cluster=args.cluster_job, name_matches=args.match
         )
@@ -564,11 +536,7 @@ def main(argv=None):
             actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
             run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
 
-        inputs = {
-            'run_data' : run_dc,
-            'db_conn' : db_conn
-        }
-        res = ctx.execute(inputs, args.run, args.proposal)
+        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
         for path in args.save:
             res.save_hdf5(path)
@@ -578,7 +546,7 @@ def main(argv=None):
         error_info = None
 
         try:
-            ctx = ContextFile.from_py_file(args.context_file, external_vars = get_user_variables(db_conn))
+            ctx = ContextFile.from_py_file(args.context_file)
 
             # Strip the functions from the Variable's, these cannot always be
             # pickled.
