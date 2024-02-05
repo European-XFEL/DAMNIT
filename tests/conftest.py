@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 import numpy as np
 
-from damnit.ctxsupport.damnit_ctx import types_map, UserEditableVariable
+from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
 from damnit.backend.db import DamnitDB
 
 from .helpers import amore_proto, mkcontext
@@ -60,7 +60,7 @@ def mock_user_vars():
 
     user_variables = {}
 
-    for kk in types_map.keys():
+    for kk in value_types_by_name.keys():
         var_name = f"user_{kk}"
         user_variables[var_name] = UserEditableVariable(
             var_name,
@@ -80,28 +80,28 @@ def mock_ctx_user(mock_user_vars):
     from damnit.context import Variable
 
     @Variable(title="Depend from user integer")
-    #def dep_integer(run, user_integer: "var#user_integer"):
+    #def dep_integer(run, user_integer: "input#user_integer"):
     def dep_integer(run, user_integer=12):
         return user_integer + 1
 
     @Variable(title="Depend from user number")
-    #def dep_number(run, user_number: "var#user_number"):
+    #def dep_number(run, user_number: "input#user_number"):
     def dep_number(run, user_number=10.2):
         return user_number * 1.0
 
     @Variable(title="Depend from user boolean")
-    #def dep_boolean(run, user_boolean: "var#user_boolean"):
+    #def dep_boolean(run, user_boolean: "input#user_boolean"):
     def dep_boolean(run, user_boolean=True):
         return user_boolean and False
 
     @Variable(title="Depend from user string")
-    #def dep_string(run, user_string: "var#user_string"):
+    #def dep_string(run, user_string: "input#user_string"):
     def dep_string(run, user_string="foo"):
         return user_string * 2
 
     """
 
-    return mkcontext(code, external_vars=mock_user_vars)
+    return mkcontext(code)
 
 @pytest.fixture
 def mock_run():

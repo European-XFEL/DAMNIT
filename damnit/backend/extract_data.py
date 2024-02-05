@@ -23,7 +23,6 @@ from extra_data.read_machinery import find_proposal
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
 from .db import DamnitDB, ReducedData, BlobTypes
 
@@ -135,7 +134,7 @@ def get_context_file(ctx_path: Path, context_python=None):
     if context_python is None:
         db = DamnitDB.from_dir(ctx_path.parent)
         with db.conn:
-            ctx = ContextFile.from_py_file(ctx_path, external_vars=get_user_variables(db.conn))
+            ctx = ContextFile.from_py_file(ctx_path)
 
         db.close()
         return ctx, None

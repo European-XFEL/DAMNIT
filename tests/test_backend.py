@@ -143,12 +143,12 @@ def test_context_file(mock_ctx):
     # on a proc variable.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
 
-def run_ctx_helper(context, run, run_number, proposal, caplog, additional_inputs = {}):
+def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = context.execute({"run_data" : run} | additional_inputs, run_number, proposal)
+        results = context.execute(run, run_number, proposal, input_vars or {})
 
     # Check that there were no errors
     assert caplog.records == []
@@ -157,7 +157,7 @@ def run_ctx_helper(context, run, run_number, proposal, caplog, additional_inputs
 def test_results(mock_ctx, mock_run, caplog, tmp_path):
     run_number = 1000
     proposal = 1234
-    results_create = lambda ctx: ctx.execute({ "run_data" : mock_run }, run_number, proposal)
+    results_create = lambda ctx: ctx.execute(mock_run, run_number, proposal, {})
 
     # Simple test
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
@@ -312,29 +312,25 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
-def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, mock_db, caplog):
+def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
 
     proposal = 1234
     run_number = 1000
 
-    db_dir, db = mock_db
-
-    reduced_data = {
+    user_var_values = {
         "user_integer": 12,
         "user_number": 10.2,
         "user_boolean": True,
         "user_string": "foo"
     }
 
-    add_to_db(reduced_data_from_dict(reduced_data), db, proposal, run_number)
-
-    results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, additional_inputs={ "db_conn" : db})
+    results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, input_vars=user_var_values)
 
     # Tests if computations that depends on user variable return the correct results
-    assert results.data["dep_integer"] == reduced_data["user_integer"] + 1
-    assert results.data["dep_number"] == reduced_data["user_number"]
+    assert results.data["dep_integer"] == user_var_values["user_integer"] + 1
+    assert results.data["dep_number"] == user_var_values["user_number"]
     assert results.data["dep_boolean"] == False
-    assert results.data["dep_string"] == reduced_data["user_string"] * 2
+    assert results.data["dep_string"] == user_var_values["user_string"] * 2
 
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000

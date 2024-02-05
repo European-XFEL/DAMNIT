@@ -9,7 +9,7 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
-from ..context import UserEditableVariable
+from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
 
@@ -167,6 +167,22 @@ class DamnitDB:
             )
 
         self.update_views()
+
+    def get_user_variables(self):
+        user_variables = {}
+        rows = self.conn.execute("SELECT name, title, type, description, attributes FROM variables")
+        for rr in rows:
+            var_name = rr["name"]
+            new_var = UserEditableVariable(
+                var_name,
+                title=rr["title"],
+                variable_type=rr["type"],
+                description=rr["description"],
+                attributes=rr["attributes"],
+            )
+            user_variables[var_name] = new_var
+        log.debug("Loaded %d user variables", len(user_variables))
+        return user_variables
 
     def variable_names(self):
         names = { record[0] for record in

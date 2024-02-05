@@ -23,10 +23,8 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 from ..backend.api import RunVariables
 from ..backend.db import db_path, DamnitDB, ReducedData, BlobTypes
 from ..backend.extract_data import get_context_file, process_log_path
+from ..backend.user_variables import UserEditableVariable
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..context import ContextFile
-from ..ctxsupport.damnit_ctx import UserEditableVariable
-from ..ctxsupport.ctxrunner import get_user_variables
 from ..definitions import UPDATE_BROKERS
 from ..util import icon_path, StatusbarStylesheet
 from .kafka import UpdateReceiver
@@ -239,7 +237,8 @@ da-dev@xfel.eu"""
         self.stop_update_listener_thread()
         self._updates_thread_launcher()
 
-        user_variables = get_user_variables(self.db.conn)
+        self.user_variables = user_variables = self.db.get_user_variables()
+        user_var_id_to_title = {name: vv.title for (name, vv) in user_variables.items()}
 
         log.info("Reading context file %s", self._context_path)
         context_python = self.db.metameta.get("context_python")
@@ -284,14 +283,26 @@ da-dev@xfel.eu"""
                         "proposal": "Proposal",
                         "start_time": "Timestamp",
                         "comment": "Comment",
-                        **self.column_renames(),
-                    }
+                    } | self.column_renames() | user_var_id_to_title
                 ),
                 comments_df.rename(
                     columns={"timestamp": "Timestamp", "comment": "Comment",}
                 ),
             ]
         )
+
+        for vv in user_variables.values():
+            title = vv.title or vv.name
+            self._title_to_name[title] = vv.name
+            self._name_to_title[vv.name] = title
+            type_cls = vv.get_type_class()
+            if title in data:
+                # Convert loaded data to the right pandas type
+                data[title] = type_cls.convert(data[title])
+            else:
+                # Add an empty column (before restoring saved order)
+                data[title] = pd.Series(index=data.index, dtype=type_cls.type_instance)
+
 
         is_constant_df = self.load_max_diffs()
 
@@ -323,14 +334,7 @@ da-dev@xfel.eu"""
         sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
 
         data = data[sorted_cols]
-
-        column_ids = []
-        for cc in data:
-            col_name = self.col_title_to_name(cc)
-            column_ids.append(col_name)
-            if col_name in self._attributi and hasattr(self._attributi[col_name], 'variable_type'):
-                var_type_class = self._attributi[col_name].get_type_class()
-                data[cc] = var_type_class.convert(data[cc])
+        column_ids = [self.col_title_to_name(cc) for cc in data]
 
         self.table = self._create_table_model(data, column_ids, is_constant_df)
         for kk, vv in user_variables.items():

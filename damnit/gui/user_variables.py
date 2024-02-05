@@ -2,7 +2,7 @@ import re
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from ..ctxsupport.damnit_ctx import types_map
+from ..backend.user_variables import value_types_by_name
 from ..util import icon_path
 
 
@@ -89,7 +89,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.variable_example = QtWidgets.QLabel()
         self.variable_example.setAlignment(self.variable_example.alignment() | QtCore.Qt.AlignRight)
 
-        for ii, (kk, vv) in enumerate(types_map.items()):
+        for ii, (kk, vv) in enumerate(value_types_by_name.items()):
             self.variable_type.addItem(kk)
             self.variable_type.setItemData(ii, vv.description, QtCore.Qt.ToolTipRole)
 
@@ -106,7 +106,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
 
         label = self.variable_example
         format_text = lambda x: f"<span style='color: gray; font-size: 10px;'>{x}</span>"
-        cur_type_class = types_map[current_type]
+        cur_type_class = value_types_by_name[current_type]
         type_examples = cur_type_class.examples
         joined_examples = ', '.join(type_examples)
 
