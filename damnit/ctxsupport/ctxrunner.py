@@ -17,7 +17,6 @@ import time
 from datetime import timezone
 import traceback
 from enum import Enum
-from numbers import Number
 from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
@@ -44,6 +43,15 @@ class DataType(Enum):
     Image = "image"
     Timestamp = "timestamp"
 
+
+class ContextFileErrors(RuntimeError):
+    def __init__(self, problems):
+        self.problems = problems
+
+    def __str__(self):
+        return "\n".join(self.problems)
+
+
 class ContextFile:
 
     def __init__(self, vars, code):
@@ -58,12 +66,11 @@ class ContextFile:
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
 
         # Check for raw-data variables that depend on proc-data variables
-        raw_vars = { name: var for name, var in self.vars.items()
-                     if hasattr(var, "data") and var.data == RunData.RAW }
-        for name, var in raw_vars.items():
-            dependencies = self.all_dependencies(var)
-            proc_dependencies = [dep for dep in dependencies
-                                 if not hasattr(self.vars[dep], "data") or self.vars[dep].data == RunData.PROC]
+        for name, var in self.vars.items():
+            if var.data != RunData.RAW:
+                continue
+            proc_dependencies = [dep for dep in self.all_dependencies(var)
+                                 if self.vars[dep].data == RunData.PROC]
 
             if len(proc_dependencies) > 0:
                 # If we have a variable that depends on proc data but didn't
@@ -71,13 +78,23 @@ class ContextFile:
                 # data.
                 if var._data == None:
                     var._data = RunData.PROC.value
-                # Otherwise, if the user explicitly requested raw data but the
-                # variable depends on proc data, that's a problem with the
-                # context file and we raise an exception.
-                elif var._data == RunData.RAW.value:
-                    raise RuntimeError(f"Variable '{name}' is triggered by migration of raw data by data='raw', "
-                                       f"but depends on these Variables that require proc data: {', '.join(proc_dependencies)}\n"
-                                       f"Either remove data='raw' for '{name}' or change it to data='proc'")
+
+    def check(self):
+        problems = []
+        for name, var in self.vars.items():
+            problems.extend(var.check())
+            if var.data != RunData.RAW:
+                continue
+            proc_dependencies = [dep for dep in self.all_dependencies(var)
+                                 if self.vars[dep].data == RunData.PROC]
+
+            if proc_dependencies:
+                if var.data == RunData.RAW:
+                    problems.append(
+                        f"Variable {name} is triggered by migration of raw data (data='raw'), "
+                        f"but depends on these Variables that require proc data: {', '.join(proc_dependencies)}\n"
+                        f"Remove data='raw' for {name} or change it to data='proc'"
+                    )
 
         # Check that no variables have duplicate titles
         titles = [var.title for var in self.vars.values() if var.title is not None]
@@ -85,7 +102,12 @@ class ContextFile:
         if len(duplicate_titles) > 0:
             bad_variables = [name for name, var in self.vars.items()
                              if var.title in duplicate_titles]
-            raise RuntimeError(f"These Variables have duplicate titles between them: {', '.join(bad_variables)}")
+            problems.append(
+                f"These Variables have duplicate titles between them: {', '.join(bad_variables)}"
+            )
+
+        if problems:
+            raise ContextFileErrors(problems)
 
     def ordered_vars(self):
         """
@@ -370,27 +392,27 @@ class Results:
 
         xarray_dsets = []
         obj_type_hints = {}
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()
-                 if name in implicit_vars or ctx_vars[name].store_result]
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
+                 #if name in implicit_vars or ctx_vars[name].store_result]
         if not reduced_only:
             for name, obj in self.data.items():
-                if name in implicit_vars or ctx_vars[name].store_result:
-                    if isinstance(obj, (xr.DataArray, xr.Dataset)):
-                        xarray_dsets.append((name, obj))
-                        obj_type_hints[name] = (
-                            DataType.DataArray if isinstance(obj, xr.DataArray)
-                            else DataType.Dataset
-                        )
+                # if name in implicit_vars or ctx_vars[name].store_result:
+                if isinstance(obj, (xr.DataArray, xr.Dataset)):
+                    xarray_dsets.append((name, obj))
+                    obj_type_hints[name] = (
+                        DataType.DataArray if isinstance(obj, xr.DataArray)
+                        else DataType.Dataset
+                    )
+                else:
+                    if isinstance(obj, Figure):
+                        value =  figure2array(obj)
+                        obj_type_hints[name] = DataType.Image
+                    elif isinstance(obj, str):
+                        value = obj
                     else:
-                        if isinstance(obj, Figure):
-                            value =  figure2array(obj)
-                            obj_type_hints[name] = DataType.Image
-                        elif isinstance(obj, str):
-                            value = obj
-                        else:
-                            value = np.asarray(obj)
+                        value = np.asarray(obj)
 
-                        dsets.append((f'{name}/data', value))
+                    dsets.append((f'{name}/data', value))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -521,6 +543,7 @@ def main(argv=None):
             run_data = RunData.RAW
 
         ctx_whole = ContextFile.from_py_file(Path('context.py'))
+        ctx_whole.check()
         ctx = ctx_whole.filter(
             run_data=run_data, cluster=args.cluster_job, name_matches=args.match
         )

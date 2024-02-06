@@ -9,30 +9,48 @@ import re
 from enum import Enum
 
 
-class VariableBase:
+class RunData(Enum):
+    RAW = "raw"
+    PROC = "proc"
+    ALL = "all"
 
-    def __new__(cls, *args, **kwargs):
-        if cls == VariableBase:
-            raise TypeError(f"only children of '{cls.__name__}' may be instantiated")
-        return super().__new__(cls)
 
-    def __init__(self, name=None, func=None, title=None, description=None, attributes={}):
-        self.store_result = False
-        self.func = func
-        self.name = name
+class Variable:
+    _name = None
+
+    def __init__(
+            self, title=None, description=None, summary=None, data=None, cluster=False,
+    ):
         self.title = title
         self.description = description
-        self.attributes = attributes
+        self.summary = summary
+        self.cluster = cluster
+        self._data = data
+
+    # @Variable() is used as a decorator on a function that computes a value
+    def __call__(self, func):
+        self.func = func
+        self.name = func.__name__
+        return self
+
+    def check(self):
+        problems = []
+        if not re.fullmatch(r'[a-zA-Z_]\w+', self.name, flags=re.A):
+            problems.append(
+                f"The variable name {self.name!r} is not of the form '[a-zA-Z_]\\w+'"
+            )
+        if self._data not in (None, "raw", "proc"):
+            problems.append(
+                f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
+            )
+        return problems
 
     @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        if value and not re.fullmatch(r'[a-zA-Z_]\w+', value, flags=re.A):
-            raise ValueError(f"Error in variable: the variable name '{value}' is not of the form '[a-zA-Z_]\\w+'")
-        self._name = value
+    def data(self):
+        """
+        Return the RunData of the Variable.
+        """
+        return RunData.RAW if self._data is None else RunData(self._data)
 
     def arg_dependencies(self):
         """
@@ -51,40 +69,3 @@ class VariableBase:
         Returns a dict of argument names to their annotations.
         """
         return getattr(self.func, '__annotations__', {})
-
-
-
-class RunData(Enum):
-    RAW = "raw"
-    PROC = "proc"
-    ALL = "all"
-
-class Variable(VariableBase):
-
-    def __init__(self, title=None, summary=None, data=None, cluster=False, description=None, attributes={}):
-        super().__init__(title=title, description=description, attributes=attributes)
-
-        self.store_result = True
-        self.summary = summary
-
-        if data is not None and data not in ["raw", "proc"]:
-            raise ValueError(f"Error in Variable declaration: the 'data' argument is '{data}' but it should be either 'raw' or 'proc'")
-        else:
-            # Store the users original setting, this is used later to determine
-            # whether raw-data variables that depend on proc-data variables can
-            # automatically be promoted.
-            self._data = data
-
-        self.cluster = cluster
-
-    def __call__(self, func):
-        self.func = func
-        self.name = func.__name__
-        return self
-
-    @property
-    def data(self):
-        """
-        Return the RunData of the Variable.
-        """
-        return RunData.RAW if self._data is None else RunData(self._data)

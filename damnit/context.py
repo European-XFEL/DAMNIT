@@ -7,4 +7,7 @@ if ctxsupport_dir not in sys.path:
 
 # Exposing these here for compatibility
 from damnit_ctx import RunData, Variable
-from ctxrunner import ContextFile, PNGData, Results, get_proposal_path
+from ctxrunner import (
+    ContextFileErrors, ContextFile, DataType, PNGData, Results,
+    add_to_h5_file, get_proposal_path,
+)
