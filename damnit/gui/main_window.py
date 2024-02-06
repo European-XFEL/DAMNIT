@@ -373,6 +373,7 @@ da-dev@xfel.eu"""
         else:
             before_pos += before
         variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
+        self.user_variables[name] = variable
         self.db.add_user_variable(variable)
         self._attributi[name] = variable
         self._name_to_title[name] = title
@@ -380,7 +381,6 @@ da-dev@xfel.eu"""
         self.table.insert_columns(
             before_pos, [title], [name], variable.get_type_class(), editable=True
         )
-        self.table.insertColumn(before_pos)
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(title)
 
