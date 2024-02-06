@@ -246,7 +246,7 @@ da-dev@xfel.eu"""
         assert error_info is None, error_info
 
         self._attributi = ctx_file.vars
-        self._title_to_name = { "Comment" : "comment"} | {
+        self._title_to_name = {"Comment" : "comment", "Timestamp": "start_time"} | {
             (aa.title or kk) : kk for kk, aa in self._attributi.items()
         }
         self._name_to_title = {vv : kk for kk, vv in self._title_to_name.items()}
