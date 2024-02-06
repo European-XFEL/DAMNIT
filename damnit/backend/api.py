@@ -6,7 +6,7 @@ import h5py
 import xarray as xr
 
 from .db import DamnitDB
-from ..ctxsupport.ctxrunner import DataType, add_to_h5_file
+from ..context import DataType, add_to_h5_file
 
 
 class VariableData:

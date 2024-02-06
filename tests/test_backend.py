@@ -16,7 +16,9 @@ import numpy as np
 import xarray as xr
 
 from damnit.util import wait_until
-from damnit.context import ContextFile, PNGData, Results, RunData, get_proposal_path
+from damnit.context import (
+    ContextFileErrors, ContextFile, PNGData, Results, RunData, get_proposal_path
+)
 from damnit.backend.db import DamnitDB
 from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
@@ -70,8 +72,9 @@ def test_context_file(mock_ctx):
     def bar(run): return 43
     """
 
-    with pytest.raises(RuntimeError):
-        ContextFile.from_str(textwrap.dedent(duplicate_titles_code))
+    ctx = ContextFile.from_str(textwrap.dedent(duplicate_titles_code))
+    with pytest.raises(ContextFileErrors):
+        ctx.check()
 
     # Helper lambda to get the names of the direct dependencies of a variable
     var_deps = lambda name: set(mock_ctx.vars[name].arg_dependencies().values())
@@ -122,8 +125,9 @@ def test_context_file(mock_ctx):
         return foo
     """
 
-    with pytest.raises(RuntimeError):
-        ContextFile.from_str(textwrap.dedent(bad_dep_code))
+    ctx = ContextFile.from_str(textwrap.dedent(bad_dep_code))
+    with pytest.raises(ContextFileErrors):
+        ctx.check()
 
     var_promotion_code = """
     from damnit.context import Variable
