@@ -467,7 +467,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # When only proc variables are reprocessed, the run should still be opened
     # with `data='all'` so that raw data is available. Note that we patch
     # Results too so that the test doesn't throw exceptions.
-    with patch("ctxrunner.extra_data.open_run") as open_run, \
+    with patch("ctxrunner.extra_data.open_run", return_value=mock_run) as open_run, \
          patch("ctxrunner.Results"):
         main(["exec", "1234", "42", "proc"])
 
