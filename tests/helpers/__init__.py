@@ -31,5 +31,5 @@ def amore_proto(args):
           patch("damnit.backend.extract_data.KafkaProducer")):
         main()
 
-def mkcontext(code, **kwargs):
-    return ContextFile.from_str(textwrap.dedent(code), **kwargs)
+def mkcontext(code):
+    return ContextFile.from_str(textwrap.dedent(code))

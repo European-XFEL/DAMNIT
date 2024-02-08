@@ -47,10 +47,8 @@ def test_context_file(mock_ctx):
     def foo(run):
         return 42
     """
-    code = textwrap.dedent(code)
-
     # Test creating from a string
-    ctx = ContextFile.from_str(code)
+    ctx = mkcontext(code)
     assert len(ctx.vars) == 1
 
     # Test creating from a file
@@ -72,7 +70,7 @@ def test_context_file(mock_ctx):
     def bar(run): return 43
     """
 
-    ctx = ContextFile.from_str(textwrap.dedent(duplicate_titles_code))
+    ctx = mkcontext(duplicate_titles_code)
     with pytest.raises(ContextFileErrors):
         ctx.check()
 
@@ -110,7 +108,7 @@ def test_context_file(mock_ctx):
 
     # Creating a context from this should fail
     with pytest.raises(graphlib.CycleError):
-        ContextFile.from_str(textwrap.dedent(cycle_code))
+        mkcontext(cycle_code)
 
     # Context file with raw variable's depending on proc variable's
     bad_dep_code = """
@@ -125,7 +123,7 @@ def test_context_file(mock_ctx):
         return foo
     """
 
-    ctx = ContextFile.from_str(textwrap.dedent(bad_dep_code))
+    ctx = mkcontext(bad_dep_code)
     with pytest.raises(ContextFileErrors):
         ctx.check()
 
@@ -141,7 +139,7 @@ def test_context_file(mock_ctx):
         return foo
     """
     # This should not raise an exception
-    var_promotion_ctx = ContextFile.from_str(textwrap.dedent(var_promotion_code))
+    var_promotion_ctx = mkcontext(var_promotion_code)
 
     # `bar` should automatically be promoted to use proc data because it depends
     # on a proc variable.
@@ -405,7 +403,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         return 42
     """
     mock_code = mock_ctx.code + "\n\n" + textwrap.dedent(no_summary_var)
-    mock_ctx = ContextFile.from_str(mock_code)
+    mock_ctx = mkcontext(mock_code)
 
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx.code)
