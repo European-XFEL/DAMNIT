@@ -10,12 +10,12 @@ from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QMessageBox
 
 import mplcursors
+import matplotlib
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,
 )
 from matplotlib.figure import Figure
-from matplotlib import cm as mpl_cm
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
 from ..backend.api import RunVariables
@@ -217,7 +217,7 @@ class Canvas(QtWidgets.QDialog):
         self.figure.canvas.draw()
 
     def update_canvas(self, xs=None, ys=None, image=None, legend=None, series_names=["default"]):
-        cmap = mpl_cm.get_cmap("tab20")
+        cmap = matplotlib.colormaps["tab20"]
         self._nan_warning_label.hide()
 
         if (xs is None and ys is None) and self.plot_type == "histogram1D":
@@ -279,8 +279,8 @@ class Canvas(QtWidgets.QDialog):
                 self._axis.set_xlabel("")
                 self._axis.set_ylabel("")
             else:
-                vmin = np.nanquantile(image, 0.01, interpolation='nearest')
-                vmax = np.nanquantile(image, 0.99, interpolation='nearest')
+                vmin = np.nanquantile(image, 0.01, method='nearest')
+                vmax = np.nanquantile(image, 0.99, method='nearest')
                 self._image.set_clim(vmin, vmax)
         else:
             self._axis.grid(visible=True)
