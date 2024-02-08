@@ -673,40 +673,50 @@ da-dev@xfel.eu"""
             log.warning(f"Unrecognized variable: '{quantity}'")
             return
 
-        try:
-            if is_image:
+        if is_image:
+            try:
                 image = variable.ndarray()
-            else:
-                y = variable.xarray()
-                if y.ndim == 0:
-                    # If this is a scalar value, then we can't plot it
-                    QMessageBox.warning(self, "Can't inspect variable",
-                                        f"'{quantity}' is a scalar, there's nothing more to plot.")
-                    return
+            except KeyError:
+                log.warning("'{}' not found in {}...".format(quantity, variable.file))
+                return
 
-                # Use the train ID if it's been saved, otherwise generate an X axis
-                if "trainId" in y.coords:
-                    x = y.trainId
-                else:
-                    x = np.arange(len(y))
-        except KeyError as e:
-            log.warning("'{}' not found in {}...".format(quantity, variable.file))
-            return
-
-        self._canvas_inspect.append(
-            Canvas(
+            canvas = Canvas(
                 self,
-                x=[self.bool_to_numeric(self.fix_data_for_plotting(x))] if not is_image else [],
-                y=[self.bool_to_numeric(self.fix_data_for_plotting(y))] if not is_image else [],
-                image=image if is_image else None,
-                xlabel="Event (run {})".format(run),
-                ylabel=quantity_title,
-                fmt="ro",
-                autoscale=False,
-                strongly_correlated=True
+                image=image,
+                title=f"{quantity_title} (run {run})",
             )
-        )
-        self._canvas_inspect[-1].show()
+
+        else:
+            try:
+                y = variable.xarray()
+            except KeyError as e:
+                log.warning("'{}' not found in {}...".format(quantity, variable.file))
+                return
+
+            if y.ndim == 0:
+                # If this is a scalar value, then we can't plot it
+                QMessageBox.warning(self, "Can't inspect variable",
+                                    f"'{quantity}' is a scalar, there's nothing more to plot.")
+                return
+
+            # Use the train ID if it's been saved, otherwise generate an X axis
+            if "trainId" in y.coords:
+                x = y.trainId
+            else:
+                x = np.arange(len(y))
+
+            canvas = Canvas(
+                self,
+                x=[self.fix_data_for_plotting(x)],
+                y=[self.fix_data_for_plotting(y)],
+                xlabel=f"Event (run {run})",
+                ylabel=quantity_title,
+                fmt="o",
+            )
+
+
+        self._canvas_inspect.append(canvas)
+        canvas.show()
 
     def show_run_logs(self, proposal, run):
         # Triggered from right-click menu entry in table

@@ -31,10 +31,11 @@ class Canvas(QtWidgets.QDialog):
         image=None,
         xlabel="",
         ylabel="",
+        title=None,
         fmt="o",
         legend=None,
         plot_type="default",
-        strongly_correlated=False,
+        strongly_correlated=True,
         autoscale=True,
     ):
         super().__init__()
@@ -61,11 +62,12 @@ class Canvas(QtWidgets.QDialog):
         self._axis = self._canvas.figure.subplots()
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel if not is_histogram else "Probability density")
-        self._axis.set_title(
-            f"{ylabel} vs. {xlabel}"
-            if not is_histogram
-            else f"Probability density of {xlabel}"
-        )
+        if title is not None:
+            self._axis.set_title(title)
+        elif is_histogram:
+            self._axis.set_title(f"Probability density of {xlabel}")
+        else:
+            self._axis.set_title(f"{ylabel} vs. {xlabel}")
 
         self._fmt = fmt
         self._lines = {}
