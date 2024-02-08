@@ -4,10 +4,8 @@ import signal
 import logging
 import graphlib
 import textwrap
-import tempfile
 import subprocess
 import configparser
-from pathlib import Path
 from unittest.mock import patch
 
 import h5py
@@ -39,7 +37,7 @@ def kill_pid(pid):
         print(f"PID {pid} doesn't exist")
 
 
-def test_context_file(mock_ctx):
+def test_context_file(mock_ctx, tmp_path):
     code = """
     from damnit.context import Variable
 
@@ -52,11 +50,9 @@ def test_context_file(mock_ctx):
     assert len(ctx.vars) == 1
 
     # Test creating from a file
-    with tempfile.NamedTemporaryFile() as tmp:
-        tmp.write(code.encode())
-        tmp.flush()
-
-        ctx = ContextFile.from_py_file(Path(tmp.name))
+    ctx_path = tmp_path / 'context.py'
+    ctx_path.write_text(textwrap.dedent(code))
+    ctx = ContextFile.from_py_file(ctx_path)
 
     assert len(ctx.vars) == 1
 
