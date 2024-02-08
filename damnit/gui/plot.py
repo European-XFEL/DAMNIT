@@ -36,7 +36,7 @@ class Canvas(QtWidgets.QDialog):
         legend=None,
         plot_type="default",
         strongly_correlated=True,
-        autoscale=True,
+        autoscale=False,
     ):
         super().__init__()
         self.setWindowFlags(
@@ -101,11 +101,16 @@ class Canvas(QtWidgets.QDialog):
         self._nan_warning_label.hide()
         layout.addWidget(self._nan_warning_label)
 
-        self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
-        self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
-        self._autoscale_checkbox.setLayoutDirection(
-            QtCore.Qt.LayoutDirection.RightToLeft
-        )
+        if autoscale:
+            self._autoscale_checkbox = QtWidgets.QCheckBox("Autoscale", self)
+            self._autoscale_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
+            self._autoscale_checkbox.setLayoutDirection(
+                QtCore.Qt.LayoutDirection.RightToLeft
+            )
+            h1_layout = QtWidgets.QHBoxLayout()
+            h1_layout.addStretch()
+            h1_layout.addWidget(self._autoscale_checkbox)
+            layout.addLayout(h1_layout)
 
         self._dynamic_aspect_checkbox = QtWidgets.QCheckBox("Dynamic aspect ratio")
         self._dynamic_aspect_checkbox.setCheckState(Qt.Unchecked)
@@ -130,10 +135,6 @@ class Canvas(QtWidgets.QDialog):
                 self.probability_density_bins_changed
             )
 
-        h1_layout = QtWidgets.QHBoxLayout()
-        h1_layout.addStretch()
-        h1_layout.addWidget(self._autoscale_checkbox)
-
         h2_layout = QtWidgets.QHBoxLayout()
         if self.plot_type == "histogram1D":
             h2_layout.addWidget(QtWidgets.QLabel("Number of bins"))
@@ -141,9 +142,8 @@ class Canvas(QtWidgets.QDialog):
 
         h2_layout.addStretch()
         h2_layout.addWidget(self._display_annotations_checkbox)
-
-        layout.addLayout(h1_layout)
         layout.addLayout(h2_layout)
+
         if image is not None:
             layout.addWidget(self._dynamic_aspect_checkbox)
 
@@ -162,6 +162,11 @@ class Canvas(QtWidgets.QDialog):
                 self._dynamic_aspect_checkbox.setCheckState(Qt.Checked)
 
         self.figure.tight_layout()
+
+    _autoscale_checkbox = None
+
+    def _autoscale_enabled(self):
+        return self._autoscale_checkbox and self._autoscale_checkbox.isChecked()
 
     def toggle_annotations(self, state):
         if state == QtCore.Qt.Checked:
@@ -247,7 +252,7 @@ class Canvas(QtWidgets.QDialog):
                     ys.append(y)
             self.figure.canvas.draw()
 
-            if self._autoscale_checkbox.isChecked() and len(xs) > 0:
+            if self._autoscale_enabled() and len(xs) > 0:
                 xs_min, ys_min = xs[0].min(), 0
                 xs_max, ys_max = xs[0].max(), 1
 
@@ -352,7 +357,7 @@ class Canvas(QtWidgets.QDialog):
             self.figure.canvas.draw()
 
             if len(xs):
-                if self._autoscale_checkbox.isChecked() or not plot_exists:
+                if self._autoscale_enabled() or not plot_exists:
 
                     if self.plot_type != "histogram1D":
                         xs_min = np.nanmin([xi.min() for xi in xs])
@@ -597,7 +602,9 @@ class Plot:
             ylabel=ylabel,
             legend=runs,
             plot_type=self.plot_type,
-            strongly_correlated=strongly_correlated
+            strongly_correlated=strongly_correlated,
+            # Autoscale if new points can appear, or we can change histogram binning
+            autoscale=(not runs_as_series) or (self.plot_type == "histogram1D"),
         )
         if runs_as_series:
             canvas.setWindowTitle(f"Runs: {runs}")
