@@ -226,7 +226,7 @@ class ContextFile:
 
                 func = functools.partial(var.func, **kwargs)
 
-                data = func(run_data)  # TODO - fix methods
+                data = func(run_data)
                 if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
                     data = np.asarray(data)
             except Exception:
@@ -393,10 +393,8 @@ class Results:
         xarray_dsets = []
         obj_type_hints = {}
         dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
-                 #if name in implicit_vars or ctx_vars[name].store_result]
         if not reduced_only:
             for name, obj in self.data.items():
-                # if name in implicit_vars or ctx_vars[name].store_result:
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
                     xarray_dsets.append((name, obj))
                     obj_type_hints[name] = (
