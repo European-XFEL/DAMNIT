@@ -557,12 +557,21 @@ da-dev@xfel.eu"""
                 f"Getting updates ({self.db_id})"
             )
 
-        is_constant_df = self.load_max_diffs()
-        self.table.handle_update(message, is_constant_df)
+        # If a variable has been deleted, reload the database
+        if "deleted_variable" in message:
+            name = message["deleted_variable"]
+            QMessageBox.information(self, "Database reload necessary",
+                                    f"The variable '{name}' has been deleted, DAMNIT will now reload the database.")
+            self.autoconfigure(self.context_dir)
+        else:
+            # Otherwise a value in the table has been changed and we update the
+            # table.
+            is_constant_df = self.load_max_diffs()
+            self.table.handle_update(message, is_constant_df)
 
-        # update plots and plotting controls
-        self.plot.update_columns()
-        self.plot.update()
+            # update plots and plotting controls
+            self.plot.update_columns()
+            self.plot.update()
 
 
     def _updates_thread_launcher(self) -> None:

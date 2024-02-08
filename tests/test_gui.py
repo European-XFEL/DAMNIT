@@ -298,6 +298,15 @@ def test_handle_update(mock_db, qtbot):
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
 
+    # Send an update that deletes a variable
+    msg = {
+        "deleted_variable": "string"
+    }
+    with patch.object(QMessageBox, "information", return_value=QMessageBox.Ok) as info:
+        win.handle_update(msg)
+
+        info.assert_called_once()
+
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
     win = MainWindow(None, False)
@@ -829,9 +838,16 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
     assert "array" in db.variable_names()
 
     # Otherwise it should be deleted from the database and HDF5 files
-    with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes) as warning:
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes) as warning, \
+         patch.object(win, "_kafka_prd") as kafka_prd, \
+         patch.object(win, "_connect_to_kafka", True), \
+         patch.object(win, "autoconfigure"):
         win.table_view.confirm_delete_variable("array")
         warning.assert_called_once()
+
+        # A Kafka notification should've been sent and the database reloaded
+        kafka_prd.send.assert_called_once()
+        win.autoconfigure.assert_called_once()
 
     assert "array" not in db.variable_names()
 

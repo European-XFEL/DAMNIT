@@ -150,6 +150,13 @@ class TableView(QtWidgets.QTableView):
             main_window = self.model()._main_window
             delete_variable(main_window.db, name)
 
+            if main_window._connect_to_kafka:
+                msg = { "deleted_variable" : name }
+
+                # Note: this has a potential race condition but we blissfully
+                # ignore it. See the comment in MainWindow.save_value().
+                main_window._kafka_prd.send(main_window._gui_update_topic, msg)
+
             # TODO: refactor this into simply removing the column from the table
             # if we fix the bugs around adding/removing columns
             # on-the-fly. Currently there are some lingering off-by-one errors
