@@ -1,3 +1,4 @@
+import pickle
 import logging
 import shelve
 import sys
@@ -13,6 +14,7 @@ import numpy as np
 import h5py
 from pandas.api.types import infer_dtype
 
+from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
 from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
@@ -25,8 +27,8 @@ from ..backend.db import db_path, DamnitDB, ReducedData, BlobTypes
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..backend import initialize_and_start_backend, backend_is_running
-from ..definitions import UPDATE_BROKERS
 from ..util import icon_path, StatusbarStylesheet
+from ..definitions import UPDATE_BROKERS, GUI_UPDATE_TOPIC
 from .kafka import UpdateReceiver
 from .table import TableView, DamnitTableModel, prettify_notation
 from .plot import Canvas, Plot
@@ -61,6 +63,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._attributi = {}
         self._title_to_name = {}
         self._name_to_title = {}
+        self._kafka_prd = None
+        self._gui_update_topic = None
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -92,6 +96,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._create_view()
         self.configure_editor()
         self.center_window()
+
+        if self._connect_to_kafka:
+            self._kafka_prd = KafkaProducer(bootstrap_servers=UPDATE_BROKERS,
+                                            value_serializer=lambda d: pickle.dumps(d))
 
         if context_dir is not None:
             self.autoconfigure(context_dir)
@@ -234,6 +242,7 @@ da-dev@xfel.eu"""
         log.info("Reading data from database")
         self.db = DamnitDB(sqlite_path)
         self.db_id = self.db.metameta['db_id']
+        self._gui_update_topic = GUI_UPDATE_TOPIC.format(self.db_id)
         self.stop_update_listener_thread()
         self._updates_thread_launcher()
 
@@ -939,6 +948,20 @@ da-dev@xfel.eu"""
         column_title = self.col_name_to_title(column_name)
         if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
             self.db.set_variable(prop, run, column_name, ReducedData(value))
+
+        # Send Kafka update
+        if self._connect_to_kafka:
+            msg = { "Proposal": prop,
+                    "Run": run,
+                    column_name: value }
+
+            # Note: the send() function returns a future that we don't await. This
+            # is potentially dangerous, but the reason is because it would cause a
+            # delay in the GUI and because people don't usually close the GUI
+            # immediately after editing a variable so it's unlikely that the process
+            # will die before the update is sent (as happened with the backend).
+            self._kafka_prd.send(self._gui_update_topic, msg)
+            log.info(f"Sent Kafka update for '{column_name}' in run {run}, proposal {prop}")
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:

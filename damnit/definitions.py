@@ -6,4 +6,6 @@ if "AMORE_BROKER" in os.environ:
 else:
     UPDATE_BROKERS = ['exflwgs06.desy.de:9091']
 
-UPDATE_TOPIC = "test.damnit.db-{}"  # Fill in ID stored in database
+# Fill in ID stored in database
+UPDATE_TOPIC = "test.damnit.db-{}"
+GUI_UPDATE_TOPIC = "test.damnit.gui-{}"
