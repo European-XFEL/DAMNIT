@@ -170,7 +170,10 @@ class DamnitDB:
 
     def get_user_variables(self):
         user_variables = {}
-        rows = self.conn.execute("SELECT name, title, type, description, attributes FROM variables")
+        rows = self.conn.execute("""
+            SELECT name, title, type, description, attributes FROM variables
+            WHERE type IS NOT NULL
+        """)
         for rr in rows:
             var_name = rr["name"]
             new_var = UserEditableVariable(
@@ -183,6 +186,32 @@ class DamnitDB:
             user_variables[var_name] = new_var
         log.debug("Loaded %d user variables", len(user_variables))
         return user_variables
+
+    def update_computed_variables(self, vars: dict):
+        vars_in_db = {}
+        for row in self.conn.execute("""
+            SELECT name, title, description, attributes FROM variables
+            WHERE type IS NULL
+        """):
+            var = dict(row)
+            vars_in_db[var.pop("name")] = var
+
+        updates = {n: v for (n, v) in vars.items()
+                   if v != vars_in_db.get(n, None)}
+        log.debug("Updating stored metadata for %d computed variables",
+                  len(updates))
+        with self.conn:
+            self.conn.executemany("""
+                INSERT INTO variables VALUES (?, NULL, ?, ?, ?)
+                ON CONFLICT (name) DO UPDATE SET
+                    type=excluded.type,
+                    title=excluded.title,
+                    description=excluded.description,
+                    attributes=excluded.attributes
+            """, [
+                (n, v['title'], v['description'], v['attributes'])
+                for (n, v) in updates.items()
+            ])
 
     def variable_names(self):
         names = { record[0] for record in

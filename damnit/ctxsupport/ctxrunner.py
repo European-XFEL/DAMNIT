@@ -150,6 +150,17 @@ class ContextFile:
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
 
+    def vars_to_dict(self):
+        """Get a plain dict of variable metadata to store in the database"""
+        return {
+            name: {
+                'title': v.title,
+                'description': v.description,
+                'attributes': None,
+            }
+            for (name, v) in self.vars.items()
+        }
+
     def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
         new_vars = {}
         for name, var in self.vars.items():
