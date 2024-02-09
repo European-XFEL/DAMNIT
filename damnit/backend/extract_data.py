@@ -243,6 +243,8 @@ class Extractor:
         if proposal is None:
             proposal = self.proposal
 
+        self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
+
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if out_path.parent.stat().st_uid == os.getuid():
