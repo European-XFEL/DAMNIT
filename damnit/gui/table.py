@@ -395,7 +395,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             # Convert from column ID keys to column titles
             row_contents = {column_ids_to_titles[k]: v for (k, v) in message.items()}
             self.insert_row(row_contents | {
-                "Proposal": proposal, "Run": run, "Comment": ""
+                "Proposal": proposal, "Run": run, "Comment": "", "Status": True
             })
 
     def add_editable_column(self, name):
