@@ -296,6 +296,23 @@ def test_handle_update(mock_db, qtbot):
     assert len(headers) + 1 == len(get_headers())
     assert "Array" in get_headers()
 
+def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+
+    win = MainWindow(db_dir, False)
+    win.plot._button_plot_clicked(False)
+    assert len(win.plot._canvas["canvas"]) == 1
+
+    amore_proto(["reprocess", "2", "--mock"])
+    msg = {
+        "Proposal": 1234,
+        "Run": 2,
+        "scalar1": 42,
+        "string": "foo"
+    }
+    win.handle_update(msg)
+
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
     win = MainWindow(None, False)
