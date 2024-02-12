@@ -966,7 +966,7 @@ da-dev@xfel.eu"""
                          self.table_view.selectionModel().selectedRows()]
 
         blacklist_columns = ['Proposal', 'Status']
-        columns = [title for (title, vis) in self.get_column_states()
+        columns = [title for (title, vis) in self.table_view.get_column_states().items()
                    if vis and (title not in blacklist_columns)]
 
         df = self.table.dataframe_for_export(columns, selected_rows, drop_image_cols=True)

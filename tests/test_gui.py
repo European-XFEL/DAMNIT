@@ -778,6 +778,13 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         # Check if post was called
         mock_post.assert_called_once()
 
+    # Simple smoke test to make sure a Zulip message is sent
+    with patch.object(win, "zulip_messenger") as messenger, \
+         patch.object(win, "check_zulip_messenger", return_value=True):
+        win.export_selection_to_zulip()
+
+        messenger.send_table.assert_called_once()
+
 @pytest.mark.parametrize("extension", [".xlsx", ".csv"])
 def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
     db_dir, db = mock_db_with_data
