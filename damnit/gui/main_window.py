@@ -58,9 +58,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._received_update = False
         self._context_path = None
         self._context_is_saved = True
-        self._attributi = {}
-        self._title_to_name = {}
-        self._name_to_title = {}
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -219,18 +216,18 @@ da-dev@xfel.eu"""
         if gethostname().startswith('exflonc'):
             path = path.parent / f'{path.stem}-online'
 
-        context_path = path / "context.py"
-        if not context_path.is_file():
-            QMessageBox.critical(self, "No context file",
-                                 "This database is missing a context file, it cannot be opened.")
+        sqlite_path = db_path(path)
+        # If the user selected an empty folder in the GUI, the database has been
+        # created before we reach this point, so this is just a sanity check.
+        if not sqlite_path.is_file():
+            QMessageBox.critical(self, "No DAMNIT database",
+                                 "The selected folder doesn't contain a DAMNIT database (runs.sqlite)")
             return
-        else:
-            self.context_dir = path
-            self._context_path = context_path
 
+        self.context_dir = path
+        self._context_path = path / "context.py"
         self.extracted_data_template = str(path / "extracted_data/p{}_r{}.h5")
 
-        sqlite_path = db_path(path)
         log.info("Reading data from database")
         self.db = DamnitDB(sqlite_path)
         self.db_id = self.db.metameta['db_id']
@@ -238,18 +235,16 @@ da-dev@xfel.eu"""
         self._updates_thread_launcher()
 
         self.user_variables = user_variables = self.db.get_user_variables()
-        user_var_id_to_title = {name: vv.title for (name, vv) in user_variables.items()}
 
-        log.info("Reading context file %s", self._context_path)
-        context_python = self.db.metameta.get("context_python")
-        ctx_file, error_info = get_context_file(self._context_path, context_python)
-        assert error_info is None, error_info
-
-        self._attributi = ctx_file.vars
-        self._title_to_name = {"Comment" : "comment", "Timestamp": "start_time"} | {
-            (aa.title or kk) : kk for kk, aa in self._attributi.items()
-        }
-        self._name_to_title = {vv : kk for kk, vv in self._title_to_name.items()}
+        col_id_to_title = {
+            "run": "Run",
+            "proposal": "Proposal",
+            "start_time": "Timestamp",
+            "comment": "Comment",
+        } | dict(
+            self.db.conn.execute("""SELECT name, title FROM variables WHERE title NOT NULL""")
+        )
+        col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
 
         self.reload_context()
 
@@ -277,14 +272,7 @@ da-dev@xfel.eu"""
 
         data = pd.concat(
             [
-                df.rename(
-                    columns={
-                        "run": "Run",
-                        "proposal": "Proposal",
-                        "start_time": "Timestamp",
-                        "comment": "Comment",
-                    } | self.column_renames() | user_var_id_to_title
-                ),
+                df.rename(columns=col_id_to_title),
                 comments_df.rename(
                     columns={"timestamp": "Timestamp", "comment": "Comment",}
                 ),
@@ -293,8 +281,6 @@ da-dev@xfel.eu"""
 
         for vv in user_variables.values():
             title = vv.title or vv.name
-            self._title_to_name[title] = vv.name
-            self._name_to_title[vv.name] = title
             type_cls = vv.get_type_class()
             if title in data:
                 # Convert loaded data to the right pandas type
@@ -334,7 +320,7 @@ da-dev@xfel.eu"""
         sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
 
         data = data[sorted_cols]
-        column_ids = [self.col_title_to_name(cc) for cc in data]
+        column_ids = [col_title_to_id.get(cc, cc) for cc in data]
 
         self.table = self._create_table_model(data, column_ids, is_constant_df)
         for kk, vv in user_variables.items():
@@ -351,8 +337,9 @@ da-dev@xfel.eu"""
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         # Update the column widget and plotting controls with the new columns
-        self.table_view.set_columns([self.column_title(c) for c in data.columns],
-                                    [col_settings.get(col, True) for col in data.columns])
+        titles = self.table.column_titles()
+        self.table_view.set_columns(titles,
+                                    [col_settings.get(col, True) for col in titles])
         self.plot.update_columns()
 
         # Hide the comment_id column
@@ -361,9 +348,6 @@ da-dev@xfel.eu"""
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
-
-    def column_renames(self):
-        return {name: v.title for name, v in self._attributi.items() if v.title}
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
@@ -375,20 +359,11 @@ da-dev@xfel.eu"""
         variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
         self.user_variables[name] = variable
         self.db.add_user_variable(variable)
-        self._attributi[name] = variable
-        self._name_to_title[name] = title
-        self._title_to_name[title] = name
         self.table.insert_columns(
             before_pos, [title], [name], variable.get_type_class(), editable=True
         )
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(title)
-
-
-    def column_title(self, name):
-        if name in self._attributi:
-            return self._attributi[name].title or name
-        return name
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
@@ -607,27 +582,8 @@ da-dev@xfel.eu"""
                 log.warning("{} not found...".format(file_name))
             raise e
 
-    def col_name_to_title(self, quantity):
-        res = quantity
-
-        if quantity in self._name_to_title:
-            res = self._name_to_title[quantity]
-
-        return res
-
     def col_title_to_name(self, title):
-        res = title
-
-        if title in self._title_to_name:
-            res = self._title_to_name[title]
-
-        return res
-
-    def get_variable_from_name(self, name):
-        if name in self._attributi:
-            return self._attributi[name]
-        else:
-            raise RuntimeError(f"Couldn't find variable with name '{name}'")
+        return self.table.column_title_to_id(title)
 
     def make_finite(self, data):
         if not isinstance(data, pd.Series):
@@ -936,9 +892,7 @@ da-dev@xfel.eu"""
             return
 
         log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
-        column_title = self.col_name_to_title(column_name)
-        if column_name in self.table.editable_columns or column_title in self.table.editable_columns:
-            self.db.set_variable(prop, run, column_name, ReducedData(value))
+        self.db.set_variable(prop, run, column_name, ReducedData(value))
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:

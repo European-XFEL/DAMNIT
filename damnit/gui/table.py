@@ -137,7 +137,7 @@ class TableView(QtWidgets.QTableView):
         menu.addAction("Delete")
         action = menu.exec(global_pos)
         if action is not None:
-            name = self.model()._main_window.col_title_to_name(item.text())
+            name = self.model().col_title_to_id(item.text())
             self.confirm_delete_variable(name)
 
     def confirm_delete_variable(self, name):
@@ -289,6 +289,9 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
     def column_id(self, col_ix):
         return self.column_ids[col_ix]
+
+    def column_title_to_id(self, title):
+        return self.column_id(self.find_column(title, by_title=True))
 
     def find_row(self, proposal, run):
         df = self._data
@@ -489,8 +492,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         value = self._data.iat[r, c]
         run = self._data.iat[r, self._data.columns.get_loc("Run")]
         proposal = self._data.iat[r, self._data.columns.get_loc("Proposal")]
-        quantity_title = self._data.columns[index.column()]
-        quantity = self._main_window.col_title_to_name(quantity_title)
+        quantity = self.column_id(index.column())
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
@@ -579,18 +581,17 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
         return True
 
-    def headerData(self, col, orientation, role=Qt.ItemDataRole.DisplayRole):
+    def headerData(self, ix, orientation, role=Qt.ItemDataRole.DisplayRole):
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
         ):
-            name = self._data.columns[col]
-            return self._main_window.column_title(name)
+            return self.column_title(ix)
         elif(
             orientation == Qt.Orientation.Vertical
             and role == Qt.ItemDataRole.DisplayRole
         ):
-            row = self._data.iloc[col]['Run']
+            row = self._data.iloc[ix]['Run']
             if pd.isna(row):
                 row = ''
             return row
