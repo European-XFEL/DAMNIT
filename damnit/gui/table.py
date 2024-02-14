@@ -365,12 +365,9 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         self.generateThumbnail.cache_clear()
         self.endInsertRows()
 
-    def handle_update(self, message: dict, is_constant_df):
-        message = message.copy()   # Modify a copy
-        run = message.pop("Run")
-        proposal = message.pop("Proposal")
+    def handle_run_values_changed(self, proposal, run, values: dict, is_constant_df):
         known_col_ids = set(self.column_ids)
-        new_col_ids = [c for c in message if c not in known_col_ids]
+        new_col_ids = [c for c in values if c not in known_col_ids]
 
         if new_col_ids:
             log.info("New columns for table: %s", new_col_ids)
@@ -388,7 +385,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
         if row_ix is not None:
             log.debug("Update existing row %s for run %s", row_ix, run)
-            for ki, vi in message.items():
+            for ki, vi in values.items():
                 title = column_ids_to_titles[ki]
                 self._data.at[row_ix, title] = vi
 
@@ -397,7 +394,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
         else:
             # Convert from column ID keys to column titles
-            row_contents = {column_ids_to_titles[k]: v for (k, v) in message.items()}
+            row_contents = {column_ids_to_titles[k]: v for (k, v) in values.items()}
             self.insert_row(row_contents | {
                 "Proposal": proposal, "Run": run, "Comment": "", "Status": True
             })

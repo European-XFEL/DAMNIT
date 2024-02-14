@@ -9,6 +9,7 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
+from ..definitions import UPDATE_TOPIC
 from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
@@ -119,6 +120,10 @@ class DamnitDB:
 
     def close(self):
         self.conn.close()
+
+    @property
+    def kafka_topic(self):
+        return UPDATE_TOPIC.format(self.metameta['db_id'])
 
     def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
@@ -376,6 +381,24 @@ class MetametaMapping(MutableMapping):
 
     def items(self):
         return ItemsView(self.to_dict())
+
+
+# Messages to notify clients about database changes
+
+class MsgKind(Enum):
+    # We don't distinguish added vs. changed, because we have unique IDs for the
+    # objects, so recipients can easily tell if an object is new to them.
+    # This also means messages are idempotent.
+    variable_set = 'variable_set'
+    variable_deleted = 'variable_deleted'
+    run_values_updated = 'run_values_updated'
+    run_deleted = 'run_deleted'
+    # The comment_ types refer to timestamped comments *not* in a run row
+    comment_set = 'comment_set'
+    comment_deleted = 'comment_deleted'
+
+def msg_dict(kind: MsgKind, data: dict):
+    return {'msg_kind': kind.value, 'data': data}
 
 
 # Old schemas for reference and migration

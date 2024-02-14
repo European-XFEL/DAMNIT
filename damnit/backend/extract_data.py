@@ -23,9 +23,8 @@ from extra_data.read_machinery import find_proposal
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
-from .db import DamnitDB, ReducedData, BlobTypes
-
+from ..definitions import UPDATE_BROKERS
+from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 
 
 log = logging.getLogger(__name__)
@@ -216,7 +215,6 @@ class Extractor:
             bootstrap_servers=UPDATE_BROKERS,
             value_serializer=lambda d: pickle.dumps(d),
         )
-        self.update_topic = UPDATE_TOPIC.format(self.db.metameta['db_id'])
         context_python = self.db.metameta.get("context_python")
         self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
         assert error_info is None, error_info
@@ -259,11 +257,12 @@ class Extractor:
         add_to_db(reduced_data, self.db, proposal, run)
 
         # Send update via Kafka
-        update_msg = { name: reduced.value for name, reduced in reduced_data.items() }
-        update_msg['Proposal'] = proposal
-        update_msg['Run'] = run
-        self.kafka_prd.send(self.update_topic, update_msg).get(timeout=30)
-        log.info("Sent Kafka update to topic %r", self.update_topic)
+        update_msg = msg_dict(MsgKind.run_values_updated, {
+            'run': run, 'proposal': proposal, 'values': {
+                name: reduced.value for name, reduced in reduced_data.items()
+        }})
+        self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
+        log.info("Sent Kafka update to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
