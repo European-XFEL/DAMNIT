@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import QMessageBox, QTabWidget, QFileDialog
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 
 from ..backend.api import RunVariables
-from ..backend.db import db_path, DamnitDB, ReducedData, BlobTypes
+from ..backend.db import db_path, DamnitDB, ReducedData, BlobTypes, MsgKind
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..backend import initialize_and_start_backend, backend_is_running
@@ -523,8 +523,30 @@ da-dev@xfel.eu"""
                 f"Getting updates ({self.db_id})"
             )
 
+        if 'msg_kind' not in message:
+            # Old message format. Temporarily handled so GUIs with new code can
+            # work with listeners with older code, but can be removed soon.
+            proposal = message.pop("Proposal")
+            run = message.pop("Run")
+            message = {
+                'msg_kind': MsgKind.run_values_updated.value,
+                'data': {
+                    'proposal': proposal,
+                    'run': run,
+                    'values': message
+                }
+            }
+
+        msg_kind = MsgKind(message['msg_kind'])
+        data = message['data']
+        if msg_kind == MsgKind.run_values_updated:
+            self.handle_run_values_updated(
+                data['proposal'], data['run'], data['values']
+            )
+
+    def handle_run_values_updated(self, proposal, run, values: dict):
         is_constant_df = self.load_max_diffs()
-        self.table.handle_update(message, is_constant_df)
+        self.table.handle_run_values_changed(proposal, run, values, is_constant_df)
 
         # update plots and plotting controls
         self.plot.update_columns()
