@@ -291,10 +291,10 @@ def test_handle_update(mock_db, qtbot):
     assert model().data(model().index(0, headers.index("Scalar1"))) == str(msg["scalar1"])
 
     # Add a new column to an existing row
-    msg["array"] = np.array([1,1,2])
+    msg["unexpected_var"] = 7
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
-    assert "Array" in get_headers()
+    assert "unexpected_var" in get_headers()
 
 def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data

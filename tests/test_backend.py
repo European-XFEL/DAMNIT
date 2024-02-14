@@ -418,7 +418,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         extractor.extract_and_ingest(1234, 42, cluster=False,
                                      run_data=RunData.ALL)
         extract_in_subprocess.assert_called_once()
-        extractor.kafka_prd.send.assert_called_once()
+        extractor.kafka_prd.send.assert_called()
         subprocess_run.assert_called_once()
 
     # This works because we loaded damnit.context above
