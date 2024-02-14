@@ -194,18 +194,25 @@ class DamnitDB:
 
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
-        for row in self.conn.execute("""
-            SELECT name, title, description, attributes FROM variables
-            WHERE type IS NULL
-        """):
-            var = dict(row)
-            vars_in_db[var.pop("name")] = var
-
-        updates = {n: v for (n, v) in vars.items()
-                   if v != vars_in_db.get(n, None)}
-        log.debug("Updating stored metadata for %d computed variables",
-                  len(updates))
         with self.conn:
+            # We want to read & write in the same transaction. This gets the
+            # write lock up front, to prevent deadlocks where two processes are
+            # both holding a read lock & waiting for a write lock.
+            self.conn.execute("BEGIN IMMEDIATE")
+            for row in self.conn.execute("""
+                SELECT name, title, type, description, attributes FROM variables
+                WHERE type IS NULL
+            """):
+                var = dict(row)
+                vars_in_db[var.pop("name")] = var
+
+            updates = {n: v for (n, v) in vars.items()
+                       if v != vars_in_db.get(n, None)}
+            log.debug("Updating stored metadata for %d computed variables",
+                      len(updates))
+
+            # Write new & changed variables
+            # TODO: what if a new computed variable name matches an existing user var?
             self.conn.executemany("""
                 INSERT INTO variables VALUES (?, NULL, ?, ?, ?)
                 ON CONFLICT (name) DO UPDATE SET
@@ -217,6 +224,12 @@ class DamnitDB:
                 (n, v['title'], v['description'], v['attributes'])
                 for (n, v) in updates.items()
             ])
+
+            if not set(vars) <= set(vars_in_db):
+                # At least 1 variable was new, so remake the views with the new columns
+                self.update_views()
+
+        return updates
 
     def variable_names(self):
         names = { record[0] for record in

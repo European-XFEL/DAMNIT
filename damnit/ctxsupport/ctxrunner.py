@@ -157,6 +157,7 @@ class ContextFile:
                 'title': v.title,
                 'description': v.description,
                 'attributes': None,
+                'type': None,
             }
             for (name, v) in self.vars.items()
         }

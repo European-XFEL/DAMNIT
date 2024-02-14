@@ -219,6 +219,15 @@ class Extractor:
         self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
         assert error_info is None, error_info
 
+    def update_db_vars(self):
+        updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
+
+        for name, var in updates.items():
+            self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+                MsgKind.variable_set, {'name': name} | var
+            ))
+        self.kafka_prd.flush()
+
     @property
     def proposal(self):
         if self._proposal is None:
@@ -241,7 +250,7 @@ class Extractor:
         if proposal is None:
             proposal = self.proposal
 
-        self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
+        self.update_db_vars()
 
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
