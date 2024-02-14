@@ -537,6 +537,7 @@ da-dev@xfel.eu"""
         if 'msg_kind' not in message:
             # Old message format. Temporarily handled so GUIs with new code can
             # work with listeners with older code, but can be removed soon.
+            message = message.copy()
             proposal = message.pop("Proposal")
             run = message.pop("Run")
             message = {
