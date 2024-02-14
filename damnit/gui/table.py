@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import QMessageBox
 
 from ..backend.api import delete_variable
 from ..backend.db import BlobTypes
+from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, timestamp2str
 
 log = logging.getLogger(__name__)
@@ -398,6 +399,29 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             self.insert_row(row_contents | {
                 "Proposal": proposal, "Run": run, "Comment": "", "Status": True
             })
+
+    def handle_variable_set(self, var_info: dict):
+        col_id = var_info['name']
+        title = var_info['title']
+        try:
+            col_ix = self.find_column(col_id)
+        except KeyError:
+            # New column
+            end = self.columnCount()
+            if var_info['type'] is None:
+                self.insert_columns(end, [title], [col_id])
+            else:
+                type_cls = value_types_by_name[var_info['type']]
+                self.insert_columns(
+                    end, [title], [col_id], type_cls=type_cls, editable=True
+                )
+        else:
+            # Update existing column
+            old_title = self.column_title(col_ix)
+            if title != old_title:
+                self._data = self._data.rename(columns={old_title: title})
+                self.is_constant_df = self.is_constant_df.rename(columns={old_title: title})
+                self.headerDataChanged.emit(Qt.Orientation.Horizontal, col_ix, col_ix)
 
     def add_editable_column(self, name):
         if name == "Status":

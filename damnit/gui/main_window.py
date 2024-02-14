@@ -348,6 +348,17 @@ da-dev@xfel.eu"""
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
+        self.launch_update_computed_vars()
+
+    def launch_update_computed_vars(self):
+        log.debug("Launching subprocess to read variables from context file")
+        proc = QtCore.QProcess(parent=self)
+        # Show stdout & stderr with the parent process
+        proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
+        proc.finished.connect(proc.deleteLater)
+        proc.setWorkingDirectory(str(self.context_dir))
+        proc.start(sys.executable, ['-m', 'damnit.cli', 'read-context'])
+        proc.closeWriteChannel()
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
@@ -543,6 +554,8 @@ da-dev@xfel.eu"""
             self.handle_run_values_updated(
                 data['proposal'], data['run'], data['values']
             )
+        elif msg_kind == MsgKind.variable_set:
+            self.table.handle_variable_set(data)
 
     def handle_run_values_updated(self, proposal, run, values: dict):
         is_constant_df = self.load_max_diffs()

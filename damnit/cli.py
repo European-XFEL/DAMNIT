@@ -102,6 +102,11 @@ def main():
              "or pass 'all' to reprocess all runs in the database."
     )
 
+    readctx_ap = subparsers.add_parser(
+        'read-context',
+        help="Re-read the context file and update variables in the database"
+    )
+
     proposal_ap = subparsers.add_parser(
         'proposal',
         help="Get or set the proposal number to collect metadata from"
@@ -202,6 +207,10 @@ def main():
 
         from .backend.extract_data import reprocess
         reprocess(args.run, args.proposal, args.match, args.mock)
+
+    elif args.subcmd == 'read-context':
+        from .backend.extract_data import Extractor
+        Extractor().update_db_vars()
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB
