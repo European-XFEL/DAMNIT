@@ -82,7 +82,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
-        self.table = self._create_table_model()
+        self.table = None
         
         self.zulip_messenger = None
 
@@ -234,63 +234,7 @@ da-dev@xfel.eu"""
         self.stop_update_listener_thread()
         self._updates_thread_launcher()
 
-        self.user_variables = user_variables = self.db.get_user_variables()
-
-        col_id_to_title = {
-            "run": "Run",
-            "proposal": "Proposal",
-            "start_time": "Timestamp",
-            "comment": "Comment",
-        } | dict(
-            self.db.conn.execute("""SELECT name, title FROM variables WHERE title NOT NULL""")
-        )
-        col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
-
         self.reload_context()
-
-        df = pd.read_sql_query("SELECT * FROM runs", self.db.conn)
-        df.insert(0, "Status", True)
-
-        # Ensure that the comment column is in the right spot
-        if "comment" not in df.columns:
-            df.insert(4, "comment", pd.NA)
-        else:
-            comment_column = df.pop("comment")
-            df.insert(4, "comment", comment_column)
-
-        df.insert(len(df.columns), "comment_id", pd.NA)
-        df.pop("added_at")
-
-        # Read the comments and prepare them for merging with the main data
-        comments_df = pd.read_sql_query(
-            "SELECT rowid as comment_id, * FROM time_comments", self.db.conn
-        )
-        comments_df.insert(0, "Run", pd.NA)
-        comments_df.insert(1, "Proposal", pd.NA)
-        # Don't try to plot comments
-        comments_df.insert(2, "Status", False)
-
-        data = pd.concat(
-            [
-                df.rename(columns=col_id_to_title),
-                comments_df.rename(
-                    columns={"timestamp": "Timestamp", "comment": "Comment",}
-                ),
-            ]
-        )
-
-        for vv in user_variables.values():
-            title = vv.title or vv.name
-            type_cls = vv.get_type_class()
-            if title in data:
-                # Convert loaded data to the right pandas type
-                data[title] = type_cls.convert(data[title])
-            else:
-                # Add an empty column (before restoring saved order)
-                data[title] = pd.Series(index=data.index, dtype=type_cls.type_instance)
-
-
-        is_constant_df = self.load_max_diffs()
 
         # Load the users settings
         col_settings = { }
@@ -300,40 +244,15 @@ da-dev@xfel.eu"""
                 if key in db:
                     col_settings = db[key][Settings.COLUMNS.value]
 
-        saved_cols = list(col_settings.keys())
-        df_cols = data.columns.tolist()
-
-        # Strip missing columns
-        saved_cols = [col for col in saved_cols if col in df_cols]
-
-        # Sort columns such that all static columns (proposal, run, etc) are at
-        # the beginning, followed by all the columns that have saved settings,
-        # followed by all the other columns (i.e. comment_id and any new columns
-        # added in between the last save and now).
-        static_cols = df_cols[:5]
-        non_static_cols = df_cols[5:]
-        sorted_cols = static_cols
-        # Static columns are saved too to store their visibility, but we filter
-        # them out here because they've already been added to the list.
-        sorted_cols.extend([col for col in saved_cols if col not in sorted_cols])
-        # Add all other unsaved columns
-        sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
-
-        data = data[sorted_cols]
-        column_ids = [col_title_to_id.get(cc, cc) for cc in data]
-
-        self.table = self._create_table_model(data, column_ids, is_constant_df)
-        for kk, vv in user_variables.items():
-            self.table.add_editable_column(vv.title or vv.name)
-
+        self.table = self._create_table_model(self.db, col_settings)
         self.table_view.setModel(self.table)
-        self.table_view.sortByColumn(data.columns.get_loc("Timestamp"),
+        self.table_view.sortByColumn(self.table.find_column("Timestamp", by_title=True),
                                      Qt.SortOrder.AscendingOrder)
 
         # Always keep these columns as small as possible to save space
         header = self.table_view.horizontalHeader()
         for column in ["Status", "Proposal", "Run", "Timestamp"]:
-            column_index = data.columns.get_loc(column)
+            column_index = self.table.find_column(column, by_title=True)
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         # Update the column widget and plotting controls with the new columns
@@ -368,7 +287,7 @@ da-dev@xfel.eu"""
         else:
             before_pos += before
         variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
-        self.user_variables[name] = variable
+        self.table.user_variables[name] = variable
         self.db.add_user_variable(variable)
         self.table.insert_columns(
             before_pos, [title], [name], variable.get_type_class(), editable=True
@@ -559,8 +478,7 @@ da-dev@xfel.eu"""
             self.table.handle_variable_set(data)
 
     def handle_run_values_updated(self, proposal, run, values: dict):
-        is_constant_df = self.load_max_diffs()
-        self.table.handle_run_values_changed(proposal, run, values, is_constant_df)
+        self.table.handle_run_values_changed(proposal, run, values)
 
         # update plots and plotting controls
         self.plot.update_columns()
@@ -721,12 +639,8 @@ da-dev@xfel.eu"""
         else:
             self.show_status_message(f"No log found for run {run}")
 
-    def _create_table_model(self, df=None, column_ids=(), is_constant_df=None):
-        if df is None:
-            df = pd.DataFrame()
-        if is_constant_df is None:
-            is_constant_df = pd.DataFrame()
-        table = DamnitTableModel(df, column_ids, is_constant_df, self)
+    def _create_table_model(self, db, col_settings):
+        table = DamnitTableModel(db, col_settings, self)
         table.value_changed.connect(self.save_value)
         table.time_comment_changed.connect(self.save_time_comment)
         table.run_visibility_changed.connect(lambda row, state: self.plot.update())
