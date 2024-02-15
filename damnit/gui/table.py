@@ -472,10 +472,9 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         if pd.isna(run) or pd.isna(proposal):
             return True
 
-        is_constant_df = self.is_constant_df
-        if quantity in is_constant_df.columns:
-            return is_constant_df.loc[(proposal, run)][quantity].item()
-        else:
+        try:
+            return self.is_constant_df.loc[(proposal, run)][quantity].item()
+        except KeyError:
             return True
 
     _supported_roles = (
