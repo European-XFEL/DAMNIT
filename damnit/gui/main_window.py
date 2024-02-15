@@ -256,7 +256,7 @@ da-dev@xfel.eu"""
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
 
         # Update the column widget and plotting controls with the new columns
-        titles = self.table.column_titles()
+        titles = self.table.column_titles
         self.table_view.set_columns(titles,
                                     [col_settings.get(col, True) for col in titles])
         self.plot.update_columns()
@@ -560,7 +560,7 @@ da-dev@xfel.eu"""
         quantity = self.table.column_id(index.column())
 
         # Don't try to plot strings
-        if quantity_title in { "Status" } | self.table.editable_columns:
+        if quantity in { "Status" } | self.table.editable_columns:
             return
 
         log.info(

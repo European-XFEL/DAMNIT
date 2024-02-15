@@ -480,7 +480,7 @@ class Plot:
         }
 
     def update_columns(self):
-        keys = self.table.column_titles()
+        keys = self.table.column_titles
 
         current_x = self._combo_box_x_axis.currentText()
         current_y = self._combo_box_y_axis.currentText()
