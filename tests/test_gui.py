@@ -784,7 +784,7 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         mock_get.assert_called_once()
         assert win.zulip_messenger.stream == "stream"
 
-        df = win.table.dataframe_for_export(columns=['Proposal', 'Run', 'Comment'])
+        df = win.table.dataframe_for_export(['Proposal', 'Run', 'Comment'])
         test_dialog = ZulipConfig(win, win.zulip_messenger,
                                   kind='table', table=df)
         test_dialog.handle_form()

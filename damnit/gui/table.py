@@ -35,7 +35,6 @@ class TableView(QtWidgets.QTableView):
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
         self.verticalHeader().setStyleSheet("QHeaderView"
                                             "{"
@@ -75,6 +74,7 @@ class TableView(QtWidgets.QTableView):
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
         self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
+        self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
         self.horizontalHeader().setSectionsClickable(True)
         if model is not None:
             self.model().rowsInserted.connect(self.style_comment_rows)
@@ -98,7 +98,7 @@ class TableView(QtWidgets.QTableView):
         deselected. The `for_restore` argument lets you specify which behaviour
         you want.
         """
-        column_index = self.model()._data.columns.get_loc(name)
+        column_index = self.model().find_column(name, by_title=True)
 
         self.setColumnHidden(column_index, not visible)
 
@@ -138,7 +138,7 @@ class TableView(QtWidgets.QTableView):
         menu.addAction("Delete")
         action = menu.exec(global_pos)
         if action is not None:
-            name = self.model().col_title_to_id(item.text())
+            name = self.model().column_title_to_id(item.text())
             self.confirm_delete_variable(name)
 
     def confirm_delete_variable(self, name):
@@ -208,14 +208,13 @@ class TableView(QtWidgets.QTableView):
 
     def style_comment_rows(self, *_):
         self.clearSpans()
-        data = self.model()._data
+        model : DamnitTableModel = self.model()
+        comment_col = model.find_column("Comment", by_title=True)
+        timestamp_col = model.find_column("Timestamp", by_title=True)
 
-        comment_col = data.columns.get_loc("Comment")
-        timestamp_col = data.columns.get_loc("Timestamp")
-
-        for row in data["comment_id"].dropna().index:
-            self.setSpan(row, 0, 1, timestamp_col)
-            self.setSpan(row, comment_col, 1, 1000)
+        for row_ix in model.standalone_comment_rows():
+            self.setSpan(row_ix, 0, 1, timestamp_col)
+            self.setSpan(row_ix, comment_col, 1, 1000)
 
     def resize_new_rows(self, parent, first, last):
         for row in range(first, last + 1):
@@ -262,13 +261,13 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         self.is_sorted_order = None
 
         self.db = db
-        # self._data uses titles ('XGM intensity') as column names.
-        # column_ids holds a matching list of IDs ('xgm_intensity')
-        self._data, self.column_ids = self._load_from_db(db, column_settings)
+        # self._data uses IDs ('xgm_intensity') as column names.
+        # column_ids holds a matching list of titles ('XGM intensity')
+        self._data, self.column_titles = self._load_from_db(db, column_settings)
         self.is_constant_df = self.load_max_diffs()
         self.user_variables = db.get_user_variables()
-        self.editable_columns = {"Comment"} | {
-            (vv.title or vv.name) for vv in self.user_variables.values()
+        self.editable_columns = {"comment"} | {
+            vv.name for vv in self.user_variables.values()
         }
 
     @staticmethod
@@ -290,8 +289,8 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         comments_df = pd.read_sql_query(
             "SELECT rowid as comment_id, * FROM time_comments", db.conn
         )
-        comments_df.insert(0, "Run", pd.NA)
-        comments_df.insert(1, "Proposal", pd.NA)
+        comments_df.insert(0, "run", pd.NA)
+        comments_df.insert(1, "proposal", pd.NA)
         # Don't try to plot comments
         comments_df.insert(2, "Status", False)
 
@@ -305,31 +304,26 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         )
         col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
 
-        data = pd.concat(
-            [
-                df.rename(columns=col_id_to_title),
-                comments_df.rename(
-                    columns={"timestamp": "Timestamp", "comment": "Comment", }
-                ),
-            ]
-        )
+        data = pd.concat([
+            df, comments_df.rename(columns={"timestamp": "start_time"})
+        ])
 
         for vv in db.get_user_variables().values():
-            title = vv.title or vv.name
             type_cls = vv.get_type_class()
-            if title in data:
+            if vv.name in data:
                 # Convert loaded data to the right pandas type
-                data[title] = type_cls.convert(data[title])
+                data[vv.name] = type_cls.convert(data[vv.name])
             else:
                 # Add an empty column (before restoring saved order)
-                data[title] = pd.Series(index=data.index, dtype=type_cls.type_instance)
+                data[vv.name] = pd.Series(index=data.index, dtype=type_cls.type_instance)
 
 
-        saved_cols = list(col_settings.keys())
+        # Column settings store human friendly titles - convert to IDs
+        saved_col_order = [col_title_to_id.get(c, c) for c in col_settings]
         df_cols = data.columns.tolist()
 
         # Strip missing columns
-        saved_cols = [col for col in saved_cols if col in df_cols]
+        saved_col_order = [col for col in saved_col_order if col in df_cols]
 
         # Sort columns such that all static columns (proposal, run, etc) are at
         # the beginning, followed by all the columns that have saved settings,
@@ -340,51 +334,51 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         sorted_cols = static_cols
         # Static columns are saved too to store their visibility, but we filter
         # them out here because they've already been added to the list.
-        sorted_cols.extend([col for col in saved_cols if col not in sorted_cols])
+        sorted_cols.extend([col for col in saved_col_order if col not in sorted_cols])
         # Add all other unsaved columns
-        sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
+        sorted_cols.extend([col for col in non_static_cols if col not in saved_col_order])
 
         data = data[sorted_cols]
-        column_ids = [col_title_to_id.get(cc, cc) for cc in data]
-        return data, column_ids
+        column_titles = [col_id_to_title.get(c, c) for c in data.columns]
+        return data, column_titles
 
     def has_column(self, name, by_title=False):
         if by_title:
-            return name in self._data.columns
+            return name in self.column_titles
         else:
-            return name in self.column_ids
+            return name in self._data.columns
 
     def find_column(self, name, by_title=False):
         if by_title:
-            return self._data.columns.get_loc(name)
-        else:
             try:
-                return self.column_ids.index(name)
+                return self.column_titles.index(name)
             except ValueError:  # Convert to KeyError, matching .get_loc()
                 raise KeyError(name)
+        else:
+            return self._data.columns.get_loc(name)
 
     def column_title(self, col_ix):
-        return self._data.columns[col_ix]
-
-    def column_titles(self):
-        return list(self._data.columns)
+        return self.column_titles[col_ix]
 
     def column_id(self, col_ix):
-        return self.column_ids[col_ix]
+        return self._data.columns[col_ix]
 
     def column_title_to_id(self, title):
         return self.column_id(self.find_column(title, by_title=True))
 
     def find_row(self, proposal, run):
         df = self._data
-        row = df.loc[(df["Proposal"] == proposal) & (df["Run"] == run)]
+        row = df.loc[(df["proposal"] == proposal) & (df["run"] == run)]
         if row.size:
             return row.index[0]
         else:
             raise KeyError((proposal, run))
 
     def row_to_proposal_run(self, row_ix):
-        return self._data.at[row_ix, "Proposal"], self._data.at[row_ix, "Run"]
+        return self._data.at[row_ix, "proposal"], self._data.at[row_ix, "run"]
+
+    def standalone_comment_rows(self):
+        return self._data["comment_id"].dropna().index.tolist()
 
     def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
         if column_ids is None:
@@ -394,10 +388,10 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         dtype = 'object' if (type_cls is None) else type_cls.type_instance
         self.beginInsertColumns(QtCore.QModelIndex(), before, before + len(titles) - 1)
         for i, (title, column_id) in enumerate(zip(titles, column_ids)):
-            self._data.insert(before + i, title, pd.Series(
+            self._data.insert(before + i, column_id, pd.Series(
                 index=self._data.index, dtype=dtype
             ))
-            self.column_ids.insert(before + i, column_id)
+            self.column_titles.insert(before + i, title)
             if editable:
                 self.add_editable_column(title)
 
@@ -455,7 +449,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         return max_diff_df < 1e-9
 
     def handle_run_values_changed(self, proposal, run, values: dict):
-        known_col_ids = set(self.column_ids)
+        known_col_ids = set(self._data.columns)
         new_col_ids = [c for c in values if c not in known_col_ids]
 
         if new_col_ids:
@@ -470,22 +464,18 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
         self.is_constant_df = self.load_max_diffs()
 
-        column_ids_to_titles = dict(zip(self.column_ids, self._data.columns))
 
         if row_ix is not None:
             log.debug("Update existing row %s for run %s", row_ix, run)
             for ki, vi in values.items():
-                title = column_ids_to_titles[ki]
-                self._data.at[row_ix, title] = vi
+                self._data.at[row_ix, ki] = vi
 
-                index = self.index(row_ix, self._data.columns.get_loc(title))
+                index = self.index(row_ix, self._data.columns.get_loc(ki))
                 self.dataChanged.emit(index, index)
 
         else:
-            # Convert from column ID keys to column titles
-            row_contents = {column_ids_to_titles[k]: v for (k, v) in values.items()}
-            self.insert_row(row_contents | {
-                "Proposal": proposal, "Run": run, "Comment": "", "Status": True
+            self.insert_row(values | {
+                "proposal": proposal, "run": run, "comment": "", "Status": True
             })
 
     def handle_variable_set(self, var_info: dict):
@@ -507,8 +497,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             # Update existing column
             old_title = self.column_title(col_ix)
             if title != old_title:
-                self._data = self._data.rename(columns={old_title: title})
-                self.is_constant_df = self.is_constant_df.rename(columns={old_title: title})
+                self.column_titles[col_ix] = title
                 self.headerDataChanged.emit(Qt.Orientation.Horizontal, col_ix, col_ix)
 
     def add_editable_column(self, name):
@@ -517,7 +506,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         self.editable_columns.add(name)
 
     def remove_editable_column(self, name):
-        if name == "Comment":
+        if name == "comment":
             return
         self.editable_columns.remove(name)
 
@@ -576,10 +565,10 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
     def column_series(self, name, by_title=False, filter_status=True):
         if by_title:
-           title = name
+            col_id = self.column_title_to_id(name)
         else:
-            title = self._data.columns[self.find_column(name, by_title=False)]
-        series =  self._data[title].values
+            col_id = name
+        series =  self._data[col_id].values
         if filter_status:
             series = series[self._data["Status"]]
         return series
@@ -598,12 +587,11 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
         r, c = index.row(), index.column()
         value = self._data.iat[r, c]
-        run = self._data.iat[r, self._data.columns.get_loc("Run")]
-        proposal = self._data.iat[r, self._data.columns.get_loc("Proposal")]
-        quantity = self.column_id(index.column())
 
         if role == Qt.FontRole:
             # If the variable is not constant, make it bold
+            proposal, run = self.row_to_proposal_run(r)
+            quantity = self.column_id(c)
             if not self.variable_is_constant(run, proposal, quantity):
                 font = QtGui.QFont()
                 font.setBold(True)
@@ -621,7 +609,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             elif pd.isna(value) or index.column() == self._data.columns.get_loc("Status"):
                 return None
 
-            elif index.column() == self._data.columns.get_loc("Timestamp"):
+            elif index.column() == self._data.columns.get_loc("start_time"):
                 return timestamp2str(value)
 
             elif pd.api.types.is_float(value):
@@ -639,7 +627,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
                 return QtCore.Qt.Unchecked
 
         elif role == Qt.ToolTipRole:
-            if index.column() == self._data.columns.get_loc("Comment"):
+            if index.column() == self._data.columns.get_loc("comment"):
                 return self.data(index)
 
     def isCommentRow(self, row):
@@ -662,7 +650,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
                     self._data.iloc[index.row(), index.column()] = value
                 except Exception:
                     self._main_window.show_status_message(
-                        f"Value \"{value}\" is not valid for the \"{self._data.columns[index.column()]}\" column of type \"{variable_type_class}\".",
+                        f'Value {value!r} is not valid for the {variable_type_class} column "{self._data.columns[index.column()]}"',
                         timeout=5000,
                         stylesheet=StatusbarStylesheet.ERROR
                     )
@@ -672,7 +660,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
             # Send appropriate signals if we edited a standalone comment or an
             # editable column.
-            prop, run = self._data.iloc[index.row()][["Proposal", "Run"]]
+            prop, run = self.row_to_proposal_run(index.row())
 
             if pd.isna(prop) and pd.isna(run) and changed_column == "comment":
                 comment_id = self._data.iloc[index.row()]["comment_id"]
@@ -699,7 +687,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             orientation == Qt.Orientation.Vertical
             and role == Qt.ItemDataRole.DisplayRole
         ):
-            row = self._data.iloc[ix]['Run']
+            row = self._data.iloc[ix]['run']
             if pd.isna(row):
                 row = ''
             return row
@@ -735,7 +723,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         finally:
             self.layoutChanged.emit()
 
-    def dataframe_for_export(self, columns, rows=None, drop_image_cols=False):
+    def dataframe_for_export(self, column_titles, rows=None, drop_image_cols=False):
         """Create a cleaned-up dataframe to be saved as a spreadsheet"""
         # Helper function to convert image blobs to a string tag.
         def image2str(value):
@@ -744,17 +732,25 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             else:
                 return value
 
+        col_ids_to_titles = dict(zip(self._data.columns, self.column_titles))
+        col_titles_to_ids = dict(zip(self.column_titles, self._data.columns))
+        column_ids = [col_titles_to_ids[t] for t in column_titles]
+
         if drop_image_cols:
             image_cols = self._columns_with_thumbnails()
-            columns = [c for c in columns if c not in image_cols]
+            column_ids = [c for c in column_ids if c not in image_cols]
 
-        cleaned_df = self._data[columns].copy()
+        cleaned_df = self._data[column_ids].copy()
         if rows is not None:
             cleaned_df = cleaned_df.iloc[rows]
+
+        # Use human-friendly column names
+        cleaned_df = cleaned_df.rename(columns=col_ids_to_titles)
 
         # Format timestamps nicely
         if "Timestamp" in cleaned_df:
             cleaned_df["Timestamp"] = cleaned_df["Timestamp"].map(timestamp2str)
+
         # Format images nicely
         return cleaned_df.applymap(image2str)
 
