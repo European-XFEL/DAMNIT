@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox
 
 from ..backend.api import delete_variable
-from ..backend.db import BlobTypes
+from ..backend.db import BlobTypes, DamnitDB
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, timestamp2str
 
@@ -255,17 +255,98 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
-    def __init__(self, dataframe, column_ids, is_constant_df, parent):
+    def __init__(self, db: DamnitDB, column_settings: dict, parent):
         super().__init__(parent)
-        # Dataframes use titles ('XGM intensity') as column names.
-        # column_ids holds a matching list of IDs ('xgm_intensity')
-        self._data: pd.DataFrame = dataframe
-        self.column_ids: list = column_ids
-        self.is_constant_df: pd.DataFrame = is_constant_df
         self._main_window = parent
         self.is_sorted_by = ""
         self.is_sorted_order = None
-        self.editable_columns = {"Comment"}
+
+        self.db = db
+        # self._data uses titles ('XGM intensity') as column names.
+        # column_ids holds a matching list of IDs ('xgm_intensity')
+        self._data, self.column_ids = self._load_from_db(db, column_settings)
+        self.is_constant_df = self.load_max_diffs()
+        self.user_variables = db.get_user_variables()
+        self.editable_columns = {"Comment"} | {
+            (vv.title or vv.name) for vv in self.user_variables.values()
+        }
+
+    @staticmethod
+    def _load_from_db(db: DamnitDB, col_settings):
+        df = pd.read_sql_query("SELECT * FROM runs", db.conn)
+        df.insert(0, "Status", True)
+
+        # Ensure that the comment column is in the right spot
+        if "comment" not in df.columns:
+            df.insert(4, "comment", pd.NA)
+        else:
+            comment_column = df.pop("comment")
+            df.insert(4, "comment", comment_column)
+
+        df.insert(len(df.columns), "comment_id", pd.NA)
+        df.pop("added_at")
+
+        # Read the comments and prepare them for merging with the main data
+        comments_df = pd.read_sql_query(
+            "SELECT rowid as comment_id, * FROM time_comments", db.conn
+        )
+        comments_df.insert(0, "Run", pd.NA)
+        comments_df.insert(1, "Proposal", pd.NA)
+        # Don't try to plot comments
+        comments_df.insert(2, "Status", False)
+
+        col_id_to_title = {
+            "run": "Run",
+            "proposal": "Proposal",
+            "start_time": "Timestamp",
+            "comment": "Comment",
+        } | dict(
+            db.conn.execute("""SELECT name, title FROM variables WHERE title NOT NULL""")
+        )
+        col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
+
+        data = pd.concat(
+            [
+                df.rename(columns=col_id_to_title),
+                comments_df.rename(
+                    columns={"timestamp": "Timestamp", "comment": "Comment", }
+                ),
+            ]
+        )
+
+        for vv in db.get_user_variables().values():
+            title = vv.title or vv.name
+            type_cls = vv.get_type_class()
+            if title in data:
+                # Convert loaded data to the right pandas type
+                data[title] = type_cls.convert(data[title])
+            else:
+                # Add an empty column (before restoring saved order)
+                data[title] = pd.Series(index=data.index, dtype=type_cls.type_instance)
+
+
+        saved_cols = list(col_settings.keys())
+        df_cols = data.columns.tolist()
+
+        # Strip missing columns
+        saved_cols = [col for col in saved_cols if col in df_cols]
+
+        # Sort columns such that all static columns (proposal, run, etc) are at
+        # the beginning, followed by all the columns that have saved settings,
+        # followed by all the other columns (i.e. comment_id and any new columns
+        # added in between the last save and now).
+        static_cols = df_cols[:5]
+        non_static_cols = df_cols[5:]
+        sorted_cols = static_cols
+        # Static columns are saved too to store their visibility, but we filter
+        # them out here because they've already been added to the list.
+        sorted_cols.extend([col for col in saved_cols if col not in sorted_cols])
+        # Add all other unsaved columns
+        sorted_cols.extend([col for col in non_static_cols if col not in saved_cols])
+
+        data = data[sorted_cols]
+        column_ids = [col_title_to_id.get(cc, cc) for cc in data]
+        return data, column_ids
 
     def has_column(self, name, by_title=False):
         if by_title:
@@ -366,7 +447,14 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         self.generateThumbnail.cache_clear()
         self.endInsertRows()
 
-    def handle_run_values_changed(self, proposal, run, values: dict, is_constant_df):
+    def load_max_diffs(self):
+        max_diff_df = pd.read_sql_query("SELECT * FROM max_diffs",
+                                        self.db.conn,
+                                        index_col=["proposal", "run"]).fillna(0)
+        # 1e-9 is the default tolerance of np.isclose()
+        return max_diff_df < 1e-9
+
+    def handle_run_values_changed(self, proposal, run, values: dict):
         known_col_ids = set(self.column_ids)
         new_col_ids = [c for c in values if c not in known_col_ids]
 
@@ -380,7 +468,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         except KeyError:
             row_ix = None
 
-        self.is_constant_df = is_constant_df
+        self.is_constant_df = self.load_max_diffs()
 
         column_ids_to_titles = dict(zip(self.column_ids, self._data.columns))
 
@@ -567,7 +655,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             if changed_column == "comment":
                 self._data.iloc[index.row(), index.column()] = value
             else:
-                variable_type_class = self._main_window.user_variables[changed_column].get_type_class()
+                variable_type_class = self.user_variables[changed_column].get_type_class()
 
                 try:
                     value = variable_type_class.convert(value, unwrap=True) if value != '' else None
