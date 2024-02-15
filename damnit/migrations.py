@@ -71,7 +71,8 @@ def dataarray_from_group(group):
     # Attempt to map the coords to the right dimensions. This
     # will fail if there are two coordinates/dimensions with the
     # same length.
-    length_to_dim = {len(co): name for name, co in coords.items() if np.ndim(co) > 1}
+    length_to_dim = {len(co): name for name, co in coords.items()
+                     if name not in scalar_coords}
     if len(set(length_to_dim.keys())) != len(length_to_dim):
         return None
 
