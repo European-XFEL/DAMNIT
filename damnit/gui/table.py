@@ -640,6 +640,9 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             columns = [c for c in columns if c not in image_cols]
 
         cleaned_df = self._data[columns].copy()
+        if rows is not None:
+            cleaned_df = cleaned_df.iloc[rows]
+
         # Format timestamps nicely
         if "Timestamp" in cleaned_df:
             cleaned_df["Timestamp"] = cleaned_df["Timestamp"].map(timestamp2str)
