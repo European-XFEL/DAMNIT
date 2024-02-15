@@ -335,7 +335,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win._menu_bar_autoconfigure()
 
         # We expect the database to be initialized and the backend started
-        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        win.autoconfigure.assert_called_once_with(db_dir)
         initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
 
     # Create the directory and database file to fake the database already existing
@@ -348,7 +348,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win._menu_bar_autoconfigure()
 
         # We expect the database to be initialized and the backend started
-        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        win.autoconfigure.assert_called_once_with(db_dir)
         initialize_and_start_backend.assert_not_called()
 
     # Autoconfigure again, the GUI should start the backend again
@@ -357,7 +357,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win._menu_bar_autoconfigure()
 
         # This time the database is already initialized
-        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        win.autoconfigure.assert_called_once_with(db_dir)
         initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
 
 def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):

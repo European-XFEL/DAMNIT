@@ -194,7 +194,7 @@ da-dev@xfel.eu"""
             # User said no to setting up a new database
             return
 
-        self.autoconfigure(context_dir, proposal=prop_no)
+        self.autoconfigure(context_dir)
 
     def save_settings(self):
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +210,7 @@ da-dev@xfel.eu"""
         # 1e-9 is the default tolerance of np.isclose()
         return max_diff_df < 1e-9
 
-    def autoconfigure(self, path: Path, proposal=None):
+    def autoconfigure(self, path: Path):
         # use separated directory if running online to avoid file corruption
         # during sync between clusters.
         if gethostname().startswith('exflonc'):
