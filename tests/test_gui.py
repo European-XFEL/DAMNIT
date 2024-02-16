@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QStyledItemDelegate, QLineEdit
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
+    QStyledItemDelegate, QLineEdit
 
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import db_path, ReducedData
@@ -335,7 +336,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win._menu_bar_autoconfigure()
 
         # We expect the database to be initialized and the backend started
-        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        win.autoconfigure.assert_called_once_with(db_dir)
         initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
 
     # Create the directory and database file to fake the database already existing
@@ -348,7 +349,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win._menu_bar_autoconfigure()
 
         # We expect the database to be initialized and the backend started
-        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        win.autoconfigure.assert_called_once_with(db_dir)
         initialize_and_start_backend.assert_not_called()
 
     # Autoconfigure again, the GUI should start the backend again
@@ -357,7 +358,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win._menu_bar_autoconfigure()
 
         # This time the database is already initialized
-        win.autoconfigure.assert_called_once_with(db_dir, proposal=1234)
+        win.autoconfigure.assert_called_once_with(db_dir)
         initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
 
 def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
@@ -861,3 +862,23 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
     with h5py.File(db_dir / f"extracted_data/p{proposal}_r1.h5") as f:
         assert "array" not in f.keys()
         assert "array" not in f[".reduced"].keys()
+
+def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+
+    win = MainWindow(db_dir, connect_to_kafka=False)
+    get_n_runs = lambda: db.conn.execute("SELECT COUNT(run) FROM runs").fetchone()[0]
+    n_runs = get_n_runs()
+
+    # The user cancelling should do nothing
+    with patch.object(QInputDialog, "getInt", return_value=(1, False)) as dialog:
+        win.precreate_runs_dialog()
+        dialog.assert_called_once()
+        assert get_n_runs() == n_runs
+
+    # But accepting should add a run
+    with patch.object(QInputDialog, "getInt", return_value=(1, True)) as dialog:
+        win.precreate_runs_dialog()
+        dialog.assert_called_once()
+        assert get_n_runs() == n_runs + 1
