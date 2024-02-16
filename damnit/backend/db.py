@@ -403,12 +403,12 @@ class MsgKind(Enum):
     # objects, so recipients can easily tell if an object is new to them.
     # This also means messages are idempotent.
     variable_set = 'variable_set'
-    variable_deleted = 'variable_deleted'
+    #variable_deleted = 'variable_deleted'
     run_values_updated = 'run_values_updated'
-    run_deleted = 'run_deleted'
-    # The comment_ types refer to timestamped comments *not* in a run row
-    standalone_comment_set = 'standalone_comment_set'
-    standalone_comment_deleted = 'standalone_comment_deleted'
+    #run_deleted = 'run_deleted'
+    #standalone_comment_set = 'standalone_comment_set'
+    #standalone_comment_deleted = 'standalone_comment_deleted'
+    # Commented out options are not implemented yet
 
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
