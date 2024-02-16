@@ -777,6 +777,9 @@ da-dev@xfel.eu"""
         self._context_is_saved = False
 
     def reload_context(self):
+        if not self._context_path.is_file():
+            self.show_status_message("No context.py file found")
+            return
         self._editor.setText(self._context_path.read_text())
         self.test_context()
         self.mark_context_saved()
