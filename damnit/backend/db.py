@@ -407,8 +407,8 @@ class MsgKind(Enum):
     run_values_updated = 'run_values_updated'
     run_deleted = 'run_deleted'
     # The comment_ types refer to timestamped comments *not* in a run row
-    comment_set = 'comment_set'
-    comment_deleted = 'comment_deleted'
+    standalone_comment_set = 'standalone_comment_set'
+    standalone_comment_deleted = 'standalone_comment_deleted'
 
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
