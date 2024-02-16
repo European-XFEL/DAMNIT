@@ -74,6 +74,7 @@ class TableView(QtWidgets.QTableView):
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
         self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
+        self.horizontalHeader().setSectionsClickable(True)
         if model is not None:
             self.model().rowsInserted.connect(self.style_comment_rows)
             self.model().rowsInserted.connect(self.resize_new_rows)
