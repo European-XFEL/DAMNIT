@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox
 
 from ..backend.api import delete_variable
-from ..backend.db import BlobTypes, DamnitDB
+from ..backend.db import ReducedData, BlobTypes, DamnitDB
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, timestamp2str
 
@@ -379,6 +379,19 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
 
     def standalone_comment_rows(self):
         return self._data["comment_id"].dropna().index.tolist()
+
+    def precreate_runs(self, n_runs: int):
+        proposal = self.db.metameta["proposal"]
+        start_run = self._data["run"].max() + 1
+        for run in range(start_run, start_run + n_runs):
+            # To precreate the run we add it to the `run_info` table, and
+            # the `run_variables` table with an empty comment. Adding it to
+            # both ensures that the run will show up in the `runs` view.
+            self.db.ensure_run(proposal, run)
+            self.db.set_variable(proposal, run, "comment", ReducedData(None))
+
+            self.insert_row({ "proposal": proposal, "run": run,
+                              "comment": "", "Status": True })
 
     def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
         if column_ids is None:

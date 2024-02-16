@@ -309,6 +309,13 @@ da-dev@xfel.eu"""
 
         self._columns_dialog.show()
 
+    def precreate_runs_dialog(self):
+        n_runs, ok = QtWidgets.QInputDialog.getInt(self, "Pre-create new runs",
+                                                   "Select how many runs to create in the database immediately:",
+                                                   value=1, min=1)
+        if ok:
+            self.table.precreate_runs(n_runs)
+
     def _create_menu_bar(self) -> None:
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
@@ -363,10 +370,13 @@ da-dev@xfel.eu"""
         action_columns.triggered.connect(self.open_column_dialog)
         self.action_autoscroll = QtWidgets.QAction('Scroll to newly added runs', self)
         self.action_autoscroll.setCheckable(True)
+        action_precreate_runs = QtWidgets.QAction("Pre-create new runs", self)
+        action_precreate_runs.triggered.connect(self.precreate_runs_dialog)
         tableMenu = menu_bar.addMenu("Table")
         
         tableMenu.addAction(action_columns)
         tableMenu.addAction(self.action_autoscroll)
+        tableMenu.addAction(action_precreate_runs)
         
         #jump to run 
         menu_bar_right = QtWidgets.QMenuBar(self)
