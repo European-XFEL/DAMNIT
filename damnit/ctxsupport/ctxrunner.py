@@ -465,8 +465,7 @@ class Results:
 
                 if (
                     isinstance(data, (np.ndarray, xr.DataArray))
-                    and data.ndim == 1
-                    and data.shape[0] > 1
+                    and data.size > 1
                 ):
                     reduced_ds.attrs["max_diff"] = abs(
                         np.subtract(np.nanmax(data), np.nanmin(data), dtype=np.float64)

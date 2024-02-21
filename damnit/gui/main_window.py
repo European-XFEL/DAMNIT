@@ -4,35 +4,32 @@ import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 from socket import gethostname
 
-import pandas as pd
-import numpy as np
 import h5py
-from pandas.api.types import infer_dtype
-
+import numpy as np
+import pandas as pd
 from kafka.errors import NoBrokersAvailable
-
-from PyQt5 import QtCore, QtGui, QtWidgets, QtSvg
+from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
+from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QTabWidget, QFileDialog
-from PyQt5.Qsci import QsciScintilla, QsciLexerPython
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
+from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.api import RunVariables
-from ..backend.db import db_path, DamnitDB, ReducedData, BlobTypes, MsgKind
+from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend.user_variables import UserEditableVariable
-from ..backend import initialize_and_start_backend, backend_is_running
 from ..definitions import UPDATE_BROKERS
-from ..util import icon_path, StatusbarStylesheet
+from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
+from .editor import ContextTestResult, Editor
 from .kafka import UpdateReceiver
-from .table import TableView, DamnitTableModel, prettify_notation
-from .plot import Canvas, Plot
-from .user_variables import AddUserVariableDialog
-from .editor import Editor, ContextTestResult
 from .open_dialog import OpenDBDialog
+from .plot import Canvas, Plot
+from .table import DamnitTableModel, TableView, prettify_notation
+from .user_variables import AddUserVariableDialog
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
@@ -549,21 +546,6 @@ da-dev@xfel.eu"""
     def col_title_to_name(self, title):
         return self.table.column_title_to_id(title)
 
-    def make_finite(self, data):
-        if not isinstance(data, pd.Series):
-            data = pd.Series(data)
-
-        return data.astype('object').fillna(np.nan)
-
-    def bool_to_numeric(self, data):
-        if infer_dtype(data) == 'boolean':
-            data = data.astype('float')
-
-        return data
-
-    def fix_data_for_plotting(self, data):
-        return self.bool_to_numeric(self.make_finite(data))
-
     def inspect_data(self, index):
         proposal, run = self.table.row_to_proposal_run(index.row())
         quantity_title = self.table.column_title(index.column())
@@ -593,42 +575,35 @@ da-dev@xfel.eu"""
             log.warning(f"Unrecognized variable: '{quantity}'")
             return
 
-        if is_image:
-            try:
-                image = variable.ndarray()
-            except KeyError:
-                log.warning("'{}' not found in {}...".format(quantity, variable.file))
-                return
+        try:
+            data = variable.xarray()
+        except KeyError:
+            log.warning(f'"{quantity}" not found in {variable.file}...')
+            return
 
+        if is_image or data.ndim == 2:
             canvas = Canvas(
                 self,
-                image=image,
+                image=data.data,
                 title=f"{quantity_title} (run {run})",
             )
-
         else:
-            try:
-                y = variable.xarray()
-            except KeyError as e:
-                log.warning("'{}' not found in {}...".format(quantity, variable.file))
-                return
-
-            if y.ndim == 0:
+            if data.ndim == 0:
                 # If this is a scalar value, then we can't plot it
                 QMessageBox.warning(self, "Can't inspect variable",
                                     f"'{quantity}' is a scalar, there's nothing more to plot.")
                 return
 
             # Use the train ID if it's been saved, otherwise generate an X axis
-            if "trainId" in y.coords:
-                x = y.trainId
+            if "trainId" in data.coords:
+                x = data.trainId
             else:
-                x = np.arange(len(y))
+                x = np.arange(len(data))
 
             canvas = Canvas(
                 self,
-                x=[self.fix_data_for_plotting(x)],
-                y=[self.fix_data_for_plotting(y)],
+                x=[fix_data_for_plotting(x)],
+                y=[fix_data_for_plotting(data)],
                 xlabel=f"Event (run {run})",
                 ylabel=quantity_title,
                 fmt="o",
