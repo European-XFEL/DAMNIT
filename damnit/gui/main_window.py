@@ -346,6 +346,10 @@ da-dev@xfel.eu"""
         self.context_dir_changed.connect(lambda _: action_export.setEnabled(True))
         action_export.triggered.connect(self.export_table)
 
+        action_adeqt = QtWidgets.QAction("Python console", self)
+        action_adeqt.setShortcut("F12")
+        action_adeqt.triggered.connect(self.show_adeqt)
+
         action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
@@ -362,6 +366,7 @@ da-dev@xfel.eu"""
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(action_create_var)
         fileMenu.addAction(action_export)
+        fileMenu.addAction(action_adeqt)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
 
@@ -892,6 +897,15 @@ da-dev@xfel.eu"""
         df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         self.zulip_messenger.send_table(df)
+
+    adeqt_window = None
+
+    def show_adeqt(self):
+        from adeqt import AdeqtWindow
+        if self.adeqt_window is None:
+            ns = {'window': self, 'table': self.table}
+            self.adeqt_window = AdeqtWindow(ns, parent=self)
+        self.adeqt_window.show()
 
 class TableViewStyle(QtWidgets.QProxyStyle):
     """
