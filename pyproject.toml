@@ -12,6 +12,7 @@ license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version", "description"]
 dependencies = [
+    "adeqt",
     "EXtra-data",
     "euxfel_bunch_pattern",
     "h5netcdf",
