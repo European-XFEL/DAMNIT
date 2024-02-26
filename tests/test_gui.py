@@ -848,6 +848,8 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
     column_ids_before = [tbl.column_id(i) for i in range(tbl.columnCount())]
     column_titles_before = tbl.column_titles.copy()
     assert "array" in column_ids_before
+    col_visibility_before = win.table_view.get_column_states()
+    assert "Array" in col_visibility_before  # Keyed by title, not column ID
 
     # If the user clicks 'No' then we should do nothing
     with patch.object(QMessageBox, "warning", return_value=QMessageBox.No) as warning:
@@ -856,6 +858,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
     assert "array" in db.variable_names()
     assert [tbl.column_id(i) for i in range(tbl.columnCount())] == column_ids_before
     assert tbl.column_titles == column_titles_before
+    assert win.table_view.get_column_states() == col_visibility_before
 
     # Otherwise it should be deleted from the database and HDF5 files
     with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes) as warning:
@@ -866,6 +869,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
     assert tbl.columnCount() == len(column_ids_before) - 1
     assert "array" not in [tbl.column_id(i) for i in range(tbl.columnCount())]
     assert len(tbl.column_titles) == tbl.columnCount()
+    assert "Array" not in win.table_view.get_column_states()
 
     proposal = db.metameta['proposal']
     with h5py.File(db_dir / f"extracted_data/p{proposal}_r1.h5") as f:
