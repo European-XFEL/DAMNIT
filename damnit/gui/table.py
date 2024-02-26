@@ -80,6 +80,7 @@ class TableView(QtWidgets.QTableView):
             self.model().rowsInserted.connect(self.style_comment_rows)
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
+            self.model().columnsRemoved.connect(self.on_columns_removed)
             self.resizeRowsToContents()
 
     def item_changed(self, item):
@@ -149,15 +150,9 @@ class TableView(QtWidgets.QTableView):
                                      QMessageBox.Yes | QMessageBox.No,
                                      defaultButton=QMessageBox.No)
         if button == QMessageBox.Yes:
-            main_window = self.model()._main_window
-            delete_variable(main_window.db, name)
-
-            # TODO: refactor this into simply removing the column from the table
-            # if we fix the bugs around adding/removing columns
-            # on-the-fly. Currently there are some lingering off-by-one errors
-            # or something that cause the wrong columns to be moved when moving
-            # a column after the number of columns has changed.
-            main_window.autoconfigure(main_window.context_dir)
+            model = self.model()
+            delete_variable(model.db, name)
+            model.removeColumn(model.find_column(name, by_title=False))
 
     def add_new_columns(self, columns, statuses, positions = None):
         if positions is None:
@@ -174,6 +169,19 @@ class TableView(QtWidgets.QTableView):
     def on_columns_inserted(self, _parent, first, last):
         titles = [self.model().column_title(i) for i in range(first, last + 1)]
         self.add_new_columns(titles, [True for _ in list(titles)])
+
+    def on_columns_removed(self, _parent, _first, _last):
+        col_header_view = self.horizontalHeader()
+        cols = []
+        for logical_idx, title in enumerate(self.model().column_titles):
+            visual_idx = col_header_view.visualIndex(logical_idx)
+            visible = not col_header_view.isSectionHidden(logical_idx)
+            cols.append((visual_idx, title, visible))
+
+        # Put titles in display order (sort by visual indices)
+        cols.sort()
+
+        self.set_columns([c[1] for c in cols], [c[2] for c in cols])
 
     def set_columns(self, columns, statuses):
         self._columns_widget.clear()
@@ -409,6 +417,19 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
                 self.add_editable_column(title)
 
         self.endInsertColumns()
+
+    def removeColumns(self, column: int, count=1, parent=None):
+        column_ids = self._data.columns[column:column+count]
+        new_df = self._data.drop(columns=column_ids)
+        new_is_constant_df = self.is_constant_df.drop(columns=column_ids)
+        new_col_titles = self.column_titles[:column] + self.column_titles[column+count:]
+
+        self.beginRemoveColumns(QtCore.QModelIndex(), column, column + count - 1)
+        self._data = new_df
+        self.is_constant_df = new_is_constant_df
+        self.column_titles = new_col_titles
+        self.endRemoveColumns()
+        return True
 
     def insert_row(self, contents: dict):
         # Extract the high-rank arrays from the messages, because
