@@ -12,22 +12,15 @@ license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version", "description"]
 dependencies = [
-    "adeqt",
     "EXtra-data",
     "euxfel_bunch_pattern",
     "h5netcdf",
     "ipython",
     "kafka-python",
     "matplotlib",
-    "mplcursors",
-    "mpl-pan-zoom",
     "numpy",
-    "openpyxl",
     "pandas<2",
-    "PyQt5",
     "PyYAML",
-    "pyflakes",
-    "QScintilla==2.13",
     "xarray",
     "scipy",
     "supervisor",
@@ -35,11 +28,20 @@ dependencies = [
     "tomli",
     "pasha",
     "extra_geom",
-    "zulip",
-    "tabulate"
 ]
 
 [project.optional-dependencies]
+gui = [
+    "adeqt",
+    "mplcursors",
+    "mpl-pan-zoom",
+    "openpyxl",  # for spreadsheet export
+    "PyQt5",
+    "pyflakes",  # for checking context file in editor
+    "QScintilla==2.13",
+    "tabulate",  # used in pandas to make markdown tables (for Zulip)
+    "zulip",
+]
 test = [
     "pytest",
     "pytest-qt",
