@@ -13,21 +13,16 @@ classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version", "description"]
 dependencies = [
     "EXtra-data",
-    "euxfel_bunch_pattern",
     "h5netcdf",
     "ipython",
     "kafka-python",
     "matplotlib",
     "numpy",
     "pandas<2",
-    "PyYAML",
     "xarray",
     "scipy",
     "supervisor",
     "termcolor",
-    "tomli",
-    "pasha",
-    "extra_geom",
 ]
 
 [project.optional-dependencies]
