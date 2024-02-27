@@ -10,7 +10,7 @@ cd DAMNIT
 conda create -n amore python
 
 conda activate amore
-pip install .
+pip install '.[gui]'
 ```
 
 ## Usage
@@ -81,5 +81,5 @@ $ ssh xsoft@max-exfl.desy.de
 # Helper command to cd into the module directory and activate its environment
 $ amoremod mid
 $ git pull # Or whatever command is necessary to update the code
-$ pip install .
+$ pip install '.[gui]'
 ```

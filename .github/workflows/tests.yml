@@ -37,7 +37,7 @@ jobs:
 
     - name: Install Python dependencies
       run: |
-        python3 -m pip install .[test] --constraint .github/dependabot/constraints.txt
+        python3 -m pip install .[gui,test] --constraint .github/dependabot/constraints.txt
 
     - name: Test with pytest
       run: |
