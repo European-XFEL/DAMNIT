@@ -598,42 +598,39 @@ da-dev@xfel.eu"""
             log.warning(f"Unrecognized variable: '{quantity}'")
             return
 
-        if is_image:
-            try:
-                image = variable.ndarray()
-            except KeyError:
-                log.warning("'{}' not found in {}...".format(quantity, variable.file))
-                return
+        try:
+            data = variable.xarray()
+        except KeyError:
+            log.warning(f'"{quantity}" not found in {variable.file}...')
+            return
 
+        if is_image or data.ndim == 2:
             canvas = Canvas(
                 self,
-                image=image,
+                image=data.data,
                 title=f"{quantity_title} (run {run})",
             )
-
         else:
-            try:
-                y = variable.xarray()
-            except KeyError as e:
-                log.warning("'{}' not found in {}...".format(quantity, variable.file))
-                return
-
-            if y.ndim == 0:
+            if data.ndim == 0:
                 # If this is a scalar value, then we can't plot it
                 QMessageBox.warning(self, "Can't inspect variable",
                                     f"'{quantity}' is a scalar, there's nothing more to plot.")
                 return
+            if data.ndim > 2:
+                QMessageBox.warning(self, "Can't inspect variable",
+                                    f"'{quantity}' with {data.ndim} dimensions (not supported).")
+                return
 
             # Use the train ID if it's been saved, otherwise generate an X axis
-            if "trainId" in y.coords:
-                x = y.trainId
+            if "trainId" in data.coords:
+                x = data.trainId
             else:
-                x = np.arange(len(y))
+                x = np.arange(len(data))
 
             canvas = Canvas(
                 self,
                 x=[self.fix_data_for_plotting(x)],
-                y=[self.fix_data_for_plotting(y)],
+                y=[self.fix_data_for_plotting(data)],
                 xlabel=f"Event (run {run})",
                 ylabel=quantity_title,
                 fmt="o",
