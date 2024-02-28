@@ -309,6 +309,29 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
+def test_results_bad_obj(mock_run, tmp_path):
+    # Test returning an object we can't save in HDF5
+    bad_obj_code = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def good(run):
+        return 7
+
+    @Variable()
+    def bad(run):
+        return object()
+    """
+    bad_obj_ctx = mkcontext(bad_obj_code)
+    results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
+    print(f"{results.data=}")
+    print(f"{results.reduced=}")
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        assert set(f) == {".reduced", "good", "start_time"}
+        assert set(f[".reduced"]) == {"good", "start_time"}
+
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
 

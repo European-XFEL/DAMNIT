@@ -240,7 +240,17 @@ class ContextFile:
 
                 data = func(run_data)
                 if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
-                    data = np.asarray(data)
+                    arr = np.asarray(data)
+                    # Numpy will wrap any Python object, but only native arrays
+                    # can be saved in HDF5, not those containing Python objects.
+                    if arr.dtype.hasobject:
+                        log.error(
+                            "Variable %s returned %s which cannot be saved",
+                            name, type(data)
+                        )
+                        data = None
+                    else:
+                        data = arr
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
