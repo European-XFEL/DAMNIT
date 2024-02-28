@@ -19,6 +19,7 @@ from matplotlib.figure import Figure
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
 from ..backend.api import RunVariables
+from ..util import fix_data_for_plotting
 
 log = logging.getLogger(__name__)
 
@@ -653,15 +654,15 @@ class Plot:
 
                 for pi, ri in zip(proposal, run):
                     strongly_correlated, x, y = self.get_run_series_data(pi, ri, xi, yi)
-                    xs.append(self._main_window.fix_data_for_plotting(x))
-                    ys.append(self._main_window.fix_data_for_plotting(y))
+                    xs.append(fix_data_for_plotting(x))
+                    ys.append(fix_data_for_plotting(y))
             else:
                 # not nice to replace NAs/infs with nans, but better solutions require more coding
                 xs.append(
-                    self._main_window.fix_data_for_plotting(self.table.column_series(xi, by_title=True))
+                    fix_data_for_plotting(self.table.column_series(xi, by_title=True))
                 )
                 ys.append(
-                    self._main_window.fix_data_for_plotting(self.table.column_series(yi, by_title=True))
+                    fix_data_for_plotting(self.table.column_series(yi, by_title=True))
                 )
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
