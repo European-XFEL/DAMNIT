@@ -5,8 +5,16 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import re
-
 from enum import Enum
+
+import numpy as np
+import xarray as xr
+from matplotlib.figure import Figure
+
+__all__ = ["RunData", "Variable", "Cell"]
+
+
+THUMBNAIL_SIZE = 300 # px
 
 
 class RunData(Enum):
@@ -69,3 +77,45 @@ class Variable:
         Returns a dict of argument names to their annotations.
         """
         return getattr(self.func, '__annotations__', {})
+
+
+class Cell:
+    """Variable functions can return this"""
+    def __init__(self, data, summary=None, summary_value=None, bold=None, background=None):
+        if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
+            data = np.asarray(data)
+            # Numpy will wrap any Python object, but only native arrays
+            # can be saved in HDF5, not those containing Python objects.
+            if data.dtype.hasobject:
+                raise TypeError(f"Returned data type {type(data)} cannot be saved")
+
+        self.data = data
+        self.summary = summary
+        self.summary_value = summary_value
+        self.bold = bold
+        self.background = background
+
+    def get_summary(self):
+        if self.summary_value is not None:
+            return self.summary_value
+        elif self.summary is not None:
+            return np.asarray(getattr(np, self.summary)(self.data))
+
+        return None
+
+    def _max_diff(self):
+        a = self.data
+        if isinstance(a, (np.ndarray, xr.DataArray)) and a.ndim == 1 and a.size > 1:
+            return abs(np.subtract(np.nanmax(a), np.nanmin(a), dtype=np.float64))
+
+    def summary_attrs(self):
+        d = {}
+        if self.summary is not None:
+            d['summary_method'] = self.summary
+        if self.bold is not None:
+            d['bold'] = self.bold
+        if self.background is not None:
+            d['background'] = self.background
+        if (max_diff := self._max_diff()) is not None:
+            d['max_diff'] = max_diff
+        return d
