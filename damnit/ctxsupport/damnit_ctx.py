@@ -5,6 +5,7 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import re
+from collections.abc import Sequence
 from enum import Enum
 
 import h5py
@@ -109,7 +110,25 @@ class Cell:
         self.summary = summary
         self.summary_value = summary_value
         self.bold = bold
-        self.background = background
+        self.background = self._normalize_colour(background)
+
+    @staticmethod
+    def _normalize_colour(c):
+        if isinstance(c, str):
+            if not re.match(r'#[0-9A-Fa-f]{6}', c):
+                raise ValueError("Colour string should be hex code (like '#ffcc00')")
+            b = bytes.fromhex(c[1:])
+            return np.frombuffer(b, dtype=np.uint8)
+        elif isinstance(c, Sequence):
+            if not len(c) == 3:
+                raise TypeError(f"Wrong number of values ({len(c)}) for R,G,B")
+            if not all(0 <= v <= 255 for v in c):
+                raise ValueError("Colour values must be 0 - 255")
+            return np.array(c, dtype=np.uint8)
+        elif c is None:
+            return c
+        else:
+            raise TypeError(f"Don't understand colour as {type(c)}")
 
     def get_summary(self):
         if self.summary_value is not None:

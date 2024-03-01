@@ -478,7 +478,7 @@ def test_results_cell(mock_run, tmp_path):
 
     @Variable(summary='sum')
     def var2(run):
-        return Cell(np.arange(10), bold=False)
+        return Cell(np.arange(10), bold=False, background='#bbdddd')
     """
     bad_obj_ctx = mkcontext(ctx_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
@@ -487,6 +487,9 @@ def test_results_cell(mock_run, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert f['.reduced/var2'][()] == 45
         assert f['.reduced/var2'].attrs['bold'] == False
+        np.testing.assert_array_equal(
+            f['.reduced/var2'].attrs['background'], [0xbb, 0xdd, 0xdd]
+        )
 
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
