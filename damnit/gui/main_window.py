@@ -588,7 +588,7 @@ da-dev@xfel.eu"""
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
 
-        if is_image or data.ndim == 2:
+        if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
             canvas = Canvas(
                 self,
                 image=data.data,
