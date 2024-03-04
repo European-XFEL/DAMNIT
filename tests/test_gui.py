@@ -655,6 +655,10 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
         fig = plt.figure()
         plt.plot([1, 2, 3, 4], [4, 3, 2, 1])
         return fig
+
+    @Variable(title='2D data with summary', summary='mean')
+    def mean_2d(run):
+        return np.random.rand(512, 512)
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
@@ -725,6 +729,15 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(color_image_index)
         warning.assert_not_called()
+
+    # Check that 2D arrays with summary are inspectable
+    mean_2d_index = get_index('2D data with summary')
+    assert win.table.data(mean_2d_index, role=Qt.FontRole).bold()
+    assert isinstance(win.table.data(mean_2d_index, role=Qt.DisplayRole), str)
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(mean_2d_index)
+        warning.assert_not_called()
+
 
 def test_open_dialog(mock_db, qtbot):
     db_dir, db = mock_db
