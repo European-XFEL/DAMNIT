@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
 
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 import extra_data
@@ -239,6 +240,11 @@ class ContextFile:
                 func = functools.partial(var.func, **kwargs)
 
                 data = func(run_data)
+
+                # If the user returns an Axes, save the whole Figure
+                if isinstance(data, Axes):
+                    data = data.get_figure()
+
                 if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
                     arr = np.asarray(data)
                     # Numpy will wrap any Python object, but only native arrays

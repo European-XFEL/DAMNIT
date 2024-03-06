@@ -275,6 +275,13 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     from damnit_ctx import Variable
     from matplotlib import pyplot as plt
 
+    @Variable(title="Axes")
+    def axes(run):
+        _, ax = plt.subplots()
+        ax.plot([1, 2, 3, 4], [4, 3, 2, 1])
+
+        return ax
+
     @Variable(title="Figure")
     def figure(run):
         fig = plt.figure()
@@ -285,11 +292,13 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     figure_ctx = mkcontext(figure_code)
     results = results_create(figure_ctx)
     assert isinstance(results.reduced["figure"], PNGData)
+    assert isinstance(results.reduced["axes"], PNGData)
 
     results_hdf5_path.unlink()
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         assert f["figure/data"].ndim == 3
+        assert f["axes/data"].ndim == 3
 
     # Test returning xarray.Datasets
     dataset_code = """
