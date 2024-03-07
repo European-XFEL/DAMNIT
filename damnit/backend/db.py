@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import sqlite3
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from secrets import token_hex
-from typing import Any
+from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
 from .user_variables import UserEditableVariable
@@ -51,6 +52,7 @@ class ReducedData:
     value: Any
     max_diff: float = None
     summary_method: str = ''
+    attributes: Optional[dict] = None
 
 
 class BlobTypes(Enum):
@@ -302,6 +304,9 @@ class DamnitDB:
         variable["name"] = name
         variable["timestamp"] = timestamp
         variable["provenance"] = "context.py"
+        variable["attributes"] = None
+        if reduced.attributes:
+            variable["attributes"] = json.dumps(reduced.attributes)
 
         # TODO: enable these code snippets when we add support for versioning
         # latest_version = self.conn.execute("""
@@ -311,7 +316,7 @@ class DamnitDB:
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method"]
+        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "attributes"]
         col_list = ", ".join(cols)
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])

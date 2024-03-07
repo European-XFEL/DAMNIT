@@ -553,7 +553,10 @@ def test_add_to_db(mock_db):
         "image": b'\x89PNG\r\n\x1a\n...'  # Not a valid PNG, but good enough for this
     }
 
-    add_to_db(reduced_data_from_dict(reduced_data), db, 1234, 42)
+    reduced_objs = reduced_data_from_dict(reduced_data)
+    reduced_objs["float"].attributes["background"] = [255, 0, 0]
+
+    add_to_db(reduced_objs, db, 1234, 42)
 
     cursor = db.conn.execute("SELECT * FROM runs")
     row = cursor.fetchone()
@@ -562,6 +565,11 @@ def test_add_to_db(mock_db):
     assert row["scalar"] == reduced_data["scalar"]
     assert row["float"] == reduced_data["float"]
     assert row["image"] == reduced_data["image"]
+
+    row = db.conn.execute(
+        "SELECT * FROM run_variables WHERE proposal=1234 AND run=42 AND name='float'"
+    ).fetchone()
+    assert json.loads(row["attributes"]) == {"background": [255, 0, 0]}
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
