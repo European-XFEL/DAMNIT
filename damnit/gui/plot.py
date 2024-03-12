@@ -512,7 +512,7 @@ class Plot:
         return self._main_window.table
 
     def _button_plot_clicked(self, runs_as_series):
-        selected_rows = self._main_window.table_view.selectionModel().selectedRows()
+        selected_rows = self._main_window.table_view.selected_rows()
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
 
@@ -522,13 +522,15 @@ class Plot:
         # columns but they may have pd.NA's from comment rows (which are only
         # given a timestamp).
         safe_cols = ["Proposal", "Run"]
-        for label in [xlabel, ylabel]:
-            arr = self.table.column_series(label, by_title=True)
-            if not label in safe_cols and not is_numeric_dtype(arr.dtype):
-                QMessageBox.warning(self._main_window,
-                                    "Plotting failed",
-                                    f"'{label}' could not be plotted, its column has non-numeric data.")
-                return
+
+        xvals, _yvals = self.table.numbers_for_plotting(xlabel, ylabel)
+        if not xvals:
+            QMessageBox.warning(
+                self._main_window,
+                "Plotting failed",
+                f"No numeric data found in {xlabel} & {ylabel}."
+            )
+            return
 
         # multiple rows can be selected
         # we could even merge multiple runs here
@@ -657,13 +659,9 @@ class Plot:
                     xs.append(fix_data_for_plotting(x))
                     ys.append(fix_data_for_plotting(y))
             else:
-                # not nice to replace NAs/infs with nans, but better solutions require more coding
-                xs.append(
-                    fix_data_for_plotting(self.table.column_series(xi, by_title=True))
-                )
-                ys.append(
-                    fix_data_for_plotting(self.table.column_series(yi, by_title=True))
-                )
+                x, y = self.table.numbers_for_plotting(xi, yi)
+                xs.append(np.array(x))
+                ys.append(np.array(y))
 
             log.debug("Updating plot for x=%s, y=%s", xi, yi)
             ci.update_canvas(xs, ys)
