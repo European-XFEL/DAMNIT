@@ -52,6 +52,7 @@ def test_editor(mock_db, mock_ctx, qtbot):
 
     win = MainWindow(db_dir, False)
     win.show()
+    qtbot.addWidget(win)
     editor = win._editor
     status_bar = win._status_bar
 
@@ -140,6 +141,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     # home directory.
     with patch("pathlib.Path.home", return_value=tmp_path):
         win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
 
     # Helper function to show the currently visible headers
     def visible_headers():
@@ -263,6 +265,7 @@ def test_handle_update(mock_db, qtbot):
     db_dir, db = mock_db
 
     win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
 
     # Helper lambdas
     model = lambda: win.table_view.model()
@@ -302,6 +305,7 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
     monkeypatch.chdir(db_dir)
 
     win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
     win.plot._button_plot_clicked(False)
     assert len(win.plot._canvas["canvas"]) == 1
 
@@ -317,6 +321,7 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
     win = MainWindow(None, False)
+    qtbot.addWidget(win)
     pkg = "damnit.gui.main_window"
 
     @contextmanager
@@ -387,6 +392,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 
     win = MainWindow(connect_to_kafka=False)
     win.show()
+    qtbot.addWidget(win)
 
     # Find menu for creating variable
     create_user_menu = None
@@ -513,11 +519,12 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 
     table_view = win.table_view
     table_view.setItemDelegate(CaptureEditorDelegate())
-    table_model = table_view.model()
+    table_model = win.table
+    sortproxy = table_view.model()
 
     def open_editor_and_get_delegate(field_name, row_number = 0):
         col_num = table_model.find_column(field_name)
-        table_view.edit(table_model.index(row_number, col_num))
+        table_view.edit(sortproxy.mapFromSource(table_model.index(row_number, col_num)))
         return table_view.itemDelegate()
 
     def change_to_value_and_close(value):
@@ -528,7 +535,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 
     def get_value_from_field(field_name, row_number = 0):
         col_num = table_model.find_column(field_name)
-        return table_model.get_value_at(table_model.index(row_number, col_num))
+        return table_model.get_value_at_rc(row_number, col_num)
 
     def get_value_from_db(field_name):
         if not re.fullmatch(r"[a-zA-Z_]\w+", field_name, flags=re.A):
@@ -667,6 +674,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
 
     # Create window
     win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
 
     # Helper function to get a QModelIndex from a variable title
     def get_index(title, row=0):
@@ -690,7 +698,8 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
         warning.assert_not_called()
 
     # And correlate two array variables
-    win.table_view.setCurrentIndex(array_index)
+    array_sorted_idx = win.table_view.model().mapFromSource(array_index)
+    win.table_view.setCurrentIndex(array_sorted_idx)
     with patch.object(QMessageBox, "warning") as warning:
         win.plot._button_plot_clicked(True)
         warning.assert_not_called()
@@ -742,6 +751,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
 def test_open_dialog(mock_db, qtbot):
     db_dir, db = mock_db
     dlg = OpenDBDialog()
+    qtbot.addWidget(dlg)
     dlg.proposal_finder_thread.start()
 
     # Test supplying a proposal number:
@@ -756,6 +766,7 @@ def test_open_dialog(mock_db, qtbot):
 
     # Test selecting a folder:
     dlg = OpenDBDialog()
+    qtbot.addWidget(dlg)
     dlg.proposal_finder_thread.start()
     dlg.ui.folder_rb.setChecked(True)
     with patch.object(QFileDialog, 'getExistingDirectory', return_value=str(db_dir)):
@@ -770,6 +781,7 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
     win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
     pkg = 'damnit.gui.zulip_messenger.requests'
 
     mock_zulip_cfg = """
@@ -838,6 +850,7 @@ def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
     amore_proto(["reprocess", "all", "--mock"])
 
     win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
 
     export_path = db_dir / f"export{extension}"
     filter_str = f"Ext (*{extension})"
@@ -857,6 +870,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
     # We'll delete the 'array' variable
     assert "array" in db.variable_names()
     win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
     tbl = win.table
     column_ids_before = [tbl.column_id(i) for i in range(tbl.columnCount())]
     column_titles_before = tbl.column_titles.copy()
@@ -894,6 +908,7 @@ def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
     monkeypatch.chdir(db_dir)
 
     win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
     get_n_runs = lambda: db.conn.execute("SELECT COUNT(run) FROM runs").fetchone()[0]
     n_runs = get_n_runs()
 

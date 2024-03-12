@@ -1,8 +1,6 @@
 import logging
-from functools import lru_cache
-
-import numpy as np
-import pandas as pd
+import time
+from itertools import groupby
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
@@ -17,8 +15,7 @@ log = logging.getLogger(__name__)
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
-# The actual threshold for long messages is around 6200
-# not 10k, otherwise one gets a '414 URI Too Long' error
+COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -63,12 +60,21 @@ class TableView(QtWidgets.QTableView):
         self.show_logs_action.triggered.connect(self.show_run_logs)
         self.context_menu.addAction(self.show_logs_action)
 
-    def setModel(self, model):
+    def setModel(self, model: 'DamnitTableModel'):
         """
         Overload of setModel() to make sure that we restyle the comment rows
         when the model is updated.
         """
-        super().setModel(model)
+        if (old_sel_model := self.selectionModel()) is not None:
+            old_sel_model.deleteLater()
+        if (old_model := self.model()) is not None:
+            old_model.deleteLater()
+
+        self.damnit_model = model
+        sfpm = QtCore.QSortFilterProxyModel(self)
+        sfpm.setSourceModel(model)
+        sfpm.setSortRole(Qt.ItemDataRole.UserRole)  # Numeric sort where relevant
+        super().setModel(sfpm)
         # When loading a new model, the saved column order is applied at the
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
@@ -82,6 +88,13 @@ class TableView(QtWidgets.QTableView):
             self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
             self.resizeRowsToContents()
+
+    def selected_rows(self):
+        """Get indices of selected rows in the DamnitTableModel"""
+        proxy_rows = self.selectionModel().selectedRows()
+        # Translate indices in sorted proxy model back to the underlying model
+        proxy = self.model()
+        return [proxy.mapToSource(ix) for ix in proxy_rows]
 
     def item_changed(self, item):
         state = item.checkState()
@@ -99,7 +112,7 @@ class TableView(QtWidgets.QTableView):
         deselected. The `for_restore` argument lets you specify which behaviour
         you want.
         """
-        column_index = self.model().find_column(name, by_title=True)
+        column_index = self.damnit_model.find_column(name, by_title=True)
 
         self.setColumnHidden(column_index, not visible)
 
@@ -139,7 +152,7 @@ class TableView(QtWidgets.QTableView):
         menu.addAction("Delete")
         action = menu.exec(global_pos)
         if action is not None:
-            name = self.model().column_title_to_id(item.text())
+            name = self.damnit_model.column_title_to_id(item.text())
             self.confirm_delete_variable(name)
 
     def confirm_delete_variable(self, name):
@@ -150,7 +163,7 @@ class TableView(QtWidgets.QTableView):
                                      QMessageBox.Yes | QMessageBox.No,
                                      defaultButton=QMessageBox.No)
         if button == QMessageBox.Yes:
-            model = self.model()
+            model = self.damnit_model
             delete_variable(model.db, name)
             model.removeColumn(model.find_column(name, by_title=False))
 
@@ -167,13 +180,13 @@ class TableView(QtWidgets.QTableView):
             item.setCheckState(Qt.Checked if status else Qt.Unchecked)
 
     def on_columns_inserted(self, _parent, first, last):
-        titles = [self.model().column_title(i) for i in range(first, last + 1)]
+        titles = [self.damnit_model.column_title(i) for i in range(first, last + 1)]
         self.add_new_columns(titles, [True for _ in list(titles)])
 
     def on_columns_removed(self, _parent, _first, _last):
         col_header_view = self.horizontalHeader()
         cols = []
-        for logical_idx, title in enumerate(self.model().column_titles):
+        for logical_idx, title in enumerate(self.damnit_model.column_titles):
             visual_idx = col_header_view.visualIndex(logical_idx)
             visible = not col_header_view.isSectionHidden(logical_idx)
             cols.append((visual_idx, title, visible))
@@ -216,13 +229,15 @@ class TableView(QtWidgets.QTableView):
 
     def style_comment_rows(self, *_):
         self.clearSpans()
-        model : DamnitTableModel = self.model()
+        model : DamnitTableModel = self.damnit_model
         comment_col = model.find_column("Comment", by_title=True)
         timestamp_col = model.find_column("Timestamp", by_title=True)
 
+        proxy_mdl = self.model()
         for row_ix in model.standalone_comment_rows():
-            self.setSpan(row_ix, 0, 1, timestamp_col)
-            self.setSpan(row_ix, comment_col, 1, 1000)
+            ix = proxy_mdl.mapFromSource(self.damnit_model.createIndex(row_ix, 0))
+            self.setSpan(ix.row(), 0, 1, timestamp_col)
+            self.setSpan(ix.row(), comment_col, 1, 1000)
 
     def resize_new_rows(self, parent, first, last):
         for row in range(first, last + 1):
@@ -252,56 +267,66 @@ class TableView(QtWidgets.QTableView):
 
     def show_run_logs(self):
         # Get first selected row
-        row = self.selectionModel().selectedRows()[0].row()
-        prop, run = self.model().row_to_proposal_run(row)
+        row = self.selected_rows()[0].row()
+        prop, run = self.damnit_model.row_to_proposal_run(row)
         self.log_view_requested.emit(prop, run)
 
 
-class DamnitTableModel(QtCore.QAbstractTableModel):
+class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
     def __init__(self, db: DamnitDB, column_settings: dict, parent):
-        super().__init__(parent)
+        self.column_ids, self.column_titles = self._load_columns(db, column_settings)
+        n_run_rows = db.conn.execute("SELECT count(*) FROM run_info").fetchone()[0]
+        n_cmnt_rows = db.conn.execute("SELECT count(*) FROM time_comments").fetchone()[0]
+        log.info(f"Table will have {n_run_rows} runs & {n_cmnt_rows} standalone comments")
+
+        super().__init__(n_run_rows + n_cmnt_rows, len(self.column_ids), parent)
+        self.setHorizontalHeaderLabels(self.column_titles)
         self._main_window = parent
         self.is_sorted_by = ""
         self.is_sorted_order = None
-
         self.db = db
-        # self._data uses IDs ('xgm_intensity') as column names.
-        # column_ids holds a matching list of titles ('XGM intensity')
-        self._data, self.column_titles = self._load_from_db(db, column_settings)
-        self.is_constant_df = self.load_max_diffs()
+        self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
+        self.run_index = {}  # {(proposal, run): row}
+        self.standalone_comment_index = {}
+
+        self._bold_font = QtGui.QFont()
+        self._bold_font.setBold(True)
+
+        # Empty spaces are not editable by default
+        proto = QtGui.QStandardItem()
+        proto.setEditable(False)
+        self.setItemPrototype(proto)
+
         self.user_variables = db.get_user_variables()
         self.editable_columns = {"comment"} | {
             vv.name for vv in self.user_variables.values()
         }
+        for col_id in self.editable_columns:
+            col_ix = self.find_column(col_id)
+            for r in range(self.rowCount()):
+                # QStandardItem is editable by default
+                self.setItem(r, col_ix, QtGui.QStandardItem())
+
+        # Set up status column with checkboxes for runs
+        checkbox_proto = self.itemPrototype().clone()
+        checkbox_proto.setCheckable(True)
+        checkbox_proto.setCheckState(Qt.Checked)
+        for r in range(n_run_rows):
+            self.setItem(r, 0, checkbox_proto.clone())
+
+        self._load_from_db()
 
     @staticmethod
-    def _load_from_db(db: DamnitDB, col_settings):
-        df = pd.read_sql_query("SELECT * FROM runs", db.conn)
-        df.insert(0, "Status", True)
-
-        # Ensure that the comment column is in the right spot
-        if "comment" not in df.columns:
-            df.insert(4, "comment", pd.NA)
-        else:
-            comment_column = df.pop("comment")
-            df.insert(4, "comment", comment_column)
-
-        df.insert(len(df.columns), "comment_id", pd.NA)
-        df.pop("added_at")
-
-        # Read the comments and prepare them for merging with the main data
-        comments_df = pd.read_sql_query(
-            "SELECT rowid as comment_id, * FROM time_comments", db.conn
+    def _load_columns(db: DamnitDB, col_settings):
+        t0 = time.perf_counter()
+        column_ids = (
+                ["Status", "proposal", "run", "start_time", "comment"]
+                + sorted(set(db.variable_names()) - {'comment'})
         )
-        comments_df.insert(0, "run", pd.NA)
-        comments_df.insert(1, "proposal", pd.NA)
-        # Don't try to plot comments
-        comments_df.insert(2, "Status", False)
-
         col_id_to_title = {
             "run": "Run",
             "proposal": "Proposal",
@@ -312,85 +337,159 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         )
         col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
 
-        data = pd.concat([
-            df, comments_df.rename(columns={"timestamp": "start_time"})
-        ])
-
-        for vv in db.get_user_variables().values():
-            type_cls = vv.get_type_class()
-            if vv.name in data:
-                # Convert loaded data to the right pandas type
-                data[vv.name] = type_cls.convert(data[vv.name])
-            else:
-                # Add an empty column (before restoring saved order)
-                data[vv.name] = pd.Series(index=data.index, dtype=type_cls.type_instance)
-
-
         # Column settings store human friendly titles - convert to IDs
         saved_col_order = [col_title_to_id.get(c, c) for c in col_settings]
-        df_cols = data.columns.tolist()
 
         # Strip missing columns
-        saved_col_order = [col for col in saved_col_order if col in df_cols]
+        saved_col_order = [col for col in saved_col_order if col in column_ids]
 
         # Sort columns such that all static columns (proposal, run, etc) are at
         # the beginning, followed by all the columns that have saved settings,
         # followed by all the other columns (i.e. comment_id and any new columns
         # added in between the last save and now).
-        static_cols = df_cols[:5]
-        non_static_cols = df_cols[5:]
-        sorted_cols = static_cols
+        non_static_cols = column_ids[5:]
+        sorted_cols = column_ids[:5]
         # Static columns are saved too to store their visibility, but we filter
         # them out here because they've already been added to the list.
         sorted_cols.extend([col for col in saved_col_order if col not in sorted_cols])
         # Add all other unsaved columns
         sorted_cols.extend([col for col in non_static_cols if col not in saved_col_order])
 
-        data = data[sorted_cols]
-        column_titles = [col_id_to_title.get(c, c) for c in data.columns]
-        return data, column_titles
+        column_titles = [col_id_to_title.get(c, c) for c in sorted_cols]
+
+        t1 = time.perf_counter()
+        log.info(f"Got columns in {t1 - t0:.3f} s")
+        return sorted_cols, column_titles
+
+    def text_item(self, value, display=None):
+        if display is None:
+            if value is None:
+                display = ''
+            elif isinstance(value, float):
+                display = prettify_notation(value)
+            else:
+                display = str(value)
+        item = self.itemPrototype().clone()
+        # We will use UserRole data for sorting
+        item.setData(value, role=Qt.ItemDataRole.UserRole)
+        item.setData(display, role=Qt.ItemDataRole.DisplayRole)
+        return item
+
+    def image_item(self, png_data: bytes):
+        item = self.itemPrototype().clone()
+        item.setData(self.generateThumbnail(png_data), role=Qt.DecorationRole)
+        return item
+
+    def comment_item(self, text, comment_id=None):
+        item = QtGui.QStandardItem(text)  # Editable by default
+        item.setToolTip(text)
+        if comment_id is not None:
+            # For standalone comments, integer ID
+            item.setData(comment_id, COMMENT_ID_ROLE)
+        return item
+
+    def new_item(self, value, column_id, max_diff=0):
+        if is_png_bytes(value):
+            return self.image_item(value)
+        elif column_id == 'comment':
+            return self.comment_item(value)
+        elif column_id == 'start_time':
+            return self.text_item(value, timestamp2str(value))
+        else:
+            item = self.text_item(value)
+            item.setEditable(column_id in self.editable_columns)
+            if (max_diff is not None) and max_diff > 1e-9:
+                item.setFont(self._bold_font)
+            return item
+
+    def _load_from_db(self):
+        t0 = time.perf_counter()
+
+        row_headers = []
+        row_ix = -1
+
+        for row_ix, (prop, run, ts) in enumerate(self.db.conn.execute("""
+            SELECT proposal, run, start_time FROM run_info ORDER BY proposal, run
+        """).fetchall()):
+            row_headers.append(str(run))
+            self.run_index[(prop, run)] = row_ix
+            self.setItem(row_ix, 1, self.text_item(prop))
+            self.setItem(row_ix, 2, self.text_item(run))
+            self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
+
+        for (prop, run), grp in groupby(self.db.conn.execute("""
+            SELECT proposal, run, name, value, max_diff FROM run_variables
+            ORDER BY proposal, run
+        """).fetchall(), key=lambda r: r[:2]):  # Group by proposal & run
+            row_ix = self.run_index[(prop, run)]
+            for *_, name, value, max_diff in grp:
+                col_ix = self.column_index[name]
+                if name in self.user_variables:
+                    value = self.user_variables[name].get_type_class().from_db_value(value)
+
+                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff))
+
+        comments_start = row_ix + 1
+        comment_rows = self.db.conn.execute("""
+            SELECT rowid, timestamp, comment FROM time_comments
+        """).fetchall()
+        for row_ix, (cid, ts, comment) in enumerate(comment_rows, start=comments_start):
+            self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
+            self.setItem(
+                row_ix, self.column_index["comment"], self.comment_item(comment, cid)
+            )
+            row_headers.append('')
+            self.standalone_comment_index[cid] = row_ix
+
+        self.setVerticalHeaderLabels(row_headers)
+        t1 = time.perf_counter()
+        log.info(f"Filled rows in {t1 - t0:.3f} s")
 
     def has_column(self, name, by_title=False):
         if by_title:
             return name in self.column_titles
         else:
-            return name in self._data.columns
+            return name in self.column_index
 
     def find_column(self, name, by_title=False):
         if by_title:
             try:
                 return self.column_titles.index(name)
-            except ValueError:  # Convert to KeyError, matching .get_loc()
+            except ValueError:  # Convert to KeyError, matching dict
                 raise KeyError(name)
         else:
-            return self._data.columns.get_loc(name)
+            return self.column_index[name]
 
     def column_title(self, col_ix):
         return self.column_titles[col_ix]
 
     def column_id(self, col_ix):
-        return self._data.columns[col_ix]
+        return self.column_ids[col_ix]
 
     def column_title_to_id(self, title):
         return self.column_id(self.find_column(title, by_title=True))
 
     def find_row(self, proposal, run):
-        df = self._data
-        row = df.loc[(df["proposal"] == proposal) & (df["run"] == run)]
-        if row.size:
-            return row.index[0]
-        else:
-            raise KeyError((proposal, run))
+        return self.run_index[(proposal, run)]
 
     def row_to_proposal_run(self, row_ix):
-        return self._data.at[row_ix, "proposal"], self._data.at[row_ix, "run"]
+        prop_col, run_col = 1, 2
+        prop_it, run_it = self.item(row_ix, prop_col), self.item(row_ix, run_col)
+        if prop_it is None:
+            return None, None
+        return prop_it.data(Qt.UserRole), run_it.data(Qt.UserRole)
+
+    def row_to_comment_id(self, row):
+        comment_col = 4
+        item = self.item(row, comment_col)
+        return item and item.data(COMMENT_ID_ROLE)
 
     def standalone_comment_rows(self):
-        return self._data["comment_id"].dropna().index.tolist()
+        return sorted(self.standalone_comment_index.values())
 
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
-        start_run = self._data["run"].max() + 1
+        start_run = max([r for (p, r) in self.run_index if p == proposal]) + 1
         for run in range(start_run, start_run + n_runs):
             # To precreate the run we add it to the `run_info` table, and
             # the `run_variables` table with an empty comment. Adding it to
@@ -398,92 +497,63 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             self.db.ensure_run(proposal, run)
             self.db.set_variable(proposal, run, "comment", ReducedData(None))
 
-            self.insert_row({ "proposal": proposal, "run": run,
-                              "comment": "", "Status": True })
+            self.insert_run_row(proposal, run, {}, {})
 
     def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
         if column_ids is None:
             column_ids = titles
         else:
             assert len(column_ids) == len(titles)
-        dtype = 'object' if (type_cls is None) else type_cls.type_instance
-        self.beginInsertColumns(QtCore.QModelIndex(), before, before + len(titles) - 1)
-        for i, (title, column_id) in enumerate(zip(titles, column_ids)):
-            self._data.insert(before + i, column_id, pd.Series(
-                index=self._data.index, dtype=dtype
-            ))
-            self.column_titles.insert(before + i, title)
-            if editable:
-                self.add_editable_column(title)
 
-        self.endInsertColumns()
+        self.column_ids[before:before] = column_ids
+        self.column_titles[before:before] = titles
+        self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
+        if editable:
+            self.editable_columns.update(column_ids)
 
-    def removeColumns(self, column: int, count=1, parent=None):
-        column_ids = self._data.columns[column:column+count]
-        new_df = self._data.drop(columns=column_ids)
-        new_is_constant_df = self.is_constant_df.drop(columns=column_ids)
-        new_col_titles = self.column_titles[:column] + self.column_titles[column+count:]
+        self.insertColumns(before, len(column_ids))
 
-        self.beginRemoveColumns(QtCore.QModelIndex(), column, column + count - 1)
-        self._data = new_df
-        self.is_constant_df = new_is_constant_df
-        self.column_titles = new_col_titles
-        self.endRemoveColumns()
-        return True
+        for i, title in enumerate(titles, start=before):
+            self.setHorizontalHeaderItem(before, QtGui.QStandardItem(title))
 
-    def insert_row(self, contents: dict):
-        # Extract the high-rank arrays from the messages, because
-        # DataFrames can only handle 1D cell elements by default. The
-        # way around this is to create a column manually with a dtype of
-        # 'object'.
-        ndarray_cols = {k: v for (k, v) in contents.items()
-                        if isinstance(v, np.ndarray) and v.ndim > 1}
-        plain_cols = {k: v for (k, v) in contents.items() if k not in ndarray_cols}
+    def removeColumn(self, column: int, parent=QtCore.QModelIndex()):
+        del self.column_ids[column]
+        del self.column_titles[column]
+        self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
+        super().removeColumn(column, parent)
 
-        sort_col = self.is_sorted_by
-        if sort_col and not pd.isna(plain_cols.get(sort_col)):
-            newval = plain_cols[sort_col]
-            if self.is_sorted_order == Qt.SortOrder.AscendingOrder:
-                ix = self._data[sort_col].searchsorted(newval)
+    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict):
+        status_item = self.itemPrototype().clone()
+        status_item.setCheckable(True)
+        status_item.setCheckState(Qt.Checked)
+        row = [status_item, self.text_item(proposal), self.text_item(run)]
+
+        for column_id in self.column_ids[3:]:
+            if (value := contents.get(column_id, None)) is not None:
+                item = self.new_item(
+                    value, column_id, max_diffs.get(column_id) or 0
+                )
+            elif column_id in self.editable_columns:
+                item = QtGui.QStandardItem()  # Editable by default
             else:
-                ix_back = self._data[sort_col][::-1].searchsorted(newval)
-                ix = len(self._data) - ix_back
-        else:
-            ix = len(self._data)
-        log.debug("New row in table at index %d", ix)
+                item = None
+            row.append(item)
+        # We add new rows at the end, a QSortFilterProxyModel shows them in
+        # the correct position given the current sort.
+        self.run_index[(proposal, run)] = row_ix = self.rowCount()
+        self.appendRow(row)
+        self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(str(run)))
 
-        # Create a DataFrame with the new data to insert into the main table
-        new_entries = pd.DataFrame(plain_cols, index=[0])
-
-        # Insert columns with 'object' dtype for the special columns
-        # with arrays that are >1D.
-        for col_name, value in ndarray_cols.items():
-            col = pd.Series([value], index=[0], dtype="object")
-            new_entries.insert(len(new_entries.columns), col_name, col)
-
-        new_df = pd.concat(
-            [
-                self._data.iloc[:ix],
-                new_entries,
-                self._data.iloc[ix:],
-            ],
-            ignore_index=True,
-        )
-
-        self.beginInsertRows(QtCore.QModelIndex(), ix, ix)
-        self._data = new_df
-        self.generateThumbnail.cache_clear()
-        self.endInsertRows()
-
-    def load_max_diffs(self):
-        max_diff_df = pd.read_sql_query("SELECT * FROM max_diffs",
-                                        self.db.conn,
-                                        index_col=["proposal", "run"]).fillna(0)
-        # 1e-9 is the default tolerance of np.isclose()
-        return max_diff_df < 1e-9
+    def insert_comment_row(self, comment_id: int, comment: str, timestamp: float):
+        blank = self.itemPrototype().clone()
+        ts_item = self.text_item(timestamp, display=timestamp2str(timestamp))
+        row = [blank, blank, blank, ts_item, self.comment_item(comment, comment_id)]
+        self.standalone_comment_index[comment_id] = row_ix = self.rowCount()
+        self.appendRow(row)
+        self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(''))
 
     def handle_run_values_changed(self, proposal, run, values: dict):
-        known_col_ids = set(self._data.columns)
+        known_col_ids = set(self.column_ids)
         new_col_ids = [c for c in values if c not in known_col_ids]
 
         if new_col_ids:
@@ -496,21 +566,21 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
         except KeyError:
             row_ix = None
 
-        self.is_constant_df = self.load_max_diffs()
+        max_diffs = dict(self.db.conn.execute("""
+            SELECT name, max_diff FROM run_variables WHERE proposal=? AND run=?
+        """, (proposal, run)))
 
+        col_id_to_ix = {c: i for (i, c) in enumerate(self.column_ids)}
 
         if row_ix is not None:
             log.debug("Update existing row %s for run %s", row_ix, run)
-            for ki, vi in values.items():
-                self._data.at[row_ix, ki] = vi
-
-                index = self.index(row_ix, self._data.columns.get_loc(ki))
-                self.dataChanged.emit(index, index)
-
+            for column_id, value in values.items():
+                col_ix = col_id_to_ix[column_id]
+                self.setItem(row_ix, col_ix, self.new_item(
+                    value, column_id, max_diffs.get(column_id) or 0
+                ))
         else:
-            self.insert_row(values | {
-                "proposal": proposal, "run": run, "comment": "", "Status": True
-            })
+            self.insert_run_row(proposal, run, values, max_diffs)
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
@@ -532,7 +602,7 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             old_title = self.column_title(col_ix)
             if title != old_title:
                 self.column_titles[col_ix] = title
-                self.headerDataChanged.emit(Qt.Orientation.Horizontal, col_ix, col_ix)
+                self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
 
     def add_editable_column(self, name):
         if name == "Status":
@@ -544,26 +614,8 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             return
         self.editable_columns.remove(name)
 
-    def rowCount(self, index=None) -> int:
-        return self._data.shape[0]
-
-    def columnCount(self, parent=None) -> int:
-        return self._data.shape[1]
-
-    def insertRows(self, row, rows=1, index=QtCore.QModelIndex()):
-        self.beginInsertRows(QtCore.QModelIndex(), row, row + rows - 1)
-        self.endInsertRows()
-
-        return True
-
-    def insertColumns(self, column, columns=1, index=QtCore.QModelIndex()):
-        self.beginInsertColumns(QtCore.QModelIndex(), column, column + columns - 1)
-        self.endInsertColumns()
-
-        return True
-
-    @lru_cache(maxsize=1000)
-    def generateThumbnail(self, data: bytes) -> QtGui.QPixmap:
+    @staticmethod
+    def generateThumbnail(data: bytes) -> QtGui.QPixmap:
         """
         Helper function to generate a thumbnail from PNG data.
         """
@@ -575,232 +627,155 @@ class DamnitTableModel(QtCore.QAbstractTableModel):
             )
         return pixmap
 
-    def variable_is_constant(self, run, proposal, quantity):
-        """
-        Check if the variable at the given index is constant throughout the run.
-        """
-        # If the run/proposal is a pd.NA then the row belongs to a standalone comment
-        if pd.isna(run) or pd.isna(proposal):
-            return True
+    def numbers_for_plotting(self, xcol, ycol, by_title=True):
+        xcol_ix = self.find_column(xcol, by_title)
+        ycol_ix = self.find_column(ycol, by_title)
+        res_x, res_y = [], []
+        for r in range(self.rowCount()):
+            status_item = self.item(r, 0)
+            if status_item.checkState() != Qt.Checked:
+                continue
 
-        try:
-            return self.is_constant_df.loc[(proposal, run)][quantity].item()
-        except KeyError:
-            return True
+            xval = self.get_value_at_rc(r, xcol_ix)
+            yval = self.get_value_at_rc(r, ycol_ix)
+            if isinstance(xval, (int, float)) and isinstance(yval, (int, float)):
+                res_x.append(xval)
+                res_y.append(yval)
 
-    _supported_roles = (
-        Qt.CheckStateRole,
-        Qt.DecorationRole,
-        Qt.DisplayRole,
-        Qt.EditRole,
-        Qt.FontRole,
-        Qt.ToolTipRole
-    )
-
-    def column_series(self, name, by_title=False, filter_status=True):
-        if by_title:
-            col_id = self.column_title_to_id(name)
-        else:
-            col_id = name
-        series =  self._data[col_id].values
-        if filter_status:
-            series = series[self._data["Status"]]
-        return series
-
+        return res_x, res_y
 
     def get_value_at(self, index):
         """Get the value for programmatic use, not for display"""
-        return self._data.iloc[index.row(), index.column()]
+        return self.itemFromIndex(index).data(Qt.UserRole)
 
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if role not in self._supported_roles:
-            return  # Fast exit for unused roles
-
-        if not index.isValid():
-            return
-
-        r, c = index.row(), index.column()
-        value = self._data.iat[r, c]
-
-        if role == Qt.FontRole:
-            # If the variable is not constant, make it bold
-            proposal, run = self.row_to_proposal_run(r)
-            quantity = self.column_id(c)
-            if not self.variable_is_constant(run, proposal, quantity):
-                font = QtGui.QFont()
-                font.setBold(True)
-                return font
-
-        elif role == Qt.DecorationRole:
-            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
-                return self.generateThumbnail(value)
-
-        elif role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            if isinstance(value, bytes):
-                # The image preview for this is taken care of by the DecorationRole
-                return None
-
-            elif pd.isna(value) or index.column() == self._data.columns.get_loc("Status"):
-                return None
-
-            elif index.column() == self._data.columns.get_loc("start_time"):
-                return timestamp2str(value)
-
-            elif pd.api.types.is_float(value):
-                return prettify_notation(value)
-
-            else:
-                return str(value)
-
-        elif role == Qt.ItemDataRole.CheckStateRole \
-             and index.column() == self._data.columns.get_loc("Status") \
-             and not self.isCommentRow(index.row()):
-            if self._data["Status"].iloc[index.row()]:
-                return QtCore.Qt.Checked
-            else:
-                return QtCore.Qt.Unchecked
-
-        elif role == Qt.ToolTipRole:
-            if index.column() == self._data.columns.get_loc("comment"):
-                return self.data(index)
-
-    def isCommentRow(self, row):
-        return row in self._data["comment_id"].dropna()
+    def get_value_at_rc(self, row, col):
+        item = self.item(row, col)
+        return item.data(Qt.UserRole) if item is not None else None
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
             return False
 
         if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
-            # Change the value in the table
+            # A cell was edited in the table
             changed_column = self.column_id(index.column())
             if changed_column == "comment":
-                self._data.iloc[index.row(), index.column()] = value
+                if not super().setData(index, value, role):
+                    return False
+                parsed = value
             else:
                 variable_type_class = self.user_variables[changed_column].get_type_class()
 
                 try:
-                    value = variable_type_class.convert(value, unwrap=True) if value != '' else None
-                    self._data.iloc[index.row(), index.column()] = value
+                    parsed = variable_type_class.parse(value) if value != '' else None
                 except Exception:
                     self._main_window.show_status_message(
-                        f'Value {value!r} is not valid for the {variable_type_class} column "{self._data.columns[index.column()]}"',
+                        f'Value {value!r} is not valid for the {variable_type_class} column "{self.column_titles[index.column()]}"',
                         timeout=5000,
                         stylesheet=StatusbarStylesheet.ERROR
                     )
                     return False
+                else:
+                    if not super().setData(index, parsed, Qt.ItemDataRole.UserRole):
+                        return False
 
-            self.dataChanged.emit(index, index)
+                    if parsed is None:
+                        display = ''
+                    elif isinstance(parsed, float):
+                        display = prettify_notation(value)
+                    else:
+                        display = str(parsed)
+                    if not super().setData(index, display, role):
+                        return False
 
             # Send appropriate signals if we edited a standalone comment or an
             # editable column.
-            prop, run = self.row_to_proposal_run(index.row())
+            if comment_id := self.row_to_comment_id(index.row()):
+                self.time_comment_changed.emit(comment_id, value)
+            else:
+                prop, run = self.row_to_proposal_run(index.row())
+                self.value_changed.emit(int(prop), int(run), changed_column, parsed)
 
-            if pd.isna(prop) and pd.isna(run) and changed_column == "comment":
-                comment_id = self._data.iloc[index.row()]["comment_id"]
-                if not pd.isna(comment_id):
-                    self.time_comment_changed.emit(comment_id, value)
-            elif self._data.columns[index.column()] in self.editable_columns:
-                if not (pd.isna(prop) or pd.isna(run)):
-                    self.value_changed.emit(int(prop), int(run), changed_column, value)
+            return True
 
         elif role == Qt.ItemDataRole.CheckStateRole:
-            new_state = not self._data["Status"].iloc[index.row()]
-            self._data["Status"].values[index.row()] = new_state
-            self.run_visibility_changed.emit(index.row(), new_state)
-
-        return True
-
-    def headerData(self, ix, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if (
-            orientation == Qt.Orientation.Horizontal
-            and role == Qt.ItemDataRole.DisplayRole
-        ):
-            return self.column_title(ix)
-        elif(
-            orientation == Qt.Orientation.Vertical
-            and role == Qt.ItemDataRole.DisplayRole
-        ):
-            row = self._data.iloc[ix]['run']
-            if pd.isna(row):
-                row = ''
-            return row
-
-    def flags(self, index) -> Qt.ItemFlag:
-        item_flags = Qt.ItemIsSelectable | Qt.ItemIsEnabled
-
-        if self._data.columns[index.column()] in self.editable_columns:
-            item_flags |= Qt.ItemIsEditable
-        elif index.column() == self._data.columns.get_loc("Status"):
-            item_flags |= Qt.ItemIsUserCheckable
-
-        return item_flags
-
-    def sort(self, column, order):
-        is_sorted_by = self._data.columns.tolist()[column]
-
-        self.layoutAboutToBeChanged.emit()
-
-        try:
-            self._data.sort_values(
-                is_sorted_by,
-                ascending=order == Qt.SortOrder.AscendingOrder,
-                inplace=True,
+            if not super().setData(index, value, role):
+                return False
+            # CHeckboxes are only on the status column
+            self.run_visibility_changed.emit(
+                index.row(), (value == Qt.CheckState.Checked)
             )
-        except ValueError:
-            QtWidgets.QMessageBox.warning(self._main_window, "Sorting error",
-                                          "This column cannot be sorted")
-        else:
-            self.is_sorted_by = is_sorted_by
-            self.is_sorted_order = order
-            self._data.reset_index(inplace=True, drop=True)
-        finally:
-            self.layoutChanged.emit()
+            return True
+
+        return super().setData(index, value, role)
 
     def dataframe_for_export(self, column_titles, rows=None, drop_image_cols=False):
         """Create a cleaned-up dataframe to be saved as a spreadsheet"""
-        # Helper function to convert image blobs to a string tag.
-        def image2str(value):
-            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
-                return "<image>"
-            else:
-                return value
+        import pandas as pd
+        col_titles_to_ixs = {t: i for (i, t) in enumerate(self.column_titles)}
+        column_ixs = [col_titles_to_ixs[t] for t in column_titles]
 
-        col_ids_to_titles = dict(zip(self._data.columns, self.column_titles))
-        col_titles_to_ids = dict(zip(self.column_titles, self._data.columns))
-        column_ids = [col_titles_to_ids[t] for t in column_titles]
+        if rows is None:
+            rows = range(self.rowCount())
 
         if drop_image_cols:
-            image_cols = self._columns_with_thumbnails()
-            column_ids = [c for c in column_ids if c not in image_cols]
+            filtered_ixs = []
+            for col_ix in column_ixs:
+                for row_ix in range(self.rowCount()):
+                    item = self.item(row_ix, col_ix)
+                    if item and is_png_bytes(item.data(Qt.UserRole)):
+                        break
+                else:
+                    filtered_ixs.append(col_ix)
+            column_ixs = filtered_ixs
 
-        cleaned_df = self._data[column_ids].copy()
-        if rows is not None:
-            cleaned_df = cleaned_df.iloc[rows]
+        # Put the dtype options in an order so we can promote columns to more
+        # general types based on their values.
+        col_dtype_options = [
+            pd.Float64Dtype(),  # Used if no values in selection
+            pd.BooleanDtype(),
+            pd.Int64Dtype(),
+            pd.Float64Dtype(),
+            pd.StringDtype(),   # For everything that's not covered above
+        ]
+        value_types = [type(None), bool, int, float]
 
-        # Use human-friendly column names
-        cleaned_df = cleaned_df.rename(columns=col_ids_to_titles)
+        cols_dict = {}
+        for col_ix in column_ixs:
+            values = []
+            col_type_ix = 0
+            for row_ix in rows:
+                item = self.item(row_ix, col_ix)
+                if self.column_ids[col_ix] == 'start_time':
+                    # Include timestamp as string
+                    val = item and item.data(Qt.DisplayRole)
+                else:
+                    val = item and item.data(Qt.UserRole)
+                    if val is None and item and item.data(Qt.DecorationRole):
+                        val = "<image>"
 
-        # Format timestamps nicely
-        if "Timestamp" in cleaned_df:
-            cleaned_df["Timestamp"] = cleaned_df["Timestamp"].map(timestamp2str)
+                values.append(val)
+                for i, pytype in enumerate(value_types):
+                    if isinstance(val, pytype):
+                        col_type_ix = max(col_type_ix, i)
+                        break
+                else:
+                    col_type_ix = 4
 
-        # Format images nicely
-        return cleaned_df.applymap(image2str)
+            cols_dict[self.column_titles[col_ix]] = pd.Series(
+                values, dtype=col_dtype_options[col_type_ix]
+            )
 
-    def _columns_with_thumbnails(self):
-        obj_columns = self._data.dtypes == 'object'
-        image_cols = set()
-        for column in obj_columns.index:
-            for item in self._data[column]:
-                if isinstance(item, bytes) and BlobTypes.identify(item) is BlobTypes.png:
-                    image_cols.add(column)
-                    break
+        df = pd.DataFrame(cols_dict)
 
-        return image_cols
+        row_labels = [self.headerData(r, Qt.Vertical) for r in rows]
+        df.index = row_labels
+
+        return df
+
 
 def prettify_notation(value):
-    if pd.api.types.is_float(value):
+    if isinstance(value, float):
         if value % 1 == 0 and abs(value) < 10_000:
             # If it has no decimal places, display it as an int
             return f"{int(value)}"
@@ -812,4 +787,5 @@ def prettify_notation(value):
             return f"{value:.3e}"
     return f"{value}"
 
-
+def is_png_bytes(obj):
+    return isinstance(obj, bytes) and BlobTypes.identify(obj) is BlobTypes.png

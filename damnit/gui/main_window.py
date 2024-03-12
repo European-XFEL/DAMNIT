@@ -36,7 +36,6 @@ from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
 log = logging.getLogger(__name__)
-pd.options.mode.use_inf_as_na = True
 
 class Settings(Enum):
     COLUMNS = "columns"
@@ -202,13 +201,6 @@ da-dev@xfel.eu"""
             settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
             db[str(self._context_path)] = settings
 
-    def load_max_diffs(self):
-        max_diff_df = pd.read_sql_query("SELECT * FROM max_diffs",
-                                        self.db.conn,
-                                        index_col=["proposal", "run"]).fillna(0)
-        # 1e-9 is the default tolerance of np.isclose()
-        return max_diff_df < 1e-9
-
     def autoconfigure(self, path: Path):
         # use separated directory if running online to avoid file corruption
         # during sync between clusters.
@@ -243,6 +235,8 @@ da-dev@xfel.eu"""
                 if key in db:
                     col_settings = db[key][Settings.COLUMNS.value]
 
+        if self.table is not None:
+            self.table.deleteLater()
         self.table = self._create_table_model(self.db, col_settings)
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.table.find_column("Timestamp", by_title=True),
@@ -259,9 +253,6 @@ da-dev@xfel.eu"""
         self.table_view.set_columns(titles,
                                     [col_settings.get(col, True) for col in titles])
         self.plot.update_columns()
-
-        # Hide the comment_id column
-        self.table_view.set_column_visibility("comment_id", False, for_restore=True)
 
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
@@ -292,7 +283,7 @@ da-dev@xfel.eu"""
             before_pos, [title], [name], variable.get_type_class(), editable=True
         )
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
-        self.table.add_editable_column(title)
+        self.table.add_editable_column(name)
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
@@ -529,14 +520,7 @@ da-dev@xfel.eu"""
         ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
         text = self.comment.text()
         comment_id = self.db.add_standalone_comment(ts, text)
-        self.table.insert_row({
-            "Status": False,
-            "Timestamp": ts,
-            "Run": pd.NA,
-            "Proposal": pd.NA,
-            "Comment": text,
-            "comment_id": comment_id,
-        })
+        self.table.insert_comment_row(comment_id, text, ts)
         self.comment.clear()
 
     def get_run_file(self, proposal, run, log=True):
@@ -553,8 +537,16 @@ da-dev@xfel.eu"""
     def col_title_to_name(self, title):
         return self.table.column_title_to_id(title)
 
+    def _inspect_data_proxy_idx(self, index):
+        # There is a 'proxy model' for sorting - we need to translate the index
+        # to the real underlying model to look it up
+        real_index = self.table_view.model().mapToSource(index)
+        self.inspect_data(real_index)
+
     def inspect_data(self, index):
         proposal, run = self.table.row_to_proposal_run(index.row())
+        if run is None:
+            return   # Standalone comment row
         quantity_title = self.table.column_title(index.column())
         quantity = self.table.column_id(index.column())
 
@@ -569,9 +561,9 @@ da-dev@xfel.eu"""
         )
 
         cell_data = self.table.get_value_at(index)
-        is_image = isinstance(cell_data, bytes) and BlobTypes.identify(cell_data) is BlobTypes.png
+        is_image = self.table.itemFromIndex(index).data(Qt.DecorationRole) is not None
 
-        if not (is_image or pd.api.types.is_number(cell_data) or isinstance(cell_data, np.ndarray)):
+        if not (is_image or isinstance(cell_data, (int, float))):
             QMessageBox.warning(self, "Can't inspect variable",
                                 f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
             return
@@ -650,7 +642,7 @@ da-dev@xfel.eu"""
         # the table
         self.table_view = TableView()
 
-        self.table_view.doubleClicked.connect(self.inspect_data)
+        self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.log_view_requested.connect(self.show_run_logs)
@@ -865,8 +857,7 @@ da-dev@xfel.eu"""
             log.warning("Unable to connect to Zulip to export table")
             return
 
-        selected_rows = [ix.row() for ix in
-                         self.table_view.selectionModel().selectedRows()]
+        selected_rows = [ix.row() for ix in self.table_view.selected_rows()]
 
         blacklist_columns = ['Proposal', 'Status']
         columns = [title for (title, vis) in self.table_view.get_column_states().items()
