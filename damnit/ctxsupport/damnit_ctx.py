@@ -52,14 +52,14 @@ class Variable:
         """
         return RunData.RAW if self._data is None else RunData(self._data)
 
-    def arg_dependencies(self):
+    def arg_dependencies(self, prefix="var#"):
         """
-        Get all direct dependencies of this Variable. Returns a dict of argument name
-        to variable name.
+        Get all direct dependencies of this Variable with a certain
+        type/prefix. Returns a dict of argument name to variable name.
         """
-        return { arg_name: annotation.removeprefix("var#")
+        return { arg_name: annotation.removeprefix(prefix)
                  for arg_name, annotation in self.annotations().items()
-                 if annotation.startswith("var#") }
+                 if annotation.startswith(prefix) }
 
     def annotations(self):
         """
