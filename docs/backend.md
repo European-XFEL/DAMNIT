@@ -84,6 +84,12 @@ arguments if they have the right _annotations_:
 - `meta#proposal_dir`: The root
   [Path](https://docs.python.org/3/library/pathlib.html) to the current
   proposal.
+- `mymdc#sample`: The sample from myMdC.
+- `mymdc#run_type`: The run type from myMdC.
+
+!!! warning
+    The myMdC integration requires a special token to work properly, please
+    contact the DA group if you would like to use this for your experiment.
 
 You can also use annotations to express a dependency between `Variable`'s using
 the `var#<name>` annotation:
@@ -196,6 +202,8 @@ The environment *must* have these dependencies installed for DAMNIT to work:
 
 - `extra_data`
 - `scipy`
+- `pyyaml`
+- `requests`
 
 ## Managing the backend
 The backend is a process running under [Supervisor](http://supervisord.org/). In

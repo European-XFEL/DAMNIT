@@ -20,9 +20,11 @@ dependencies = [
     "numpy",
     "pandas<2",
     "xarray",
+    "requests",
     "scipy",
     "supervisor",
     "termcolor",
+    "pyyaml"
 ]
 
 [project.optional-dependencies]
@@ -34,7 +36,6 @@ gui = [
     "PyQt5",
     "pyflakes",  # for checking context file in editor
     "QScintilla==2.13",
-    "requests",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
 ]
 test = [

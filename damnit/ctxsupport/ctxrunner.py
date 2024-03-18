@@ -34,6 +34,7 @@ from damnit_ctx import RunData, Variable
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
+MYMDC_TIMEOUT = 10 # seconds
 
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
@@ -44,6 +45,45 @@ class DataType(Enum):
     Image = "image"
     Timestamp = "timestamp"
 
+
+def get_run_info(run, run_no, proposal):
+    import yaml
+    import requests
+
+    proposal_path = get_proposal_path(run)
+
+    with open(proposal_path / "usr/mymdc-credentials.yml") as f:
+        document = yaml.safe_load(f)
+        token = document["token"]
+        server = document["server"]
+
+    headers={ "X-API-key": token }
+    run_res = requests.get(f"{server}/api/mymdc/proposals/by_number/{proposal}/runs/{run_no}",
+                           headers=headers, timeout=MYMDC_TIMEOUT).json()
+    if len(run_res["runs"]) == 0:
+        raise RuntimeError(f"Couldn't get run information from mymdc for p{proposal}, r{run_no}")
+
+    run_info = run_res["runs"][0]
+
+    return headers, server, run_info
+
+def get_sample(run, run_no, proposal):
+    import requests
+
+    headers, server, run_info = get_run_info(run, run_no, proposal)
+    sample_id = run_info["sample_id"]
+    sample_res = requests.get(f"{server}/api/mymdc/samples/{sample_id}",
+                              headers=headers, timeout=MYMDC_TIMEOUT).json()
+    return sample_res["name"]
+
+def get_run_type(run, run_no, proposal):
+    import requests
+
+    headers, server, run_info = get_run_info(run, run_no, proposal)
+    experiment_id = run_info["experiment_id"]
+    run_type_res = requests.get(f"{server}/api/mymdc/experiments/{experiment_id}",
+                                headers=headers, timeout=MYMDC_TIMEOUT).json()
+    return run_type_res["name"]
 
 class ContextFileErrors(RuntimeError):
     def __init__(self, problems):
@@ -106,6 +146,13 @@ class ContextFile:
             problems.append(
                 f"These Variables have duplicate titles between them: {', '.join(bad_variables)}"
             )
+
+        # Check that all mymdc dependencies are valid
+        for name, var in self.vars.items():
+            mymdc_args = var.arg_dependencies("mymdc#")
+            for arg_name, annotation in mymdc_args.items():
+                if annotation not in ["sample", "run_type"]:
+                    problems.append(f"Argument '{arg_name}' of variable '{name}' has an invalid MyMdC dependency: '{annotation}'")
 
         if problems:
             raise ContextFileErrors(problems)
@@ -220,6 +267,14 @@ class ContextFile:
                             kwargs[arg_name] = input_vars[inp_name]
                         elif param.default is inspect.Parameter.empty:
                             missing_input.append(inp_name)
+
+                    # Mymdc fields
+                    elif annotation.startswith("mymdc#"):
+                        mymdc_field = annotation.removeprefix("mymdc#")
+                        if mymdc_field == "sample":
+                            kwargs[arg_name] = get_sample(run_data, run_number, proposal)
+                        elif mymdc_field == "run_type":
+                            kwargs[arg_name] = get_run_type(run_data, run_number, proposal)
 
                     elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number
@@ -342,7 +397,7 @@ def get_proposal_path(xd_run):
     files = [f.filename for f in xd_run.files]
     p = Path(files[0])
 
-    return Path(*p.parts[:7])
+    return Path(*p.parts[:-3])
 
 
 def add_to_h5_file(path) -> h5py.File:
