@@ -28,13 +28,14 @@ import extra_data
 import h5py
 import numpy as np
 import xarray as xr
+import requests
+import yaml
 
 from damnit_ctx import RunData, Variable
 
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
-MYMDC_TIMEOUT = 10 # seconds
 
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
@@ -46,44 +47,54 @@ class DataType(Enum):
     Timestamp = "timestamp"
 
 
-def get_run_info(run, run_no, proposal):
-    import yaml
-    import requests
+class MyMetadataClient:
+    def __init__(self, proposal, timeout=10):
+        self.proposal = proposal
+        self.timeout = timeout
+        self._cache = {}
 
-    proposal_path = get_proposal_path(run)
+        proposal_path = extra_data.read_machinery.find_proposal(f"p{proposal:06d}")
+        with open(proposal_path / "usr/mymdc-credentials.yml") as f:
+            document = yaml.safe_load(f)
+            self.token = document["token"]
+            self.server = document["server"]
 
-    with open(proposal_path / "usr/mymdc-credentials.yml") as f:
-        document = yaml.safe_load(f)
-        token = document["token"]
-        server = document["server"]
+        self._headers = { "X-API-key": self.token }
 
-    headers={ "X-API-key": token }
-    run_res = requests.get(f"{server}/api/mymdc/proposals/by_number/{proposal}/runs/{run_no}",
-                           headers=headers, timeout=MYMDC_TIMEOUT).json()
-    if len(run_res["runs"]) == 0:
-        raise RuntimeError(f"Couldn't get run information from mymdc for p{proposal}, r{run_no}")
+    def _run_info(self, run):
+        response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
+                                headers=self._headers, timeout=self.timeout)
+        response.raise_for_status()
+        json = response.json()
+        if len(json["runs"]) == 0:
+            raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
 
-    run_info = run_res["runs"][0]
+        return json["runs"][0]
 
-    return headers, server, run_info
+    def sample_name(self, run):
+        if (run, "sample_name") not in self._cache:
+            run_info = self._run_info(run)
+            sample_id = run_info["sample_id"]
+            response = requests.get(f"{self.server}/api/mymdc/samples/{sample_id}",
+                                    headers=self._headers, timeout=self.timeout)
+            response.raise_for_status()
 
-def get_sample(run, run_no, proposal):
-    import requests
+            self._cache[(run, "sample_name")] = response.json()["name"]
 
-    headers, server, run_info = get_run_info(run, run_no, proposal)
-    sample_id = run_info["sample_id"]
-    sample_res = requests.get(f"{server}/api/mymdc/samples/{sample_id}",
-                              headers=headers, timeout=MYMDC_TIMEOUT).json()
-    return sample_res["name"]
+        return self._cache[(run, "sample_name")]
 
-def get_run_type(run, run_no, proposal):
-    import requests
+    def run_type(self, run):
+        if (run, "run_type") not in self._cache:
+            run_info = self._run_info(run)
+            experiment_id = run_info["experiment_id"]
+            response = requests.get(f"{self.server}/api/mymdc/experiments/{experiment_id}",
+                                    headers=self._headers, timeout=self.timeout)
+            response.raise_for_status()
 
-    headers, server, run_info = get_run_info(run, run_no, proposal)
-    experiment_id = run_info["experiment_id"]
-    run_type_res = requests.get(f"{server}/api/mymdc/experiments/{experiment_id}",
-                                headers=headers, timeout=MYMDC_TIMEOUT).json()
-    return run_type_res["name"]
+            self._cache[(run, "run_type")] = response.json()["name"]
+
+        return self._cache[(run, "run_type")]
+
 
 class ContextFileErrors(RuntimeError):
     def __init__(self, problems):
@@ -151,7 +162,7 @@ class ContextFile:
         for name, var in self.vars.items():
             mymdc_args = var.arg_dependencies("mymdc#")
             for arg_name, annotation in mymdc_args.items():
-                if annotation not in ["sample", "run_type"]:
+                if annotation not in ["sample_name", "run_type"]:
                     problems.append(f"Argument '{arg_name}' of variable '{name}' has an invalid MyMdC dependency: '{annotation}'")
 
         if problems:
@@ -238,6 +249,7 @@ class ContextFile:
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
         res = {'start_time': np.asarray(get_start_time(run_data))}
+        mymdc = None
 
         for name in self.ordered_vars():
             var = self.vars[name]
@@ -270,11 +282,14 @@ class ContextFile:
 
                     # Mymdc fields
                     elif annotation.startswith("mymdc#"):
+                        if mymdc is None:
+                            mymdc = MyMetadataClient(proposal)
+
                         mymdc_field = annotation.removeprefix("mymdc#")
-                        if mymdc_field == "sample":
-                            kwargs[arg_name] = get_sample(run_data, run_number, proposal)
+                        if mymdc_field == "sample_name":
+                            kwargs[arg_name] = mymdc.sample_name(run_number)
                         elif mymdc_field == "run_type":
-                            kwargs[arg_name] = get_run_type(run_data, run_number, proposal)
+                            kwargs[arg_name] = mymdc.run_type(run_number)
 
                     elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number

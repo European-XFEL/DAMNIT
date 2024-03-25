@@ -14,6 +14,7 @@ import pytest
 import requests
 import numpy as np
 import xarray as xr
+import extra_data as ed
 
 from damnit.util import wait_until
 from damnit.context import (
@@ -148,7 +149,7 @@ def test_context_file(mock_ctx, tmp_path):
     from damnit.context import Variable
 
     @Variable(title="foo")
-    def foo(run, sample: "mymdc#sample", run_type: "mymdc#run_type"):
+    def foo(run, sample: "mymdc#sample_name", run_type: "mymdc#run_type"):
         return 42
     """
     # This should not raise an exception
@@ -350,7 +351,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     from damnit_ctx import Variable
 
     @Variable(title="Sample")
-    def sample(run, x: "mymdc#sample"):
+    def sample(run, x: "mymdc#sample_name"):
         return x
 
     @Variable(title="Run type")
@@ -385,7 +386,8 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         return response
 
     # Execute the context file and check the results
-    with patch.object(requests, "get", side_effect=mock_get):
+    with patch.object(requests, "get", side_effect=mock_get), \
+         patch.object(ed.read_machinery, "find_proposal", return_value=tmp_path):
         results = results_create(mymdc_ctx)
     assert results.data["sample"] == "mithril"
     assert results.data["run_type"] == "alchemy"
@@ -579,7 +581,7 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    ctxrunner_deps = ["extra_data", "matplotlib"]
+    ctxrunner_deps = ["extra_data", "matplotlib", "pyyaml", "requests"]
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.
