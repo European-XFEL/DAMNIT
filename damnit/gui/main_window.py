@@ -247,6 +247,7 @@ da-dev@xfel.eu"""
         for column in ["Status", "Proposal", "Run", "Timestamp"]:
             column_index = self.table.find_column(column, by_title=True)
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+        header.setVisible(True)
 
         # Update the column widget and plotting controls with the new columns
         titles = self.table.column_titles
