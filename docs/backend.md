@@ -84,7 +84,7 @@ arguments if they have the right _annotations_:
 - `meta#proposal_dir`: The root
   [Path](https://docs.python.org/3/library/pathlib.html) to the current
   proposal.
-- `mymdc#sample`: The sample from myMdC.
+- `mymdc#sample_name`: The sample name from myMdC.
 - `mymdc#run_type`: The run type from myMdC.
 
 !!! warning
@@ -201,9 +201,9 @@ $ amore-proto db-config context_python /path/to/your/python
 The environment *must* have these dependencies installed for DAMNIT to work:
 
 - `extra_data`
-- `scipy`
 - `pyyaml`
 - `requests`
+- `scipy`
 
 ## Managing the backend
 The backend is a process running under [Supervisor](http://supervisord.org/). In

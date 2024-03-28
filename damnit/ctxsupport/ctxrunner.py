@@ -48,13 +48,24 @@ class DataType(Enum):
 
 
 class MyMetadataClient:
-    def __init__(self, proposal, timeout=10):
+    def __init__(self, proposal, timeout=10, init_server="https://exfldadev01.desy.de/zwop"):
         self.proposal = proposal
         self.timeout = timeout
         self._cache = {}
 
-        proposal_path = extra_data.read_machinery.find_proposal(f"p{proposal:06d}")
-        with open(proposal_path / "usr/mymdc-credentials.yml") as f:
+        proposal_path = Path(extra_data.read_machinery.find_proposal(f"p{proposal:06d}"))
+        credentials_path = proposal_path / "usr/mymdc-credentials.yml"
+        if not credentials_path.is_file():
+            params = {
+                "proposal_no": str(proposal),
+                "kinds": "mymdc",
+                "overwrite": "false",
+                "dry_run": "false"
+            }
+            response = requests.post(f"{init_server}/api/write_tokens", params=params)
+            response.raise_for_status()
+
+        with open(credentials_path) as f:
             document = yaml.safe_load(f)
             self.token = document["token"]
             self.server = document["server"]
@@ -62,38 +73,44 @@ class MyMetadataClient:
         self._headers = { "X-API-key": self.token }
 
     def _run_info(self, run):
-        response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
-                                headers=self._headers, timeout=self.timeout)
-        response.raise_for_status()
-        json = response.json()
-        if len(json["runs"]) == 0:
-            raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
+        key = (run, "run_info")
+        if key not in self._cache:
+            response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
+                                    headers=self._headers, timeout=self.timeout)
+            response.raise_for_status()
+            json = response.json()
+            if len(json["runs"]) == 0:
+                raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
 
-        return json["runs"][0]
+            self._cache[key] = json["runs"][0]
+
+        return self._cache[key]
 
     def sample_name(self, run):
-        if (run, "sample_name") not in self._cache:
+        key = (run, "sample_name")
+        if key not in self._cache:
             run_info = self._run_info(run)
             sample_id = run_info["sample_id"]
             response = requests.get(f"{self.server}/api/mymdc/samples/{sample_id}",
                                     headers=self._headers, timeout=self.timeout)
             response.raise_for_status()
 
-            self._cache[(run, "sample_name")] = response.json()["name"]
+            self._cache[key] = response.json()["name"]
 
-        return self._cache[(run, "sample_name")]
+        return self._cache[key]
 
     def run_type(self, run):
-        if (run, "run_type") not in self._cache:
+        key = (run, "run_type")
+        if key not in self._cache:
             run_info = self._run_info(run)
             experiment_id = run_info["experiment_id"]
             response = requests.get(f"{self.server}/api/mymdc/experiments/{experiment_id}",
                                     headers=self._headers, timeout=self.timeout)
             response.raise_for_status()
 
-            self._cache[(run, "run_type")] = response.json()["name"]
+            self._cache[key] = response.json()["name"]
 
-        return self._cache[(run, "run_type")]
+        return self._cache[key]
 
 
 class ContextFileErrors(RuntimeError):
