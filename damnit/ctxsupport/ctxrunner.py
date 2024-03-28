@@ -62,7 +62,7 @@ class MyMetadataClient:
                 "overwrite": "false",
                 "dry_run": "false"
             }
-            response = requests.post(f"{init_server}/api/write_tokens", params=params)
+            response = requests.post(f"{init_server}/api/write_tokens", params=params, timeout=timeout)
             response.raise_for_status()
 
         with open(credentials_path) as f:
