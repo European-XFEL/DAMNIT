@@ -16,4 +16,4 @@ QScintilla==2.13.0
 scipy==1.12.0
 supervisor==4.2.5
 termcolor==2.4.0
-xarray==2024.2.0
+xarray==2024.3.0
