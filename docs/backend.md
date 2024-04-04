@@ -84,6 +84,12 @@ arguments if they have the right _annotations_:
 - `meta#proposal_dir`: The root
   [Path](https://docs.python.org/3/library/pathlib.html) to the current
   proposal.
+- `mymdc#sample_name`: The sample name from myMdC.
+- `mymdc#run_type`: The run type from myMdC.
+
+!!! warning
+    The myMdC integration requires a special token to work properly, please
+    contact the DA group if you would like to use this for your experiment.
 
 You can also use annotations to express a dependency between `Variable`'s using
 the `var#<name>` annotation:
@@ -195,6 +201,8 @@ $ amore-proto db-config context_python /path/to/your/python
 The environment *must* have these dependencies installed for DAMNIT to work:
 
 - `extra_data`
+- `pyyaml`
+- `requests`
 - `scipy`
 
 ## Managing the backend

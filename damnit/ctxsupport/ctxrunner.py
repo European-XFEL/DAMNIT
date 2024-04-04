@@ -28,6 +28,8 @@ import extra_data
 import h5py
 import numpy as np
 import xarray as xr
+import requests
+import yaml
 
 from damnit_ctx import RunData, Variable
 
@@ -43,6 +45,72 @@ class DataType(Enum):
     Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
+
+
+class MyMetadataClient:
+    def __init__(self, proposal, timeout=10, init_server="https://exfldadev01.desy.de/zwop"):
+        self.proposal = proposal
+        self.timeout = timeout
+        self._cache = {}
+
+        proposal_path = Path(extra_data.read_machinery.find_proposal(f"p{proposal:06d}"))
+        credentials_path = proposal_path / "usr/mymdc-credentials.yml"
+        if not credentials_path.is_file():
+            params = {
+                "proposal_no": str(proposal),
+                "kinds": "mymdc",
+                "overwrite": "false",
+                "dry_run": "false"
+            }
+            response = requests.post(f"{init_server}/api/write_tokens", params=params, timeout=timeout)
+            response.raise_for_status()
+
+        with open(credentials_path) as f:
+            document = yaml.safe_load(f)
+            self.token = document["token"]
+            self.server = document["server"]
+
+        self._headers = { "X-API-key": self.token }
+
+    def _run_info(self, run):
+        key = (run, "run_info")
+        if key not in self._cache:
+            response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
+                                    headers=self._headers, timeout=self.timeout)
+            response.raise_for_status()
+            json = response.json()
+            if len(json["runs"]) == 0:
+                raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
+
+            self._cache[key] = json["runs"][0]
+
+        return self._cache[key]
+
+    def sample_name(self, run):
+        key = (run, "sample_name")
+        if key not in self._cache:
+            run_info = self._run_info(run)
+            sample_id = run_info["sample_id"]
+            response = requests.get(f"{self.server}/api/mymdc/samples/{sample_id}",
+                                    headers=self._headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            self._cache[key] = response.json()["name"]
+
+        return self._cache[key]
+
+    def run_type(self, run):
+        key = (run, "run_type")
+        if key not in self._cache:
+            run_info = self._run_info(run)
+            experiment_id = run_info["experiment_id"]
+            response = requests.get(f"{self.server}/api/mymdc/experiments/{experiment_id}",
+                                    headers=self._headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            self._cache[key] = response.json()["name"]
+
+        return self._cache[key]
 
 
 class ContextFileErrors(RuntimeError):
@@ -106,6 +174,13 @@ class ContextFile:
             problems.append(
                 f"These Variables have duplicate titles between them: {', '.join(bad_variables)}"
             )
+
+        # Check that all mymdc dependencies are valid
+        for name, var in self.vars.items():
+            mymdc_args = var.arg_dependencies("mymdc#")
+            for arg_name, annotation in mymdc_args.items():
+                if annotation not in ["sample_name", "run_type"]:
+                    problems.append(f"Argument '{arg_name}' of variable '{name}' has an invalid MyMdC dependency: '{annotation}'")
 
         if problems:
             raise ContextFileErrors(problems)
@@ -191,6 +266,7 @@ class ContextFile:
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
         res = {'start_time': np.asarray(get_start_time(run_data))}
+        mymdc = None
 
         for name in self.ordered_vars():
             var = self.vars[name]
@@ -220,6 +296,17 @@ class ContextFile:
                             kwargs[arg_name] = input_vars[inp_name]
                         elif param.default is inspect.Parameter.empty:
                             missing_input.append(inp_name)
+
+                    # Mymdc fields
+                    elif annotation.startswith("mymdc#"):
+                        if mymdc is None:
+                            mymdc = MyMetadataClient(proposal)
+
+                        mymdc_field = annotation.removeprefix("mymdc#")
+                        if mymdc_field == "sample_name":
+                            kwargs[arg_name] = mymdc.sample_name(run_number)
+                        elif mymdc_field == "run_type":
+                            kwargs[arg_name] = mymdc.run_type(run_number)
 
                     elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number
@@ -342,7 +429,7 @@ def get_proposal_path(xd_run):
     files = [f.filename for f in xd_run.files]
     p = Path(files[0])
 
-    return Path(*p.parts[:7])
+    return Path(*p.parts[:-3])
 
 
 def add_to_h5_file(path) -> h5py.File:

@@ -99,12 +99,13 @@ class Editor(QsciScintilla):
         out_buffer = StringIO()
         reporter = Reporter(out_buffer, out_buffer)
         pyflakes_check(self.text(), "<ctx>", reporter)
-        # Disgusting hack to avoid getting warnings for "var#foo" and "meta#foo"
-        # type annotations. This needs some tweaking to avoid missing real
-        # errors.
+        # Disgusting hack to avoid getting warnings for "var#foo", "meta#foo",
+        # and "mymdc#foo" type annotations. This needs some tweaking to avoid
+        # missing real errors.
         pyflakes_output = "\n".join([line for line in out_buffer.getvalue().split("\n")
                                      if not line.endswith("undefined name 'var'") \
-                                     and not line.endswith("undefined name 'meta'")])
+                                     and not line.endswith("undefined name 'meta'") \
+                                     and not line.endswith("undefined name 'mymdc'")])
 
         if len(pyflakes_output) > 0:
             return ContextTestResult.WARNING, pyflakes_output

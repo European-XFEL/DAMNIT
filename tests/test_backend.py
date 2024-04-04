@@ -6,12 +6,15 @@ import graphlib
 import textwrap
 import subprocess
 import configparser
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import h5py
+import yaml
 import pytest
+import requests
 import numpy as np
 import xarray as xr
+import extra_data as ed
 
 from damnit.util import wait_until
 from damnit.context import (
@@ -140,6 +143,31 @@ def test_context_file(mock_ctx, tmp_path):
     # `bar` should automatically be promoted to use proc data because it depends
     # on a proc variable.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
+
+    # Test depending on mymdc fields
+    good_mymdc_code = """
+    from damnit.context import Variable
+
+    @Variable(title="foo")
+    def foo(run, sample: "mymdc#sample_name", run_type: "mymdc#run_type"):
+        return 42
+    """
+    # This should not raise an exception
+    mkcontext(good_mymdc_code).check()
+
+    bad_mymdc_code = """
+    from damnit.context import Variable
+
+    @Variable(title="foo")
+    def foo(run, quux: "mymdc#quux"):
+        return 42
+    """
+    ctx = mkcontext(bad_mymdc_code)
+
+    # This should raise an exception because it's using an unsupported mymdc
+    # field.
+    with pytest.raises(ContextFileErrors):
+        ctx.check()
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a
@@ -318,6 +346,52 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
+    # Test getting mymdc fields
+    mymdc_code = """
+    from damnit_ctx import Variable
+
+    @Variable(title="Sample")
+    def sample(run, x: "mymdc#sample_name"):
+        return x
+
+    @Variable(title="Run type")
+    def run_type(run, x: "mymdc#run_type"):
+        return x
+    """
+    mymdc_ctx = mkcontext(mymdc_code)
+
+    # Create some mock credentials and set the mock_run files to appear to be
+    # under `tmp_path`.
+    (tmp_path / "usr").mkdir()
+    with open(tmp_path / "usr/mymdc-credentials.yml", "w") as f:
+        yaml.dump({
+            "token": "foo",
+            "server": "https://out.xfel.eu/metadata"
+        }, f)
+    mock_run.files = [MagicMock(filename=tmp_path / "raw/r0001/RAW-R0004-DA03-S00000.h5")]
+
+    # Helper function to mock requests.get() for different endpoints
+    def mock_get(url, headers, timeout):
+        assert headers["X-API-key"] == "foo"
+
+        if "proposals/by_number" in url:
+            result = dict(runs=[dict(sample_id=1, experiment_id=1)])
+        elif "samples" in url:
+            result = dict(name="mithril")
+        elif "experiments" in url:
+            result = dict(name="alchemy")
+
+        response = MagicMock()
+        response.json.return_value = result
+        return response
+
+    # Execute the context file and check the results
+    with patch.object(requests, "get", side_effect=mock_get), \
+         patch.object(ed.read_machinery, "find_proposal", return_value=tmp_path):
+        results = results_create(mymdc_ctx)
+    assert results.data["sample"] == "mithril"
+    assert results.data["run_type"] == "alchemy"
+
 def test_results_bad_obj(mock_run, tmp_path):
     # Test returning an object we can't save in HDF5
     bad_obj_code = """
@@ -333,8 +407,6 @@ def test_results_bad_obj(mock_run, tmp_path):
     """
     bad_obj_ctx = mkcontext(bad_obj_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
-    print(f"{results.data=}")
-    print(f"{results.reduced=}")
     results_hdf5_path = tmp_path / 'results.h5'
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
@@ -509,7 +581,7 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    ctxrunner_deps = ["extra_data", "matplotlib"]
+    ctxrunner_deps = ["extra_data", "matplotlib", "pyyaml", "requests"]
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.

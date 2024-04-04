@@ -27,7 +27,7 @@ from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
-from .kafka import UpdateReceiver
+from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .plot import Canvas, Plot
 from .table import DamnitTableModel, TableView, prettify_notation
@@ -118,7 +118,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def stop_update_listener_thread(self):
         if self._updates_thread is not None:
-            self.update_receiver.stop()
+            self.update_agent.stop()
             self._updates_thread.exit()
             self._updates_thread.wait()
             self._updates_thread = None
@@ -285,6 +285,9 @@ da-dev@xfel.eu"""
         )
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(name)
+
+        if self._connect_to_kafka:
+            self.update_agent.variable_set(name, title, description, variable_type)
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
@@ -498,7 +501,7 @@ da-dev@xfel.eu"""
         assert self.db_id is not None
 
         try:
-            self.update_receiver = UpdateReceiver(self.db_id)
+            self.update_agent = UpdateAgent(self.db_id)
         except NoBrokersAvailable:
             QtWidgets.QMessageBox.warning(self, "Broker connection failed",
                                           f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
@@ -506,10 +509,10 @@ da-dev@xfel.eu"""
             return
 
         self._updates_thread = QtCore.QThread()
-        self.update_receiver.moveToThread(self._updates_thread)
+        self.update_agent.moveToThread(self._updates_thread)
 
-        self._updates_thread.started.connect(self.update_receiver.loop)
-        self.update_receiver.message.connect(self.handle_update)
+        self._updates_thread.started.connect(self.update_agent.listen_loop)
+        self.update_agent.message.connect(self.handle_update)
         QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
     def _set_comment_date(self):
@@ -828,13 +831,15 @@ da-dev@xfel.eu"""
         self._editor_status_message = str(self._context_path.resolve())
         self.on_tab_changed(self._tab_widget.currentIndex())
 
-    def save_value(self, prop, run, column_name, value):
+    def save_value(self, prop, run, name, value):
         if self.db is None:
             log.warning("No SQLite database in use, value not saved")
             return
 
-        log.debug("Saving data for column %s for prop %d run %d", column_name, prop, run)
-        self.db.set_variable(prop, run, column_name, ReducedData(value))
+        log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
+        self.db.set_variable(prop, run, name, ReducedData(value))
+        if self._connect_to_kafka:
+            self.update_agent.run_values_updated(prop, run, name, value)
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:
