@@ -87,10 +87,6 @@ arguments if they have the right _annotations_:
 - `mymdc#sample_name`: The sample name from myMdC.
 - `mymdc#run_type`: The run type from myMdC.
 
-!!! warning
-    The myMdC integration requires a special token to work properly, please
-    contact the DA group if you would like to use this for your experiment.
-
 You can also use annotations to express a dependency between `Variable`'s using
 the `var#<name>` annotation:
 ```python
