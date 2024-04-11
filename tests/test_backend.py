@@ -1,6 +1,7 @@
 import configparser
 import graphlib
 import io
+import json
 import logging
 import os
 import signal
@@ -554,7 +555,7 @@ def test_add_to_db(mock_db):
     }
 
     reduced_objs = reduced_data_from_dict(reduced_data)
-    reduced_objs["float"].attributes["background"] = [255, 0, 0]
+    reduced_objs["float"].attributes = {"background": [255, 0, 0]}
 
     add_to_db(reduced_objs, db, 1234, 42)
 
