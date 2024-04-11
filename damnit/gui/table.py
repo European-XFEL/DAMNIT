@@ -506,7 +506,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.db.ensure_run(proposal, run)
             self.db.set_variable(proposal, run, "comment", ReducedData(None))
 
-            self.insert_run_row(proposal, run, {}, {})
+            self.insert_run_row(proposal, run, {}, {}, {})
 
     def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
         if column_ids is None:
