@@ -6,10 +6,9 @@ from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox
 
-from ..backend.api import delete_variable
 from ..backend.db import ReducedData, BlobTypes, DamnitDB
 from ..backend.user_variables import value_types_by_name
-from ..util import StatusbarStylesheet, timestamp2str
+from ..util import StatusbarStylesheet, timestamp2str, delete_variable
 
 log = logging.getLogger(__name__)
 

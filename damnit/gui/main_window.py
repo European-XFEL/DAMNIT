@@ -11,6 +11,7 @@ from socket import gethostname
 import h5py
 import numpy as np
 import pandas as pd
+import xarray as xr
 from pandas.api.types import infer_dtype
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
@@ -20,7 +21,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from kafka.errors import NoBrokersAvailable
 
 from ..backend import backend_is_running, initialize_and_start_backend
-from ..backend.api import RunVariables
+from ..api import RunVariables
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend.user_variables import UserEditableVariable
@@ -574,7 +575,7 @@ da-dev@xfel.eu"""
             return
 
         try:
-            data = variable.xarray()
+            data = xr.DataArray(variable.read())
         except KeyError:
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return

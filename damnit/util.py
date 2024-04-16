@@ -1,3 +1,4 @@
+import glob
 import time
 from datetime import datetime, timezone
 from enum import Enum
@@ -6,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas.api.types import infer_dtype
-
+from .context import add_to_h5_file
 
 class StatusbarStylesheet(Enum):
     NORMAL = "QStatusBar {}"
@@ -59,3 +60,14 @@ def bool_to_numeric(data):
 
 def fix_data_for_plotting(data):
     return bool_to_numeric(make_finite(data))
+
+def delete_variable(db, name):
+    # Remove from the database
+    db.delete_variable(name)
+
+    # And the HDF5 files
+    for h5_path in glob.glob(f"{db.path.parent}/extracted_data/*.h5"):
+        with add_to_h5_file(h5_path) as f:
+            if name in f:
+                del f[f".reduced/{name}"]
+                del f[name]

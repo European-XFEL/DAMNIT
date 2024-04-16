@@ -7,6 +7,8 @@ group](https://www.xfel.eu/data_analysis) at the European XFEL to provide users
 with a way to automatically create an overview of their experiment, hopefully
 replacing the manually-created spreadsheets that are often used.
 
+If you want to access the data created by DAMNIT, check out our [API](api.md).
+
 Sneak peak:
 ![](static/beauty-shot.png)
 

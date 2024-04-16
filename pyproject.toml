@@ -12,22 +12,25 @@ license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version", "description"]
 dependencies = [
-    "EXtra-data",
     "h5netcdf",
+    "h5py",
+    "pandas",
+    "xarray"
+]
+
+[project.optional-dependencies]
+backend = [
+    "EXtra-data",
     "ipython",
     "kafka-python",
     "matplotlib",
     "numpy",
-    "pandas",
-    "xarray",
+    "pyyaml",
     "requests",
     "scipy",
     "supervisor",
-    "termcolor",
-    "pyyaml"
+    "termcolor"
 ]
-
-[project.optional-dependencies]
 gui = [
     "adeqt",
     "mplcursors",
@@ -47,7 +50,10 @@ test = [
 ]
 docs = [
     "mkdocs",
-    "mkdocs-material"
+    "mkdocs-material",
+    "mkdocstrings",
+    "mkdocstrings-python",
+    "pymdown-extensions"
 ]
 
 [project.urls]
