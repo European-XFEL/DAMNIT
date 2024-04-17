@@ -202,11 +202,6 @@ da-dev@xfel.eu"""
             db[str(self._context_path)] = settings
 
     def autoconfigure(self, path: Path):
-        # use separated directory if running online to avoid file corruption
-        # during sync between clusters.
-        if gethostname().startswith('exflonc'):
-            path = path.parent / f'{path.stem}-online'
-
         sqlite_path = db_path(path)
         # If the user selected an empty folder in the GUI, the database has been
         # created before we reach this point, so this is just a sanity check.
