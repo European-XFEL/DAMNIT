@@ -1,11 +1,13 @@
 from pathlib import Path
-from typing import Optional
+from socket import gethostname
+from typing import Optional, Tuple
 
 from extra_data.read_machinery import find_proposal
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from PyQt5.QtWidgets import QDialog, QFileDialog, QDialogButtonBox
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 from .open_dialog_ui import Ui_Dialog
+
 
 class ProposalFinder(QObject):
     find_result = pyqtSignal(str, str)
@@ -19,6 +21,7 @@ class ProposalFinder(QObject):
         else:
             dir = ''
         self.find_result.emit(propnum, dir)
+
 
 class OpenDBDialog(QDialog):
     proposal_num_changed = pyqtSignal(str)
@@ -42,11 +45,22 @@ class OpenDBDialog(QDialog):
         self.finished.connect(self.proposal_finder_thread.quit)
         self.proposal_finder_thread.finished.connect(self.proposal_finder_thread.deleteLater)
 
-    def run_get_result(self) -> (Optional[Path], Optional[int]):
+    def run_get_result(self) -> Tuple[Optional[Path], Optional[int]]:
         self.proposal_finder_thread.start()
         if self.exec() == QDialog.Rejected:
             return None, None
-        return self.get_chosen_dir(), self.get_proposal_num()
+        context_dir = self.get_chosen_dir()
+        prop_no = self.get_proposal_num()
+
+        # use separated directory if running online to avoid file corruption
+        # during sync between clusters.
+        if (
+                gethostname().startswith('exflonc')
+                and not context_dir.stem.endswith('-online')
+        ):
+            context_dir = context_dir.absolute().parent / f'{context_dir.stem}-online'
+
+        return context_dir, prop_no
 
     def proposal_dir_result(self, propnum: str, dir: str):
         if propnum != self.ui.proposal_edit.text():
