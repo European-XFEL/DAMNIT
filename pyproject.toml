@@ -18,7 +18,7 @@ dependencies = [
     "kafka-python",
     "matplotlib",
     "numpy",
-    "pandas<2",
+    "pandas",
     "xarray",
     "requests",
     "scipy",
