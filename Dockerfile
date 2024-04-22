@@ -28,7 +28,7 @@ RUN set -eux; \
     echo '"""Hello"""' > /src/damnit/__init__.py; \
     echo '__version__="0.0.0"' >> /src/damnit/__init__.py; \
     python3 -m venv --system-site-packages /app; \
-    /app/bin/python3 -m pip install /src; \
+    /app/bin/python3 -m pip install "/src[gui,backend]"; \
     /app/bin/python3 -m pip uninstall -y damnit; \
     /app/bin/python3 -m pip freeze > /.python-deps-build
 
@@ -60,7 +60,7 @@ RUN set -eux; \
 # install DAMNIT
 COPY . /src
 RUN set -eux; \
-    /app/bin/python3 -m pip install -vv --no-cache-dir /src; \
+    /app/bin/python3 -m pip install -vv --no-cache-dir "/src[gui,backend]"; \
     /app/bin/python3 -m pip freeze > /.python-deps-runtime; \
     python3 -m pip check; \
     python3 -c "import damnit; print(damnit.__version__)"
