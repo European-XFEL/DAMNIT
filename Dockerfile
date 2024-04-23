@@ -19,6 +19,9 @@ RUN set -eux; \
     apt list --installed $(apt-mark showmanual) > /.apt-deps-build
 
 COPY pyproject.toml /src/pyproject.toml
+# We need to copy the README too because it's used in pyproject.toml when
+# building the package.
+COPY README.md /src/README.md
 
 # set up venv and python dependencies
 RUN set -eux; \
