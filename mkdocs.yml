@@ -55,8 +55,8 @@ nav:
   - index.md
   - gui.md
   - backend.md
-  - data-storage.md
   - api.md
+  - internals.md
   - contact.md
 
 plugins:

@@ -1,12 +1,67 @@
-# Data storage
+# Internals
 
-This page describes how DAMNIT saves the data it creates. This will probably not
-be of interest to you unless you're developing DAMNIT or writing tools that read
-data created by DAMNIT.
+This page describes some internal details of DAMNIT. It will probably not be of
+interest to you unless you're a developer.
 
----
+## Installation
 
-## Overview
+To install both the frontend and backend:
+```bash
+# Get the code
+git clone https://github.com/European-XFEL/DAMNIT.git
+cd DAMNIT
+
+# Make an environment for DAMNIT
+conda create -n damnit python
+
+conda activate damnit
+pip install '.[gui,backend]'
+```
+
+## Deployment on Maxwell
+DAMNIT is deployed in a stable and beta module on Maxwell:
+```bash
+$ module load exfel amore # The full path is actually amore/mid
+$ module load exfel amore/beta
+```
+
+To update a module:
+```bash
+$ ssh xsoft@max-exfl.desy.de
+
+# Helper command to cd into the module directory and activate its environment
+$ amoremod mid # This will activate the stable module, use `beta` for the beta module
+$ git pull # Or whatever command is necessary to update the code
+$ pip install '.[gui,backend]'
+```
+
+## Kafka
+The GUI is updated by Kafka messages sent by the backend. Currently we use
+XFEL's internal Kafka broker at `exflwgs06.desy.de:9091`, but this is only
+accessible inside the DESY network.
+
+DAMNIT can run offline, but if you want updates from the backend and you're
+running DAMNIT outside the network and not using a VPN, you'll first have to
+forward the broker port to your machine:
+```bash
+ssh -L 9091:exflwgs06.desy.de:9091 max-exfl.desy.de
+```
+
+And then add a line in your `/etc/hosts` file to resolve `exflwgs06.desy.de`
+to `localhost` (remember to remove it afterwards!):
+```
+127.0.0.1 exflwgs06.desy.de
+```
+
+And then DAMNIT should be able to use XFELs broker. If you want to use a specific
+broker you can set the `AMORE_BROKER` variable:
+```bash
+export AMORE_BROKER=localhost:9091
+```
+
+DAMNIT will then connect to the broker at that address.
+
+## Data storage
 
 There are two types of storage used, both in the `usr/Shared/amore` directory of
 a proposal by default:
@@ -24,7 +79,7 @@ a proposal by default:
 The DAMNIT data format details the exact structure of the data in the database
 and HDF5 files.
 
-## v1 (current)
+### v1 (current)
 
 In v1 there were a few changes to the way we store images and `xarray` types:
 
@@ -38,7 +93,7 @@ The most important change was to the database schema, which moved to a 'long
 narrow' format so that we don't need to change the schema whenever a new
 variable is added. It should also allow for versioning variables in the future.
 
-## v0
+### v0
 
 v0 refers to the first format, created before we started versioning at
 all. Here's an example v0 HDF5 file for a single run:
