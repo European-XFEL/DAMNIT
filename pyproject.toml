@@ -8,9 +8,12 @@ authors = [
     {name = "Thomas Kluyver", email = "thomas.kluyver@xfel.eu"},
     {name = "Luca Gelisio", email = "luca.gelisio@xfel.eu"},
 ]
+description = "The Data And Metadata iNspection Interactive Thing"
 license = {file = "LICENSE"}
+requires-python = ">=3.9"
 classifiers = ["License :: OSI Approved :: BSD License"]
-dynamic = ["version", "description"]
+dynamic = ["version"]
+readme = "README.md"
 dependencies = [
     "h5netcdf",
     "h5py",
