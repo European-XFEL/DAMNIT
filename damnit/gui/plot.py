@@ -18,7 +18,7 @@ from matplotlib.backends.backend_qtagg import (
 from matplotlib.figure import Figure
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
-from ..backend.api import RunVariables
+from ..api import RunVariables
 from ..util import fix_data_for_plotting
 
 log = logging.getLogger(__name__)

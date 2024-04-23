@@ -14,6 +14,9 @@ theme:
     - navigation.indexes
     - content.code.copy
 
+watch:
+  - damnit
+
 repo_url: https://github.com/European-XFEL/DAMNIT
 
 # Enable syntax highlighting for the material theme:
@@ -26,7 +29,26 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.saneheaders
+  - pymdownx.emoji
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      normalize_issue_symbols: true
+      user: European-XFEL
+      repo: DAMNIT
+  - tables
+  - attr_list
+  - toc:
+      permalink: "¤"
 
 # Navigation menu order
 nav:
@@ -34,4 +56,28 @@ nav:
   - gui.md
   - backend.md
   - data-storage.md
+  - api.md
   - contact.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          import:
+          - https://docs.python.org/3/objects.inv
+          - https://pandas.pydata.org/docs/objects.inv
+          options:
+            docstring_style: google
+            separate_signature: yes
+            show_signature_annotations: yes
+            merge_init_into_class: yes
+            show_submodules: yes
+            members_order: source
+            show_root_heading: yes
+            heading_level: 3
+            show_source: no
+            inherited_members: yes
+
+extra_css:
+  - css/mkdocstrings.css

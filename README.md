@@ -10,7 +10,7 @@ cd DAMNIT
 conda create -n amore python
 
 conda activate amore
-pip install '.[gui]'
+pip install '.[gui,backend]'
 ```
 
 ## Usage
