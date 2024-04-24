@@ -16,7 +16,7 @@ import numpy as np
 import xarray as xr
 import extra_data as ed
 
-from damnit.util import wait_until
+from damnit.backend.supervisord import wait_until
 from damnit.context import (
     ContextFileErrors, ContextFile, PNGData, Results, RunData, get_proposal_path
 )
