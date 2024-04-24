@@ -1,3 +1,5 @@
+import subprocess
+from pathlib import Path
 from textwrap import dedent
 
 import pytest
@@ -109,3 +111,11 @@ def test_variable_data(mock_db_with_data, monkeypatch):
 
     # Datasets have a internal _damnit attribute that should be removed
     assert len(dataset.attrs) == 0
+
+def test_api_dependencies(virtualenv):
+    package_path = Path(__file__).parent.parent
+    virtualenv.install_package(package_path, installer="pip install")
+
+    # Test that we can import the module successfully and don't accidentally
+    # depend on other things.
+    subprocess.run([str(virtualenv.python), "-c", "import damnit"]).check_returncode()

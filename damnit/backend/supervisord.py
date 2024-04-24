@@ -8,12 +8,26 @@ import subprocess
 import configparser
 from pathlib import Path
 
-from ..util import wait_until
 from .db import db_path, DamnitDB
 
 
 log = logging.getLogger(__name__)
 
+
+def wait_until(condition, timeout=1):
+    """
+    Re-evaluate `condition()` until it either returns true or we've waited
+    longer than `timeout`.
+    """
+    slept_for = 0
+    sleep_interval = 0.2
+
+    while slept_for < timeout and not condition():
+        time.sleep(sleep_interval)
+        slept_for += sleep_interval
+
+    if slept_for >= timeout:
+        raise TimeoutError("Condition timed out")
 
 def get_supervisord_address(default_port=2322):
     """
