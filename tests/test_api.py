@@ -67,6 +67,19 @@ def test_run_variables(mock_db_with_data, monkeypatch):
     assert rv["scalar1"].name == "scalar1"
     assert rv["Scalar1"].name == "scalar1"
 
+    # Test getting the start_time. This one's a bit special because we create it
+    # automatically, it's a proper variable except for the fact that we don't
+    # insert it into the `variables` table.
+    assert isinstance(rv["start_time"].read(), float)
+    assert "Timestamp" in rv.titles()
+
+    # Test getting comments. This is also special because it doesn't appear in
+    # the `variables` table.
+    assert "comment" not in rv.keys()
+    db.change_run_comment(damnit.proposal, 1, "foo")
+    assert "Comment" in rv.titles()
+    assert rv["comment"].read() == "foo"
+
     with pytest.raises(KeyError):
         rv["foo"]
 
