@@ -237,8 +237,20 @@ class RunVariables:
     def _var_titles(self):
         result = self._db.conn.execute("SELECT name, title FROM variables").fetchall()
         available_vars = self.keys()
-        return { row[0]: row[1] if row[1] is not None else row[0] for row in result
-                 if row[0] in available_vars }
+        titles = { row[0]: row[1] if row[1] is not None else row[0] for row in result
+                   if row[0] in available_vars }
+
+        # These variables are created automatically, but they aren't included in
+        # the `variables` table (yet) so we need to explicitly add their titles.
+        special_vars = {
+            "start_time": "Timestamp",
+            "comment": "Comment"
+        }
+        for name, title in special_vars.items():
+            if name in available_vars:
+                titles[name] = title
+
+        return titles
 
     def titles(self) -> list:
         """The titles of available variables.
