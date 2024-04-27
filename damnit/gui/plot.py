@@ -207,6 +207,14 @@ class Canvas(QtWidgets.QDialog):
         self.update_canvas()
 
     def autoscale(self, x_min, x_max, y_min, y_max, margin=0.05):
+        # Always convert the inputs to floats in case they're booleans or
+        # something, which would otherwise fail later when subtracting the
+        # min/max values.
+        x_min = float(x_min)
+        x_max = float(x_max)
+        y_min = float(y_min)
+        y_max = float(y_max)
+
         if not np.any(np.isnan([x_min, x_max])):
             x_range = np.abs(x_max - x_min)
             x_min = x_min - x_range * margin
