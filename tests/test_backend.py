@@ -1,3 +1,4 @@
+import io
 import os
 import stat
 import signal
@@ -14,6 +15,7 @@ import pytest
 import requests
 import numpy as np
 import xarray as xr
+from PIL import Image
 import extra_data as ed
 
 from damnit.backend.supervisord import wait_until
@@ -24,6 +26,7 @@ from damnit.backend.db import DamnitDB
 from damnit.backend import initialize_and_start_backend, backend_is_running
 from damnit.backend.extract_data import add_to_db, Extractor
 from damnit.backend.supervisord import write_supervisord_conf
+from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE
 from damnit.gui.main_window import MainWindow
 
 from .helpers import reduced_data_from_dict, mkcontext
@@ -300,8 +303,13 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert "foo/trainId" not in f
 
     figure_code = """
+    import numpy as np
     from damnit_ctx import Variable
     from matplotlib import pyplot as plt
+
+    @Variable("2D array")
+    def twodarray(run):
+        return np.random.rand(1000, 1000)
 
     @Variable(title="Axes")
     def axes(run):
@@ -325,8 +333,16 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     results_hdf5_path.unlink()
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
+        # The plots should be saved as 3D RGBA arrays
         assert f["figure/data"].ndim == 3
         assert f["axes/data"].ndim == 3
+
+        # Test that the summaries are the right size
+        twodarray_png = Image.open(io.BytesIO(f[".reduced/twodarray"][()]))
+        assert np.asarray(twodarray_png).shape == (THUMBNAIL_SIZE, THUMBNAIL_SIZE, 4)
+
+        figure_png = Image.open(io.BytesIO(f[".reduced/figure"][()]))
+        assert max(np.asarray(figure_png).shape) == THUMBNAIL_SIZE
 
     # Test returning xarray.Datasets
     dataset_code = """

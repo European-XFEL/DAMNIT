@@ -400,9 +400,9 @@ def generate_thumbnail(image):
     ax.axis('off')
     ax.margins(0, 0)
 
-    image_shape = fig.get_size_inches() * fig.dpi
-    zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-    return figure2png(fig, dpi=(fig.dpi * zoom_ratio))
+    # The figure is 1 inch square, so setting the DPI to THUMBNAIL_SIZE will
+    # save a figure of size THUMBNAIL_SIZE x THUMBNAIL_SIZE.
+    return figure2png(fig, dpi=THUMBNAIL_SIZE)
 
 
 def extract_error_info(exc_type, e, tb):
@@ -479,15 +479,12 @@ class Results:
             return data
         elif isinstance(data, Figure):
             # For the sake of space and memory we downsample images to a
-            # resolution of 35 pixels on the larger dimension.
+            # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             return figure2png(data, dpi=(data.dpi * zoom_ratio))
         elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
-            from scipy import ndimage
-            zoom_ratio = min(1, THUMBNAIL_SIZE / max(data.shape))
-            data = ndimage.zoom(np.nan_to_num(data), zoom_ratio)
-            return generate_thumbnail(data)
+            return generate_thumbnail(np.nan_to_num(data))
         elif self.ctx.vars[name].summary is None:
             return f"{data.dtype}: {data.shape}"
         else:
