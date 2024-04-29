@@ -199,7 +199,6 @@ The environment *must* have these dependencies installed for DAMNIT to work:
 - `extra_data`
 - `pyyaml`
 - `requests`
-- `scipy`
 
 ## Managing the backend
 The backend is a process running under [Supervisor](http://supervisord.org/). In

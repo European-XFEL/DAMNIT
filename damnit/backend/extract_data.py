@@ -265,13 +265,21 @@ class Extractor:
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
 
-        # Send update via Kafka
+        # Send all the updates for scalars
+        image_values = { name: reduced for name, reduced in reduced_data.items()
+                         if isinstance(reduced.value, bytes) }
         update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': run, 'proposal': proposal, 'values': {
-                name: reduced.value for name, reduced in reduced_data.items()
-        }})
+            'run': run, 'proposal': proposal, 'values': { name: reduced.value for name, reduced in reduced_data.items()
+                                                          if name not in image_values }})
         self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
-        log.info("Sent Kafka update to topic %r", self.db.kafka_topic)
+
+        # And each image update separately so we don't hit any size limits
+        for name, reduced in image_values.items():
+            update_msg = msg_dict(MsgKind.run_values_updated, {
+                'run': run, 'proposal': proposal, 'values': { name: reduced.value }})
+            self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
+
+        log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
