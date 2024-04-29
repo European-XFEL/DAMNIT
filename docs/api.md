@@ -10,8 +10,7 @@ You can open a database by proposal number, in which case it will look in
 ```python
 from damnit import Damnit
 
-db = Damnit(1234)
-db = Damnit("/path/to/proposal/usr/Shared/amore-online")
+db = Damnit(1234) # This would also work: Damnit("/my/path/to/amore")
 ```
 
 The run table can be read into a dataframe
@@ -19,7 +18,7 @@ with [Damnit.table()][damnit.api.Damnit.table]:
 ```python
 # Use with_titles to name the columns by the variable titles rather than their
 # names.
-df = damnit.table(with_titles=True)
+df = db.table(with_titles=True)
 ```
 
 The variables themselves can be read by indexing `db`:
