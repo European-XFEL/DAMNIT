@@ -162,6 +162,7 @@ def initialize_and_start_backend(root_path, proposal=None, context_file_src=None
         # Initialize database
         db = DamnitDB.from_dir(root_path)
         db.metameta["proposal"] = proposal
+        db.metameta["context_python"] = "/gpfs/exfel/sw/software/mambaforge/22.11/envs/202401/bin/python"
     else:
         # Otherwise, load the proposal number
         db = DamnitDB.from_dir(root_path)
