@@ -269,6 +269,7 @@ class ContextFile:
         mymdc = None
 
         for name in self.ordered_vars():
+            t0 = time.perf_counter()
             var = self.vars[name]
 
             try:
@@ -347,6 +348,8 @@ class ContextFile:
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
+                t1 = time.perf_counter()
+                log.info("Computed %s in %.03f s", name, t1 - t0)
                 # Only save the result if it's not None
                 if data is not None:
                     res[name] = data
