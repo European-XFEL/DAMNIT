@@ -4,7 +4,7 @@ import numpy as np
 
 from damnit_ctx import Variable
 
-xgm_name = "SA2_XTD1_XGM/XGM/DOOCS"
+xgm_name = "SA3_XTD10_XGM/XGM/DOOCS"
 
 # Run metadata
 
