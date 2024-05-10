@@ -4,16 +4,18 @@ import getpass
 import os
 import logging
 import pickle
+import queue
 import re
 import shlex
 import socket
 import subprocess
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from ctypes import CDLL
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Thread
+from threading import Thread, current_thread
 from typing import Optional
 
 import h5py
@@ -89,7 +91,7 @@ def tee(path: Optional[Path]):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False, tee_output=None
+        python_exe=None, mock=False, redirect_output=nullcontext(),
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -109,8 +111,8 @@ def extract_in_subprocess(
         reduced_out_path = Path(td, 'reduced.h5')
         args.extend(['--save-reduced', str(reduced_out_path)])
 
-        with tee(tee_output) as pipe:
-            run_in_subprocess(args, check=True, stdout=pipe, stderr=subprocess.STDOUT)
+        with redirect_output as f:
+            run_in_subprocess(args, check=True, stdout=f, stderr=subprocess.STDOUT)
 
         return load_reduced_data(reduced_out_path)
 
@@ -173,7 +175,7 @@ def load_reduced_data(h5_path):
             for name, dset in f['.reduced'].items()
         }
 
-def add_to_db(reduced_data, db: DamnitDB, proposal, run):
+def add_to_db(reduced_data, db: DamnitDB, proposal, run, log=log):
     db.ensure_run(proposal, run)
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))
@@ -245,8 +247,10 @@ class Extractor:
 
         return opts
 
-    def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), mock=False, tee_output=None):
+    def extract_and_ingest(
+            self, proposal, run, cluster=False, run_data=RunData.ALL, match=(),
+            mock=False, log=log, redirect_output=nullcontext()
+    ):
         if proposal is None:
             proposal = self.proposal
 
@@ -260,10 +264,10 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe, mock=mock, tee_output=tee_output,
+            match=match, python_exe=python_exe, mock=mock, redirect_output=redirect_output,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
-        add_to_db(reduced_data, self.db, proposal, run)
+        add_to_db(reduced_data, self.db, proposal, run, log=log)
 
         # Send all the updates for scalars
         image_values = { name: reduced for name, reduced in reduced_data.items()
@@ -310,7 +314,7 @@ def proposal_runs(proposal):
     return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
 
 
-def reprocess(runs, proposal=None, match=(), mock=False):
+def reprocess(runs, proposal=None, match=(), mock=False, parallel_jobs=1):
     """Called by the 'amore-proto reprocess' subcommand"""
     extr = Extractor()
     if proposal is None:
@@ -356,22 +360,57 @@ def reprocess(runs, proposal=None, match=(), mock=False):
 
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
+    props_runs_q = queue.Queue()
+    for pair in props_runs:
+        props_runs_q.put_nowait(pair)
+
+    if parallel_jobs > 1:
+        log.info("Processing %d runs in %d workers - see log files for details",
+                 len(props_runs), parallel_jobs)
+        with ThreadPool(parallel_jobs) as pool:
+            pool.map(lambda _: process_runs(props_runs_q, match, mock), range(parallel_jobs))
+    else:
+        process_runs(props_runs_q, match, mock, live_output=True)
+
+
+def process_runs(props_runs_q, match=(), mock=False, live_output=False):
+    extr = Extractor()
     log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    for prop, run in props_runs:
+    if live_output:
+        logger = log
+    else:
+        logger = logging.getLogger(f"{__name__}.thread{current_thread().native_id}")
+        logger.propagate = False
+
+    while True:
+        try:
+            prop, run = props_runs_q.get_nowait()
+        except queue.Empty:
+            return
+
         log_path = process_log_path(run, prop)
+        if live_output:
+            redirect = tee(log_path)
+        else:
+            redirect = log_path.open('ab')
+
         file_handler = logging.FileHandler(log_path)
         file_handler.setFormatter(log_formatter)
-        logging.getLogger().addHandler(file_handler)
+        logger.addHandler(file_handler)
+
         try:
-            log.info("\n\n----- Reprocessing r%s (p%s) -----", run, prop)
-            log.info(f"match={match}")
-            extr.extract_and_ingest(prop, run, match=match, mock=mock, tee_output=log_path)
+            logger.info("\n\n----- Reprocessing r%s (p%s) -----", run, prop)
+            logger.info(f"match={match}")
+            extr.extract_and_ingest(prop, run, match=match, mock=mock, log=logger, redirect_output=redirect)
         except Exception:
-            log.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
+            logger.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
             raise
         finally:
-            logging.getLogger().removeHandler(file_handler)
+            logger.removeHandler(file_handler)
             file_handler.close()
+
+        if not live_output:
+            log.info("Done r%s (p%s)", run, prop)  # Still show some progress
 
 
 if __name__ == '__main__':

@@ -97,6 +97,10 @@ def main():
         help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
     )
     reprocess_ap.add_argument(
+        '-j', '--parallel', type=int, default=1,
+        help="Maximum number of runs to process in parallel (default 1)"
+    )
+    reprocess_ap.add_argument(
         'run', nargs='+',
         help="Run number, e.g. 96. Multiple runs can be specified at once, "
              "or pass 'all' to reprocess all runs in the database."
@@ -206,7 +210,7 @@ def main():
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
         from .backend.extract_data import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock)
+        reprocess(args.run, args.proposal, args.match, args.mock, args.parallel)
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor
