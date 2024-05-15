@@ -216,12 +216,13 @@ class ContextFile:
     def from_py_file(cls, path: Path):
         code = path.read_text()
         log.debug("Loading context from %s", path)
-        return ContextFile.from_str(code)
+        return ContextFile.from_str(code, str(path.absolute()))
 
     @classmethod
-    def from_str(cls, code: str):
+    def from_str(cls, code: str, path='<string>'):
         d = {}
-        exec(code, d)
+        codeobj = compile(code, path, 'exec')
+        exec(codeobj, d)
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
