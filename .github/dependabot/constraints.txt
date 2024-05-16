@@ -1,7 +1,7 @@
 EXtra-data==1.17.0
 ipython==8.24.0
 kafka-python==2.0.2
-matplotlib==3.8.4
+matplotlib==3.9.0
 mplcursors==0.5.3
 mpl-pan-zoom==1.0.0
 numpy==1.26.4
