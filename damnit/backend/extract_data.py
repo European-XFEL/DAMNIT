@@ -4,7 +4,6 @@ import getpass
 import os
 import logging
 import pickle
-import queue
 import re
 import shlex
 import socket
@@ -15,7 +14,7 @@ from ctypes import CDLL
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Thread, current_thread
+from threading import Thread, current_thread, local
 from typing import Optional
 
 import h5py
@@ -212,7 +211,7 @@ class Extractor:
     _proposal = None
 
     def __init__(self):
-        self.db = DamnitDB()
+        self._thread_local = local()  # To hold 1 DB connection per thread
         self.kafka_prd = KafkaProducer(
             bootstrap_servers=UPDATE_BROKERS,
             value_serializer=lambda d: pickle.dumps(d),
@@ -220,6 +219,13 @@ class Extractor:
         context_python = self.db.metameta.get("context_python")
         self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
         assert error_info is None, error_info
+
+    @property
+    def db(self):
+        # Get a DamnitDB object for the current thread
+        if not hasattr(self._thread_local, 'db'):
+            self._thread_local.db = DamnitDB()
+        return self._thread_local.db
 
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
@@ -360,42 +366,20 @@ def reprocess(runs, proposal=None, match=(), mock=False, parallel_jobs=1):
 
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
-    props_runs_q = queue.Queue()
-    for pair in props_runs:
-        props_runs_q.put_nowait(pair)
-
-    if parallel_jobs > 1:
-        log.info("Processing %d runs in %d workers - see log files for details",
-                 len(props_runs), parallel_jobs)
-        with ThreadPool(parallel_jobs) as pool:
-            pool.map(lambda _: process_runs(props_runs_q, match, mock), range(parallel_jobs))
-    else:
-        process_runs(props_runs_q, match, mock, live_output=True)
-
-
-def process_runs(props_runs_q, match=(), mock=False, live_output=False):
-    extr = Extractor()
-    log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    if live_output:
-        logger = log
-    else:
-        logger = logging.getLogger(f"{__name__}.thread{current_thread().native_id}")
-        logger.propagate = False
-
-    while True:
-        try:
-            prop, run = props_runs_q.get_nowait()
-        except queue.Empty:
-            return
-
+    def process_run(prop, run, live_output=False):
         log_path = process_log_path(run, prop)
         if live_output:
             redirect = tee(log_path)
+            logger = log
         else:
             redirect = log_path.open('ab')
+            logger = logging.getLogger(f"{__name__}.thread{current_thread().native_id}")
+            logger.propagate = False
 
         file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(log_formatter)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        ))
         logger.addHandler(file_handler)
 
         try:
@@ -411,6 +395,15 @@ def process_runs(props_runs_q, match=(), mock=False, live_output=False):
 
         if not live_output:
             log.info("Done r%s (p%s)", run, prop)  # Still show some progress
+
+    if parallel_jobs > 1:
+        log.info("Processing %d runs in %d workers - see log files for details",
+                 len(props_runs), parallel_jobs)
+        with ThreadPool(parallel_jobs) as pool:
+            pool.starmap(process_run, props_runs)
+    else:
+        for prop, run in props_runs:
+            process_run(prop, run, live_output=True)
 
 
 if __name__ == '__main__':
