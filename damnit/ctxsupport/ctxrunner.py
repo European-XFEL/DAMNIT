@@ -497,16 +497,16 @@ class Results:
             return figure2png(data, dpi=(data.dpi * zoom_ratio))
         elif isinstance(data, PlotlyFigure):
             return plotly2png(data)
+
         elif isinstance(data, (np.ndarray, xr.DataArray)):
             if data.ndim == 0:
                 return data
-            if data.ndim == 2:
-                from scipy import ndimage
-                zoom_ratio = min(1., THUMBNAIL_SIZE / max(data.shape))
-                data = ndimage.zoom(np.nan_to_num(data), zoom_ratio)
-                return generate_thumbnail(data)
+            elif data.ndim == 2:
+                return generate_thumbnail(np.nan_to_num(data))
             else:
                 return f"{data.dtype}: {data.shape}"
+
+        return None
 
     def save_hdf5(self, hdf5_path, reduced_only=False):
         xarray_dsets = []
