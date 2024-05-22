@@ -632,7 +632,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         res_x, res_y = [], []
         for r in range(self.rowCount()):
             status_item = self.item(r, 0)
-            if status_item.checkState() != Qt.Checked:
+            if status_item is None or status_item.checkState() != Qt.Checked:
                 continue
 
             xval = self.get_value_at_rc(r, xcol_ix)
