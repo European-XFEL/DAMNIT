@@ -14,12 +14,16 @@ import os
 import pickle
 import sys
 import time
+from contextlib import contextmanager
 from datetime import timezone
 import traceback
 from enum import Enum
 from pathlib import Path
 from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
+from subprocess import run
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -594,6 +598,98 @@ class Results:
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
 
+
+@contextmanager
+def filesystem(host='localhost'):
+    """Mount remote proposal data with sshfs
+
+    mount `/gpfs/exfel/exp/` from `host` and patch
+    `extra_data.read_machinery.DATA_ROOT_DIR` to use it instead of the local one.
+    Opening a file or a run directory with extra_data will open the remote data.
+    """
+    if host == 'localhost':
+        yield
+        return
+
+    with TemporaryDirectory() as td:
+        try:
+            mount_command = [
+                "sshfs", f"{host}:{extra_data.read_machinery.DATA_ROOT_DIR}", str(td),
+                # deactivate password prompt to fail if we don't have a valid ssh key
+                "-o", "ssh_command='ssh -o PasswordAuthentication=no'"
+            ]
+            run(mount_command, check=True, shell=True)
+
+            with patch("extra_data.read_machinery.DATA_ROOT_DIR", td):
+                yield
+
+        finally:
+            run(["fusermount", "-u", str(td)], check=True, shell=True)
+
+
+def execute_context(args):
+    # Check if we have proc data
+    proc_available = False
+    if args.mock:
+        # If we want to mock a run, assume it's available
+        proc_available = True
+    else:
+        # Otherwise check with open_run()
+        try:
+            extra_data.open_run(args.proposal, args.run, data="proc")
+            proc_available = True
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            log.warning(f"Error when checking if proc data available: {e}")
+
+    run_data = RunData(args.run_data)
+    if run_data == RunData.ALL and not proc_available:
+        log.warning("Proc data is unavailable, only raw variables will be executed.")
+        run_data = RunData.RAW
+
+    ctx_whole = ContextFile.from_py_file(Path('context.py'))
+    ctx_whole.check()
+    ctx = ctx_whole.filter(
+        run_data=run_data, cluster=args.cluster_job, name_matches=args.match
+    )
+    log.info("Using %d variables (of %d) from context file %s",
+            len(ctx.vars), len(ctx_whole.vars),
+            "" if args.cluster_job else "(cluster variables will be processed later)")
+
+    if args.mock:
+        run_dc = mock_run()
+    else:
+        # Make sure that we always select the most data possible, so proc
+        # variables have access to raw data too.
+        actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
+        run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
+
+    res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
+
+    for path in args.save:
+        res.save_hdf5(path)
+    for path in args.save_reduced:
+        res.save_hdf5(path, reduced_only=True)
+
+
+def evaluate_context(args):
+    error_info = None
+
+    try:
+        ctx = ContextFile.from_py_file(args.context_file)
+
+        # Strip the functions from the Variable's, these cannot always be
+        # pickled.
+        for var in ctx.vars.values():
+            var.func = None
+    except:
+        ctx = None
+        error_info = extract_error_info(*sys.exc_info())
+
+    args.out_file.write_bytes(pickle.dumps((ctx, error_info)))
+
+
 def mock_run():
     run = MagicMock()
     run.files = [MagicMock(filename="/tmp/foo/bar.h5")]
@@ -612,6 +708,7 @@ def mock_run():
 
     return run
 
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     subparsers = ap.add_subparsers(required=True, dest="subcmd")
@@ -625,6 +722,7 @@ def main(argv=None):
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
     exec_ap.add_argument('--save-reduced', action='append', default=[])
+    exec_ap.add_argument('--data-location', default='localhost')
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -634,64 +732,14 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        # Check if we have proc data
-        proc_available = False
-        if args.mock:
-            # If we want to mock a run, assume it's available
-            proc_available = True
-        else:
-            # Otherwise check with open_run()
-            try:
-                extra_data.open_run(args.proposal, args.run, data="proc")
-                proc_available = True
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                log.warning(f"Error when checking if proc data available: {e}")
-
-        run_data = RunData(args.run_data)
-        if run_data == RunData.ALL and not proc_available:
-            log.warning("Proc data is unavailable, only raw variables will be executed.")
-            run_data = RunData.RAW
-
-        ctx_whole = ContextFile.from_py_file(Path('context.py'))
-        ctx_whole.check()
-        ctx = ctx_whole.filter(
-            run_data=run_data, cluster=args.cluster_job, name_matches=args.match
-        )
-        log.info("Using %d variables (of %d) from context file %s",
-             len(ctx.vars), len(ctx_whole.vars),
-             "" if args.cluster_job else "(cluster variables will be processed later)")
-
-        if args.mock:
-            run_dc = mock_run()
-        else:
-            # Make sure that we always select the most data possible, so proc
-            # variables have access to raw data too.
-            actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
-            run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
-
-        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
-
-        for path in args.save:
-            res.save_hdf5(path)
-        for path in args.save_reduced:
-            res.save_hdf5(path, reduced_only=True)
+        if args.cluster_job and args.data_location != 'localhost':
+            # Only run cluster jobs with data on Maxwell
+            log.info('Skipping cluster jobs for remote data [%s].', args.data_location)
+            return
+        with filesystem(args.data_location):
+            execute_context(args)
     elif args.subcmd == "ctx":
-        error_info = None
-
-        try:
-            ctx = ContextFile.from_py_file(args.context_file)
-
-            # Strip the functions from the Variable's, these cannot always be
-            # pickled.
-            for var in ctx.vars.values():
-                var.func = None
-        except:
-            ctx = None
-            error_info = extract_error_info(*sys.exc_info())
-
-        args.out_file.write_bytes(pickle.dumps((ctx, error_info)))
+        evaluate_context(args)
 
 
 if __name__ == '__main__':

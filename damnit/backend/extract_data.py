@@ -35,6 +35,7 @@ def innetgr(netgroup: bytes, host=None, user=None, domain=None):
     libc = CDLL("libc.so.6")
     return bool(libc.innetgr(netgroup, host, user, domain))
 
+
 def default_slurm_partition():
     username = getpass.getuser().encode()
     if innetgr(b'exfel-wgs-users', user=username):
@@ -42,6 +43,7 @@ def default_slurm_partition():
     elif innetgr(b'upex-users', user=username):
         return 'upex'
     return 'all'
+
 
 def run_in_subprocess(args, **kwargs):
     env = os.environ.copy()
@@ -51,6 +53,7 @@ def run_in_subprocess(args, **kwargs):
     )
 
     return subprocess.run(args, env=env, **kwargs)
+
 
 def process_log_path(run, proposal, ctx_dir=Path('.'), create=True):
     p = ctx_dir.absolute() / 'process_logs' / f"r{run}-p{proposal}.out"
@@ -89,13 +92,13 @@ def tee(path: Optional[Path]):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False, tee_output=None
+        python_exe=None, mock=False, tee_output=None, data_location='localhost',
 ):
     if not python_exe:
         python_exe = sys.executable
 
     args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run), run_data.value,
-            '--save', out_path]
+            '--save', out_path, '--data-location', data_location]
     if cluster:
         args.append('--cluster-job')
     if mock:
@@ -246,7 +249,8 @@ class Extractor:
         return opts
 
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), mock=False, tee_output=None):
+                           run_data=RunData.ALL, match=(), mock=False, tee_output=None,
+                           data_location='localhost'):
         if proposal is None:
             proposal = self.proposal
 
@@ -261,6 +265,7 @@ class Extractor:
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
             match=match, python_exe=python_exe, mock=mock, tee_output=tee_output,
+            data_location=data_location,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -274,6 +279,9 @@ class Extractor:
         log.info("Sent Kafka update to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
+        if data_location != 'localhost':
+            log.info('Skipping cluster variables with remote data [%s].', data_location)
+            return
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
@@ -374,6 +382,7 @@ if __name__ == '__main__':
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
+    ap.add_argument('--data-location', default='localhost')
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -389,4 +398,5 @@ if __name__ == '__main__':
     Extractor().extract_and_ingest(args.proposal, args.run,
                                    cluster=args.cluster_job,
                                    run_data=RunData(args.run_data),
-                                   match=args.match)
+                                   match=args.match,
+                                   data_location=args.data_location)

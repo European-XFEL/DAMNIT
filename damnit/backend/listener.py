@@ -10,6 +10,7 @@ from pathlib import Path
 from socket import gethostname
 from threading import Thread
 
+from extra_data.read_machinery import find_proposal
 from kafka import KafkaConsumer
 
 from .db import DamnitDB
@@ -17,18 +18,22 @@ from .extract_data import RunData, process_log_path
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
-CONSUMER_ID = 'xfel-da-amore-prototype-{}'
-KAFKA_CONF = {
-    'maxwell': {
-        'brokers': ['exflwgs06:9091'],
-        'topics': ["test.r2d2", "cal.offline-corrections"],
-        'events': ["migration_complete", "run_corrections_complete"],
-    },
-    'onc': {
-        'brokers': ['exflwgs06:9091'],
-        'topics': ['test.euxfel.hed.daq', 'test.euxfel.hed.cal'],
-        'events': ['daq_run_complete', 'online_correction_complete'],
-    }
+CONSUMER_ID = "xfel-da-amore-prototype-{}"
+KAFKA_BROKERS = ["exflwgs06:9091"]
+KAFKA_TOPICS = ["test.r2d2", "cal.offline-corrections", "test.euxfel.hed.daq", "test.euxfel.hed.cal"]
+KAFKA_EVENTS = ["migration_complete", "run_corrections_complete", "daq_run_complete", "online_correction_complete"]
+BACKEND_HOSTS_TO_ONLINE = ['max-exfl-display003.desy.de', 'max-exfl-display004.desy.de']
+ONLINE_HOSTS ={
+    'FXE': 'sa1-onc-fxe.desy.de',
+    'HED': 'sa2-onc-hed.desy.de',
+    'MID': 'sa2-onc-mid.desy.de',
+    # 'SA1': '',
+    # 'SA2': '',
+    # 'SA3': '',
+    'SCS': 'sa3-onc-scs.desy.de',
+    'SPB': 'sa1-onc-spb.desy.de',
+    'SQS': 'sa3-onc-sqs.desy.de',
+    'SXP': 'sa3-onc-sxp.desy.de',
 }
 
 log = logging.getLogger(__name__)
@@ -73,20 +78,30 @@ class EventProcessor:
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.conn.execute("pragma user_version=0;")
         self.proposal = self.db.metameta['proposal']
+
         log.info(f"Will watch for events from proposal {self.proposal}")
 
-        if gethostname().startswith('exflonc'):
-            # running on the online cluster
-            kafka_conf = KAFKA_CONF['onc']
-        else:
-            kafka_conf = KAFKA_CONF['maxwell']
-
         consumer_id = CONSUMER_ID.format(self.db.metameta['db_id'])
-        self.kafka_cns = KafkaConsumer(*kafka_conf['topics'],
-                                       bootstrap_servers=kafka_conf['brokers'],
+        self.kafka_cns = KafkaConsumer(*KAFKA_TOPICS,
+                                       bootstrap_servers=KAFKA_BROKERS,
                                        group_id=consumer_id)
-        self.events = kafka_conf['events']
 
+        # check backend host and connection to online cluster
+        self.online_data_host = None
+        self.run_online = self.db.metameta.get('run_online', False) is not False
+        if self.run_online and gethostname() not in BACKEND_HOSTS_TO_ONLINE:
+            log.warning(f"Disabled online processing, the backend must run on one of: {BACKEND_HOSTS_TO_ONLINE}")
+            self.run_online = False
+        if self.run_online:
+            topic = Path(find_proposal(f'p{self.proposal:06}')).parts[-3]
+            if (remote_host := ONLINE_HOSTS.get(topic)) is None:
+                log.warn(f"Can't run online processing for topic '{topic}'")
+                self.run_online = False
+            else:
+                self.online_data_host = remote_host
+        log.debug("Processing online data? %s", self.run_online)
+
+        # Monitor thread for subprocesses
         self.extract_procs_queue = queue.Queue()
         self.extract_procs_watcher = Thread(
             target=watch_processes_finish,
@@ -113,17 +128,19 @@ class EventProcessor:
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())
         event = msg.get('event')
-        if event in self.events:
+        if event in KAFKA_EVENTS:
             log.debug("Processing %s event from Kafka", event)
             getattr(self, f'handle_{event}')(record, msg)
         else:
             log.debug("Unexpected %s event from Kafka", event)
 
     def handle_daq_run_complete(self, record, msg: dict):
-        self.handle_event(record, msg, RunData.RAW)
+        if self.run_online:
+            self.handle_event(record, msg, RunData.RAW, self.online_data_host)
 
     def handle_online_correction_complete(self, record, msg: dict):
-        self.handle_event(record, msg, RunData.PROC)
+        if self.run_online:
+            self.handle_event(record, msg, RunData.PROC, self.online_data_host)
 
     def handle_migration_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.RAW)
@@ -131,7 +148,8 @@ class EventProcessor:
     def handle_run_corrections_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.PROC)
 
-    def handle_event(self, record, msg: dict, run_data: RunData):
+    def handle_event(self, record, msg: dict, run_data: RunData,
+                     data_location: str = "localhost"):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
@@ -149,9 +167,11 @@ class EventProcessor:
             # Create subprocess to process the run
             extract_proc = subprocess.Popen([
                 sys.executable, '-m', 'damnit.backend.extract_data',
-                str(proposal), str(run), run_data.value
+                str(proposal), str(run), run_data.value,
+                '--data-location', data_location,
             ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
         self.extract_procs_queue.put((proposal, run, extract_proc))
+
 
 def listen():
     # Set up logging to a file
@@ -176,6 +196,7 @@ def listen():
     # can start the backend).
     if os.stat("amore.log").st_uid == os.getuid():
         os.chmod("amore.log", 0o666)
+
 
 if __name__ == '__main__':
     listen()
