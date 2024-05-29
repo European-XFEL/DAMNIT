@@ -4,6 +4,7 @@ import logging
 import os
 import platform
 import queue
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -145,13 +146,24 @@ class EventProcessor:
         log.info("Processing output will be written to %s",
                  log_path.relative_to(self.context_dir.absolute()))
 
-        with log_path.open('ab') as logf:
-            # Create subprocess to process the run
-            extract_proc = subprocess.Popen([
-                sys.executable, '-m', 'damnit.backend.extract_data',
-                str(proposal), str(run), run_data.value
-            ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
-        self.extract_procs_queue.put((proposal, run, extract_proc))
+        python_cmd = [
+            sys.executable, '-m', 'damnit.backend.extract_data',
+            str(proposal), str(run), run_data.value
+        ]
+
+        res = subprocess.run([
+            'sbatch', '--parsable',
+            '--cluster=solaris',
+            '-o', log_path,
+            '--open-mode=append',
+            # Note: we put the run number first so that it's visible in
+            # squeue's default 11-character column for the JobName.
+            '--job-name', f"r{run}-p{proposal}-damnit",
+            '--wrap', shlex.join(python_cmd)
+        ], stdout=subprocess.PIPE, text=True)
+        job_id = res.stdout.partition(';')[0].strip()
+        log.info("Launched Slurm (solaris) job %s to run context file", job_id)
+
 
 def listen():
     # Set up logging to a file
