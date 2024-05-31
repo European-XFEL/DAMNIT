@@ -570,8 +570,15 @@ da-dev@xfel.eu"""
 
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]
+        except FileNotFoundError:
+            self.show_status_message(f"Couldn't get run variables for p{proposal}, r{run}",
+                                     timeout=7000,
+                                     stylesheet=StatusbarStylesheet.ERROR)
+            return
         except KeyError:
-            log.warning(f"Unrecognized variable: '{quantity}'")
+            self.show_status_message(f"Unrecognized variable: '{quantity}'",
+                                     timeout=7000,
+                                     stylesheet=StatusbarStylesheet.ERROR)
             return
 
         try:
