@@ -7,10 +7,12 @@ from pandas.api.types import is_numeric_dtype
 
 from PyQt5.QtCore import Qt
 from PyQt5 import QtCore, QtWidgets, QtGui
+from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtWidgets import QMessageBox
 
 import mplcursors
 import matplotlib
+import plotly.express as px
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,
@@ -22,6 +24,19 @@ from ..api import RunVariables
 from ..util import fix_data_for_plotting
 
 log = logging.getLogger(__name__)
+
+
+class PlotlyPlot(QtWidgets.QWidget):
+    def __init__(self, figure):
+        super().__init__()
+        browser = QWebEngineView(self)
+        browser.setHtml(figure.to_html(include_plotlyjs='cdn'))
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(browser)
+        self.setLayout(layout)
+        self.resize(800, 600)
+
 
 class Canvas(QtWidgets.QDialog):
     def __init__(
