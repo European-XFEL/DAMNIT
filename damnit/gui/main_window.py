@@ -12,13 +12,14 @@ import h5py
 import numpy as np
 import pandas as pd
 import xarray as xr
+from kafka.errors import NoBrokersAvailable
 from pandas.api.types import infer_dtype
+from plotly.graph_objects import Figure as PlotlyFigure
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
-from kafka.errors import NoBrokersAvailable
 
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..api import RunVariables
@@ -30,7 +31,7 @@ from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
-from .plot import Canvas, Plot
+from .plot import Canvas, Plot, PlotlyPlot
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
 from .widgets import CollapsibleWidget
@@ -582,11 +583,18 @@ da-dev@xfel.eu"""
             return
 
         try:
-            data = xr.DataArray(variable.read())
+            data = variable.read()
         except KeyError:
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
 
+        if isinstance(data, PlotlyFigure):
+            pp = PlotlyPlot(data)
+            self._canvas_inspect.append(pp)
+            pp.show()
+            return
+
+        data = xr.DataArray(data)
         if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
             canvas = Canvas(
                 self,

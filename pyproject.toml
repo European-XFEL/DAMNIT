@@ -26,8 +26,10 @@ backend = [
     "EXtra-data",
     "ipython",
     "kafka-python",
+    "kaleido",  # used by plotly to convert figures to images
     "matplotlib",
     "numpy",
+    "plotly",
     "pyyaml",
     "requests",
     "supervisor",
@@ -38,7 +40,9 @@ gui = [
     "mplcursors",
     "mpl-pan-zoom",
     "openpyxl",  # for spreadsheet export
+    "plotly",
     "PyQt5",
+    "PyQtWebEngine",
     "pyflakes",  # for checking context file in editor
     "QScintilla==2.13",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
