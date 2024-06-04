@@ -7,6 +7,7 @@ from contextlib import contextmanager
 
 import h5py
 import pandas as pd
+import plotly.io as pio
 import xarray as xr
 
 from .backend.db import DamnitDB, BlobTypes
@@ -19,6 +20,7 @@ class DataType(Enum):
     Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
+    PlotlyFigure = "PlotlyFigure"
 
 
 DATA_ROOT_DIR = os.environ.get('EXTRA_DATA_DATA_ROOT', '/gpfs/exfel/exp')
@@ -118,6 +120,9 @@ class VariableData:
                 return self._read_netcdf(one_array=True)
 
             dset = group["data"]
+            if type_hint is DataType.PlotlyFigure:
+                # json string representing a plotly Figure
+                return pio.from_json(dset[()])
             if h5py.check_string_dtype(dset.dtype) is not None:
                 # Strings. Scalar/non-scalar strings need to be read differently.
                 if dset.ndim == 0:
