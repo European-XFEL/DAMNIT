@@ -41,6 +41,10 @@ log = logging.getLogger(__name__)
 class EventProcessor:
 
     def __init__(self, context_dir=Path('.')):
+        if gethostname().startswith('exflonc'):
+            log.warning('Running the DAMNIT listener on the online cluster is not allowed')
+            exit(1)
+
         self.context_dir = context_dir
         self.db = DamnitDB.from_dir(context_dir)
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
@@ -63,7 +67,7 @@ class EventProcessor:
         if self.run_online:
             topic = Path(find_proposal(f'p{self.proposal:06}')).parts[-3]
             if (remote_host := ONLINE_HOSTS.get(topic)) is None:
-                log.warn(f"Can't run online processing for topic '{topic}'")
+                log.warning(f"Can't run online processing for topic '{topic}'")
                 self.run_online = False
             else:
                 self.online_data_host = remote_host

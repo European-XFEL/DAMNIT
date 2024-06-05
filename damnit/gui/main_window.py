@@ -946,6 +946,14 @@ class LogViewWindow(QtWidgets.QMainWindow):
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
     if not db_path(context_dir).is_file():
 
+        if gethostname().endswith('exflonc'):
+            # prevent starting the backend on the online cluster
+            QMessageBox.warning(
+                "Running the DAMNIT backend on the online cluster is not allowed. "
+                "Please, open the damint GUI on Maxwell instead and retry."
+            )
+            return False
+
         button = QMessageBox.question(
             parent, "Database not found",
             f"{context_dir} does not contain a DAMNIT database, "
