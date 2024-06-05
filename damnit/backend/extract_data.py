@@ -382,7 +382,7 @@ if __name__ == '__main__':
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
-    ap.add_argument('--data-location', default='localhost')
+    ap.add_argument('--data-location', default='localhost', help=argparse.SUPPRESS)
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
