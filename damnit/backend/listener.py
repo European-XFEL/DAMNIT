@@ -115,6 +115,8 @@ class EventProcessor:
             'sbatch', '--parsable',
             '--cluster=solaris',
             '-o', log_path,
+            '--cpus-per-task', '4',
+            '--mem', '25G',
             '--open-mode=append',
             # Note: we put the run number first so that it's visible in
             # squeue's default 11-character column for the JobName.
