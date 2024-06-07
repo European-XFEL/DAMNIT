@@ -114,7 +114,7 @@ def baz(run, value: "var#foo"=42):
 Variable functions can use up to 4 CPU cores and 25 GB of RAM by default.
 If more resources are needed, use `cluster=True` (described below) to access all
 of the cores & memory of an assigned cluster node. If required, you can also
-change the limits for non-cluster variables :
+change the limits for non-cluster variables:
 
 ```bash
 # Allow 8 CPU cores
