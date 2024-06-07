@@ -658,18 +658,21 @@ def filesystem(host='localhost'):
 
     with TemporaryDirectory() as td:
         try:
-            mount_command = [
-                "sshfs", f"{host}:{extra_data.read_machinery.DATA_ROOT_DIR}", str(td),
-                # deactivate password prompt to fail if we don't have a valid ssh key
-                "-o", "ssh_command='ssh -o PasswordAuthentication=no'"
-            ]
+            mount_command = (
+               f"sshfs {host}:{extra_data.read_machinery.DATA_ROOT_DIR} {td} "
+               # deactivate password prompt to fail if we don't have a valid ssh key
+               "-o ssh_command='ssh -o PasswordAuthentication=no'"
+            )
+            print('cmd:', mount_command)
             run(mount_command, check=True, shell=True)
 
             with patch("extra_data.read_machinery.DATA_ROOT_DIR", td):
                 yield
-
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
         finally:
-            run(["fusermount", "-u", str(td)], check=True, shell=True)
+            run(f"fusermount -u {td}", check=True, shell=True)
 
 
 def execute_context(args):
@@ -767,7 +770,7 @@ def main(argv=None):
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
     exec_ap.add_argument('--save-reduced', action='append', default=[])
-    exec_ap.add_argument('--data-location', default='localhost')
+    exec_ap.add_argument('--data-location', default='localhost', help=argparse.SUPPRESS)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
