@@ -103,7 +103,7 @@ class EventProcessor:
                 self.run_online = False
             else:
                 self.online_data_host = remote_host
-        log.debug("Processing online data? %s", self.run_online)
+        log.info("Processing online data? %s", self.run_online)
 
         # Monitor thread for subprocesses
         self.extract_procs_queue = queue.Queue()
