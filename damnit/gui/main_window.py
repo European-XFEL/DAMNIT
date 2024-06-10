@@ -583,7 +583,7 @@ da-dev@xfel.eu"""
                                      stylesheet=StatusbarStylesheet.ERROR)
             return
 
-        if variable.type_hint is DataType.PlotlyFigure:
+        if variable.type_hint() is DataType.PlotlyFigure:
             pp = PlotlyPlot(variable)
             self._canvas_inspect.append(pp)
             pp.show()

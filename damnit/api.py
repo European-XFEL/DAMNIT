@@ -87,7 +87,6 @@ class VariableData:
         """
         return self._h5_path
 
-    @property
     def type_hint(self):
         """Type hint for this variable data.
 
