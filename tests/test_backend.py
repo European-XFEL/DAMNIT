@@ -1,35 +1,34 @@
-import io
-import os
-import stat
-import signal
-import logging
-import graphlib
-import textwrap
-import subprocess
 import configparser
+import graphlib
+import io
+import logging
+import os
+import signal
+import stat
+import subprocess
+import textwrap
 from unittest.mock import MagicMock, patch
 
+import extra_data as ed
 import h5py
-import yaml
+import numpy as np
+import plotly.express as px
 import pytest
 import requests
-import numpy as np
 import xarray as xr
+import yaml
 from PIL import Image
-import extra_data as ed
 
-from damnit.backend.supervisord import wait_until
-from damnit.context import (
-    ContextFileErrors, ContextFile, PNGData, Results, RunData, get_proposal_path
-)
+from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
-from damnit.backend import initialize_and_start_backend, backend_is_running
-from damnit.backend.extract_data import add_to_db, Extractor
-from damnit.backend.supervisord import write_supervisord_conf
+from damnit.backend.extract_data import Extractor, add_to_db
+from damnit.backend.supervisord import wait_until, write_supervisord_conf
+from damnit.context import (ContextFile, ContextFileErrors, PNGData, Results,
+                            RunData, get_proposal_path)
 from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE
 from damnit.gui.main_window import MainWindow
 
-from .helpers import reduced_data_from_dict, mkcontext
+from .helpers import mkcontext, reduced_data_from_dict
 
 
 def kill_pid(pid):
@@ -203,6 +202,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     np.testing.assert_equal(results.data["array"], [42, 3.14])
     np.testing.assert_equal(results.data["meta_array"].data, [run_number, proposal])
     assert results.data["string"] == str(get_proposal_path(mock_run))
+    assert results.data['plotly_mc_plotface'] == px.bar(x=['a', 'b', 'c'], y=[1, 3, 2])
 
     # Test behaviour with dependencies throwing exceptions
     raising_code = """

@@ -15,6 +15,7 @@ def mock_ctx():
     code = """
     import time
     import numpy as np
+    import plotly.express as px
     import xarray as xr
     from damnit.context import Variable
 
@@ -51,6 +52,10 @@ def mock_ctx():
     @Variable(data="raw")
     def string(run, proposal_path: "meta#proposal_path"):
         return str(proposal_path)
+
+    @Variable(data="raw")
+    def plotly_mc_plotface(run):
+        return px.bar(x=["a", "b", "c"], y=[1, 3, 2])
     """
 
     return mkcontext(code)

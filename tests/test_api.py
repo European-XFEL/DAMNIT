@@ -2,12 +2,14 @@ import subprocess
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
 import numpy as np
+import plotly.express as px
+import pytest
 import xarray as xr
+from plotly.graph_objects import Figure as PlotlyFigure
 
-from damnit.context import ContextFile
 from damnit import Damnit, RunVariables
+from damnit.context import ContextFile
 
 from .helpers import amore_proto
 
@@ -124,6 +126,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
 
     # Datasets have a internal _damnit attribute that should be removed
     assert len(dataset.attrs) == 0
+
+    fig = rv['plotly_mc_plotface'].read()
+    assert isinstance(fig, PlotlyFigure)
+    assert fig == px.bar(x=["a", "b", "c"], y=[1, 3, 2])
 
 def test_api_dependencies(virtualenv):
     package_path = Path(__file__).parent.parent
