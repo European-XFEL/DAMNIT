@@ -19,6 +19,7 @@ from datetime import timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
+from PIL import Image
 from unittest.mock import MagicMock
 
 import extra_data
@@ -393,14 +394,21 @@ def figure2png(fig, dpi=None):
 
 
 def plotly2png(figure):
-    width = height = THUMBNAIL_SIZE
-    if figure.layout.width is not None and figure.layout.height is not None:
-        width = figure.layout.width
-        height = figure.layout.height
-        largest_dim = max(width, height)
-        width = width / largest_dim * THUMBNAIL_SIZE
-        height = height / largest_dim * THUMBNAIL_SIZE
-    return PNGData(figure.to_image(format='png', width=width, height=height))
+    """Generate a png from a Plotly Figure
+
+    largest dimension set to THUMBNAIL_SIZE
+    """
+    png_data = figure.to_image(format='png')
+    # resize with PIL (scaling in plotly does not play well with text)
+    img = Image.open(io.BytesIO(png_data))
+    largest_dim = max(img.width, img.height)
+    width = int(img.width / largest_dim * THUMBNAIL_SIZE)
+    height = int(img.height / largest_dim * THUMBNAIL_SIZE)
+    img = img.resize((width, height), Image.Resampling.LANCZOS)
+    # convert to PNG
+    buff = io.BytesIO()
+    img.save(buff, format='PNG')
+    return PNGData(buff.getvalue())
 
 
 def generate_thumbnail(image):
@@ -519,7 +527,6 @@ class Results:
     def save_hdf5(self, hdf5_path, reduced_only=False):
 
         ctx_vars = self.ctx.vars
-        implicit_vars = self.data.keys() - self.ctx.vars.keys()
 
         xarray_dsets = []
         obj_type_hints = {}

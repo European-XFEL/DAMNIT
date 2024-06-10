@@ -86,7 +86,7 @@ def test_context_file(mock_ctx, tmp_path):
     assert { "array", "timestamp" } == var_deps("meta_array")
 
     # Check that the ordering is correct for execution
-    assert mock_ctx.ordered_vars() == ("scalar1", "empty_string", "timestamp", "string", "scalar2", "array", "meta_array")
+    assert mock_ctx.ordered_vars() == ("scalar1", "empty_string", "timestamp", "string", "plotly_mc_plotface", "scalar2", "array", "meta_array")
 
     # Check that we can retrieve direct and indirect dependencies
     assert set() == all_var_deps("scalar1")
@@ -597,7 +597,7 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    ctxrunner_deps = ["extra_data", "matplotlib", "pyyaml", "requests"]
+    ctxrunner_deps = ["extra_data", "matplotlib", "plotly", "pyyaml", "requests"]
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.
