@@ -1,14 +1,15 @@
 import logging
 import time
+from base64 import b64encode
 from itertools import groupby
 
-from PyQt5 import QtCore, QtWidgets, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox
 
-from ..backend.db import ReducedData, BlobTypes, DamnitDB
+from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
-from ..util import StatusbarStylesheet, timestamp2str, delete_variable
+from ..util import StatusbarStylesheet, delete_variable, timestamp2str
 
 log = logging.getLogger(__name__)
 
@@ -377,6 +378,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def image_item(self, png_data: bytes):
         item = self.itemPrototype().clone()
         item.setData(self.generateThumbnail(png_data), role=Qt.DecorationRole)
+        item.setToolTip(
+            f'<img src="data:image/png;base64,{b64encode(png_data).decode()}">'
+        )
         return item
 
     def comment_item(self, text, comment_id=None):
