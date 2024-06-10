@@ -111,6 +111,19 @@ def baz(run, value: "var#foo"=42):
     return value
 ```
 
+Variable functions can use up to 4 CPU cores and 25 GB of RAM by default.
+If more resources are needed, use `cluster=True` (described below) to access all
+of the cores & memory of an assigned cluster node. If required, you can also
+change the limits for non-cluster variables:
+
+```bash
+# Allow 8 CPU cores
+$ amore-proto db-config noncluster_cpus 8
+
+# Allow 50 GB memory
+$ amore-proto db-config noncluster_mem 50G
+```
+
 ## Using Slurm
 As mentioned in the previous section, variables can be marked for execution in a
 Slurm job with the `cluster=True` argument to the decorator:

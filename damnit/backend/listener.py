@@ -3,12 +3,11 @@ import json
 import logging
 import os
 import platform
-import queue
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 from socket import gethostname
-from threading import Thread
 
 from kafka import KafkaConsumer
 
@@ -34,37 +33,6 @@ KAFKA_CONF = {
 log = logging.getLogger(__name__)
 
 
-def watch_processes_finish(q: queue.Queue):
-    procs_by_prop_run = {}
-    while True:
-        # Get new subprocesses from the main thread
-        try:
-            prop, run, popen = q.get(timeout=1)
-            procs_by_prop_run[prop, run] = popen
-        except queue.Empty:
-            pass
-
-        # Check if any of the subprocesses we're tracking have finished
-        to_delete = set()
-        for (prop, run), popen in procs_by_prop_run.items():
-            returncode = popen.poll()
-            if returncode is None:
-                continue  # Still running
-
-            # Can't delete from a dict while iterating over it
-            to_delete.add((prop, run))
-            if returncode == 0:
-                log.info("Data extraction for p%d r%d succeeded", prop, run)
-            else:
-                log.error(
-                    "Data extraction for p%d, r%d failed with exit code %d",
-                    prop, run, returncode
-                )
-
-        for prop, run in to_delete:
-            del procs_by_prop_run[prop, run]
-
-
 class EventProcessor:
 
     def __init__(self, context_dir=Path('.')):
@@ -87,13 +55,6 @@ class EventProcessor:
                                        group_id=consumer_id)
         self.events = kafka_conf['events']
 
-        self.extract_procs_queue = queue.Queue()
-        self.extract_procs_watcher = Thread(
-            target=watch_processes_finish,
-            args=(self.extract_procs_queue,),
-            daemon=True
-        )
-        self.extract_procs_watcher.start()
 
     def __enter__(self):
         return self
@@ -145,13 +106,27 @@ class EventProcessor:
         log.info("Processing output will be written to %s",
                  log_path.relative_to(self.context_dir.absolute()))
 
-        with log_path.open('ab') as logf:
-            # Create subprocess to process the run
-            extract_proc = subprocess.Popen([
-                sys.executable, '-m', 'damnit.backend.extract_data',
-                str(proposal), str(run), run_data.value
-            ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
-        self.extract_procs_queue.put((proposal, run, extract_proc))
+        python_cmd = [
+            sys.executable, '-m', 'damnit.backend.extract_data',
+            str(proposal), str(run), run_data.value
+        ]
+
+        res = subprocess.run([
+            'sbatch', '--parsable',
+            '--cluster=solaris',
+            '-o', log_path,
+            # Default 4 CPU cores & 25 GB memory, can be overridden
+            '--cpus-per-task', str(self.db.metameta.get('noncluster_cpus', '4')),
+            '--mem', self.db.metameta.get('noncluster_mem', '25G'),
+            '--open-mode=append',
+            # Note: we put the run number first so that it's visible in
+            # squeue's default 11-character column for the JobName.
+            '--job-name', f"r{run}-p{proposal}-damnit",
+            '--wrap', shlex.join(python_cmd)
+        ], stdout=subprocess.PIPE, text=True)
+        job_id = res.stdout.partition(';')[0].strip()
+        log.info("Launched Slurm (solaris) job %s to run context file", job_id)
+
 
 def listen():
     # Set up logging to a file
