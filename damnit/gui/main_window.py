@@ -31,7 +31,8 @@ from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
-from .plot import Canvas, Plot, PlotlyPlot
+from .plot import Canvas, Plot  #, PlotlyPlot
+from .web_viewer import UrlSchemeHandler, SCHEME_HANDLER, WEB_PROFILE, PlotlyPlot
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
 from .widgets import CollapsibleWidget
@@ -582,19 +583,19 @@ da-dev@xfel.eu"""
                                      stylesheet=StatusbarStylesheet.ERROR)
             return
 
-        try:
-            data = variable.read()
-        except KeyError:
-            log.warning(f'"{quantity}" not found in {variable.file}...')
-            return
-
-        if isinstance(data, PlotlyFigure):
-            pp = PlotlyPlot(data)
+        from ..api import DataType
+        if variable.type_hint == DataType.PlotlyFigure:
+            pp = PlotlyPlot(variable)
             self._canvas_inspect.append(pp)
             pp.show()
             return
 
-        data = xr.DataArray(data)
+        try:
+            data = xr.DataArray(variable.read())
+        except KeyError:
+            log.warning(f'"{quantity}" not found in {variable.file}...')
+            return
+
         if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
             canvas = Canvas(
                 self,
@@ -990,6 +991,13 @@ def run_app(context_dir, connect_to_kafka=True):
         if not prompt_setup_db_and_backend(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
+
+    # configure webviewer url engine
+    from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+    global SCHEME_HANDLER, WEB_PROFILE
+    SCHEME_HANDLER = UrlSchemeHandler(parent=application)
+    WEB_PROFILE = QWebEngineProfile.defaultProfile()
+    SCHEME_HANDLER.install(WEB_PROFILE)
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()

@@ -87,6 +87,20 @@ class VariableData:
         """
         return self._h5_path
 
+    @property
+    def type_hint(self):
+        """Type information
+        """
+        with self._open_h5_group() as group:
+            return self._type_hint(group)
+        #     if type_hint is None:
+        #         dset = group['data']
+        #         if h5py.check_string_dtype(dset.dtype) is not None:
+        #             type_hint = str
+        #         else:
+        #             type_hint = dset.dtype.type
+        # return type_hint
+
     @contextmanager
     def _open_h5_group(self):
         with h5py.File(self._h5_path) as f:

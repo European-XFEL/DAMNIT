@@ -1,5 +1,6 @@
 import logging
 import time
+from base64 import b64encode
 from itertools import groupby
 
 from PyQt5 import QtCore, QtWidgets, QtGui
@@ -377,6 +378,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def image_item(self, png_data: bytes):
         item = self.itemPrototype().clone()
         item.setData(self.generateThumbnail(png_data), role=Qt.DecorationRole)
+        item.setToolTip(
+            f'<img src="data:image/png;base64,{b64encode(png_data).decode()}">'
+        )
         return item
 
     def comment_item(self, text, comment_id=None):

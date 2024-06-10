@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import tempfile
 import xarray as xr
-from pandas.api.types import is_numeric_dtype
 
 from PyQt5.QtCore import Qt
 from PyQt5 import QtCore, QtWidgets, QtGui
@@ -12,7 +11,6 @@ from PyQt5.QtWidgets import QMessageBox
 
 import mplcursors
 import matplotlib
-import plotly.express as px
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,
@@ -25,17 +23,98 @@ from ..util import fix_data_for_plotting
 
 log = logging.getLogger(__name__)
 
+from PyQt5.QtCore import (
+    QUrl, QByteArray, QBuffer, QIODevice,
+)
+from PyQt5.QtWebEngineCore import (
+    QWebEngineUrlScheme, QWebEngineUrlSchemeHandler, QWebEngineUrlRequestJob,
+    )
+
+
+# https://stackoverflow.com/a/39186648
+LOCAL_SCHEME = bytes('local', 'ascii')
+
+scheme = QWebEngineUrlScheme(LOCAL_SCHEME)
+scheme.setFlags(QWebEngineUrlScheme.Flag.SecureScheme |
+                QWebEngineUrlScheme.Flag.LocalScheme |
+                QWebEngineUrlScheme.Flag.LocalAccessAllowed)
+QWebEngineUrlScheme.registerScheme(scheme)
+
+HTML_DATA = {}
+
+
+class UrlSchemeHandler(QWebEngineUrlSchemeHandler):
+    def requestStarted(self, job):
+        href = job.requestUrl().path()
+        _data = HTML_DATA.get(href)
+
+        if _data is None:
+            print(f'ERROR: request job failed: {href!r}')
+            job.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+            return
+
+        mime = QByteArray(b'text/html')
+        buffer = QBuffer(job)
+        buffer.setData(_data)
+        buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+        job.reply(mime, buffer)
+
 
 class PlotlyPlot(QtWidgets.QWidget):
-    def __init__(self, figure):
+    def __init__(self, figure, variable):
         super().__init__()
+
+        self.url = f'plot.ly/{variable.proposal}/{variable.run}/{variable.name}'
+        _data = figure.to_html(include_plotlyjs='cdn', validate=False).encode()
+        HTML_DATA[self.url] = _data
+
         browser = QWebEngineView(self)
-        browser.setHtml(figure.to_html(include_plotlyjs='cdn'))
+        browser.page().profile().installUrlSchemeHandler(LOCAL_SCHEME, UrlSchemeHandler(self))
+        def _handleLoaded(ok):
+            if not ok:
+                browser.setHtml('<h3>414: URI Too Long</h3>')
+        browser.loadFinished.connect(_handleLoaded)
+
+        url = QUrl(self.url)
+        url.setScheme('local')
+        browser.setUrl(url)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(browser)
         self.setLayout(layout)
         self.resize(800, 600)
+
+    def closeEvent(self, event):
+        del HTML_DATA[self.url]
+        super().closeEvent(event)
+
+# import sys
+# from PyQt5.QtCore import QEventLoop
+# from PyQt5.QtWidgets import QApplication
+
+# class PlotlyPlot(QtWidgets.QWidget):
+#     def __init__(self, figure):
+#         super().__init__()
+#         browser = QWebEngineView(self)
+
+#         def _callable(data):
+#             browser.html = data
+
+#         def _loadFinished(data):
+#             browser.page().toHtml(_callable)
+
+#         browser.html = None
+#         browser.loadFinished.connect(_loadFinished)
+
+#         browser.setHtml(figure.to_html(include_plotlyjs='cdn', validate=False))
+#         #browser.setHtml(plotly.offline.plot(figure, output_type='div'))
+#         while browser.html is None:
+#             QApplication.instance().processEvents(QEventLoop.ExcludeUserInputEvents | QEventLoop.ExcludeSocketNotifiers | QEventLoop.WaitForMoreEvents)
+
+#         layout = QtWidgets.QVBoxLayout(self)
+#         layout.addWidget(browser)
+#         self.setLayout(layout)
+#         self.resize(800, 600)
 
 
 class Canvas(QtWidgets.QDialog):

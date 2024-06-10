@@ -17,7 +17,9 @@ readme = "README.md"
 dependencies = [
     "h5netcdf",
     "h5py",
+    "orjson",  # makes plotly fast
     "pandas",
+    "plotly",
     "xarray"
 ]
 

@@ -16,7 +16,6 @@ import sys
 import time
 import traceback
 from datetime import timezone
-
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
@@ -25,11 +24,12 @@ from unittest.mock import MagicMock
 import extra_data
 import h5py
 import numpy as np
-import xarray as xr
 import requests
+import xarray as xr
 import yaml
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from PIL import Image
 from plotly.graph_objects import Figure as PlotlyFigure
 
 from damnit_ctx import RunData, Variable
@@ -382,9 +382,11 @@ def figure2array(fig):
     canvas.draw()
     return np.asarray(canvas.buffer_rgba())
 
+
 class PNGData:
     def __init__(self, data: bytes):
         self.data = data
+
 
 def figure2png(fig, dpi=None):
     bio = io.BytesIO()
@@ -393,14 +395,21 @@ def figure2png(fig, dpi=None):
 
 
 def plotly2png(figure):
-    width = height = THUMBNAIL_SIZE
-    if figure.layout.width is not None and figure.layout.height is not None:
-        width = figure.layout.width
-        height = figure.layout.height
-        largest_dim = max(width, height)
-        width = width / largest_dim * THUMBNAIL_SIZE
-        height = height / largest_dim * THUMBNAIL_SIZE
-    return PNGData(figure.to_image(format='png', width=width, height=height))
+    """Generate a png from a Plotly Figure
+
+    largest dimension set to THUMBNAIL_SIZE
+    """
+    png_data = figure.to_image(format='png')
+    # resize with PIL (scaling in plotly does not play well with text)
+    img = Image.open(io.BytesIO(png_data))
+    largest_dim = max(img.width, img.height)
+    width = int(img.width / largest_dim * THUMBNAIL_SIZE)
+    height = int(img.height / largest_dim * THUMBNAIL_SIZE)
+    img = img.resize((width, height), Image.Resampling.LANCZOS)
+    # convert to PNG
+    buff = io.BytesIO()
+    img.save(buff, format='PNG')
+    return PNGData(buff.getvalue())
 
 
 def generate_thumbnail(image):
