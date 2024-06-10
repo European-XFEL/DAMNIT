@@ -34,8 +34,7 @@ from .open_dialog import OpenDBDialog
 from .plot import Canvas, Plot
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
-from .web_viewer import (SCHEME_HANDLER, WEB_PROFILE, PlotlyPlot,
-                         UrlSchemeHandler)
+from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
@@ -993,10 +992,9 @@ def run_app(context_dir, connect_to_kafka=True):
             return 0
 
     # configure webviewer url engine
-    global SCHEME_HANDLER, WEB_PROFILE
-    SCHEME_HANDLER = UrlSchemeHandler(parent=application)
-    WEB_PROFILE = QWebEngineProfile.defaultProfile()
-    SCHEME_HANDLER.install(WEB_PROFILE)
+    scheme_handler = UrlSchemeHandler(parent=application)
+    profile = QWebEngineProfile.defaultProfile()
+    scheme_handler.install(profile)
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()
