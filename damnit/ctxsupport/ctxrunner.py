@@ -14,25 +14,23 @@ import os
 import pickle
 import sys
 import time
-from datetime import timezone
 import traceback
+from datetime import timezone
 from enum import Enum
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from unittest.mock import MagicMock
-from graphlib import CycleError, TopologicalSorter
-
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from plotly.graph_objects import Figure as PlotlyFigure
 
 import extra_data
 import h5py
 import numpy as np
-import xarray as xr
 import requests
+import xarray as xr
 import yaml
-
 from damnit_ctx import RunData, Variable
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from plotly.graph_objects import Figure as PlotlyFigure
 
 log = logging.getLogger(__name__)
 

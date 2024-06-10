@@ -1,16 +1,16 @@
 import os
-from glob import iglob
 import os.path as osp
-from enum import Enum
-from pathlib import Path
 from contextlib import contextmanager
+from enum import Enum
+from glob import iglob
+from pathlib import Path
 
 import h5py
 import pandas as pd
 import plotly.io as pio
 import xarray as xr
 
-from .backend.db import DamnitDB, BlobTypes
+from .backend.db import BlobTypes, DamnitDB
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
