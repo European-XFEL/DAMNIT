@@ -23,6 +23,7 @@ from graphlib import CycleError, TopologicalSorter
 
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from plotly.graph_objects import Figure as PlotlyFigure
 
 import extra_data
 import h5py
@@ -45,6 +46,7 @@ class DataType(Enum):
     Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
+    PlotlyFigure = "PlotlyFigure"
 
 
 class MyMetadataClient:
@@ -334,7 +336,7 @@ class ContextFile:
                 if isinstance(data, Axes):
                     data = data.get_figure()
 
-                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
+                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure, PlotlyFigure)):
                     arr = np.asarray(data)
                     # Numpy will wrap any Python object, but only native arrays
                     # can be saved in HDF5, not those containing Python objects.
@@ -380,14 +382,27 @@ def figure2array(fig):
     canvas.draw()
     return np.asarray(canvas.buffer_rgba())
 
+
 class PNGData:
     def __init__(self, data: bytes):
         self.data = data
+
 
 def figure2png(fig, dpi=None):
     bio = io.BytesIO()
     fig.savefig(bio, dpi=dpi, format='png')
     return PNGData(bio.getvalue())
+
+
+def plotly2png(figure):
+    width = height = THUMBNAIL_SIZE
+    if figure.layout.width is not None and figure.layout.height is not None:
+        width = figure.layout.width
+        height = figure.layout.height
+        largest_dim = max(width, height)
+        width = width / largest_dim * THUMBNAIL_SIZE
+        height = height / largest_dim * THUMBNAIL_SIZE
+    return PNGData(figure.to_image(format='png', width=width, height=height))
 
 
 def generate_thumbnail(image):
@@ -487,6 +502,8 @@ class Results:
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             return figure2png(data, dpi=(data.dpi * zoom_ratio))
+        elif isinstance(data, PlotlyFigure):
+            return plotly2png(data)
         elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
             return generate_thumbnail(np.nan_to_num(data))
         elif self.ctx.vars[name].summary is None:
@@ -521,6 +538,9 @@ class Results:
                     if isinstance(obj, Figure):
                         value =  figure2array(obj)
                         obj_type_hints[name] = DataType.Image
+                    elif isinstance(obj, PlotlyFigure):
+                        value = obj.to_json()
+                        obj_type_hints[name] = DataType.PlotlyFigure
                     elif isinstance(obj, str):
                         value = obj
                     else:
@@ -595,6 +615,7 @@ class Results:
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
 
+
 def mock_run():
     run = MagicMock()
     run.files = [MagicMock(filename="/tmp/foo/bar.h5")]
@@ -612,6 +633,7 @@ def mock_run():
     run.train_timestamps.side_effect = train_timestamps
 
     return run
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
