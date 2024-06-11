@@ -584,7 +584,7 @@ da-dev@xfel.eu"""
             return
 
         if variable.type_hint() is DataType.PlotlyFigure:
-            pp = PlotlyPlot(variable)
+            pp = PlotlyPlot(variable, self)
             self._canvas_inspect.append(pp)
             pp.show()
             return
