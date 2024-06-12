@@ -14,24 +14,24 @@ import os
 import pickle
 import sys
 import time
-from datetime import timezone
 import traceback
+from datetime import timezone
 from enum import Enum
-from pathlib import Path
-from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
-
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
+from pathlib import Path
+from PIL import Image
+from unittest.mock import MagicMock
 
 import extra_data
 import h5py
 import numpy as np
-import xarray as xr
 import requests
+import xarray as xr
 import yaml
-
 from damnit_ctx import RunData, Variable
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from plotly.graph_objects import Figure as PlotlyFigure
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ class DataType(Enum):
     Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
+    PlotlyFigure = "PlotlyFigure"
 
 
 class MyMetadataClient:
@@ -334,7 +335,7 @@ class ContextFile:
                 if isinstance(data, Axes):
                     data = data.get_figure()
 
-                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
+                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure, PlotlyFigure)):
                     arr = np.asarray(data)
                     # Numpy will wrap any Python object, but only native arrays
                     # can be saved in HDF5, not those containing Python objects.
@@ -380,14 +381,34 @@ def figure2array(fig):
     canvas.draw()
     return np.asarray(canvas.buffer_rgba())
 
+
 class PNGData:
     def __init__(self, data: bytes):
         self.data = data
+
 
 def figure2png(fig, dpi=None):
     bio = io.BytesIO()
     fig.savefig(bio, dpi=dpi, format='png')
     return PNGData(bio.getvalue())
+
+
+def plotly2png(figure):
+    """Generate a png from a Plotly Figure
+
+    largest dimension set to THUMBNAIL_SIZE
+    """
+    png_data = figure.to_image(format='png')
+    # resize with PIL (scaling in plotly does not play well with text)
+    img = Image.open(io.BytesIO(png_data))
+    largest_dim = max(img.width, img.height)
+    width = int(img.width / largest_dim * THUMBNAIL_SIZE)
+    height = int(img.height / largest_dim * THUMBNAIL_SIZE)
+    img = img.resize((width, height), Image.Resampling.LANCZOS)
+    # convert to PNG
+    buff = io.BytesIO()
+    img.save(buff, format='PNG')
+    return PNGData(buff.getvalue())
 
 
 def generate_thumbnail(image):
@@ -487,6 +508,8 @@ class Results:
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             return figure2png(data, dpi=(data.dpi * zoom_ratio))
+        elif isinstance(data, PlotlyFigure):
+            return plotly2png(data)
         elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
             return generate_thumbnail(np.nan_to_num(data))
         elif self.ctx.vars[name].summary is None:
@@ -504,11 +527,10 @@ class Results:
     def save_hdf5(self, hdf5_path, reduced_only=False):
 
         ctx_vars = self.ctx.vars
-        implicit_vars = self.data.keys() - self.ctx.vars.keys()
 
         xarray_dsets = []
         obj_type_hints = {}
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
+        dsets = [(f'.reduced/{name}', v, None) for name, v in self.reduced.items()]
         if not reduced_only:
             for name, obj in self.data.items():
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
@@ -519,14 +541,19 @@ class Results:
                     )
                 else:
                     if isinstance(obj, Figure):
-                        value =  figure2array(obj)
+                        value = figure2array(obj)
                         obj_type_hints[name] = DataType.Image
+                    elif isinstance(obj, PlotlyFigure):
+                        # we want to compresss plotly figures in HDF5 files
+                        # so we need to convert the data to array of uint8
+                        value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
+                        obj_type_hints[name] = DataType.PlotlyFigure
                     elif isinstance(obj, str):
                         value = obj
                     else:
                         value = np.asarray(obj)
 
-                    dsets.append((f'{name}/data', value))
+                    dsets.append((f'{name}/data', value, obj_type_hints.get(name)))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -544,12 +571,16 @@ class Results:
 
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, obj in dsets:
+            for path, obj, type_hint in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
 
-                if isinstance(obj, str):
+                if type_hint is DataType.PlotlyFigure:
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype,
+                                     compression='gzip', compression_opts=1,
+                                     fletcher32=True, shuffle=True)
+                elif isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
@@ -557,7 +588,7 @@ class Results:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
             # Fill with data
-            for path, obj in dsets:
+            for path, obj, type_hint in dsets:
                 if isinstance(obj, PNGData):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
@@ -595,6 +626,7 @@ class Results:
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
 
+
 def mock_run():
     run = MagicMock()
     run.files = [MagicMock(filename="/tmp/foo/bar.h5")]
@@ -612,6 +644,7 @@ def mock_run():
     run.train_timestamps.side_effect = train_timestamps
 
     return run
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser()

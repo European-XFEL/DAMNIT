@@ -17,7 +17,9 @@ readme = "README.md"
 dependencies = [
     "h5netcdf",
     "h5py",
+    "orjson",  # used in plotly for faster json serialization
     "pandas",
+    "plotly",
     "xarray"
 ]
 
@@ -26,6 +28,7 @@ backend = [
     "EXtra-data",
     "ipython",
     "kafka-python",
+    "kaleido",  # used in plotly to convert figures to images
     "matplotlib",
     "numpy",
     "pyyaml",
@@ -39,6 +42,7 @@ gui = [
     "mpl-pan-zoom",
     "openpyxl",  # for spreadsheet export
     "PyQt5",
+    "PyQtWebEngine",
     "pyflakes",  # for checking context file in editor
     "QScintilla==2.13",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)

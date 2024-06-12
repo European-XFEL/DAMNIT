@@ -1,15 +1,16 @@
 import os
-from glob import iglob
 import os.path as osp
-from enum import Enum
-from pathlib import Path
 from contextlib import contextmanager
+from enum import Enum
+from glob import iglob
+from pathlib import Path
 
 import h5py
 import pandas as pd
+import plotly.io as pio
 import xarray as xr
 
-from .backend.db import DamnitDB, BlobTypes
+from .backend.db import BlobTypes, DamnitDB
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
@@ -19,6 +20,7 @@ class DataType(Enum):
     Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
+    PlotlyFigure = "PlotlyFigure"
 
 
 DATA_ROOT_DIR = os.environ.get('EXTRA_DATA_DATA_ROOT', '/gpfs/exfel/exp')
@@ -85,6 +87,14 @@ class VariableData:
         """
         return self._h5_path
 
+    def type_hint(self):
+        """Type hint for this variable data.
+
+        one of ``DataType`` or None.
+        """
+        with self._open_h5_group() as group:
+            return self._type_hint(group)
+
     @contextmanager
     def _open_h5_group(self):
         with h5py.File(self._h5_path) as f:
@@ -118,7 +128,11 @@ class VariableData:
                 return self._read_netcdf(one_array=True)
 
             dset = group["data"]
-            if h5py.check_string_dtype(dset.dtype) is not None:
+            if type_hint is DataType.PlotlyFigure:
+                # plotly figures are json serialized and saved as uint8 arrays
+                # to enable compression in HDF5
+                return pio.from_json(dset[()].tobytes())
+            elif h5py.check_string_dtype(dset.dtype) is not None:
                 # Strings. Scalar/non-scalar strings need to be read differently.
                 if dset.ndim == 0:
                     return dset[()].decode("utf-8", "surrogateescape")
