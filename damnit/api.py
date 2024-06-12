@@ -129,8 +129,9 @@ class VariableData:
 
             dset = group["data"]
             if type_hint is DataType.PlotlyFigure:
-                # json string representing a plotly Figure
-                return pio.from_json(dset[()])
+                # plotly figures are json serialized and saved as uint8 arrays
+                # to enable compression in HDF5
+                return pio.from_json(dset[()].tobytes())
             elif h5py.check_string_dtype(dset.dtype) is not None:
                 # Strings. Scalar/non-scalar strings need to be read differently.
                 if dset.ndim == 0:

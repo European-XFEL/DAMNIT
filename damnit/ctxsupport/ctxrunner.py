@@ -530,7 +530,7 @@ class Results:
 
         xarray_dsets = []
         obj_type_hints = {}
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
+        dsets = [(f'.reduced/{name}', v, None) for name, v in self.reduced.items()]
         if not reduced_only:
             for name, obj in self.data.items():
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
@@ -541,17 +541,19 @@ class Results:
                     )
                 else:
                     if isinstance(obj, Figure):
-                        value =  figure2array(obj)
+                        value = figure2array(obj)
                         obj_type_hints[name] = DataType.Image
                     elif isinstance(obj, PlotlyFigure):
-                        value = obj.to_json()
+                        # we want to compresss plotly figures in HDF5 files
+                        # so we need to convert the data to array of uint8
+                        value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
                         obj_type_hints[name] = DataType.PlotlyFigure
                     elif isinstance(obj, str):
                         value = obj
                     else:
                         value = np.asarray(obj)
 
-                    dsets.append((f'{name}/data', value))
+                    dsets.append((f'{name}/data', value, obj_type_hints.get(name)))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -569,12 +571,16 @@ class Results:
 
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, obj in dsets:
+            for path, obj, type_hint in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
 
-                if isinstance(obj, str):
+                if type_hint is DataType.PlotlyFigure:
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype,
+                                     compression='gzip', compression_opts=1,
+                                     fletcher32=True, shuffle=True)
+                elif isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
@@ -582,7 +588,7 @@ class Results:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
             # Fill with data
-            for path, obj in dsets:
+            for path, obj, type_hint in dsets:
                 if isinstance(obj, PNGData):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
