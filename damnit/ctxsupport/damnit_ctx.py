@@ -91,11 +91,18 @@ class Cell:
             data = data.get_figure()
 
         if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure, PlotlyFigure)):
-            data = np.asarray(data)
+            arr = np.asarray(data)
             # Numpy will wrap any Python object, but only native arrays
             # can be saved in HDF5, not those containing Python objects.
-            if data.dtype.hasobject:
+            if arr.dtype.hasobject:
                 raise TypeError(f"Returned data type {type(data)} cannot be saved")
+            data = arr
+
+        if summary_value is not None and not isinstance(summary_value, str):
+            arr = np.asarray(summary_value)
+            if arr.dtype.hasobject:
+                raise TypeError(f"summary_value should be number or string, not {type(summary)}")
+            summary_value = arr
 
             elif not np.issubdtype(data.dtype, np.number):
                 try:

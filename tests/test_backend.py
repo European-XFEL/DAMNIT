@@ -479,6 +479,10 @@ def test_results_cell(mock_run, tmp_path):
     @Variable(summary='sum')
     def var2(run):
         return Cell(np.arange(10), bold=False, background='#bbdddd')
+
+    @Variable()
+    def var3(run):
+        return Cell(np.arange(7), summary_value=4)
     """
     bad_obj_ctx = mkcontext(ctx_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
@@ -490,6 +494,8 @@ def test_results_cell(mock_run, tmp_path):
         np.testing.assert_array_equal(
             f['.reduced/var2'].attrs['background'], [0xbb, 0xdd, 0xdd]
         )
+
+        assert f['.reduced/var3'][()] == 4
 
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
