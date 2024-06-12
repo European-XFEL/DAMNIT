@@ -392,7 +392,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             item.setData(comment_id, COMMENT_ID_ROLE)
         return item
 
-    def new_item(self, value, column_id, max_diff=0, attrs=None):
+    def new_item(self, value, column_id, max_diff, attrs):
         if is_png_bytes(value):
             return self.image_item(value)
         elif column_id == 'comment':
