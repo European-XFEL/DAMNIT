@@ -468,7 +468,6 @@ def test_results_bad_obj(mock_run, tmp_path):
         assert set(f[".reduced"]) == {"good", "start_time"}
 
 def test_results_cell(mock_run, tmp_path):
-    # Test returning an object we can't save in HDF5
     ctx_code = """
     from damnit_ctx import Variable, Cell
     import numpy as np
