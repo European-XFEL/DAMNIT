@@ -292,6 +292,7 @@ class Extractor:
 
             res = subprocess.run([
                 'sbatch', '--parsable',
+                '--clusters', 'maxwell',
                 *self.slurm_options(),
                 '-o', process_log_path(run, proposal),
                 '--open-mode=append',
