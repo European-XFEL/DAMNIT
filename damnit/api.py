@@ -87,6 +87,14 @@ class VariableData:
         """
         return self._h5_path
 
+    def type_hint(self):
+        """Type hint for this variable data.
+
+        one of ``DataType`` or None.
+        """
+        with self._open_h5_group() as group:
+            return self._type_hint(group)
+
     @contextmanager
     def _open_h5_group(self):
         with h5py.File(self._h5_path) as f:

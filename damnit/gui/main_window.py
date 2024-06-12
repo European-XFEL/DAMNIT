@@ -12,16 +12,17 @@ import h5py
 import numpy as np
 import pandas as pd
 import xarray as xr
+from kafka.errors import NoBrokersAvailable
 from pandas.api.types import infer_dtype
+from plotly.graph_objects import Figure as PlotlyFigure
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
+from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
-from kafka.errors import NoBrokersAvailable
-
+from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
-from ..api import RunVariables
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extract_data import get_context_file, process_log_path
 from ..backend.user_variables import UserEditableVariable
@@ -33,6 +34,7 @@ from .open_dialog import OpenDBDialog
 from .plot import Canvas, Plot
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
+from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
@@ -581,6 +583,12 @@ da-dev@xfel.eu"""
                                      stylesheet=StatusbarStylesheet.ERROR)
             return
 
+        if variable.type_hint() is DataType.PlotlyFigure:
+            pp = PlotlyPlot(variable, self)
+            self._canvas_inspect.append(pp)
+            pp.show()
+            return
+
         try:
             data = xr.DataArray(variable.read())
         except KeyError:
@@ -982,6 +990,11 @@ def run_app(context_dir, connect_to_kafka=True):
         if not prompt_setup_db_and_backend(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
+
+    # configure webviewer url engine
+    scheme_handler = UrlSchemeHandler(parent=application)
+    profile = QWebEngineProfile.defaultProfile()
+    scheme_handler.install(profile)
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()
