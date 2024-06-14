@@ -60,6 +60,10 @@ def main():
         '--no-kafka', action='store_true',
         help="Don't try connecting to XFEL's Kafka broker"
     )
+    gui_ap.add_argument(
+        "--software-opengl", action="store_true",
+        help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
+    )
 
     listen_ap = subparsers.add_parser(
         'listen', help="Watch for new runs & extract data from them"
@@ -181,7 +185,9 @@ def main():
             context_dir = None
 
         from .gui.main_window import run_app
-        return run_app(context_dir, connect_to_kafka=not args.no_kafka)
+        return run_app(context_dir,
+                       software_opengl=args.software_opengl,
+                       connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
         from .backend.db import db_path
