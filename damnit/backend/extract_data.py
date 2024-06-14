@@ -11,6 +11,7 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from ctypes import CDLL
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -228,23 +229,6 @@ class Extractor:
             ))
         self.kafka_prd.flush()
 
-    @property
-    def proposal(self):
-        if self._proposal is None:
-            self._proposal = self.db.metameta['proposal']
-        return self._proposal
-
-    def slurm_options(self):
-        opts = ["--time", self.db.metameta.get("slurm_time", "02:00:00")]
-
-        if reservation := self.db.metameta.get('slurm_reservation', ''):
-            opts.extend(['--reservation', reservation])
-        else:
-            partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
-            opts.extend(['--partition', partition])
-
-        return opts
-
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=(), mock=False, tee_output=None):
         if proposal is None:
@@ -285,24 +269,11 @@ class Extractor:
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
-            python_cmd = [sys.executable, '-m', 'damnit.backend.extract_data',
-                          '--cluster-job', str(proposal), str(run), run_data.value]
-            for m in match:
-                python_cmd.extend(["--match", m])
-
-            res = subprocess.run([
-                'sbatch', '--parsable',
-                '--clusters', 'maxwell',
-                *self.slurm_options(),
-                '-o', process_log_path(run, proposal),
-                '--open-mode=append',
-                # Note: we put the run number first so that it's visible in
-                # squeue's default 11-character column for the JobName.
-                '--job-name', f"r{run}-p{proposal}-damnit",
-                '--wrap', shlex.join(python_cmd)
-            ], stdout=subprocess.PIPE, text=True)
-            job_id = res.stdout.partition(';')[0].strip()
-            log.info("Launched Slurm job %s to calculate cluster variables", job_id)
+            submitter = ExtractionSubmitter(Path.cwd(), self.db)
+            cluster_req = ExtractionRequest(
+                run, proposal, run_data, cluster=True, match=match, mock=mock
+            )
+            submitter.submit(cluster_req)
 
 
 def proposal_runs(proposal):
@@ -313,12 +284,12 @@ def proposal_runs(proposal):
 
 def reprocess(runs, proposal=None, match=(), mock=False):
     """Called by the 'amore-proto reprocess' subcommand"""
-    extr = Extractor()
+    submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
-        proposal = extr.proposal
+        proposal = submitter.proposal
 
     if runs == ['all']:
-        rows = extr.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
+        rows = submitter.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
 
         # Dictionary of proposal numbers to sets of available runs
         available_runs = {}
@@ -357,32 +328,153 @@ def reprocess(runs, proposal=None, match=(), mock=False):
 
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
-    log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     for prop, run in props_runs:
-        log_path = process_log_path(run, prop)
-        file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(log_formatter)
-        logging.getLogger().addHandler(file_handler)
-        try:
-            log.info("\n\n----- Reprocessing r%s (p%s) -----", run, prop)
-            log.info(f"match={match}")
-            extr.extract_and_ingest(prop, run, match=match, mock=mock, tee_output=log_path)
-        except Exception:
-            log.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
-            raise
-        finally:
-            logging.getLogger().removeHandler(file_handler)
-            file_handler.close()
+        req = ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
+        job_id, cluster = submitter.submit(req)
+
+
+@dataclass
+class ExtractionRequest:
+    """Description of some data we want to extract"""
+    run: int
+    proposal: int
+    run_data: RunData
+    cluster: bool = False
+    match: tuple = ()
+    mock: bool = False
+
+    def python_cmd(self):
+        """Creates the command for a process to do this extraction"""
+        cmd = [
+            sys.executable, '-m', 'damnit.backend.extract_data',
+            str(self.proposal), str(self.run), self.run_data.value
+        ]
+        if self.cluster:
+            cmd.append('--cluster-job')
+        for m in self.match:
+            cmd.extend(['--match', m])
+        if self.mock:
+            cmd.append('--mock')
+        return cmd
+
+
+class ExtractionSubmitter:
+    """Submits extraction jobs to Slurm"""
+    def __init__(self, context_dir: Path, db=None):
+        self.context_dir = context_dir
+        self.db = db or DamnitDB.from_dir(context_dir)
+
+    _proposal = None
+
+    @property
+    def proposal(self):
+        if self._proposal is None:
+            self._proposal = self.db.metameta['proposal']
+        return self._proposal
+
+    def submit(self, req: ExtractionRequest):
+        """Submit a Slurm job to extract data from a run
+
+        Returns the job ID & cluster
+        """
+        res = subprocess.run(self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True)
+        job_id, _, cluster = res.stdout.partition(';')
+        job_id = job_id.strip()
+        cluster = cluster.strip() or 'maxwell'
+        log.info("Launched Slurm (%s) job %s to run context file", cluster, job_id)
+        return job_id, cluster
+
+    def sbatch_cmd(self, req: ExtractionRequest):
+        """Make the sbatch command to extract data from a run"""
+        log_path = process_log_path(req.run, req.proposal, self.context_dir)
+        log.info("Processing output will be written to %s",
+                 log_path.relative_to(self.context_dir.absolute()))
+
+        if req.cluster:
+            resource_opts = self._slurm_cluster_opts()
+        else:
+            resource_opts = self._slurm_shared_opts()
+        return [
+            'sbatch', '--parsable',
+            *resource_opts,
+            '-o', log_path,
+            '--open-mode=append',
+            # Note: we put the run number first so that it's visible in
+            # squeue's default 11-character column for the JobName.
+            '--job-name', f"r{req.run}-p{req.proposal}-damnit",
+            '--wrap', shlex.join(req.python_cmd())
+        ]
+
+    def _slurm_shared_opts(self):
+        return [
+            "--clusters", "solaris",
+            # Default 4 CPU cores & 25 GB memory, can be overridden
+            '--cpus-per-task', str(self.db.metameta.get('noncluster_cpus', '4')),
+            '--mem', self.db.metameta.get('noncluster_mem', '25G'),
+        ]
+
+    def _slurm_cluster_opts(self):
+        # Maxwell (dedicated node)
+        opts = [
+            "--clusters", "maxwell",
+            "--time", self.db.metameta.get("slurm_time", "02:00:00")
+        ]
+
+        if reservation := self.db.metameta.get('slurm_reservation', ''):
+            opts.extend(['--reservation', reservation])
+        else:
+            partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
+            opts.extend(['--partition', partition])
+
+        return opts
+
+def submit_slurm(
+        run: int, proposal: int, run_data: RunData, context_dir: Path, db: DamnitDB,
+        match=()
+):
+    """Submit the Slurm job to extract small (cluster=False) variables for one run
+
+    If there are cluster=True variables, this job will submit a second job to
+    execute those in a dedicated node.
+    """
+    log_path = process_log_path(run, proposal, context_dir)
+    log.info("Processing output will be written to %s",
+             log_path.relative_to(context_dir.absolute()))
+
+    python_cmd = [
+        sys.executable, '-m', 'damnit.backend.extract_data',
+        str(proposal), str(run), run_data.value
+    ]
+    for m in match:
+        python_cmd.extend(['--match', m])
+
+    res = subprocess.run([
+        'sbatch', '--parsable',
+        '--cluster=solaris',
+        '-o', log_path,
+
+        '--open-mode=append',
+        # Note: we put the run number first so that it's visible in
+        # squeue's default 11-character column for the JobName.
+        '--job-name', f"r{run}-p{proposal}-damnit",
+        '--wrap', shlex.join(python_cmd)
+    ], stdout=subprocess.PIPE, text=True)
+    job_id = res.stdout.partition(';')[0].strip()
+    log.info("Launched Slurm (solaris) job %s to run context file", job_id)
+    return job_id
 
 
 if __name__ == '__main__':
-    # This runs when extraction is launched by the listener:
+    # This runs inside the Slurm job
     ap = argparse.ArgumentParser()
     ap.add_argument('proposal', type=int)
     ap.add_argument('run', type=int)
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    # cluster-job means we've got a full Maxwell node to run cluster=True
+    # variables (confusing because all extraction now runs in cluster jobs)
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
+    ap.add_argument('--mock', action='store_true')
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -391,6 +483,8 @@ if __name__ == '__main__':
 
     print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
     log.info(f"run_data={args.run_data}, match={args.match}")
+    if args.mock:
+        log.info("Using mock run object for testing")
     if args.cluster_job:
         log.info("Extracting cluster variables in Slurm job %s on %s",
                  os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
@@ -398,4 +492,5 @@ if __name__ == '__main__':
     Extractor().extract_and_ingest(args.proposal, args.run,
                                    cluster=args.cluster_job,
                                    run_data=RunData(args.run_data),
-                                   match=args.match)
+                                   match=args.match,
+                                   mock=args.mock)
