@@ -5,6 +5,7 @@ from unittest.mock import patch, ANY
 from contextlib import contextmanager
 
 import pytest
+from testpath import MockCommand
 
 from damnit.cli import main, excepthook as ipython_excepthook
 
@@ -148,23 +149,31 @@ def test_reprocess(mock_db_with_data, monkeypatch):
               patch("damnit.backend.extract_data.find_proposal", return_value=raw_dir.parent)):
             yield
 
+    def mock_sbatch():
+        return MockCommand.fixed_output("sbatch", "9876; maxwell")
+
     # Since none of the runs in the database exist on disk, we should skip all
-    # of them (i.e. not throw any errors).
+    # of them (i.e. not call sbatch).
     with amore_proto(["reprocess", "all"]):
-        main()
+        with mock_sbatch() as sbatch:
+            main()
+
+        assert sbatch.get_calls() == []
 
     # Create raw/ directories for 10 runs
     for i in range(10):
         (raw_dir / f"r{i:04}").mkdir()
 
-    # Reprocessing run 1 should throw an exception because while we tricked the
-    # CLI process into thinking that the run directory exists, we can't patch
-    # the extractor subprocess the CLI launched.
+    # Reprocessing run 1 should call sbatch, because the run directory exists
     with amore_proto(["reprocess", "1"]):
-        with pytest.raises(subprocess.CalledProcessError):
+        with mock_sbatch() as sbatch:
             main()
 
-    # This should not throw an exception because run 10 really doesn't exist, so
-    # the CLI shouldn't even attempt to reprocess it.
+        sbatch.assert_called()
+
+    # No directory for run 10, so this shouldn't try to submit a job
     with amore_proto(["reprocess", "10"]):
-        main()
+        with mock_sbatch() as sbatch:
+            main()
+
+        assert sbatch.get_calls() == []

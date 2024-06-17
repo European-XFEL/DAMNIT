@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 import pytest
 import numpy as np
 
-from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
 from damnit.backend.db import DamnitDB
+from damnit.backend.extract_data import main as extract_main
+from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
 
 from .helpers import amore_proto, mkcontext
 
@@ -150,7 +151,7 @@ def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
     with monkeypatch.context() as m:
         m.chdir(db_dir)
         amore_proto(["proposal", "1234"])
-        amore_proto(["reprocess", "1", "--mock"])
+        extract_main(["1234", "1", "all", "--mock"])
 
     yield mock_db
 

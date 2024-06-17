@@ -464,7 +464,7 @@ def submit_slurm(
     return job_id
 
 
-if __name__ == '__main__':
+def main(argv=None):
     # This runs inside the Slurm job
     ap = argparse.ArgumentParser()
     ap.add_argument('proposal', type=int)
@@ -475,7 +475,7 @@ if __name__ == '__main__':
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--mock', action='store_true')
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     # Hide some logging from Kafka to make things more readable
@@ -494,3 +494,7 @@ if __name__ == '__main__':
                                    run_data=RunData(args.run_data),
                                    match=args.match,
                                    mock=args.mock)
+
+
+if __name__ == '__main__':
+    main()
