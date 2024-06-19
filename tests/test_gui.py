@@ -16,13 +16,13 @@ from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
 
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import db_path, ReducedData
-from damnit.backend.extract_data import add_to_db, main as extract_main
+from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.zulip_messenger import ZulipConfig
 
-from .helpers import reduced_data_from_dict, mkcontext
+from .helpers import reduced_data_from_dict, mkcontext, extract_mock_run
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -313,7 +313,7 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
     win.plot._button_plot_clicked(False)
     assert len(win.plot._canvas["canvas"]) == 1
 
-    extract_main([str(db.metameta['proposal']), "2", "all", "--mock"])
+    extract_mock_run(2)
     msg = {
         "Proposal": 1234,
         "Run": 2,
@@ -674,7 +674,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
-    extract_main([str(db.metameta['proposal']), "1", "all", "--mock"])
+    extract_mock_run(1)
 
     # Create window
     win = MainWindow(db_dir, False)
@@ -851,7 +851,7 @@ def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
     """
     ctx = mkcontext(code)
     (db_dir / "context.py").write_text(ctx.code)
-    extract_main([str(db.metameta['proposal']), "1", "all", "--mock"])
+    extract_mock_run(1)
 
     win = MainWindow(db_dir, connect_to_kafka=False)
     qtbot.addWidget(win)

@@ -10,7 +10,7 @@ from plotly.graph_objects import Figure as PlotlyFigure
 
 from damnit import Damnit, RunVariables
 from damnit.context import ContextFile
-from damnit.backend.extract_data import main as extract_main
+from .helpers import extract_mock_run
 
 
 def test_damnit(mock_db_with_data):
@@ -59,7 +59,7 @@ def test_run_variables(mock_db_with_data, monkeypatch):
     assert set(rv.keys()) == set(ctx.vars.keys()) | set(["start_time"])
 
     # Reprocess a single variable for another run
-    extract_main([str(db.metameta['proposal']), "100", "all", "--match", "scalar1", "--mock"])
+    extract_mock_run(100, match=['scalar1'])
     assert damnit.runs() == [1, 100]
     # We should only see variables for which data is actually available
     assert damnit[100].keys() == ["scalar1", "start_time"]
@@ -100,7 +100,7 @@ def test_variable_data(mock_db_with_data, monkeypatch):
         return xr.Dataset(data_vars={ "foo": xr.DataArray([1, 2, 3]) })
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
-    extract_main([str(db.metameta['proposal']), "1", "all", "--mock"])
+    extract_mock_run(1)
 
     # Test properties
     assert rv["scalar1"].name == "scalar1"
