@@ -8,8 +8,9 @@ from socket import gethostname
 
 from kafka import KafkaConsumer
 
+from ..context import RunData
 from .db import DamnitDB
-from .extract_data import RunData, ExtractionRequest, ExtractionSubmitter
+from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
