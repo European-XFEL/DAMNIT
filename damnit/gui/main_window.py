@@ -24,7 +24,8 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file, process_log_path
+from ..backend.extract_data import get_context_file
+from ..backend.extraction_control import process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path

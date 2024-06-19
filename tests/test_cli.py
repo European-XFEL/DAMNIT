@@ -145,8 +145,7 @@ def test_reprocess(mock_db_with_data, monkeypatch):
     @contextmanager
     def amore_proto(args):
         with (patch("sys.argv", ["amore-proto", *args]),
-              patch("damnit.backend.extract_data.KafkaProducer"),
-              patch("damnit.backend.extract_data.find_proposal", return_value=raw_dir.parent)):
+              patch("damnit.backend.extraction_control.find_proposal", return_value=raw_dir.parent)):
             yield
 
     def mock_sbatch():
