@@ -20,6 +20,7 @@ from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
@@ -975,10 +976,17 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
     return True
 
 
-def run_app(context_dir, connect_to_kafka=True):
+def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
     QtWidgets.QApplication.setAttribute(
-        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
+        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
+
+    if software_opengl:
+        QtWidgets.QApplication.setAttribute(
+            Qt.AA_UseSoftwareOpenGL
+        )
+        QQuickWindow.setSceneGraphBackend(QSGRendererInterface.Software)
+
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
 

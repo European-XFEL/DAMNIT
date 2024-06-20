@@ -74,17 +74,17 @@ def test_gui():
     # Check passing neither a proposal number or directory
     with helper_patch() as run_app:
         main()
-        run_app.assert_called_with(None, connect_to_kafka=ANY)
+        run_app.assert_called_with(None, software_opengl=False, connect_to_kafka=ANY)
 
     # Check passing a proposal number
     with helper_patch(["1234"]) as run_app:
         main()
-        run_app.assert_called_with(Path("/tmp/usr/Shared/amore"), connect_to_kafka=ANY)
+        run_app.assert_called_with(Path("/tmp/usr/Shared/amore"), software_opengl=False, connect_to_kafka=ANY)
 
     # Check passing a directory
     with helper_patch(["/tmp"]) as run_app:
         main()
-        run_app.assert_called_with(Path("/tmp"), connect_to_kafka=ANY)
+        run_app.assert_called_with(Path("/tmp"), software_opengl=False, connect_to_kafka=ANY)
 
     # Check invalid argument
     with helper_patch(["/nope"]) as run_app:
