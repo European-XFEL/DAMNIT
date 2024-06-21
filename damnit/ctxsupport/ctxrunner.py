@@ -36,7 +36,7 @@ from plotly.graph_objects import Figure as PlotlyFigure
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
-
+COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'fletcher32': True, 'shuffle': True}
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
 # reconstruct Python objects when reading values back in.
@@ -576,14 +576,18 @@ class Results:
                 if path in f:
                     del f[path]
 
-                if type_hint is DataType.PlotlyFigure:
-                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype,
-                                     compression='gzip', compression_opts=1,
-                                     fletcher32=True, shuffle=True)
-                elif isinstance(obj, str):
+                if isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
+                elif (
+                        type_hint is DataType.PlotlyFigure or
+                        obj.ndim > 0 and (
+                            np.issubdtype(obj.dtype, np.number) or
+                            np.issubdtype(obj.dtype, np.bool_)
+                        )
+                ):
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype, **COMPRESSION_OPTS)
                 else:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
@@ -611,15 +615,26 @@ class Results:
                     reduced_ds.attrs['summary_method'] = var_obj.summary or ''
 
         for name, obj in xarray_dsets:
-            # HDF5 doesn't allow slashes in names :(
-            if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
-                obj.name = obj.name.replace("/", "_")
+            if isinstance(obj, xr.DataArray):
+                # HDF5 doesn't allow slashes in names :(
+                if obj.name is not None and "/" in obj.name:
+                    obj.name = obj.name.replace("/", "_")
+                obj.encoding.update(COMPRESSION_OPTS)
             elif isinstance(obj, xr.Dataset):
-                names = {name: name.replace("/", "_") for name in obj.data_vars
-                         if name is not None and "/" in name}
-                obj = obj.rename_vars(names)
+                vars_names = {}
+                for var_name, dataarray in obj.items():
+                    if var_name is not None and "/" in var_name:
+                        vars_names[var_name] = var_name.replace("/", "_")
+                    dataarray.encoding.update(COMPRESSION_OPTS)
+                obj = obj.rename_vars(vars_names)
 
-            obj.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
+            obj.to_netcdf(
+                hdf5_path,
+                mode="a",
+                format="NETCDF4",
+                group=name,
+                engine="h5netcdf",
+            )
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
