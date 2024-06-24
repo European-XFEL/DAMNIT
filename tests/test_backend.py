@@ -277,7 +277,12 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     from damnit.context import Variable
 
     @Variable(title="Foo")
-    def foo(run): return xr.DataArray([1, 2, 3], coords={"trainId": [100, 101, 102]})
+    def foo(run):
+        return xr.DataArray(
+            [1, 2, 3],
+            coords={"trainId": [100, 101, 102]},
+            name="foo/manchu"
+        )
     """
     with_coords_ctx = mkcontext(with_coords_code)
     results = results_create(with_coords_ctx)
@@ -286,6 +291,9 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     # This time there should be a trainId dataset saved
     with h5py.File(results_hdf5_path) as f:
         assert "foo/trainId" in f
+
+    data_array = xr.load_dataarray(results_hdf5_path, group="foo", engine="h5netcdf")
+    assert data_array.name == 'foo_manchu'
 
     without_coords_code = """
     import xarray as xr
@@ -351,14 +359,18 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     @Variable(title="Dataset")
     def dataset(run):
-        return xr.Dataset(data_vars={ "foo": xr.DataArray([1, 2, 3]) })
+        return xr.Dataset(data_vars={
+            "foo": xr.DataArray([1, 2, 3]) ,
+            "bar/baz": xr.DataArray([4, 5, 6]),
+        })
     """
     dataset_ctx = mkcontext(dataset_code)
     results = results_create(dataset_ctx)
     results.save_hdf5(results_hdf5_path)
 
-    dataset = xr.open_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
+    dataset = xr.load_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
     assert "foo" in dataset
+    assert "bar_baz" in dataset
     with h5py.File(results_hdf5_path) as f:
         assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
