@@ -615,11 +615,9 @@ class Results:
             if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
                 obj.name = obj.name.replace("/", "_")
             elif isinstance(obj, xr.Dataset):
-                data_vars = list(obj.keys())
-                for var_name in data_vars:
-                    dataarray = obj[var_name]
-                    if dataarray.name is not None and "/" in dataarray.name:
-                        dataarray.name = dataarray.name.replace("/", "_")
+                names = {name: name.replace("/", "_") for name in obj.data_vars
+                         if name is not None and "/" in name}
+                obj = obj.rename_vars(names)
 
             obj.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
 
