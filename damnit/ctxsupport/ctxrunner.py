@@ -345,6 +345,16 @@ class ContextFile:
                             name, type(data)
                         )
                         data = None
+                    elif not np.issubdtype(arr.dtype, np.number):
+                        try:
+                            h5py.h5t.py_create(arr.dtype, logical=True)
+                        except TypeError:
+                            log.error(
+                                "Variable %s returned %s whose native "
+                                "array type %s cannot be saved",
+                                name, type(data), arr.dtype
+                            )
+                            data = None
                     else:
                         data = arr
             except Exception:

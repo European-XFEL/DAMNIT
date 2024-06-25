@@ -432,6 +432,10 @@ def test_results_bad_obj(mock_run, tmp_path):
     @Variable()
     def bad(run):
         return object()
+
+    @Variable()
+    def also_bad(run):
+        return np.datetime64('1987-03-20')
     """
     bad_obj_ctx = mkcontext(bad_obj_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
