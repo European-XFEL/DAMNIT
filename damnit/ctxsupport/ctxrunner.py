@@ -530,7 +530,7 @@ class Results:
 
         xarray_dsets = []
         obj_type_hints = {}
-        dsets = [(f'.reduced/{name}', v, None) for name, v in self.reduced.items()]
+        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
         if not reduced_only:
             for name, obj in self.data.items():
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
@@ -553,7 +553,7 @@ class Results:
                     else:
                         value = np.asarray(obj)
 
-                    dsets.append((f'{name}/data', value, obj_type_hints.get(name)))
+                    dsets.append((f'{name}/data', value))
 
         log.info("Writing %d variables to %d datasets in %s",
                  len(self.data), len(dsets), hdf5_path)
@@ -571,7 +571,7 @@ class Results:
 
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, obj, type_hint in dsets:
+            for path, obj in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
@@ -580,19 +580,15 @@ class Results:
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
-                elif (
-                        type_hint is DataType.PlotlyFigure or
-                        obj.ndim > 0 and (
-                            np.issubdtype(obj.dtype, np.number) or
-                            np.issubdtype(obj.dtype, np.bool_)
-                        )
-                ):
+                elif obj.ndim > 0 and (
+                        np.issubdtype(obj.dtype, np.number) or
+                        np.issubdtype(obj.dtype, np.bool_)):
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype, **COMPRESSION_OPTS)
                 else:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
             # Fill with data
-            for path, obj, type_hint in dsets:
+            for path, obj in dsets:
                 if isinstance(obj, PNGData):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
