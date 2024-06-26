@@ -151,7 +151,9 @@ class ExtractionSubmitter:
 
         # Duplicate output to the log file
         with tee(log_path) as pipe:
-            subprocess.run(self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT)
+            subprocess.run(
+                self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True
+            )
 
     def srun_cmd(self, req: ExtractionRequest):
         return [
