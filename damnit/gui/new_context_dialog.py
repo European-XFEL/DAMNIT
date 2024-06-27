@@ -90,12 +90,12 @@ class NewContextFileDialog(QDialog):
             except Exception:
                 QMessageBox.critical(self, "Proposal not found",
                                      f"Could not find proposal {propnum}")
-                return None
+                return self.run_get_result()
             path = Path(prop_dir) / 'usr/Shared/amore/context.py'
             if not path.is_file():
                 QMessageBox.critical(self, "No context file",
                                      f"Proposal {propnum} didn't contain a context file")
-                return None
+                return self.run_get_result()
             return path
 
         else:  # file_rb
