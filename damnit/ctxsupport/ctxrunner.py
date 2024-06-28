@@ -355,6 +355,8 @@ class ContextFile:
                                 name, type(data), arr.dtype
                             )
                             data = None
+                        else:
+                            data = arr
                     else:
                         data = arr
             except Exception:
