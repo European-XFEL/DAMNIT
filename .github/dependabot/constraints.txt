@@ -1,5 +1,5 @@
 EXtra-data==1.17.0
-ipython==8.25.0
+ipython==8.26.0
 kafka-python==2.0.2
 matplotlib==3.9.0
 mplcursors==0.5.3
