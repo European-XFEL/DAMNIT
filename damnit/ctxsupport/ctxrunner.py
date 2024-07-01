@@ -661,6 +661,7 @@ def filesystem(host='localhost'):
             mount_command = (
                f"sshfs {host}:{extra_data.read_machinery.DATA_ROOT_DIR} {td} "
                # deactivate password prompt to fail if we don't have a valid ssh key
+               "-o ProxyJump=max-exfl-display004"  # TODO uses ib link
                "-o ssh_command='ssh -o PasswordAuthentication=no'"
             )
             print('cmd:', mount_command)
