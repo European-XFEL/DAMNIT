@@ -54,6 +54,7 @@ test = [
     "pytest-xvfb",
     "pytest-timeout",
     "pytest-virtualenv",
+    "testpath",
 ]
 docs = [
     "mkdocs",

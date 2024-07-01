@@ -101,6 +101,10 @@ def main():
         help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
     )
     reprocess_ap.add_argument(
+        '--watch', action='store_true',
+        help="Run jobs one-by-one with live output in the terminal"
+    )
+    reprocess_ap.add_argument(
         'run', nargs='+',
         help="Run number, e.g. 96. Multiple runs can be specified at once, "
              "or pass 'all' to reprocess all runs in the database."
@@ -211,8 +215,8 @@ def main():
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
-        from .backend.extract_data import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock)
+        from .backend.extraction_control import reprocess
+        reprocess(args.run, args.proposal, args.match, args.mock, args.watch)
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor

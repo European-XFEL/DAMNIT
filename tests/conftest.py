@@ -1,13 +1,13 @@
 import socket
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import numpy as np
 
-from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
 from damnit.backend.db import DamnitDB
+from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
 
-from .helpers import amore_proto, mkcontext
+from .helpers import amore_proto, mkcontext, extract_mock_run
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
     with monkeypatch.context() as m:
         m.chdir(db_dir)
         amore_proto(["proposal", "1234"])
-        amore_proto(["reprocess", "1", "--mock"])
+        extract_mock_run(1)
 
     yield mock_db
 

@@ -18,6 +18,7 @@ import requests
 import xarray as xr
 import yaml
 from PIL import Image
+from testpath import MockCommand
 
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
@@ -550,12 +551,12 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Test regular variables and slurm variables are executed
     reduced_data = reduced_data_from_dict({ "n": 53 })
     with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
-         patch(f"{pkg}.subprocess.run") as subprocess_run:
+         MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
         extractor.extract_and_ingest(1234, 42, cluster=False,
                                      run_data=RunData.ALL)
         extract_in_subprocess.assert_called_once()
         extractor.kafka_prd.send.assert_called()
-        subprocess_run.assert_called_once()
+        sbatch.assert_called()
 
     # This works because we loaded damnit.context above
     from ctxrunner import main
