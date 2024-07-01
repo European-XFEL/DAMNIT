@@ -364,27 +364,27 @@ class Damnit:
             with_titles (bool): Whether to use variable titles instead of names
                 for the columns in the dataframe.
         """
-        df = pd.read_sql_query("SELECT * FROM runs", self._db.conn)
+        run_variables = pd.read_sql_query("SELECT run, name, value FROM run_variables WHERE typeof(value) <> 'blob'", self._db.conn)
 
-        # Convert the start_time into a datetime column
-        start_time = pd.to_datetime(df["start_time"], unit="s", utc=True)
-        df["start_time"] = start_time.dt.tz_convert("Europe/Berlin")
+        # Initialize the dataframe by pivoting from the long-narrow to a wide format
+        df = run_variables.pivot(index="run", columns="name")
+        # The columns index is set to a MultiIndex of ('values', <col_name>) by
+        # .pivot(), which is quite annoying for indexing columns so we drop that
+        # first level.
+        df.columns = df.keys().droplevel()
 
-        # Delete added_at, this is internal
-        del df["added_at"]
+        # .pivot() will insert nans in the empty cells of the dataframe, which
+        # is confusing because some variables may also return nan. To get around
+        # this we create a mask of cells that don't have data from
+        # `run_variables` and assign a fill value of pd.NA. We don't use None
+        # because that's printed by pandas in exactly the same way as the string
+        # "None".
+        run_variables["value"] = False
+        is_present_mask = run_variables.pivot(index="run", columns="name").isna()
+        df.mask(is_present_mask.to_numpy(), other=pd.NA, inplace=True)
 
-        # Ensure that there's always a comment column for consistency, it may
-        # not be present if no comments were made.
-        if "comment" not in df:
-            df.insert(3, "comment", None)
-
-        # Convert PNG blobs into a string
-        def image2str(value):
-            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
-                return "<image>"
-            else:
-                return value
-        df = df.applymap(image2str)
+        # TODO: need to add the missing columns: all of the image columns,
+        # start_time, added_at, and comment.
 
         # Use the full variable titles
         if with_titles:
