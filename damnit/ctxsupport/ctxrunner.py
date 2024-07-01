@@ -36,7 +36,7 @@ from plotly.graph_objects import Figure as PlotlyFigure
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
-COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'fletcher32': True, 'shuffle': True}
+COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
 # reconstruct Python objects when reading values back in.
