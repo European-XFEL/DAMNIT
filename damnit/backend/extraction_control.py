@@ -207,14 +207,17 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False):
         props_runs = []
         unavailable_runs = []
 
-        for proposal, run in rows:
-            if not mock and proposal not in available_runs:
-                available_runs[proposal] = proposal_runs(proposal)
+        if mock:
+            props_runs = rows
+        else:
+            for proposal, run in rows:
+                if proposal not in available_runs:
+                    available_runs[proposal] = proposal_runs(proposal)
 
-            if mock or run in available_runs[proposal]:
-                props_runs.append((proposal, run))
-            else:
-                unavailable_runs.append((proposal, run))
+                if run in available_runs[proposal]:
+                    props_runs.append((proposal, run))
+                else:
+                    unavailable_runs.append((proposal, run))
 
         print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
     else:
