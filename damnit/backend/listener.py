@@ -73,15 +73,6 @@ class EventProcessor:
                 self.online_data_host = remote_host
         log.info("Processing online data? %s", self.run_online)
 
-        # Monitor thread for subprocesses
-        self.extract_procs_queue = queue.Queue()
-        self.extract_procs_watcher = Thread(
-            target=watch_processes_finish,
-            args=(self.extract_procs_queue,),
-            daemon=True
-        )
-        self.extract_procs_watcher.start()
-
     def __enter__(self):
         return self
 
@@ -134,15 +125,28 @@ class EventProcessor:
         log_path = process_log_path(run, proposal, self.context_dir)
         log.info("Processing output will be written to %s",
                  log_path.relative_to(self.context_dir.absolute()))
+        
+        python_cmd = [
+            sys.executable, '-m', 'damnit.backend.extract_data',
+            str(proposal), str(run), run_data.value,
+            '--data-location', data_location,
+        ]
 
-        with log_path.open('ab') as logf:
-            # Create subprocess to process the run
-            extract_proc = subprocess.Popen([
-                sys.executable, '-m', 'damnit.backend.extract_data',
-                str(proposal), str(run), run_data.value,
-                '--data-location', data_location,
-            ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
-        self.extract_procs_queue.put((proposal, run, extract_proc))
+        res = subprocess.run([
+            'sbatch', '--parsable',
+            '--cluster=solaris',
+            '-o', log_path,
+            # Default 4 CPU cores & 25 GB memory, can be overridden
+            '--cpus-per-task', str(self.db.metameta.get('noncluster_cpus', '4')),
+            '--mem', self.db.metameta.get('noncluster_mem', '25G'),
+            '--open-mode=append',
+            # Note: we put the run number first so that it's visible in
+            # squeue's default 11-character column for the JobName.
+            '--job-name', f"r{run}-p{proposal}-damnit",
+            '--wrap', shlex.join(python_cmd)
+        ], stdout=subprocess.PIPE, text=True)
+        job_id = res.stdout.partition(';')[0].strip()
+        log.info("Launched Slurm (solaris) job %s to run context file", job_id)
 
 
 def listen():

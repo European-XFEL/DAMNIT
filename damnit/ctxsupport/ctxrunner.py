@@ -662,7 +662,7 @@ def filesystem(host='localhost'):
                "sshfs", f"{host}:{extra_data.read_machinery.DATA_ROOT_DIR}", str(td),
                # deactivate password prompt and GSSAPI to fail fast if
                # we don't have a valid ssh key
-               "-o", "PasswordAuthentication=no", "-o", "GSSAPIAuthentication=no"
+               "-o", "PasswordAuthentication=no", "-o", "GSSAPIAuthentication=no",
                # proxy through machine with 10G connection to the online cluster
                "-o", "ProxyJump=10.255.34.101",
             ]
@@ -672,9 +672,6 @@ def filesystem(host='localhost'):
 
             with patch("extra_data.read_machinery.DATA_ROOT_DIR", td):
                 yield
-        except Exception:
-            import traceback
-            traceback.print_exc()
         finally:
             run(["fusermount", "-u", str(td)], check=True)
 
