@@ -119,7 +119,9 @@ class ExtractionSubmitter:
 
         Returns the job ID & cluster
         """
-        res = subprocess.run(self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True)
+        res = subprocess.run(
+            self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True, check=True
+        )
         job_id, _, cluster = res.stdout.partition(';')
         job_id = job_id.strip()
         cluster = cluster.strip() or 'maxwell'
