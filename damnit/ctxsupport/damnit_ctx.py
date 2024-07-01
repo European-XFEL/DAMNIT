@@ -91,19 +91,11 @@ class Cell:
             data = data.get_figure()
 
         if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure, PlotlyFigure)):
-            arr = np.asarray(data)
+            data = np.asarray(data)
             # Numpy will wrap any Python object, but only native arrays
             # can be saved in HDF5, not those containing Python objects.
-            if arr.dtype.hasobject:
+            if data.dtype.hasobject:
                 raise TypeError(f"Returned data type {type(data)} cannot be saved")
-            data = arr
-
-        if summary_value is not None and not isinstance(summary_value, str):
-            arr = np.asarray(summary_value)
-            if arr.dtype.hasobject:
-                raise TypeError(f"summary_value should be number or string, not {type(summary)}")
-            summary_value = arr
-
             elif not np.issubdtype(data.dtype, np.number):
                 try:
                     h5py.h5t.py_create(data.dtype, logical=True)
@@ -112,6 +104,20 @@ class Cell:
                         f"Returned data type {type(data)} whose native "
                         f"array type {data.dtype} cannot be saved",
                     )
+
+        if summary_value is not None and not isinstance(summary_value, str):
+            arr = np.asarray(summary_value)
+            if arr.dtype.hasobject:
+                raise TypeError(f"summary_value should be number or string, not {type(summary)}")
+            elif not np.issubdtype(arr.dtype, np.number):
+                try:
+                    h5py.h5t.py_create(arr.dtype, logical=True)
+                except TypeError:
+                    raise TypeError(
+                        f"Summary value {type(arr)} whose native "
+                        f"array type {arr.dtype} cannot be saved",
+                    )
+            summary_value = arr
 
         self.data = data
         self.summary = summary
