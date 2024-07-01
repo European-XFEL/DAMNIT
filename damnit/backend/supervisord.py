@@ -148,7 +148,7 @@ def start_backend(root_path: Path, try_again=True):
 
     return True
 
-def initialize_and_start_backend(root_path, proposal=None):
+def initialize_and_start_backend(root_path, proposal=None, context_file_src=None):
     # Ensure the directory exists
     root_path.mkdir(parents=True, exist_ok=True)
     if root_path.stat().st_uid == os.getuid():
@@ -162,6 +162,7 @@ def initialize_and_start_backend(root_path, proposal=None):
         # Initialize database
         db = DamnitDB.from_dir(root_path)
         db.metameta["proposal"] = proposal
+        db.metameta["context_python"] = "/gpfs/exfel/sw/software/mambaforge/22.11/envs/202401/bin/python"
     else:
         # Otherwise, load the proposal number
         db = DamnitDB.from_dir(root_path)
@@ -170,7 +171,10 @@ def initialize_and_start_backend(root_path, proposal=None):
     context_path = root_path / "context.py"
     # Copy initial context file if necessary
     if not context_path.is_file():
-        shutil.copyfile(Path(__file__).parents[1] / "base_context_file.py", context_path)
+        if context_file_src is not None:
+            shutil.copyfile(context_file_src, context_path)
+        else:
+            context_path.touch()
         os.chmod(context_path, 0o666)
 
     # Start backend

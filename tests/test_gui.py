@@ -2,6 +2,7 @@ import re
 import os
 import textwrap
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
     QStyledItemDelegate, QLineEdit
 
+import damnit
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import db_path, ReducedData
 from damnit.backend.extract_data import add_to_db
@@ -327,6 +329,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     win = MainWindow(None, False)
     qtbot.addWidget(win)
     pkg = "damnit.gui.main_window"
+    template_path = Path(damnit.__file__).parent / 'ctx-templates' / 'SA1_base.py'
 
     @contextmanager
     def helper_patch():
@@ -334,6 +337,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # p1234, and the user always wants to create a database and start the
         # backend.
         with (patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
+              patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=template_path),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
               patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
               patch.object(win, "autoconfigure")):
@@ -346,7 +350,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
         # We expect the database to be initialized and the backend started
         win.autoconfigure.assert_called_once_with(db_dir)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
+        initialize_and_start_backend.assert_called_once_with(db_dir, 1234, template_path)
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
