@@ -420,6 +420,26 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     assert results.data["sample"] == "mithril"
     assert results.data["run_type"] == "alchemy"
 
+
+def test_return_bool(mock_run, tmp_path):
+    code = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def bool(run):
+        return True
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+
+    with h5py.File(results_hdf5_path) as f:
+        assert f['bool/data'][()] == True
+        assert f['.reduced/bool'][()] == True
+
+
 def test_results_bad_obj(mock_run, tmp_path):
     # Test returning an object we can't save in HDF5
     bad_obj_code = """
