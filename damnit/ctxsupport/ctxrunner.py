@@ -473,6 +473,14 @@ def add_to_h5_file(path) -> h5py.File:
     raise ex
 
 
+def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
+    """Add default compression options to DataArray"""
+    encoding = COMPRESSION_OPTS.copy()
+    encoding.update(data_array.encoding)
+    data_array.encoding = encoding
+    return data_array
+
+
 class Results:
     def __init__(self, data, ctx):
         self.data = data
@@ -615,13 +623,13 @@ class Results:
                 # HDF5 doesn't allow slashes in names :(
                 if obj.name is not None and "/" in obj.name:
                     obj.name = obj.name.replace("/", "_")
-                obj.encoding.update(COMPRESSION_OPTS)
+                obj = _set_encoding(obj)
             elif isinstance(obj, xr.Dataset):
                 vars_names = {}
                 for var_name, dataarray in obj.items():
                     if var_name is not None and "/" in var_name:
                         vars_names[var_name] = var_name.replace("/", "_")
-                    dataarray.encoding.update(COMPRESSION_OPTS)
+                    dataarray = _set_encoding(dataarray)
                 obj = obj.rename_vars(vars_names)
 
             obj.to_netcdf(
