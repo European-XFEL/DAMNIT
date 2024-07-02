@@ -36,6 +36,7 @@ def extract_mock_run(run_num: int, match=()):
     with patch("damnit.backend.extract_data.KafkaProducer"):
         extr = Extractor()
         prop = extr.db.metameta['proposal']
+        extr.update_db_vars()
         extr.extract_and_ingest(prop, run_num, match=match, mock=True)
 
 
