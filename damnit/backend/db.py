@@ -96,6 +96,8 @@ class DamnitDB:
             data_format_version = self.metameta.get("data_format_version", 0)
             if data_format_version < DATA_FORMAT_VERSION:
                 can_apply_schema = False
+        else:
+            data_format_version = DATA_FORMAT_VERSION
 
         if can_apply_schema:
             self.conn.executescript(V2_SCHEMA)
@@ -108,18 +110,16 @@ class DamnitDB:
 
         if not db_existed:
             # If this is a new database, set the latest current version
-            db_version = self.metameta["data_format_version"] = DATA_FORMAT_VERSION
-        else:
-            db_version = self.metameta.setdefault("data_format_version", 0)
+            self.metameta["data_format_version"] = DATA_FORMAT_VERSION
 
         if not allow_old:
-            if db_version < MIN_OPENABLE_VERSION:
+            if data_format_version < MIN_OPENABLE_VERSION:
                 raise RuntimeError(
-                    f"Cannot open older (v{db_version}) database, please contact DA "
+                    f"Cannot open older (v{data_format_version}) database, please contact DA "
                     "for help migrating"
                 )
-            elif db_version < DATA_FORMAT_VERSION:
-                self.upgrade_schema(db_version)
+            elif data_format_version < DATA_FORMAT_VERSION:
+                self.upgrade_schema(data_format_version)
 
     @classmethod
     def from_dir(cls, path):
