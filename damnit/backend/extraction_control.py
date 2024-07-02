@@ -84,6 +84,7 @@ class ExtractionRequest:
     cluster: bool = False
     match: tuple = ()
     mock: bool = False
+    update_vars: bool = True
 
     def python_cmd(self):
         """Creates the command for a process to do this extraction"""
@@ -97,6 +98,8 @@ class ExtractionRequest:
             cmd.extend(['--match', m])
         if self.mock:
             cmd.append('--mock')
+        if self.update_vars:
+            cmd.append('--update-vars')
         return cmd
 
 
@@ -243,6 +246,14 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False):
 
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
+    reqs = [
+        ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
+        for prop, run in props_runs
+    ]
+    # To reduce DB write contention, only update the computed variables in the
+    # first job when we're submitting a whole bunch.
+    for req in reqs[1:]:
+        req.update_vars = False
 
     for prop, run in props_runs:
         req = ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)

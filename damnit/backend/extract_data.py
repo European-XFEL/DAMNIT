@@ -198,8 +198,6 @@ class Extractor:
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
-        self.update_db_vars()
-
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if out_path.parent.stat().st_uid == os.getuid():
@@ -251,6 +249,7 @@ def main(argv=None):
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--mock', action='store_true')
+    ap.add_argument('--update-vars', action='store_true')
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -265,11 +264,15 @@ def main(argv=None):
         log.info("Extracting cluster variables in Slurm job %s on %s",
                  os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
 
-    Extractor().extract_and_ingest(args.proposal, args.run,
-                                   cluster=args.cluster_job,
-                                   run_data=RunData(args.run_data),
-                                   match=args.match,
-                                   mock=args.mock)
+    extr = Extractor()
+    if args.update_vars:
+        extr.update_db_vars()
+
+    extr.extract_and_ingest(args.proposal, args.run,
+                            cluster=args.cluster_job,
+                            run_data=RunData(args.run_data),
+                            match=args.match,
+                            mock=args.mock)
 
 
 if __name__ == '__main__':
