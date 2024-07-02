@@ -114,12 +114,26 @@ def load_reduced_data(h5_path):
             # SQlite doesn't like np.float32; .item() converts to Python numbers
             return value.item() if (value.ndim == 0) else value
 
+    def get_attrs(ds):
+        d = {}
+        for name, value in ds.attrs.items():
+            if name in {"max_diff", "summary_method"}:
+                continue  # These are stored separately
+
+            if isinstance(value, np.ndarray):
+                value = value.tolist()
+            elif isinstance(value, np.generic):  # Scalar
+                value = value.item()
+            d[name] = value
+        return d
+
     with h5py.File(h5_path, 'r') as f:
         return {
             name: ReducedData(
                 get_dset_value(dset),
                 max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
-                summary_method=dset.attrs.get("summary_method", "")
+                summary_method=dset.attrs.get("summary_method", ""),
+                attributes=get_attrs(dset),
             )
             for name, dset in f['.reduced'].items()
         }
