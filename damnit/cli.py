@@ -142,6 +142,10 @@ def main():
         help="Delete the specified key",
     )
     config_ap.add_argument(
+        '--num', action='store_true',
+        help="Set the given value as a number instead of a string"
+    )
+    config_ap.add_argument(
         'key', nargs='?',
         help="The config key to see/change. If not given, list all config"
     )
@@ -253,7 +257,14 @@ def main():
                 sys.exit("Error: no key specified to delete")
             del db.metameta[args.key]
         elif args.key and (args.value is not None):
-            db.metameta[args.key] = args.value
+            if args.num:
+                try:
+                    value = int(args.value)
+                except ValueError:
+                    value = float(args.value)
+            else:
+                value = args.value
+            db.metameta[args.key] = value
         elif args.key:
             try:
                 print(repr(db.metameta[args.key]))

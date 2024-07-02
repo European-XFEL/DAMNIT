@@ -971,9 +971,14 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             if not ok:
                 return False
         initialize_and_start_backend(context_dir, prop_no, context_file_src)
+        return True
+
+    # The folder already contains a database
+    db = DamnitDB.from_dir(context_dir)
 
     # Check if the backend is running
-    elif not backend_is_running(context_dir):
+    expect_listener = not db.metameta.get('no_listener', 0)
+    if expect_listener and not backend_is_running(context_dir):
         button = QMessageBox.question(
             parent, "Backend not running",
             "The DAMNIT backend is not running, would you like to start it? "

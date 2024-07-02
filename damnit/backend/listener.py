@@ -51,7 +51,9 @@ class EventProcessor:
         consumer_id = CONSUMER_ID.format(self.db.metameta['db_id'])
         self.kafka_cns = KafkaConsumer(*kafka_conf['topics'],
                                        bootstrap_servers=kafka_conf['brokers'],
-                                       group_id=consumer_id)
+                                       group_id=consumer_id,
+                                       consumer_timeout_ms=600_000,
+                                       )
         self.events = kafka_conf['events']
 
 
@@ -64,11 +66,17 @@ class EventProcessor:
         return False
 
     def run(self):
-        for record in self.kafka_cns:
-            try:
-                self._process_kafka_event(record)
-            except Exception:
-                log.error("Unepected error handling Kafka event.", exc_info=True)
+        while True:
+            for record in self.kafka_cns:
+                try:
+                    self._process_kafka_event(record)
+                except Exception:
+                    log.error("Unepected error handling Kafka event.", exc_info=True)
+
+            # After 10 minutes with no messages, check if the listener should stop
+            if self.db.metameta.get('no_listener', 0):
+                log.info("Found no_listener flag in database, shutting down.")
+                return
 
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())

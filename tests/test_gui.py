@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
 
 import damnit
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
-from damnit.backend.db import db_path, ReducedData
+from damnit.backend.db import DamnitDB, ReducedData
 from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, AddUserVariableDialog
@@ -354,7 +354,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
-    db_path(db_dir).touch()
+    DamnitDB.from_dir(db_dir)
 
     # Autoconfigure with database present & backend 'running':
     with (helper_patch() as initialize_and_start_backend,
