@@ -36,7 +36,7 @@ from damnit_ctx import RunData, Variable, Cell
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
-
+COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
 # reconstruct Python objects when reading values back in.
@@ -459,6 +459,14 @@ def add_to_h5_file(path) -> h5py.File:
     raise ex
 
 
+def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
+    """Add default compression options to DataArray"""
+    encoding = COMPRESSION_OPTS.copy()
+    encoding.update(data_array.encoding)
+    data_array.encoding = encoding
+    return data_array
+
+
 class Results:
     def __init__(self, cells, ctx):
         self.cells = cells
@@ -515,7 +523,7 @@ class Results:
 
         for name, cell in self.cells.items():
             summary_val = self.summarise(name)
-            dsets.append((f'.reduced/{name}', summary_val, None, cell.summary_attrs()))
+            dsets.append((f'.reduced/{name}', summary_val, cell.summary_attrs()))
             if not reduced_only:
                 obj = cell.data
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
@@ -538,7 +546,7 @@ class Results:
                     else:
                         value = np.asarray(obj)
 
-                    dsets.append((f'{name}/data', value, obj_type_hints.get(name), {}))
+                    dsets.append((f'{name}/data', value, {}))
 
         log.info("Writing %d variables to %s",
                  len(self.cells), hdf5_path)
@@ -556,41 +564,52 @@ class Results:
 
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, obj, type_hint, attrs in dsets:
+            for path, obj, attrs in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
 
-                if type_hint is DataType.PlotlyFigure:
-                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype,
-                                     compression='gzip', compression_opts=1,
-                                     fletcher32=True, shuffle=True)
-                elif isinstance(obj, str):
+                if isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
+                elif obj.ndim > 0 and (
+                        np.issubdtype(obj.dtype, np.number) or
+                        np.issubdtype(obj.dtype, np.bool_)):
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype, **COMPRESSION_OPTS)
                 else:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
                 f[path].attrs.update(attrs)
 
             # Fill with data
-            for path, obj, type_hint, _ in dsets:
+            for path, obj, _ in dsets:
                 if isinstance(obj, PNGData):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
                     f[path][()] = obj
 
         for name, obj in xarray_dsets:
-            # HDF5 doesn't allow slashes in names :(
-            if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
-                obj.name = obj.name.replace("/", "_")
+            if isinstance(obj, xr.DataArray):
+                # HDF5 doesn't allow slashes in names :(
+                if obj.name is not None and "/" in obj.name:
+                    obj.name = obj.name.replace("/", "_")
+                obj = _set_encoding(obj)
             elif isinstance(obj, xr.Dataset):
-                names = {name: name.replace("/", "_") for name in obj.data_vars
-                         if name is not None and "/" in name}
-                obj = obj.rename_vars(names)
+                vars_names = {}
+                for var_name, dataarray in obj.items():
+                    if var_name is not None and "/" in var_name:
+                        vars_names[var_name] = var_name.replace("/", "_")
+                    dataarray = _set_encoding(dataarray)
+                obj = obj.rename_vars(vars_names)
 
-            obj.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
+            obj.to_netcdf(
+                hdf5_path,
+                mode="a",
+                format="NETCDF4",
+                group=name,
+                engine="h5netcdf",
+            )
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
