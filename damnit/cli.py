@@ -43,7 +43,7 @@ def excepthook(exc_type, value, tb):
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
 
 
-def main():
+def main(argv=None):
     ap = ArgumentParser()
     ap.add_argument('--debug', action='store_true',
                     help="Show debug logs.")
@@ -172,7 +172,7 @@ def main():
              " v1. Don't use this unless you know what you're doing."
     )
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")
