@@ -27,9 +27,8 @@ def amore_proto(args):
     It is the callers responsibility to make sure the PWD is a database
     directory.
     """
-    with (patch("sys.argv", ["amore-proto", *args]),
-          patch("damnit.backend.extract_data.KafkaProducer")):
-        main()
+    with patch("damnit.backend.extract_data.KafkaProducer"):
+        main(args)
 
 def extract_mock_run(run_num: int, match=()):
     """Run the context file in the CWD on the specified run"""
