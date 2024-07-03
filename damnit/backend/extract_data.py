@@ -1,47 +1,33 @@
+"""Machinery run inside a Slurm job to process data
+
+This code runs in the DAMNIT application Python environment. It launches
+a subprocess in the chosen 'context_python' environment to run the context
+file (see ctxrunner.py).
+"""
 import argparse
 import copy
-import getpass
 import os
 import logging
 import pickle
 import re
-import shlex
 import socket
 import subprocess
 import sys
-from contextlib import contextmanager
-from ctypes import CDLL
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Thread
-from typing import Optional
 
 import h5py
 import numpy as np
-from extra_data.read_machinery import find_proposal
 
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
-
+from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 log = logging.getLogger(__name__)
 
-
-# Python innetgr wrapper after https://github.com/wcooley/netgroup-python/
-def innetgr(netgroup: bytes, host=None, user=None, domain=None):
-    libc = CDLL("libc.so.6")
-    return bool(libc.innetgr(netgroup, host, user, domain))
-
-def default_slurm_partition():
-    username = getpass.getuser().encode()
-    if innetgr(b'exfel-wgs-users', user=username):
-        return 'exfel'
-    elif innetgr(b'upex-users', user=username):
-        return 'upex'
-    return 'all'
 
 def run_in_subprocess(args, **kwargs):
     env = os.environ.copy()
@@ -52,44 +38,10 @@ def run_in_subprocess(args, **kwargs):
 
     return subprocess.run(args, env=env, **kwargs)
 
-def process_log_path(run, proposal, ctx_dir=Path('.'), create=True):
-    p = ctx_dir.absolute() / 'process_logs' / f"r{run}-p{proposal}.out"
-    if create:
-        p.parent.mkdir(exist_ok=True)
-        if p.parent.stat().st_uid == os.getuid():
-            p.parent.chmod(0o777)
-        p.touch(exist_ok=True)
-        if p.stat().st_uid == os.getuid():
-            p.chmod(0o666)
-    return p
-
-
-@contextmanager
-def tee(path: Optional[Path]):
-    if path is None:
-        yield None
-        return
-
-    with path.open('ab') as fout:
-        r, w = os.pipe()
-        def loop():
-            while b := os.read(r, 4096):
-                fout.write(b)
-                sys.stdout.buffer.write(b)
-
-        thread = Thread(target=loop)
-        thread.start()
-        try:
-            yield w
-        finally:
-            os.close(w)
-            thread.join()
-            os.close(r)
-
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False, tee_output=None
+        python_exe=None, mock=False
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -109,8 +61,7 @@ def extract_in_subprocess(
         reduced_out_path = Path(td, 'reduced.h5')
         args.extend(['--save-reduced', str(reduced_out_path)])
 
-        with tee(tee_output) as pipe:
-            run_in_subprocess(args, check=True, stdout=pipe, stderr=subprocess.STDOUT)
+        run_in_subprocess(args, check=True)
 
         return load_reduced_data(reduced_out_path)
 
@@ -163,12 +114,26 @@ def load_reduced_data(h5_path):
             # SQlite doesn't like np.float32; .item() converts to Python numbers
             return value.item() if (value.ndim == 0) else value
 
+    def get_attrs(ds):
+        d = {}
+        for name, value in ds.attrs.items():
+            if name in {"max_diff", "summary_method"}:
+                continue  # These are stored separately
+
+            if isinstance(value, np.ndarray):
+                value = value.tolist()
+            elif isinstance(value, np.generic):  # Scalar
+                value = value.item()
+            d[name] = value
+        return d
+
     with h5py.File(h5_path, 'r') as f:
         return {
             name: ReducedData(
                 get_dset_value(dset),
                 max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
-                summary_method=dset.attrs.get("summary_method", "")
+                summary_method=dset.attrs.get("summary_method", ""),
+                attributes=get_attrs(dset),
             )
             for name, dset in f['.reduced'].items()
         }
@@ -228,29 +193,10 @@ class Extractor:
             ))
         self.kafka_prd.flush()
 
-    @property
-    def proposal(self):
-        if self._proposal is None:
-            self._proposal = self.db.metameta['proposal']
-        return self._proposal
-
-    def slurm_options(self):
-        opts = ["--time", self.db.metameta.get("slurm_time", "02:00:00")]
-
-        if reservation := self.db.metameta.get('slurm_reservation', ''):
-            opts.extend(['--reservation', reservation])
-        else:
-            partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
-            opts.extend(['--partition', partition])
-
-        return opts
-
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), mock=False, tee_output=None):
+                           run_data=RunData.ALL, match=(), mock=False):
         if proposal is None:
-            proposal = self.proposal
-
-        self.update_db_vars()
+            proposal = self.db.metameta['proposal']
 
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -260,7 +206,7 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe, mock=mock, tee_output=tee_output,
+            match=match, python_exe=python_exe, mock=mock,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -285,105 +231,26 @@ class Extractor:
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
-            python_cmd = [sys.executable, '-m', 'damnit.backend.extract_data',
-                          '--cluster-job', str(proposal), str(run), run_data.value]
-            for m in match:
-                python_cmd.extend(["--match", m])
-
-            res = subprocess.run([
-                'sbatch', '--parsable',
-                '--clusters', 'maxwell',
-                *self.slurm_options(),
-                '-o', process_log_path(run, proposal),
-                '--open-mode=append',
-                # Note: we put the run number first so that it's visible in
-                # squeue's default 11-character column for the JobName.
-                '--job-name', f"r{run}-p{proposal}-damnit",
-                '--wrap', shlex.join(python_cmd)
-            ], stdout=subprocess.PIPE, text=True)
-            job_id = res.stdout.partition(';')[0].strip()
-            log.info("Launched Slurm job %s to calculate cluster variables", job_id)
+            submitter = ExtractionSubmitter(Path.cwd(), self.db)
+            cluster_req = ExtractionRequest(
+                run, proposal, run_data, cluster=True, match=match, mock=mock
+            )
+            submitter.submit(cluster_req)
 
 
-def proposal_runs(proposal):
-    proposal_name = f"p{int(proposal):06d}"
-    raw_dir = Path(find_proposal(proposal_name)) / "raw"
-    return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
-
-
-def reprocess(runs, proposal=None, match=(), mock=False):
-    """Called by the 'amore-proto reprocess' subcommand"""
-    extr = Extractor()
-    if proposal is None:
-        proposal = extr.proposal
-
-    if runs == ['all']:
-        rows = extr.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
-
-        # Dictionary of proposal numbers to sets of available runs
-        available_runs = {}
-        # Lists of (proposal, run) tuples
-        props_runs = []
-        unavailable_runs = []
-
-        for proposal, run in rows:
-            if not mock and proposal not in available_runs:
-                available_runs[proposal] = proposal_runs(proposal)
-
-            if mock or run in available_runs[proposal]:
-                props_runs.append((proposal, run))
-            else:
-                unavailable_runs.append((proposal, run))
-
-        print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
-    else:
-        try:
-            runs = set([int(r) for r in runs])
-        except ValueError as e:
-            sys.exit(f"Run numbers must be integers ({e})")
-
-        if mock:
-            available_runs = runs
-        else:
-            available_runs = proposal_runs(proposal)
-
-        unavailable_runs = runs - available_runs
-        if len(unavailable_runs) > 0:
-            # Note that we print unavailable_runs as a list so it's enclosed
-            # in [] brackets, which is more recognizable than the {} braces
-            # that sets are enclosed in.
-            print(
-                f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
-
-        props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
-
-    log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    for prop, run in props_runs:
-        log_path = process_log_path(run, prop)
-        file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(log_formatter)
-        logging.getLogger().addHandler(file_handler)
-        try:
-            log.info("\n\n----- Reprocessing r%s (p%s) -----", run, prop)
-            log.info(f"match={match}")
-            extr.extract_and_ingest(prop, run, match=match, mock=mock, tee_output=log_path)
-        except Exception:
-            log.error("Exception while extracting p%s r%s", run, prop, exc_info=True)
-            raise
-        finally:
-            logging.getLogger().removeHandler(file_handler)
-            file_handler.close()
-
-
-if __name__ == '__main__':
-    # This runs when extraction is launched by the listener:
+def main(argv=None):
+    # This runs inside the Slurm job
     ap = argparse.ArgumentParser()
     ap.add_argument('proposal', type=int)
     ap.add_argument('run', type=int)
     ap.add_argument('run_data', choices=('raw', 'proc', 'all'))
+    # cluster-job means we've got a full Maxwell node to run cluster=True
+    # variables (confusing because all extraction now runs in cluster jobs)
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
-    args = ap.parse_args()
+    ap.add_argument('--mock', action='store_true')
+    ap.add_argument('--update-vars', action='store_true')
+    args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     # Hide some logging from Kafka to make things more readable
@@ -391,11 +258,22 @@ if __name__ == '__main__':
 
     print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
     log.info(f"run_data={args.run_data}, match={args.match}")
+    if args.mock:
+        log.info("Using mock run object for testing")
     if args.cluster_job:
         log.info("Extracting cluster variables in Slurm job %s on %s",
                  os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
 
-    Extractor().extract_and_ingest(args.proposal, args.run,
-                                   cluster=args.cluster_job,
-                                   run_data=RunData(args.run_data),
-                                   match=args.match)
+    extr = Extractor()
+    if args.update_vars:
+        extr.update_db_vars()
+
+    extr.extract_and_ingest(args.proposal, args.run,
+                            cluster=args.cluster_job,
+                            run_data=RunData(args.run_data),
+                            match=args.match,
+                            mock=args.mock)
+
+
+if __name__ == '__main__':
+    main()

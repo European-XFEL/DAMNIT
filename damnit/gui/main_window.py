@@ -25,13 +25,15 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file, process_log_path
+from ..backend.extract_data import get_context_file
+from ..backend.extraction_control import process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
+from .new_context_dialog import NewContextFileDialog
 from .plot import Canvas, Plot
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
@@ -954,6 +956,13 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
         if button != QMessageBox.Yes:
             return False
 
+        if not (context_dir / 'context.py').is_file():
+            new_ctx_dialog = NewContextFileDialog(context_dir, parent)
+            context_file_src = new_ctx_dialog.run_get_result()
+            if context_file_src is None:
+                return False
+        else:
+            context_file_src = None
 
         if prop_no is None:
             prop_no, ok = QtWidgets.QInputDialog.getInt(
@@ -961,7 +970,7 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             )
             if not ok:
                 return False
-        initialize_and_start_backend(context_dir, prop_no)
+        initialize_and_start_backend(context_dir, prop_no, context_file_src)
 
     # Check if the backend is running
     elif not backend_is_running(context_dir):

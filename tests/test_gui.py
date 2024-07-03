@@ -2,6 +2,7 @@ import re
 import os
 import textwrap
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
     QStyledItemDelegate, QLineEdit
 
+import damnit
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import db_path, ReducedData
 from damnit.backend.extract_data import add_to_db
@@ -22,7 +24,7 @@ from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.zulip_messenger import ZulipConfig
 
-from .helpers import reduced_data_from_dict, mkcontext, amore_proto
+from .helpers import reduced_data_from_dict, mkcontext, extract_mock_run
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -313,7 +315,7 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
     win.plot._button_plot_clicked(False)
     assert len(win.plot._canvas["canvas"]) == 1
 
-    amore_proto(["reprocess", "2", "--mock"])
+    extract_mock_run(2)
     msg = {
         "Proposal": 1234,
         "Run": 2,
@@ -327,6 +329,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     win = MainWindow(None, False)
     qtbot.addWidget(win)
     pkg = "damnit.gui.main_window"
+    template_path = Path(damnit.__file__).parent / 'ctx-templates' / 'SA1_base.py'
 
     @contextmanager
     def helper_patch():
@@ -334,6 +337,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # p1234, and the user always wants to create a database and start the
         # backend.
         with (patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
+              patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=template_path),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
               patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
               patch.object(win, "autoconfigure")):
@@ -346,7 +350,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
         # We expect the database to be initialized and the backend started
         win.autoconfigure.assert_called_once_with(db_dir)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
+        initialize_and_start_backend.assert_called_once_with(db_dir, 1234, template_path)
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
@@ -674,7 +678,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
     ctx = ContextFile.from_str(ctx_code)
-    amore_proto(["reprocess", "all", "--mock"])
+    extract_mock_run(1)
 
     # Create window
     win = MainWindow(db_dir, False)
@@ -851,7 +855,7 @@ def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
     """
     ctx = mkcontext(code)
     (db_dir / "context.py").write_text(ctx.code)
-    amore_proto(["reprocess", "all", "--mock"])
+    extract_mock_run(1)
 
     win = MainWindow(db_dir, connect_to_kafka=False)
     qtbot.addWidget(win)
