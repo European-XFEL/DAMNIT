@@ -210,10 +210,11 @@ $ amore-proto db-config context_python /path/to/your/python
 The environment *must* have these dependencies installed for DAMNIT to work:
 
 - `extra_data`
-- `kaleido`
-- `plotly`
 - `pyyaml`
 - `requests`
+
+If your variables return [plotly](https://plotly.com/python/) plots, the
+environment must also have the `kaleido` package.
 
 ## Managing the backend
 The backend is a process running under [Supervisor](http://supervisord.org/). In
