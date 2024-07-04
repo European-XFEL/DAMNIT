@@ -6,9 +6,6 @@ from glob import iglob
 from pathlib import Path
 
 import h5py
-import pandas as pd
-import plotly.io as pio
-import xarray as xr
 
 from .backend.db import BlobTypes, DamnitDB
 
@@ -108,6 +105,7 @@ class VariableData:
         return None
 
     def _read_netcdf(self, one_array=False):
+        import xarray as xr
         load = xr.load_dataarray if one_array else xr.load_dataset
         obj = load(self._h5_path, group=self.name, engine="h5netcdf")
         # Remove internal attributes from loaded object
@@ -129,6 +127,7 @@ class VariableData:
 
             dset = group["data"]
             if type_hint is DataType.PlotlyFigure:
+                import plotly.io as pio
                 # plotly figures are json serialized and saved as uint8 arrays
                 # to enable compression in HDF5
                 return pio.from_json(dset[()].tobytes())
@@ -350,7 +349,7 @@ class Damnit:
         result = self._db.conn.execute("SELECT run FROM run_info WHERE start_time IS NOT NULL").fetchall()
         return [row[0] for row in result]
 
-    def table(self, with_titles=False) -> pd.DataFrame:
+    def table(self, with_titles=False) -> "pd.DataFrame":
         """Retrieve the run table as a [DataFrame][pandas.DataFrame].
 
         There are a few differences compared to what you'll see in the table
@@ -364,6 +363,8 @@ class Damnit:
             with_titles (bool): Whether to use variable titles instead of names
                 for the columns in the dataframe.
         """
+        import pandas as pd
+
         df = pd.read_sql_query("SELECT * FROM runs", self._db.conn)
 
         # Convert the start_time into a datetime column
