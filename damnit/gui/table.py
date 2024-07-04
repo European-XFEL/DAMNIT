@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from base64 import b64encode
@@ -391,7 +392,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             item.setData(comment_id, COMMENT_ID_ROLE)
         return item
 
-    def new_item(self, value, column_id, max_diff=0):
+    def new_item(self, value, column_id, max_diff, attrs):
         if is_png_bytes(value):
             return self.image_item(value)
         elif column_id == 'comment':
@@ -401,8 +402,13 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         else:
             item = self.text_item(value)
             item.setEditable(column_id in self.editable_columns)
-            if (max_diff is not None) and max_diff > 1e-9:
+            bold = attrs.get("bold")
+            if bold is None:
+                bold = (max_diff is not None) and max_diff > 1e-9
+            if bold:
                 item.setFont(self._bold_font)
+            if (bg := attrs.get('background')) is not None:
+                item.setBackground(QtGui.QBrush(QtGui.QColor(*bg)))
             return item
 
     def _load_from_db(self):
@@ -421,16 +427,16 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
 
         for (prop, run), grp in groupby(self.db.conn.execute("""
-            SELECT proposal, run, name, value, max_diff FROM run_variables
+            SELECT proposal, run, name, value, max_diff, attributes FROM run_variables
             ORDER BY proposal, run
         """).fetchall(), key=lambda r: r[:2]):  # Group by proposal & run
             row_ix = self.run_index[(prop, run)]
-            for *_, name, value, max_diff in grp:
+            for *_, name, value, max_diff, attr_json in grp:
                 col_ix = self.column_index[name]
                 if name in self.user_variables:
                     value = self.user_variables[name].get_type_class().from_db_value(value)
-
-                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff))
+                attrs = json.loads(attr_json) if attr_json else {}
+                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
 
         comments_start = row_ix + 1
         comment_rows = self.db.conn.execute("""
@@ -500,7 +506,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.db.ensure_run(proposal, run)
             self.db.set_variable(proposal, run, "comment", ReducedData(None))
 
-            self.insert_run_row(proposal, run, {}, {})
+            self.insert_run_row(proposal, run, {}, {}, {})
 
     def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
         if column_ids is None:
@@ -525,7 +531,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
 
-    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict):
+    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
         status_item.setCheckState(Qt.Checked)
@@ -534,7 +540,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         for column_id in self.column_ids[3:]:
             if (value := contents.get(column_id, None)) is not None:
                 item = self.new_item(
-                    value, column_id, max_diffs.get(column_id) or 0
+                    value, column_id, max_diffs.get(column_id) or 0, attrs.get(column_id) or {}
                 )
             elif column_id in self.editable_columns:
                 item = QtGui.QStandardItem()  # Editable by default
@@ -569,9 +575,13 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         except KeyError:
             row_ix = None
 
-        max_diffs = dict(self.db.conn.execute("""
-            SELECT name, max_diff FROM run_variables WHERE proposal=? AND run=?
-        """, (proposal, run)))
+        max_diffs = {}
+        attrs = {}
+        for name, max_diff, attr_json in self.db.conn.execute("""
+            SELECT name, max_diff, attributes FROM run_variables WHERE proposal=? AND run=?
+        """, (proposal, run)):
+            max_diffs[name] = max_diff
+            attrs[name] = json.loads(attr_json) if attr_json else {}
 
         col_id_to_ix = {c: i for (i, c) in enumerate(self.column_ids)}
 
@@ -580,10 +590,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             for column_id, value in values.items():
                 col_ix = col_id_to_ix[column_id]
                 self.setItem(row_ix, col_ix, self.new_item(
-                    value, column_id, max_diffs.get(column_id) or 0
+                    value, column_id, max_diffs.get(column_id) or 0, attrs.get(column_id) or {}
                 ))
         else:
-            self.insert_run_row(proposal, run, values, max_diffs)
+            self.insert_run_row(proposal, run, values, max_diffs, attrs)
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']

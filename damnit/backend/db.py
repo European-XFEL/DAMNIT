@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import sqlite3
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from secrets import token_hex
-from typing import Any
+from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
 from .user_variables import UserEditableVariable
@@ -16,11 +17,12 @@ DB_NAME = Path('runs.sqlite')
 
 log = logging.getLogger(__name__)
 
-V1_SCHEMA = """
+V2_SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
 CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
 
-CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type, summary_method);
+-- attributes column is new in v2
+CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type, summary_method, attributes);
 CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
 
 -- These are dummy views that will be overwritten later, but they should at least
@@ -50,6 +52,7 @@ class ReducedData:
     value: Any
     max_diff: float = None
     summary_method: str = ''
+    attributes: Optional[dict] = None
 
 
 class BlobTypes(Enum):
@@ -70,7 +73,8 @@ class BlobTypes(Enum):
 def db_path(root_path: Path):
     return root_path / DB_NAME
 
-DATA_FORMAT_VERSION = 1
+DATA_FORMAT_VERSION = 2
+MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 class DamnitDB:
     def __init__(self, path=DB_NAME, allow_old=False):
@@ -92,9 +96,11 @@ class DamnitDB:
             data_format_version = self.metameta.get("data_format_version", 0)
             if data_format_version < DATA_FORMAT_VERSION:
                 can_apply_schema = False
+        else:
+            data_format_version = DATA_FORMAT_VERSION
 
         if can_apply_schema:
-            self.conn.executescript(V1_SCHEMA)
+            self.conn.executescript(V2_SCHEMA)
 
         # A random ID for the update topic
         if 'db_id' not in self.metameta:
@@ -104,15 +110,16 @@ class DamnitDB:
 
         if not db_existed:
             # If this is a new database, set the latest current version
-            db_version = self.metameta["data_format_version"] = DATA_FORMAT_VERSION
-        else:
-            db_version = self.metameta.setdefault("data_format_version", 0)
+            self.metameta["data_format_version"] = DATA_FORMAT_VERSION
 
-        if (not allow_old) and db_version < DATA_FORMAT_VERSION:
-            raise RuntimeError(
-                f"Cannot open older (v{db_version}) database, please contact DA "
-                "for help migrating"
-            )
+        if not allow_old:
+            if data_format_version < MIN_OPENABLE_VERSION:
+                raise RuntimeError(
+                    f"Cannot open older (v{data_format_version}) database, please contact DA "
+                    "for help migrating"
+                )
+            elif data_format_version < DATA_FORMAT_VERSION:
+                self.upgrade_schema(data_format_version)
 
     @classmethod
     def from_dir(cls, path):
@@ -124,6 +131,19 @@ class DamnitDB:
     @property
     def kafka_topic(self):
         return UPDATE_TOPIC.format(self.metameta['db_id'])
+
+    def upgrade_schema(self, from_version):
+        log.info("Upgrading database format from v%d to v%d",
+                 from_version, DATA_FORMAT_VERSION)
+        with self.conn:
+            if from_version < 2:
+                self.conn.execute("ALTER TABLE run_variables ADD COLUMN attributes")
+
+            # Now set data_format_version to the current version
+            self.conn.execute(
+                "UPDATE metameta SET value=? WHERE key='data_format_version'",
+                (DATA_FORMAT_VERSION,)
+            )
 
     def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
@@ -284,6 +304,9 @@ class DamnitDB:
         variable["name"] = name
         variable["timestamp"] = timestamp
         variable["provenance"] = "context.py"
+        variable["attributes"] = None
+        if reduced.attributes:
+            variable["attributes"] = json.dumps(reduced.attributes)
 
         # TODO: enable these code snippets when we add support for versioning
         # latest_version = self.conn.execute("""
@@ -293,7 +316,7 @@ class DamnitDB:
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method"]
+        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "attributes"]
         col_list = ", ".join(cols)
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])

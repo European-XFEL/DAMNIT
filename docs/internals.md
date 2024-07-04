@@ -79,7 +79,12 @@ a proposal by default:
 The DAMNIT data format details the exact structure of the data in the database
 and HDF5 files.
 
-### v1 (current)
+### v2 (current)
+
+This is a minor change to the database schema, adding an `attributes` column to
+the `run_variables` table which contains summary values for the table.
+
+### v1
 
 In v1 there were a few changes to the way we store images and `xarray` types:
 

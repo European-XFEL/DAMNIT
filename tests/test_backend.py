@@ -1,6 +1,7 @@
 import configparser
 import graphlib
 import io
+import json
 import logging
 import os
 import signal
@@ -18,6 +19,7 @@ import requests
 import xarray as xr
 import yaml
 from PIL import Image
+from testpath import MockCommand
 
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
@@ -189,20 +191,20 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     # Simple test
     results = run_ctx_helper(mock_ctx, mock_run, run_number, proposal, caplog)
-    assert set(mock_ctx.ordered_vars()) <= results.data.keys()
+    assert set(mock_ctx.ordered_vars()) <= results.cells.keys()
 
     # Check that the summary of a DataArray is a single number
-    assert isinstance(results.data["meta_array"], xr.DataArray)
+    assert isinstance(results.cells["meta_array"].data, xr.DataArray)
     assert results.reduced["meta_array"].ndim == 0
 
     # Check the result values
-    assert results.data["scalar1"] == 42
-    assert results.data["scalar2"] == 3.14
-    assert results.data["empty_string"] == ""
-    np.testing.assert_equal(results.data["array"], [42, 3.14])
-    np.testing.assert_equal(results.data["meta_array"].data, [run_number, proposal])
-    assert results.data["string"] == str(get_proposal_path(mock_run))
-    assert results.data['plotly_mc_plotface'] == px.bar(x=['a', 'b', 'c'], y=[1, 3, 2])
+    assert results.cells["scalar1"].data == 42
+    assert results.cells["scalar2"].data == 3.14
+    assert results.cells["empty_string"].data == ""
+    np.testing.assert_equal(results.cells["array"].data, [42, 3.14])
+    np.testing.assert_equal(results.cells["meta_array"].data.data, [run_number, proposal])
+    assert results.cells["string"].data == str(get_proposal_path(mock_run))
+    assert results.cells['plotly_mc_plotface'].data == px.bar(x=['a', 'b', 'c'], y=[1, 3, 2])
 
     # Test behaviour with dependencies throwing exceptions
     raising_code = """
@@ -227,7 +229,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert "Skipping bar" in caplog.text
 
         # No variables should have been computed, except for the default 'start_time'
-        assert tuple(results.data.keys()) == ("start_time",)
+        assert tuple(results.cells.keys()) == ("start_time",)
 
     caplog.clear()
 
@@ -253,7 +255,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert caplog.records[0].levelname == "WARNING"
 
         # There should be no computed variables since we treat None as a missing dependency
-        assert tuple(results.data.keys()) == ("start_time",)
+        assert tuple(results.cells.keys()) == ("start_time",)
 
     default_value_code = """
     from damnit_ctx import Variable
@@ -417,8 +419,28 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with patch.object(requests, "get", side_effect=mock_get), \
          patch.object(ed.read_machinery, "find_proposal", return_value=tmp_path):
         results = results_create(mymdc_ctx)
-    assert results.data["sample"] == "mithril"
-    assert results.data["run_type"] == "alchemy"
+    assert results.cells["sample"].data == "mithril"
+    assert results.cells["run_type"].data == "alchemy"
+
+
+def test_return_bool(mock_run, tmp_path):
+    code = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def bool(run):
+        return True
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+
+    with h5py.File(results_hdf5_path) as f:
+        assert f['bool/data'][()] == True
+        assert f['.reduced/bool'][()] == True
+
 
 def test_results_bad_obj(mock_run, tmp_path):
     # Test returning an object we can't save in HDF5
@@ -445,6 +467,36 @@ def test_results_bad_obj(mock_run, tmp_path):
         assert set(f) == {".reduced", "good", "start_time"}
         assert set(f[".reduced"]) == {"good", "start_time"}
 
+def test_results_cell(mock_run, tmp_path):
+    ctx_code = """
+    from damnit_ctx import Variable, Cell
+    import numpy as np
+
+    @Variable()
+    def var1(run):
+        return 7
+
+    @Variable(summary='sum')
+    def var2(run):
+        return Cell(np.arange(10), bold=False, background='#bbdddd')
+
+    @Variable()
+    def var3(run):
+        return Cell(np.arange(7), summary_value=4)
+    """
+    bad_obj_ctx = mkcontext(ctx_code)
+    results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        assert f['.reduced/var2'][()] == 45
+        assert f['.reduced/var2'].attrs['bold'] == False
+        np.testing.assert_array_equal(
+            f['.reduced/var2'].attrs['background'], [0xbb, 0xdd, 0xdd]
+        )
+
+        assert f['.reduced/var3'][()] == 4
+
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
 
@@ -461,10 +513,10 @@ def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog)
     results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, input_vars=user_var_values)
 
     # Tests if computations that depends on user variable return the correct results
-    assert results.data["dep_integer"] == user_var_values["user_integer"] + 1
-    assert results.data["dep_number"] == user_var_values["user_number"]
-    assert results.data["dep_boolean"] == False
-    assert results.data["dep_string"] == user_var_values["user_string"] * 2
+    assert results.cells["dep_integer"].data == user_var_values["user_integer"] + 1
+    assert results.cells["dep_number"].data == user_var_values["user_number"]
+    assert results.cells["dep_boolean"].data == False
+    assert results.cells["dep_string"].data == user_var_values["user_string"] * 2
 
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000
@@ -474,28 +526,28 @@ def test_filtering(mock_ctx, mock_run, caplog):
     ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["string"])
     assert set(ctx.vars) == { "string" }
     results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
-    assert set(results.data) == { "string", "start_time" }
+    assert set(results.cells) == { "string", "start_time" }
 
     # Now select a Variable with dependencies
     ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["scalar2", "timestamp"])
     assert set(ctx.vars) == { "scalar1", "scalar2", "timestamp" }
     results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
-    assert set(results.data) == { "scalar1", "scalar2", "timestamp", "start_time" }
-    ts = results.data["timestamp"]
+    assert set(results.cells) == { "scalar1", "scalar2", "timestamp", "start_time" }
+    ts = results.cells["timestamp"].data
 
     # Requesting a Variable that requires proc data with only raw data
     # should not execute anything.
     ctx = mock_ctx.filter(run_data=RunData.RAW, name_matches=["meta_array"])
     assert set(ctx.vars) == set()
     results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
-    assert set(results.data) == {"start_time"}
+    assert set(results.cells) == {"start_time"}
 
     # But with proc data all dependencies should be executed
     ctx = mock_ctx.filter(run_data=RunData.PROC, name_matches=["meta_array"])
     assert set(ctx.vars) == { "scalar1", "scalar2", "timestamp", "array", "meta_array" }
     results = run_ctx_helper(ctx, mock_run, run_number, proposal, caplog)
-    assert set(results.data) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
-    assert results.data["timestamp"] > ts
+    assert set(results.cells) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
+    assert results.cells["timestamp"].data > ts
 
 def test_add_to_db(mock_db):
     db_dir, db = mock_db
@@ -507,7 +559,10 @@ def test_add_to_db(mock_db):
         "image": b'\x89PNG\r\n\x1a\n...'  # Not a valid PNG, but good enough for this
     }
 
-    add_to_db(reduced_data_from_dict(reduced_data), db, 1234, 42)
+    reduced_objs = reduced_data_from_dict(reduced_data)
+    reduced_objs["float"].attributes = {"background": [255, 0, 0]}
+
+    add_to_db(reduced_objs, db, 1234, 42)
 
     cursor = db.conn.execute("SELECT * FROM runs")
     row = cursor.fetchone()
@@ -516,6 +571,11 @@ def test_add_to_db(mock_db):
     assert row["scalar"] == reduced_data["scalar"]
     assert row["float"] == reduced_data["float"]
     assert row["image"] == reduced_data["image"]
+
+    row = db.conn.execute(
+        "SELECT * FROM run_variables WHERE proposal=1234 AND run=42 AND name='float'"
+    ).fetchone()
+    assert json.loads(row["attributes"]) == {"background": [255, 0, 0]}
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory
@@ -550,12 +610,12 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Test regular variables and slurm variables are executed
     reduced_data = reduced_data_from_dict({ "n": 53 })
     with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
-         patch(f"{pkg}.subprocess.run") as subprocess_run:
+         MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
         extractor.extract_and_ingest(1234, 42, cluster=False,
                                      run_data=RunData.ALL)
         extract_in_subprocess.assert_called_once()
         extractor.kafka_prd.send.assert_called()
-        subprocess_run.assert_called_once()
+        sbatch.assert_called()
 
     # This works because we loaded damnit.context above
     from ctxrunner import main

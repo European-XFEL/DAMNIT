@@ -25,7 +25,8 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file, process_log_path
+from ..backend.extract_data import get_context_file
+from ..backend.extraction_control import process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
@@ -978,9 +979,14 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             if not ok:
                 return False
         initialize_and_start_backend(context_dir, prop_no, context_file_src)
+        return True
+
+    # The folder already contains a database
+    db = DamnitDB.from_dir(context_dir)
 
     # Check if the backend is running
-    elif not backend_is_running(context_dir):
+    expect_listener = not db.metameta.get('no_listener', 0)
+    if expect_listener and not backend_is_running(context_dir):
         button = QMessageBox.question(
             parent, "Backend not running",
             "The DAMNIT backend is not running, would you like to start it? "

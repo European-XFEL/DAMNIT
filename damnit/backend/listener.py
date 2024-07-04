@@ -3,17 +3,15 @@ import json
 import logging
 import os
 import platform
-import shlex
-import subprocess
-import sys
 from pathlib import Path
 from socket import gethostname
 
 from extra_data.read_machinery import find_proposal
 from kafka import KafkaConsumer
 
+from ..context import RunData
 from .db import DamnitDB
-from .extract_data import RunData, process_log_path
+from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -47,6 +45,7 @@ class EventProcessor:
 
         self.context_dir = context_dir
         self.db = DamnitDB.from_dir(context_dir)
+        self.submitter = ExtractionSubmitter(context_dir, self.db)
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.conn.execute("pragma user_version=0;")
         self.proposal = self.db.metameta['proposal']
@@ -56,7 +55,9 @@ class EventProcessor:
         consumer_id = CONSUMER_ID.format(self.db.metameta['db_id'])
         self.kafka_cns = KafkaConsumer(*KAFKA_TOPICS,
                                        bootstrap_servers=KAFKA_BROKERS,
-                                       group_id=consumer_id)
+                                       group_id=consumer_id,
+                                       consumer_timeout_ms=600_000,
+                                       )
 
         # check backend host and connection to online cluster
         self.online_data_host = None
@@ -82,11 +83,17 @@ class EventProcessor:
         return False
 
     def run(self):
-        for record in self.kafka_cns:
-            try:
-                self._process_kafka_event(record)
-            except Exception:
-                log.error("Unepected error handling Kafka event.", exc_info=True)
+        while True:
+            for record in self.kafka_cns:
+                try:
+                    self._process_kafka_event(record)
+                except Exception:
+                    log.error("Unepected error handling Kafka event.", exc_info=True)
+
+            # After 10 minutes with no messages, check if the listener should stop
+            if self.db.metameta.get('no_listener', 0):
+                log.info("Found no_listener flag in database, shutting down.")
+                return
 
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())
@@ -122,31 +129,8 @@ class EventProcessor:
         self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-        log_path = process_log_path(run, proposal, self.context_dir)
-        log.info("Processing output will be written to %s",
-                 log_path.relative_to(self.context_dir.absolute()))
-        
-        python_cmd = [
-            sys.executable, '-m', 'damnit.backend.extract_data',
-            str(proposal), str(run), run_data.value,
-            '--data-location', data_location,
-        ]
-
-        res = subprocess.run([
-            'sbatch', '--parsable',
-            '--cluster=solaris',
-            '-o', log_path,
-            # Default 4 CPU cores & 25 GB memory, can be overridden
-            '--cpus-per-task', str(self.db.metameta.get('noncluster_cpus', '4')),
-            '--mem', self.db.metameta.get('noncluster_mem', '25G'),
-            '--open-mode=append',
-            # Note: we put the run number first so that it's visible in
-            # squeue's default 11-character column for the JobName.
-            '--job-name', f"r{run}-p{proposal}-damnit",
-            '--wrap', shlex.join(python_cmd)
-        ], stdout=subprocess.PIPE, text=True)
-        job_id = res.stdout.partition(';')[0].strip()
-        log.info("Launched Slurm (solaris) job %s to run context file", job_id)
+        req = ExtractionRequest(run, proposal, run_data, data_location)
+        self.submitter.submit(req)
 
 
 def listen():
