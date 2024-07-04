@@ -637,7 +637,8 @@ def filesystem(host='localhost'):
     with TemporaryDirectory() as td:
         try:
             mount_command = [
-               "sshfs", f"{host}:{extra_data.read_machinery.DATA_ROOT_DIR}", str(td),
+               "/gpfs/exfel/sw/software/bin/sshfs",
+               f"{host}:{extra_data.read_machinery.DATA_ROOT_DIR}", str(td),
                # deactivate password prompt and GSSAPI to fail fast if
                # we don't have a valid ssh key
                "-o", "PasswordAuthentication=no", "-o", "GSSAPIAuthentication=no",
@@ -759,10 +760,6 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        if args.cluster_job and args.data_location != 'localhost':
-            # Only run cluster jobs with data on Maxwell
-            log.info('Skipping cluster jobs for remote data [%s].', args.data_location)
-            return
         with filesystem(args.data_location):
             execute_context(args)
     elif args.subcmd == "ctx":
