@@ -5,20 +5,27 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import re
+import sys
 from collections.abc import Sequence
 from enum import Enum
 
 import h5py
 import numpy as np
 import xarray as xr
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from plotly.graph_objects import Figure as PlotlyFigure
 
 __all__ = ["RunData", "Variable", "Cell"]
 
 
 THUMBNAIL_SIZE = 300 # px
+
+
+def isinstance_no_import(obj, mod: str, cls: str):
+    """Check if isinstance(obj, mod.cls) without loading mod"""
+    m = sys.modules.get(mod)
+    if m is None:
+        return False
+
+    return isinstance(obj, getattr(m, cls))
 
 
 class RunData(Enum):
@@ -87,10 +94,13 @@ class Cell:
     """Variable functions can return this"""
     def __init__(self, data, summary=None, summary_value=None, bold=None, background=None):
         # If the user returns an Axes, save the whole Figure
-        if isinstance(data, Axes):
+        if isinstance_no_import(data, 'matplotlib.axes', 'Axes'):
             data = data.get_figure()
 
-        if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure, PlotlyFigure)):
+        isfig = isinstance_no_import(data, 'matplotlib.figure', 'Figure') or \
+                isinstance_no_import(data, 'plotly.graph_objs', 'Figure')
+
+        if not (isfig or isinstance(data, (xr.Dataset, xr.DataArray, str, type(None)))):
             data = np.asarray(data)
             # Numpy will wrap any Python object, but only native arrays
             # can be saved in HDF5, not those containing Python objects.
