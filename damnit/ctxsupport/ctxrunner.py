@@ -19,7 +19,6 @@ from datetime import timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
-from PIL import Image
 from unittest.mock import MagicMock
 
 import extra_data
@@ -28,10 +27,8 @@ import numpy as np
 import requests
 import xarray as xr
 import yaml
-from matplotlib.figure import Figure
-from plotly.graph_objects import Figure as PlotlyFigure
 
-from damnit_ctx import RunData, Variable, Cell
+from damnit_ctx import RunData, Variable, Cell, isinstance_no_import
 
 log = logging.getLogger(__name__)
 
@@ -384,6 +381,7 @@ def plotly2png(figure):
 
     largest dimension set to THUMBNAIL_SIZE
     """
+    from PIL import Image
     png_data = figure.to_image(format='png')
     # resize with PIL (scaling in plotly does not play well with text)
     img = Image.open(io.BytesIO(png_data))
@@ -497,13 +495,13 @@ class Results:
         elif isinstance(data, xr.Dataset):
             size = data.nbytes / 1e6
             return f"Dataset ({size:.2f}MB)"
-        elif isinstance(data, Figure):
+        elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
             # For the sake of space and memory we downsample images to a
             # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             return figure2png(data, dpi=(data.dpi * zoom_ratio))
-        elif isinstance(data, PlotlyFigure):
+        elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
             return plotly2png(data)
 
         elif isinstance(data, (np.ndarray, xr.DataArray)):
@@ -533,10 +531,10 @@ class Results:
                         else DataType.Dataset
                     )
                 else:
-                    if isinstance(obj, Figure):
+                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
                         value = figure2array(obj)
                         obj_type_hints[name] = DataType.Image
-                    elif isinstance(obj, PlotlyFigure):
+                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
                         # we want to compresss plotly figures in HDF5 files
                         # so we need to convert the data to array of uint8
                         value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
