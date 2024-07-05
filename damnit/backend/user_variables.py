@@ -10,16 +10,22 @@ class ValueType:
 
     examples = None
 
+    py_type = None
+
     def __str__(self):
         return self.type_name
 
     @classmethod
     def parse(cls, input: str):
-        return input
+        return cls.py_type(input)
 
     @classmethod
     def from_db_value(cls, value):
         return value
+
+    @classmethod
+    def to_db_value(cls, value):
+        return cls.py_type(value)
 
 
 class BooleanValueType(ValueType):
@@ -28,6 +34,8 @@ class BooleanValueType(ValueType):
     description = "A value type that can be used to denote truth values."
 
     examples = ["True", "T", "true", "1", "False", "F", "f", "0"]
+
+    py_type = bool
 
     _valid_values = {
         "true": True,
@@ -61,6 +69,10 @@ class BooleanValueType(ValueType):
             return None
         return bool(value)
 
+    @classmethod
+    def to_db_value(cls, value):
+        return value if isinstance(value, bool) else None
+
 
 class IntegerValueType(ValueType):
     type_name = "integer"
@@ -69,9 +81,7 @@ class IntegerValueType(ValueType):
 
     examples = ["-7", "-2", "0", "10", "34"]
 
-    @classmethod
-    def parse(cls, input: str):
-        return int(input)
+    py_type = int
 
 class NumberValueType(ValueType):
     type_name = "number"
@@ -80,10 +90,7 @@ class NumberValueType(ValueType):
 
     examples = ["-34.1e10", "-7.1", "-4", "0.0", "3.141592653589793", "85.4E7"]
 
-    @classmethod
-    def parse(cls, input: str):
-        return float(input)
-
+    py_type = float
 
 class StringValueType(ValueType):
     type_name = "string"
@@ -91,6 +98,12 @@ class StringValueType(ValueType):
     description = "A value type that can be used to represent text."
 
     examples = ["Broken", "Dark frame", "test_frame"]
+
+    py_type = str
+
+    @classmethod
+    def to_db_value(cls, value):
+        return value if isinstance(value, str) else None
 
 
 value_types_by_name = {tt.type_name: tt for tt in [
