@@ -31,6 +31,15 @@ data = myvar.read()
 summary = myvar.summary()
 ```
 
+You can also write to [user-editable
+variables](gui.md#adding-user-editable-variables):
+```python
+run_vars["myvar"] = 42
+
+# An alternative style would be:
+myvar.write(42)
+```
+
 ## API reference
 
 ::: damnit.Damnit

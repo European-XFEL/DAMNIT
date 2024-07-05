@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 from textwrap import dedent
+from unittest.mock import patch
 
 import numpy as np
 import plotly.express as px
@@ -11,6 +12,7 @@ from plotly.graph_objects import Figure as PlotlyFigure
 
 from damnit import Damnit, RunVariables
 from damnit.context import ContextFile
+from damnit.backend.user_variables import UserEditableVariable
 from .helpers import extract_mock_run
 
 
@@ -91,6 +93,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     damnit = Damnit(db_dir)
     rv = damnit[1]
 
+    # We disable updates from VariableData.write() by default so we can use the
+    # convenient RunVariables.__setitem__() method.
+    monkeypatch.setenv("DAMNIT_API_SEND_UPDATE", "0")
+
     # Insert a DataSet variable
     dataset_code = """
     from damnit_ctx import Cell, Variable
@@ -164,6 +170,67 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     assert isinstance(fig, PlotlyFigure)
 
     assert rv["summary_only"].summary() == 7
+
+    # It shouldn't be possible to write to non-editable variables or the default
+    # variables from DAMNIT.
+    with pytest.raises(RuntimeError):
+        rv["dataset"] = 1
+    with pytest.raises(RuntimeError):
+        rv["start_time"] = 1
+
+    # It also shouldn't be possible to write to variables that don't exist. We
+    # have to test this because RunVariables.__setitem__() will allow creating
+    # VariableData objects for variables that are missing from the run but do
+    # exist in the database.
+    with pytest.raises(KeyError):
+        rv["blah"] = 1
+
+    # Test setting an editable value
+    db.add_user_variable(UserEditableVariable("foo", "Foo", "number"))
+    rv["foo"] = 3.14
+    assert rv["foo"].read() == 3.14
+
+    # Test setting a comment
+    rv["comment"] = "humbug"
+    assert rv["comment"].read() == "humbug"
+
+    # Test sending Kafka updates
+    foo_var = rv["foo"]
+    with patch("damnit.kafka.KafkaProducer") as kafka_prd:
+        foo_var.write(42, send_update=True)
+        kafka_prd.assert_called_once()
+
+# These are smoke tests to ensure that writing of all variable types succeed,
+# tests of special cases are above in test_variable_data.
+#
+# Note that we allow any value to be converted to strings for convenience, so
+# its `bad_input` value is None.
+@pytest.mark.parametrize("variable_name,good_input,bad_input",
+                         [("boolean", True, "foo"),
+                          ("integer", 42, "foo"),
+                          ("number", 3.14, "foo"),
+                          ("stringy", "foo", None)])
+def test_writing(variable_name, good_input, bad_input, mock_db_with_data, monkeypatch):
+    db_dir, db = mock_db_with_data
+    monkeypatch.chdir(db_dir)
+    monkeypatch.setenv("DAMNIT_API_SEND_UPDATE", "0")
+    damnit = Damnit(db_dir)
+    rv = damnit[1]
+
+    # There's already a `string` variable in the test context file so we can't
+    # reuse the name as the type for our editable variable.
+    variable_type = "string" if variable_name == "stringy" else variable_name
+
+    # Add the user-editable variable
+    user_var = UserEditableVariable(variable_name, variable_name.capitalize(), variable_type)
+    db.add_user_variable(user_var)
+
+    rv[variable_name] = good_input
+    assert rv[variable_name].read() == good_input
+
+    if bad_input is not None:
+        with pytest.raises(ValueError):
+            rv[variable_name] = bad_input
 
 def test_api_dependencies(venv):
     package_path = Path(__file__).parent.parent
