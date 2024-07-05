@@ -237,7 +237,7 @@ class DamnitDB:
                 attributes=rr["attributes"],
             )
             user_variables[var_name] = new_var
-        log.debug("Loaded %d user variables", len(user_variables))
+
         return user_variables
 
     def update_computed_variables(self, vars: dict):
