@@ -53,7 +53,7 @@ test = [
     "pytest-qt",
     "pytest-xvfb",
     "pytest-timeout",
-    "pytest-virtualenv",
+    "pytest-venv",
     "testpath",
 ]
 docs = [
