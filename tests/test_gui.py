@@ -48,17 +48,18 @@ def pid_dead(pid):
 
 def test_connect_to_kafka(mock_db, qtbot):
     db_dir, db = mock_db
-    pkg = "damnit.gui.kafka"
+    consumer_import = "damnit.gui.main_window.KafkaConsumer"
+    producer_import = "damnit.kafka.KafkaProducer"
 
-    with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
-         patch(f"{pkg}.KafkaProducer") as kafka_prd:
+    with patch(consumer_import) as kafka_cns, \
+         patch(producer_import) as kafka_prd:
         win = MainWindow(db_dir, False)
         qtbot.addWidget(win)
         kafka_cns.assert_not_called()
         kafka_prd.assert_not_called()
 
-    with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
-         patch(f"{pkg}.KafkaProducer") as kafka_prd:
+    with patch(consumer_import) as kafka_cns, \
+         patch(producer_import) as kafka_prd:
         win = MainWindow(db_dir, True)
         qtbot.addWidget(win, before_close_func=lambda _: win.stop_update_listener_thread())
         kafka_cns.assert_called_once()
