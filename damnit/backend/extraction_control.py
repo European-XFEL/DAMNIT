@@ -83,6 +83,7 @@ class ExtractionRequest:
     run_data: RunData
     cluster: bool = False
     match: tuple = ()
+    variables: tuple = ()   # Overrides match if present
     mock: bool = False
     update_vars: bool = True
 
@@ -94,8 +95,12 @@ class ExtractionRequest:
         ]
         if self.cluster:
             cmd.append('--cluster-job')
-        for m in self.match:
-            cmd.extend(['--match', m])
+        if self.variables:
+            for v in self.variables:
+                cmd.extend(['--var', v])
+        else:
+            for m in self.match:
+                cmd.extend(['--match', m])
         if self.mock:
             cmd.append('--mock')
         if self.update_vars:
