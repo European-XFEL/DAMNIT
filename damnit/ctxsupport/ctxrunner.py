@@ -233,7 +233,7 @@ class ContextFile:
             for (name, v) in self.vars.items()
         }
 
-    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
+    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=(), variables=()):
         new_vars = {}
         for name, var in self.vars.items():
 
@@ -247,9 +247,13 @@ class ContextFile:
             data_match = run_data == RunData.ALL or var.data == run_data
             # Skip data tagged cluster unless we're in a dedicated Slurm job
             cluster_match = cluster or not var.cluster
-            # Skip Variables that don't match the match list
-            name_match = (len(name_matches) == 0
-                          or any(m.lower() in title.lower() for m in name_matches))
+
+            if variables:  # --var: exact variable names (not titles)
+                name_match = name in variables
+            elif name_matches:  # --match: substring in variable titles
+                name_match = any(m.lower() in title.lower() for m in name_matches)
+            else:
+                name_match = True  # No --var or --match specification
 
             if data_match and cluster_match and name_match:
                 new_vars[name] = var
@@ -639,6 +643,7 @@ def main(argv=None):
     exec_ap.add_argument('--mock', action='store_true')
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
+    exec_ap.add_argument('--var', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
     exec_ap.add_argument('--save-reduced', action='append', default=[])
 
@@ -673,7 +678,8 @@ def main(argv=None):
         ctx_whole = ContextFile.from_py_file(Path('context.py'))
         ctx_whole.check()
         ctx = ctx_whole.filter(
-            run_data=run_data, cluster=args.cluster_job, name_matches=args.match
+            run_data=run_data, cluster=args.cluster_job, name_matches=args.match,
+            variables=args.var,
         )
         log.info("Using %d variables (of %d) from context file %s",
              len(ctx.vars), len(ctx_whole.vars),
