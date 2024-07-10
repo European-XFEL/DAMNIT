@@ -25,8 +25,7 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file
-from ..backend.extraction_control import process_log_path
+from ..backend.extraction_control import process_log_path, ExtractionSubmitter
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
@@ -35,6 +34,7 @@ from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
 from .plot import Canvas, Plot
+from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
@@ -340,6 +340,8 @@ da-dev@xfel.eu"""
         self.action_export.setEnabled(False)
         self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
         self.action_export.triggered.connect(self.export_table)
+        self.action_process = QtWidgets.QAction("Reprocess runs", self)
+        self.action_process.triggered.connect(self.process_runs)
 
         action_adeqt = QtWidgets.QAction("Python console", self)
         action_adeqt.setShortcut("F12")
@@ -360,6 +362,7 @@ da-dev@xfel.eu"""
         )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(self.action_create_var)
+        fileMenu.addAction(self.action_process)
         fileMenu.addAction(self.action_export)
         fileMenu.addAction(action_adeqt)
         fileMenu.addAction(action_help)
@@ -894,6 +897,39 @@ da-dev@xfel.eu"""
         df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         self.zulip_messenger.send_table(df)
+
+    def process_runs(self):
+        sel_runs_by_prop = {}
+        for ix in self.table_view.selected_rows():
+            run_prop, run_num = self.table.row_to_proposal_run(ix.row())
+            sel_runs_by_prop.setdefault(run_prop, []).append(run_num)
+
+        if sel_runs_by_prop:
+            prop, sel_runs = max(sel_runs_by_prop.items(), key=lambda p: len(p[1]))
+            sel_runs.sort()
+        else:
+            prop = self.db.metameta.get("proposal", "")
+            sel_runs = []
+
+        var_ids_titles = zip(self.table.computed_columns(),
+                             self.table.computed_columns(by_title=True))
+
+        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            submitter = ExtractionSubmitter(self.context_dir, self.db)
+
+            try:
+                reqs = dlg.extraction_requests()
+                for req in reqs:
+                    submitter.submit(req)
+            except Exception as e:
+                log.error("Error launching processing", exc_info=True)
+                self.show_status_message(f"Error launching processing: {e}",
+                                         10_000, stylesheet=StatusbarStylesheet.ERROR)
+            else:
+                self.show_status_message(
+                    f"Launched processing for {len(reqs)} runs", 10_000
+                )
 
     adeqt_window = None
 
