@@ -478,6 +478,14 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def column_title_to_id(self, title):
         return self.column_id(self.find_column(title, by_title=True))
 
+    def computed_columns(self, by_title=False):
+        for i, col_id in enumerate(self.column_ids[5:], start=5):
+            if col_id not in self.editable_columns:
+                if by_title:
+                    yield self.column_titles[i]
+                else:
+                    yield col_id
+
     def find_row(self, proposal, run):
         return self.run_index[(proposal, run)]
 
