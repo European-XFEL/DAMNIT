@@ -127,24 +127,20 @@ class ContextFile:
 
         # Check for cycles
         try:
-            self.ordered_vars()
+            ordered_names = self.ordered_vars()
         except CycleError as e:
             # Tweak the error message to make it clearer
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
 
-        # Check for raw-data variables that depend on proc-data variables
-        for name, var in self.vars.items():
-            if var.data != RunData.RAW:
-                continue
-            proc_dependencies = [dep for dep in self.all_dependencies(var)
-                                 if self.vars[dep].data == RunData.PROC]
+        # 'Promote' variables to match characters of their dependencies
+        for name in ordered_names:
+            var = self.vars[name]
+            deps = [self.vars[dep] for dep in self.all_dependencies(var)]
+            if var._data is None and any(v.data == RunData.PROC for v in deps):
+                var._data = RunData.PROC.value
 
-            if len(proc_dependencies) > 0:
-                # If we have a variable that depends on proc data but didn't
-                # explicitly set `data`, then promote this variable to use proc
-                # data.
-                if var._data == None:
-                    var._data = RunData.PROC.value
+            if any(v.cluster for v in deps):
+                var.cluster = True
 
     def check(self):
         problems = []

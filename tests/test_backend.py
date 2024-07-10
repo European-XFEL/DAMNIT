@@ -133,7 +133,11 @@ def test_context_file(mock_ctx, tmp_path):
     var_promotion_code = """
     from damnit.context import Variable
 
-    @Variable(title="foo", data="proc")
+    @Variable()
+    def baz(run, bar: "var#bar"):
+        return bar * 2
+
+    @Variable(title="foo", data="proc", cluster=True)
     def foo(run):
         return 42
 
@@ -144,9 +148,13 @@ def test_context_file(mock_ctx, tmp_path):
     # This should not raise an exception
     var_promotion_ctx = mkcontext(var_promotion_code)
 
-    # `bar` should automatically be promoted to use proc data because it depends
-    # on a proc variable.
+    # `bar` & `baz` should be promoted to use proc data & run on a dedicated
+    # node because they depend on foo.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
+    assert var_promotion_ctx.vars["baz"].data == RunData.PROC
+
+    assert var_promotion_ctx.vars["bar"].cluster is True
+    assert var_promotion_ctx.vars["baz"].cluster is True
 
     # Test depending on mymdc fields
     good_mymdc_code = """
