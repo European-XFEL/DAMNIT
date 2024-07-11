@@ -148,7 +148,7 @@ class ExtractionSubmitter:
             '--wrap', shlex.join(req.python_cmd())
         ]
 
-    def execute(self, req: ExtractionRequest):
+    def execute_in_slurm(self, req: ExtractionRequest):
         """Run an extraction job in srun with live output"""
         log_path = process_log_path(req.run, req.proposal, self.context_dir)
         log.info("Processing output will be written to %s",
@@ -158,6 +158,17 @@ class ExtractionSubmitter:
         with tee(log_path) as pipe:
             subprocess.run(
                 self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True
+            )
+
+    def execute_direct(self, req: ExtractionRequest):
+        log_path = process_log_path(req.run, req.proposal, self.context_dir)
+        log.info("Processing output will be written to %s",
+                 log_path.relative_to(self.context_dir.absolute()))
+
+        # Duplicate output to the log file
+        with tee(log_path) as pipe:
+            subprocess.run(
+                req.python_cmd(), stdout=pipe, stderr=subprocess.STDOUT, check=True
             )
 
     def srun_cmd(self, req: ExtractionRequest):
@@ -197,7 +208,7 @@ class ExtractionSubmitter:
         return opts
 
 
-def reprocess(runs, proposal=None, match=(), mock=False, watch=False):
+def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False):
     """Called by the 'amore-proto reprocess' subcommand"""
     submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
@@ -257,7 +268,9 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False):
 
     for prop, run in props_runs:
         req = ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
-        if watch:
-            submitter.execute(req)
+        if direct:
+            submitter.execute_direct(req)
+        elif watch:
+            submitter.execute_in_slurm(req)
         else:
             submitter.submit(req)
