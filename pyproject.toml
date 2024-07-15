@@ -27,7 +27,7 @@ dependencies = [
 backend = [
     "EXtra-data",
     "ipython",
-    "kafka-python",
+    "kafka-python-ng",
     "kaleido",  # used in plotly to convert figures to images
     "matplotlib",
     "numpy",
@@ -53,7 +53,7 @@ test = [
     "pytest-qt",
     "pytest-xvfb",
     "pytest-timeout",
-    "pytest-virtualenv",
+    "pytest-venv",
     "testpath",
 ]
 docs = [

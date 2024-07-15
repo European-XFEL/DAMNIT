@@ -41,7 +41,7 @@ def run_in_subprocess(args, **kwargs):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, data_location='localhost', mock=False
+        python_exe=None, mock=False, data_location='localhost',
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -229,6 +229,9 @@ class Extractor:
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
+        if data_location != 'localhost':
+            log.info('Skipping cluster variables with remote data [%s].', data_location)
+            return
         ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
         ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
         if set(ctx_slurm.vars) > set(ctx.vars):
@@ -274,8 +277,8 @@ def main(argv=None):
                             cluster=args.cluster_job,
                             run_data=RunData(args.run_data),
                             match=args.match,
-                            data_location=args.data_location,
-                            mock=args.mock,)
+                            mock=args.mock,
+                            data_location=args.data_location)
 
 
 if __name__ == '__main__':

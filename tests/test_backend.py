@@ -133,7 +133,11 @@ def test_context_file(mock_ctx, tmp_path):
     var_promotion_code = """
     from damnit.context import Variable
 
-    @Variable(title="foo", data="proc")
+    @Variable()
+    def baz(run, bar: "var#bar"):
+        return bar * 2
+
+    @Variable(title="foo", data="proc", cluster=True)
     def foo(run):
         return 42
 
@@ -144,9 +148,13 @@ def test_context_file(mock_ctx, tmp_path):
     # This should not raise an exception
     var_promotion_ctx = mkcontext(var_promotion_code)
 
-    # `bar` should automatically be promoted to use proc data because it depends
-    # on a proc variable.
+    # `bar` & `baz` should be promoted to use proc data & run on a dedicated
+    # node because they depend on foo.
     assert var_promotion_ctx.vars["bar"].data == RunData.PROC
+    assert var_promotion_ctx.vars["baz"].data == RunData.PROC
+
+    assert var_promotion_ctx.vars["bar"].cluster is True
+    assert var_promotion_ctx.vars["baz"].cluster is True
 
     # Test depending on mymdc fields
     good_mymdc_code = """
@@ -669,7 +677,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
         open_run.assert_called_with(1234, 42, data="all")
 
-def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
+def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
@@ -677,8 +685,8 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.
-    virtualenv.install_package(" ".join([*ctxrunner_deps, "sfollow"]),
-                               installer="pip install")
+    subprocess.run([venv.python, "-m", "pip", "install", *ctxrunner_deps, "sfollow"],
+                   check=True)
 
     # Write a context file that requires the new package
     new_env_code = f"""
@@ -704,7 +712,7 @@ def test_custom_environment(mock_db, virtualenv, monkeypatch, qtbot):
         Extractor()
 
     # Set the context_python field in the database
-    db.metameta["context_python"] = str(virtualenv.python)
+    db.metameta["context_python"] = str(venv.python)
 
     with patch(f"{pkg}.KafkaProducer"):
         Extractor().extract_and_ingest(1234, 42, mock=True)

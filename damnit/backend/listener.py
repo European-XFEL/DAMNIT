@@ -19,7 +19,6 @@ CONSUMER_ID = "xfel-da-amore-prototype-{}"
 KAFKA_BROKERS = ["exflwgs06:9091"]
 KAFKA_TOPICS = ["test.r2d2", "cal.offline-corrections", "test.euxfel.hed.daq", "test.euxfel.hed.cal"]
 KAFKA_EVENTS = ["migration_complete", "run_corrections_complete", "daq_run_complete", "online_correction_complete"]
-BACKEND_HOSTS_TO_ONLINE = ['max-exfl-display003.desy.de', 'max-exfl-display004.desy.de']
 ONLINE_HOSTS ={
     'FXE': 'sa1-onc-fxe.desy.de',
     'HED': 'sa2-onc-hed.desy.de',
@@ -56,15 +55,11 @@ class EventProcessor:
         self.kafka_cns = KafkaConsumer(*KAFKA_TOPICS,
                                        bootstrap_servers=KAFKA_BROKERS,
                                        group_id=consumer_id,
-                                       consumer_timeout_ms=600_000,
-                                       )
+                                       consumer_timeout_ms=600_000,)
 
         # check backend host and connection to online cluster
         self.online_data_host = None
         self.run_online = self.db.metameta.get('run_online', False) is not False
-        if self.run_online and gethostname() not in BACKEND_HOSTS_TO_ONLINE:
-            log.warning(f"Disabled online processing, the backend must run on one of: {BACKEND_HOSTS_TO_ONLINE}")
-            self.run_online = False
         if self.run_online:
             topic = Path(find_proposal(f'p{self.proposal:06}')).parts[-3]
             if (remote_host := ONLINE_HOSTS.get(topic)) is None:

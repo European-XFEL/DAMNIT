@@ -130,10 +130,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     assert isinstance(fig, PlotlyFigure)
     assert fig == px.bar(x=["a", "b", "c"], y=[1, 3, 2])
 
-def test_api_dependencies(virtualenv):
+def test_api_dependencies(venv):
     package_path = Path(__file__).parent.parent
-    virtualenv.install_package(package_path, installer="pip install")
+    venv.install(package_path)
 
     # Test that we can import the module successfully and don't accidentally
     # depend on other things.
-    subprocess.run([str(virtualenv.python), "-c", "import damnit"]).check_returncode()
+    subprocess.run([str(venv.python), "-c", "import damnit"], check=True)
