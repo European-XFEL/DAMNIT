@@ -951,6 +951,8 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
         if gethostname().startswith('exflonc'):
             # prevent starting the backend on the online cluster
             QMessageBox.warning(
+                None,
+                "Backend setup failed",
                 "Running the DAMNIT backend on the online cluster is not allowed. "
                 "Please, open the damint GUI on Maxwell instead and retry."
             )
