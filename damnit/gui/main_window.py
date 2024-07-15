@@ -592,17 +592,29 @@ da-dev@xfel.eu"""
             pp.show()
             return
 
+        if variable.type_hint() is DataType.Dataset:
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' is a Xarray Dataset (not supported).")
+
         try:
-            data = xr.DataArray(variable.read())
+            data = variable.read()
         except KeyError:
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
+
+        if variable.type_hint() is DataType.DataArray:
+            canvas = Canvas(self, xr=data, title=f'{variable.title} (run {run})')
+            self._canvas_inspect.append(canvas)
+            canvas.show()
+            return
+
+        data = xr.DataArray(data)
 
         if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
             canvas = Canvas(
                 self,
                 image=data.data,
-                title=f"{quantity_title} (run {run})",
+                title=f"{variable.title} (run {run})",
             )
         else:
             if data.ndim == 0:
@@ -626,10 +638,9 @@ da-dev@xfel.eu"""
                 x=[fix_data_for_plotting(x)],
                 y=[fix_data_for_plotting(data)],
                 xlabel=f"Event (run {run})",
-                ylabel=quantity_title,
+                ylabel=variable.title,
                 fmt="o",
             )
-
 
         self._canvas_inspect.append(canvas)
         canvas.show()

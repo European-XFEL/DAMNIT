@@ -30,6 +30,7 @@ class Canvas(QtWidgets.QDialog):
         x=[],
         y=[],
         image=None,
+        xr=None,
         xlabel="",
         ylabel="",
         title=None,
@@ -64,6 +65,7 @@ class Canvas(QtWidgets.QDialog):
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel if not is_histogram else "Probability density")
         if title is not None:
+            self.setWindowTitle(title)
             self._axis.set_title(title)
         elif is_histogram:
             self._axis.set_title(f"Probability density of {xlabel}")
@@ -154,7 +156,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panmanager = PanManager(self.figure, MouseButton.LEFT)
 
-        self.update_canvas(x, y, image, legend=legend)
+        self.update_canvas(x, y, image, xr, legend=legend)
 
         # Take a guess at a good aspect ratio if it's an image
         if image is not None:
@@ -232,11 +234,16 @@ class Canvas(QtWidgets.QDialog):
         self._axis.set_aspect(aspect)
         self.figure.canvas.draw()
 
-    def update_canvas(self, xs=None, ys=None, image=None, legend=None, series_names=["default"]):
+    def update_canvas(self, xs=None, ys=None, image=None, xr=None, legend=None, series_names=["default"]):
         cmap = matplotlib.colormaps["tab20"]
         self._nan_warning_label.hide()
 
-        if (xs is None and ys is None) and self.plot_type == "histogram1D":
+        if xr is not None:
+            if xr.ndim == 3 and xr.shape[-1] in (3, 4):
+                xr.plot.imshow(ax=self._axis)
+            else:
+                xr.plot(ax=self._axis)
+        elif (xs is None and ys is None) and self.plot_type == "histogram1D":
             xs, ys = [], []
 
             for series in self._lines.keys():
