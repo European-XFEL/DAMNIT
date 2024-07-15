@@ -603,7 +603,7 @@ da-dev@xfel.eu"""
             return
 
         if variable.type_hint() is DataType.DataArray:
-            canvas = Canvas(self, xr=data, title=f'{variable.title} (run {run})')
+            canvas = Canvas(self, dataarray=data, title=f'{variable.title} (run {run})')
             self._canvas_inspect.append(canvas)
             canvas.show()
             return
