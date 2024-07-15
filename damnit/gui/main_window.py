@@ -324,22 +324,22 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_create_var = QtWidgets.QAction(
+        self.action_create_var = QtWidgets.QAction(
             QtGui.QIcon.fromTheme("accessories-text-editor"),
             "&Create user variable",
             self
         )
-        action_create_var.setShortcut("Shift+U")
-        action_create_var.setStatusTip("Create user editable variable")
-        action_create_var.triggered.connect(self._menu_create_user_var)
-        action_create_var.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: action_create_var.setEnabled(True))
+        self.action_create_var.setShortcut("Shift+U")
+        self.action_create_var.setStatusTip("Create user editable variable")
+        self.action_create_var.triggered.connect(self._menu_create_user_var)
+        self.action_create_var.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: self.action_create_var.setEnabled(True))
 
-        action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
-        action_export.setStatusTip("Export to Excel/CSV")
-        action_export.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: action_export.setEnabled(True))
-        action_export.triggered.connect(self.export_table)
+        self.action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
+        self.action_export.setStatusTip("Export to Excel/CSV")
+        self.action_export.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
+        self.action_export.triggered.connect(self.export_table)
 
         action_adeqt = QtWidgets.QAction("Python console", self)
         action_adeqt.setShortcut("F12")
@@ -359,8 +359,8 @@ da-dev@xfel.eu"""
             QtGui.QIcon(icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        fileMenu.addAction(action_create_var)
-        fileMenu.addAction(action_export)
+        fileMenu.addAction(self.action_create_var)
+        fileMenu.addAction(self.action_export)
         fileMenu.addAction(action_adeqt)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
