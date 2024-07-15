@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import tempfile
 import xarray as xr
-from pandas.api.types import is_numeric_dtype
 
 from PyQt5.QtCore import Qt
 from PyQt5 import QtCore, QtWidgets, QtGui
@@ -30,7 +29,7 @@ class Canvas(QtWidgets.QDialog):
         x=[],
         y=[],
         image=None,
-        xr=None,
+        dataarray=None,
         xlabel="",
         ylabel="",
         title=None,
@@ -156,7 +155,7 @@ class Canvas(QtWidgets.QDialog):
         self._zoom_factory = None
         self._panmanager = PanManager(self.figure, MouseButton.LEFT)
 
-        self.update_canvas(x, y, image, xr, legend=legend)
+        self.update_canvas(x, y, image, dataarray, legend=legend)
 
         # Take a guess at a good aspect ratio if it's an image
         if image is not None:
@@ -234,15 +233,15 @@ class Canvas(QtWidgets.QDialog):
         self._axis.set_aspect(aspect)
         self.figure.canvas.draw()
 
-    def update_canvas(self, xs=None, ys=None, image=None, xr=None, legend=None, series_names=["default"]):
+    def update_canvas(self, xs=None, ys=None, image=None, dataarray=None, legend=None, series_names=["default"]):
         cmap = matplotlib.colormaps["tab20"]
         self._nan_warning_label.hide()
 
-        if xr is not None:
-            if xr.ndim == 3 and xr.shape[-1] in (3, 4):
-                xr.plot.imshow(ax=self._axis)
+        if dataarray is not None:
+            if dataarray.ndim == 3 and dataarray.shape[-1] in (3, 4):
+                dataarray.plot.imshow(ax=self._axis)
             else:
-                xr.plot(ax=self._axis)
+                dataarray.plot(ax=self._axis)
         elif (xs is None and ys is None) and self.plot_type == "histogram1D":
             xs, ys = [], []
 
