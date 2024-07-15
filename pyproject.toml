@@ -8,46 +8,60 @@ authors = [
     {name = "Thomas Kluyver", email = "thomas.kluyver@xfel.eu"},
     {name = "Luca Gelisio", email = "luca.gelisio@xfel.eu"},
 ]
+description = "The Data And Metadata iNspection Interactive Thing"
 license = {file = "LICENSE"}
+requires-python = ">=3.9"
 classifiers = ["License :: OSI Approved :: BSD License"]
-dynamic = ["version", "description"]
+dynamic = ["version"]
+readme = "README.md"
 dependencies = [
-    "EXtra-data",
     "h5netcdf",
-    "ipython",
-    "kafka-python",
-    "matplotlib",
-    "numpy",
+    "h5py",
+    "orjson",  # used in plotly for faster json serialization
     "pandas",
-    "xarray",
-    "requests",
-    "scipy",
-    "supervisor",
-    "termcolor",
-    "pyyaml"
+    "plotly",
+    "xarray"
 ]
 
 [project.optional-dependencies]
+backend = [
+    "EXtra-data",
+    "ipython",
+    "kafka-python-ng",
+    "kaleido",  # used in plotly to convert figures to images
+    "matplotlib",
+    "numpy",
+    "pyyaml",
+    "requests",
+    "supervisor",
+    "termcolor"
+]
 gui = [
     "adeqt",
     "mplcursors",
     "mpl-pan-zoom",
     "openpyxl",  # for spreadsheet export
     "PyQt5",
+    "PyQtWebEngine",
     "pyflakes",  # for checking context file in editor
     "QScintilla==2.13",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
 ]
 test = [
+    "pillow",
     "pytest",
     "pytest-qt",
     "pytest-xvfb",
     "pytest-timeout",
-    "pytest-virtualenv",
+    "pytest-venv",
+    "testpath",
 ]
 docs = [
     "mkdocs",
-    "mkdocs-material"
+    "mkdocs-material",
+    "mkdocstrings",
+    "mkdocstrings-python",
+    "pymdown-extensions"
 ]
 
 [project.urls]

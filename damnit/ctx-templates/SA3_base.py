@@ -4,11 +4,7 @@ import numpy as np
 
 from damnit_ctx import Variable
 
-
-# If you have the Karabo device name of the XGM you're interested in, you can
-# set the variable below and the 'xgm_intensity' and 'pulses' Variable's will
-# use it. By default it's set to the XGM for SASE 2.
-xgm_name = "SA2_XTD1_XGM/XGM/DOOCS"
+xgm_name = "SA3_XTD10_XGM/XGM/DOOCS"
 
 # Run metadata
 

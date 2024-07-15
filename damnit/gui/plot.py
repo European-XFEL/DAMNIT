@@ -18,7 +18,7 @@ from matplotlib.backends.backend_qtagg import (
 from matplotlib.figure import Figure
 from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
-from ..backend.api import RunVariables
+from ..api import RunVariables
 from ..util import fix_data_for_plotting
 
 log = logging.getLogger(__name__)
@@ -207,6 +207,14 @@ class Canvas(QtWidgets.QDialog):
         self.update_canvas()
 
     def autoscale(self, x_min, x_max, y_min, y_max, margin=0.05):
+        # Always convert the inputs to floats in case they're booleans or
+        # something, which would otherwise fail later when subtracting the
+        # min/max values.
+        x_min = float(x_min)
+        x_max = float(x_max)
+        y_min = float(y_min)
+        y_max = float(y_max)
+
         if not np.any(np.isnan([x_min, x_max])):
             x_range = np.abs(x_max - x_min)
             x_min = x_min - x_range * margin
@@ -302,8 +310,8 @@ class Canvas(QtWidgets.QDialog):
                     break
 
             if len(xs):
-                xs_min, ys_min = np.asarray(xs[0]).min(), 0
-                xs_max, ys_max = np.asarray(xs[0]).max(), 1
+                xs_min, ys_min = np.nanmin(xs[0]), 0
+                xs_max, ys_max = np.nanmax(xs[0]), 1
 
             self._lines[series_names[0]] = []
             self._kwargs[series_names[0]] = []
@@ -349,9 +357,9 @@ class Canvas(QtWidgets.QDialog):
                     )
                     self._lines[series].append(patches)
 
-                    xs_min = min(xs_min, x.min())
-                    xs_max = max(xs_max, x.max())
-                    ys_max = min(ys_max, y.max())
+                    xs_min = min(xs_min, np.nanmin(x))
+                    xs_max = max(xs_max, np.nanmax(x))
+                    ys_max = min(ys_max, np.nanmax(y))
 
                 if len(xs) > 1:
                     self._axis.legend()

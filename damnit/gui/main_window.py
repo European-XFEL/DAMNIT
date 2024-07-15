@@ -11,27 +11,33 @@ from socket import gethostname
 import h5py
 import numpy as np
 import pandas as pd
+import xarray as xr
+from kafka.errors import NoBrokersAvailable
 from pandas.api.types import infer_dtype
+from plotly.graph_objects import Figure as PlotlyFigure
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
+from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
-from kafka.errors import NoBrokersAvailable
-
+from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
-from ..backend.api import RunVariables
 from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file, process_log_path
+from ..backend.extract_data import get_context_file
+from ..backend.extraction_control import process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
+from .new_context_dialog import NewContextFileDialog
 from .plot import Canvas, Plot
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
+from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
@@ -569,12 +575,25 @@ da-dev@xfel.eu"""
 
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]
+        except FileNotFoundError:
+            self.show_status_message(f"Couldn't get run variables for p{proposal}, r{run}",
+                                     timeout=7000,
+                                     stylesheet=StatusbarStylesheet.ERROR)
+            return
         except KeyError:
-            log.warning(f"Unrecognized variable: '{quantity}'")
+            self.show_status_message(f"Unrecognized variable: '{quantity}'",
+                                     timeout=7000,
+                                     stylesheet=StatusbarStylesheet.ERROR)
+            return
+
+        if variable.type_hint() is DataType.PlotlyFigure:
+            pp = PlotlyPlot(variable, self)
+            self._canvas_inspect.append(pp)
+            pp.show()
             return
 
         try:
-            data = variable.xarray()
+            data = xr.DataArray(variable.read())
         except KeyError:
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
@@ -945,6 +964,13 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
         if button != QMessageBox.Yes:
             return False
 
+        if not (context_dir / 'context.py').is_file():
+            new_ctx_dialog = NewContextFileDialog(context_dir, parent)
+            context_file_src = new_ctx_dialog.run_get_result()
+            if context_file_src is None:
+                return False
+        else:
+            context_file_src = None
 
         if prop_no is None:
             prop_no, ok = QtWidgets.QInputDialog.getInt(
@@ -952,10 +978,15 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             )
             if not ok:
                 return False
-        initialize_and_start_backend(context_dir, prop_no)
+        initialize_and_start_backend(context_dir, prop_no, context_file_src)
+        return True
+
+    # The folder already contains a database
+    db = DamnitDB.from_dir(context_dir)
 
     # Check if the backend is running
-    elif not backend_is_running(context_dir):
+    expect_listener = not db.metameta.get('no_listener', 0)
+    if expect_listener and not backend_is_running(context_dir):
         button = QMessageBox.question(
             parent, "Backend not running",
             "The DAMNIT backend is not running, would you like to start it? "
@@ -967,10 +998,17 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
     return True
 
 
-def run_app(context_dir, connect_to_kafka=True):
+def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
     QtWidgets.QApplication.setAttribute(
-        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar
+        QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
+
+    if software_opengl:
+        QtWidgets.QApplication.setAttribute(
+            Qt.AA_UseSoftwareOpenGL
+        )
+        QQuickWindow.setSceneGraphBackend(QSGRendererInterface.Software)
+
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
 
@@ -982,6 +1020,11 @@ def run_app(context_dir, connect_to_kafka=True):
         if not prompt_setup_db_and_backend(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
+
+    # configure webviewer url engine
+    scheme_handler = UrlSchemeHandler(parent=application)
+    profile = QWebEngineProfile.defaultProfile()
+    scheme_handler.install(profile)
 
     window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
     window.show()

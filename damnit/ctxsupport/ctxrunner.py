@@ -14,33 +14,29 @@ import os
 import pickle
 import sys
 import time
+import traceback
 from contextlib import contextmanager
 from datetime import timezone
-import traceback
 from enum import Enum
-from pathlib import Path
-from unittest.mock import MagicMock
 from graphlib import CycleError, TopologicalSorter
+from pathlib import Path
 from subprocess import run
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
-
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
+from unittest.mock import MagicMock, patch
 
 import extra_data
 import h5py
 import numpy as np
-import xarray as xr
 import requests
+import xarray as xr
 import yaml
+from damnit_ctx import Cell, RunData, Variable, isinstance_no_import
 
-from damnit_ctx import RunData, Variable
 
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
-
+COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
 
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
 # reconstruct Python objects when reading values back in.
@@ -49,6 +45,7 @@ class DataType(Enum):
     Dataset = "dataset"
     Image = "image"
     Timestamp = "timestamp"
+    PlotlyFigure = "PlotlyFigure"
 
 
 class MyMetadataClient:
@@ -133,24 +130,20 @@ class ContextFile:
 
         # Check for cycles
         try:
-            self.ordered_vars()
+            ordered_names = self.ordered_vars()
         except CycleError as e:
             # Tweak the error message to make it clearer
             raise CycleError(f"These Variables have cyclical dependencies, which is not allowed: {e.args[1]}") from e
 
-        # Check for raw-data variables that depend on proc-data variables
-        for name, var in self.vars.items():
-            if var.data != RunData.RAW:
-                continue
-            proc_dependencies = [dep for dep in self.all_dependencies(var)
-                                 if self.vars[dep].data == RunData.PROC]
+        # 'Promote' variables to match characters of their dependencies
+        for name in ordered_names:
+            var = self.vars[name]
+            deps = [self.vars[dep] for dep in self.all_dependencies(var)]
+            if var._data is None and any(v.data == RunData.PROC for v in deps):
+                var._data = RunData.PROC.value
 
-            if len(proc_dependencies) > 0:
-                # If we have a variable that depends on proc data but didn't
-                # explicitly set `data`, then promote this variable to use proc
-                # data.
-                if var._data == None:
-                    var._data = RunData.PROC.value
+            if any(v.cluster for v in deps):
+                var.cluster = True
 
     def check(self):
         problems = []
@@ -220,12 +213,13 @@ class ContextFile:
     def from_py_file(cls, path: Path):
         code = path.read_text()
         log.debug("Loading context from %s", path)
-        return ContextFile.from_str(code)
+        return ContextFile.from_str(code, str(path.absolute()))
 
     @classmethod
-    def from_str(cls, code: str):
+    def from_str(cls, code: str, path='<string>'):
         d = {}
-        exec(code, d)
+        codeobj = compile(code, path, 'exec')
+        exec(codeobj, d)
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
@@ -269,10 +263,11 @@ class ContextFile:
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
-        res = {'start_time': np.asarray(get_start_time(run_data))}
+        res = {'start_time': Cell(np.asarray(get_start_time(run_data)))}
         mymdc = None
 
         for name in self.ordered_vars():
+            t0 = time.perf_counter()
             var = self.vars[name]
 
             try:
@@ -289,7 +284,7 @@ class ContextFile:
                     if annotation.startswith("var#"):
                         dep_name = annotation.removeprefix("var#")
                         if dep_name in res:
-                            kwargs[arg_name] = res[dep_name]
+                            kwargs[arg_name] = res[dep_name].data
                         elif param.default is inspect.Parameter.empty:
                             missing_deps.append(dep_name)
 
@@ -330,30 +325,18 @@ class ContextFile:
 
                 func = functools.partial(var.func, **kwargs)
 
-                data = func(run_data)
+                if (data := func(run_data)) is None:
+                    continue
 
-                # If the user returns an Axes, save the whole Figure
-                if isinstance(data, Axes):
-                    data = data.get_figure()
+                if not isinstance(data, Cell):
+                    data = Cell(data)
 
-                if not isinstance(data, (xr.Dataset, xr.DataArray, str, type(None), Figure)):
-                    arr = np.asarray(data)
-                    # Numpy will wrap any Python object, but only native arrays
-                    # can be saved in HDF5, not those containing Python objects.
-                    if arr.dtype.hasobject:
-                        log.error(
-                            "Variable %s returned %s which cannot be saved",
-                            name, type(data)
-                        )
-                        data = None
-                    else:
-                        data = arr
+                if data.summary is None:
+                    data.summary = var.summary
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
-                # Only save the result if it's not None
-                if data is not None:
-                    res[name] = data
+                res[name] = data
         return Results(res, self)
 
 
@@ -380,14 +363,35 @@ def figure2array(fig):
     canvas.draw()
     return np.asarray(canvas.buffer_rgba())
 
+
 class PNGData:
     def __init__(self, data: bytes):
         self.data = data
+
 
 def figure2png(fig, dpi=None):
     bio = io.BytesIO()
     fig.savefig(bio, dpi=dpi, format='png')
     return PNGData(bio.getvalue())
+
+
+def plotly2png(figure):
+    """Generate a png from a Plotly Figure
+
+    largest dimension set to THUMBNAIL_SIZE
+    """
+    from PIL import Image
+    png_data = figure.to_image(format='png')
+    # resize with PIL (scaling in plotly does not play well with text)
+    img = Image.open(io.BytesIO(png_data))
+    largest_dim = max(img.width, img.height)
+    width = int(img.width / largest_dim * THUMBNAIL_SIZE)
+    height = int(img.height / largest_dim * THUMBNAIL_SIZE)
+    img = img.resize((width, height), Image.Resampling.LANCZOS)
+    # convert to PNG
+    buff = io.BytesIO()
+    img.save(buff, format='PNG')
+    return PNGData(buff.getvalue())
 
 
 def generate_thumbnail(image):
@@ -404,9 +408,9 @@ def generate_thumbnail(image):
     ax.axis('off')
     ax.margins(0, 0)
 
-    image_shape = fig.get_size_inches() * fig.dpi
-    zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-    return figure2png(fig, dpi=(fig.dpi * zoom_ratio))
+    # The figure is 1 inch square, so setting the DPI to THUMBNAIL_SIZE will
+    # save a figure of size THUMBNAIL_SIZE x THUMBNAIL_SIZE.
+    return figure2png(fig, dpi=THUMBNAIL_SIZE)
 
 
 def extract_error_info(exc_type, e, tb):
@@ -452,9 +456,17 @@ def add_to_h5_file(path) -> h5py.File:
     raise ex
 
 
+def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
+    """Add default compression options to DataArray"""
+    encoding = COMPRESSION_OPTS.copy()
+    encoding.update(data_array.encoding)
+    data_array.encoding = encoding
+    return data_array
+
+
 class Results:
-    def __init__(self, data, ctx):
-        self.data = data
+    def __init__(self, cells, ctx):
+        self.cells = cells
         self.ctx = ctx
         self._reduced = None
 
@@ -462,7 +474,7 @@ class Results:
     def reduced(self):
         if self._reduced is None:
             r = {}
-            for name in self.data:
+            for name in self.cells:
                 v = self.summarise(name)
                 if v is not None:
                     r[name] = v
@@ -470,50 +482,47 @@ class Results:
         return self._reduced
 
     def summarise(self, name):
-        data = self.data[name]
-        is_array = isinstance(data, (np.ndarray, xr.DataArray))
-        is_dataset = isinstance(data, xr.Dataset)
+        cell = self.cells[name]
 
+        if (summary_val := cell.get_summary()) is not None:
+            return summary_val
+
+        # If a summary wasn't specified, try some default fallbacks
+        data = cell.data
         if isinstance(data, str):
             return data
-        elif is_dataset:
+        elif isinstance(data, xr.Dataset):
             size = data.nbytes / 1e6
             return f"Dataset ({size:.2f}MB)"
-        elif is_array and data.ndim == 0:
-            return data
-        elif isinstance(data, Figure):
+        elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
             # For the sake of space and memory we downsample images to a
-            # resolution of 35 pixels on the larger dimension.
+            # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             return figure2png(data, dpi=(data.dpi * zoom_ratio))
-        elif is_array and data.ndim == 2 and self.ctx.vars[name].summary is None:
-            from scipy import ndimage
-            zoom_ratio = min(1, THUMBNAIL_SIZE / max(data.shape))
-            data = ndimage.zoom(np.nan_to_num(data), zoom_ratio)
-            return generate_thumbnail(data)
-        elif self.ctx.vars[name].summary is None:
-            return f"{data.dtype}: {data.shape}"
-        else:
-            summary_method = self.ctx.vars[name].summary
-            if summary_method is None:
-                return None
+        elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
+            return plotly2png(data)
 
-            if isinstance(data, xr.DataArray):
-                data = data.data
+        elif isinstance(data, (np.ndarray, xr.DataArray)):
+            if data.ndim == 0:
+                return data
+            elif data.ndim == 2:
+                return generate_thumbnail(np.nan_to_num(data))
+            else:
+                return f"{data.dtype}: {data.shape}"
 
-            return np.asarray(getattr(np, summary_method)(data))
+        return None
 
     def save_hdf5(self, hdf5_path, reduced_only=False):
-
-        ctx_vars = self.ctx.vars
-        implicit_vars = self.data.keys() - self.ctx.vars.keys()
-
         xarray_dsets = []
+        dsets = []
         obj_type_hints = {}
-        dsets = [(f'.reduced/{name}', v) for name, v in self.reduced.items()]
-        if not reduced_only:
-            for name, obj in self.data.items():
+
+        for name, cell in self.cells.items():
+            summary_val = self.summarise(name)
+            dsets.append((f'.reduced/{name}', summary_val, cell.summary_attrs()))
+            if not reduced_only:
+                obj = cell.data
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
                     xarray_dsets.append((name, obj))
                     obj_type_hints[name] = (
@@ -521,24 +530,29 @@ class Results:
                         else DataType.Dataset
                     )
                 else:
-                    if isinstance(obj, Figure):
-                        value =  figure2array(obj)
+                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
+                        value = figure2array(obj)
                         obj_type_hints[name] = DataType.Image
+                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+                        # we want to compresss plotly figures in HDF5 files
+                        # so we need to convert the data to array of uint8
+                        value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
+                        obj_type_hints[name] = DataType.PlotlyFigure
                     elif isinstance(obj, str):
                         value = obj
                     else:
                         value = np.asarray(obj)
 
-                    dsets.append((f'{name}/data', value))
+                    dsets.append((f'{name}/data', value, {}))
 
-        log.info("Writing %d variables to %d datasets in %s",
-                 len(self.data), len(dsets), hdf5_path)
+        log.info("Writing %d variables to %s",
+                 len(self.cells), hdf5_path)
 
         # We need to open the files in append mode so that when proc Variable's
         # are processed after raw ones, the raw ones won't be lost.
         with add_to_h5_file(hdf5_path) as f:
             # Delete whole groups for the Variable's we're modifying
-            for name in self.data.keys():
+            for name in self.cells.keys():
                 if name in f:
                     del f[name]
 
@@ -547,7 +561,7 @@ class Results:
 
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
-            for path, obj in dsets:
+            for path, obj, attrs in dsets:
                 # Delete the existing datasets so we can overwrite them
                 if path in f:
                     del f[path]
@@ -556,44 +570,43 @@ class Results:
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif isinstance(obj, PNGData):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
+                elif obj.ndim > 0 and (
+                        np.issubdtype(obj.dtype, np.number) or
+                        np.issubdtype(obj.dtype, np.bool_)):
+                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype, **COMPRESSION_OPTS)
                 else:
                     f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
 
+                f[path].attrs.update(attrs)
+
             # Fill with data
-            for path, obj in dsets:
+            for path, obj, _ in dsets:
                 if isinstance(obj, PNGData):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
                     f[path][()] = obj
 
-            # Assign attributes for reduced datasets
-            for name, data in self.data.items():
-                reduced_ds = f[f".reduced/{name}"]
-
-                if (
-                    isinstance(data, (np.ndarray, xr.DataArray))
-                    and data.size > 1
-                ):
-                    reduced_ds.attrs["max_diff"] = abs(
-                        np.subtract(np.nanmax(data), np.nanmin(data), dtype=np.float64)
-                    )
-
-                var_obj = ctx_vars.get(name)
-                if var_obj is not None:
-                    reduced_ds.attrs['summary_method'] = var_obj.summary or ''
-
         for name, obj in xarray_dsets:
-            # HDF5 doesn't allow slashes in names :(
-            if isinstance(obj, xr.DataArray) and obj.name is not None and "/" in obj.name:
-                obj.name = obj.name.replace("/", "_")
+            if isinstance(obj, xr.DataArray):
+                # HDF5 doesn't allow slashes in names :(
+                if obj.name is not None and "/" in obj.name:
+                    obj.name = obj.name.replace("/", "_")
+                obj = _set_encoding(obj)
             elif isinstance(obj, xr.Dataset):
-                data_vars = list(obj.keys())
-                for var_name in data_vars:
-                    dataarray = obj[var_name]
-                    if dataarray.name is not None and "/" in dataarray.name:
-                        dataarray.name = dataarray.name.replace("/", "_")
+                vars_names = {}
+                for var_name, dataarray in obj.items():
+                    if var_name is not None and "/" in var_name:
+                        vars_names[var_name] = var_name.replace("/", "_")
+                    dataarray = _set_encoding(dataarray)
+                obj = obj.rename_vars(vars_names)
 
-            obj.to_netcdf(hdf5_path, mode="a", format="NETCDF4", group=name, engine="h5netcdf")
+            obj.to_netcdf(
+                hdf5_path,
+                mode="a",
+                format="NETCDF4",
+                group=name,
+                engine="h5netcdf",
+            )
 
         if os.stat(hdf5_path).st_uid == os.getuid():
             os.chmod(hdf5_path, 0o666)
@@ -623,9 +636,6 @@ def filesystem(host='localhost'):
 
             with patch("extra_data.read_machinery.DATA_ROOT_DIR", td):
                 yield
-        except Exception as ex:
-            import traceback
-            traceback.print_exc()
         finally:
             run(f"fusermount -u {td}", check=True, shell=True)
 
@@ -686,7 +696,7 @@ def evaluate_context(args):
         # pickled.
         for var in ctx.vars.values():
             var.func = None
-    except:
+    except Exception:
         ctx = None
         error_info = extract_error_info(*sys.exc_info())
 

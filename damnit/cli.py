@@ -43,7 +43,7 @@ def excepthook(exc_type, value, tb):
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
 
 
-def main():
+def main(argv=None):
     ap = ArgumentParser()
     ap.add_argument('--debug', action='store_true',
                     help="Show debug logs.")
@@ -59,6 +59,10 @@ def main():
     gui_ap.add_argument(
         '--no-kafka', action='store_true',
         help="Don't try connecting to XFEL's Kafka broker"
+    )
+    gui_ap.add_argument(
+        "--software-opengl", action="store_true",
+        help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
     )
 
     listen_ap = subparsers.add_parser(
@@ -95,6 +99,10 @@ def main():
     reprocess_ap.add_argument(
         '--match', type=str, action="append", default=[],
         help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
+    )
+    reprocess_ap.add_argument(
+        '--watch', action='store_true',
+        help="Run jobs one-by-one with live output in the terminal"
     )
     reprocess_ap.add_argument(
         'run', nargs='+',
@@ -134,6 +142,10 @@ def main():
         help="Delete the specified key",
     )
     config_ap.add_argument(
+        '--num', action='store_true',
+        help="Set the given value as a number instead of a string"
+    )
+    config_ap.add_argument(
         'key', nargs='?',
         help="The config key to see/change. If not given, list all config"
     )
@@ -160,7 +172,7 @@ def main():
              " v1. Don't use this unless you know what you're doing."
     )
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")
@@ -181,7 +193,9 @@ def main():
             context_dir = None
 
         from .gui.main_window import run_app
-        return run_app(context_dir, connect_to_kafka=not args.no_kafka)
+        return run_app(context_dir,
+                       software_opengl=args.software_opengl,
+                       connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
         from .backend.db import db_path
@@ -205,8 +219,8 @@ def main():
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
-        from .backend.extract_data import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock)
+        from .backend.extraction_control import reprocess
+        reprocess(args.run, args.proposal, args.match, args.mock, args.watch)
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor
@@ -243,7 +257,14 @@ def main():
                 sys.exit("Error: no key specified to delete")
             del db.metameta[args.key]
         elif args.key and (args.value is not None):
-            db.metameta[args.key] = args.value
+            if args.num:
+                try:
+                    value = int(args.value)
+                except ValueError:
+                    value = float(args.value)
+            else:
+                value = args.value
+            db.metameta[args.key] = value
         elif args.key:
             try:
                 print(repr(db.metameta[args.key]))

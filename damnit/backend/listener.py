@@ -3,18 +3,15 @@ import json
 import logging
 import os
 import platform
-import queue
-import subprocess
-import sys
 from pathlib import Path
 from socket import gethostname
-from threading import Thread
 
 from extra_data.read_machinery import find_proposal
 from kafka import KafkaConsumer
 
+from ..context import RunData
 from .db import DamnitDB
-from .extract_data import RunData, process_log_path
+from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the AMORE updates go via XFEL's test instance.
@@ -39,37 +36,6 @@ ONLINE_HOSTS ={
 log = logging.getLogger(__name__)
 
 
-def watch_processes_finish(q: queue.Queue):
-    procs_by_prop_run = {}
-    while True:
-        # Get new subprocesses from the main thread
-        try:
-            prop, run, popen = q.get(timeout=1)
-            procs_by_prop_run[prop, run] = popen
-        except queue.Empty:
-            pass
-
-        # Check if any of the subprocesses we're tracking have finished
-        to_delete = set()
-        for (prop, run), popen in procs_by_prop_run.items():
-            returncode = popen.poll()
-            if returncode is None:
-                continue  # Still running
-
-            # Can't delete from a dict while iterating over it
-            to_delete.add((prop, run))
-            if returncode == 0:
-                log.info("Data extraction for p%d r%d succeeded", prop, run)
-            else:
-                log.error(
-                    "Data extraction for p%d, r%d failed with exit code %d",
-                    prop, run, returncode
-                )
-
-        for prop, run in to_delete:
-            del procs_by_prop_run[prop, run]
-
-
 class EventProcessor:
 
     def __init__(self, context_dir=Path('.')):
@@ -79,6 +45,7 @@ class EventProcessor:
 
         self.context_dir = context_dir
         self.db = DamnitDB.from_dir(context_dir)
+        self.submitter = ExtractionSubmitter(context_dir, self.db)
         # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
         self.db.conn.execute("pragma user_version=0;")
         self.proposal = self.db.metameta['proposal']
@@ -88,7 +55,8 @@ class EventProcessor:
         consumer_id = CONSUMER_ID.format(self.db.metameta['db_id'])
         self.kafka_cns = KafkaConsumer(*KAFKA_TOPICS,
                                        bootstrap_servers=KAFKA_BROKERS,
-                                       group_id=consumer_id)
+                                       group_id=consumer_id,
+                                       consumer_timeout_ms=600_000,)
 
         # check backend host and connection to online cluster
         self.online_data_host = None
@@ -105,14 +73,6 @@ class EventProcessor:
                 self.online_data_host = remote_host
         log.info("Processing online data? %s", self.run_online)
 
-        # Monitor thread for subprocesses
-        self.extract_procs_queue = queue.Queue()
-        self.extract_procs_watcher = Thread(
-            target=watch_processes_finish,
-            args=(self.extract_procs_queue,),
-            daemon=True
-        )
-        self.extract_procs_watcher.start()
 
     def __enter__(self):
         return self
@@ -123,11 +83,17 @@ class EventProcessor:
         return False
 
     def run(self):
-        for record in self.kafka_cns:
-            try:
-                self._process_kafka_event(record)
-            except Exception:
-                log.error("Unepected error handling Kafka event.", exc_info=True)
+        while True:
+            for record in self.kafka_cns:
+                try:
+                    self._process_kafka_event(record)
+                except Exception:
+                    log.error("Unepected error handling Kafka event.", exc_info=True)
+
+            # After 10 minutes with no messages, check if the listener should stop
+            if self.db.metameta.get('no_listener', 0):
+                log.info("Found no_listener flag in database, shutting down.")
+                return
 
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())
@@ -163,18 +129,8 @@ class EventProcessor:
         self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-        log_path = process_log_path(run, proposal, self.context_dir)
-        log.info("Processing output will be written to %s",
-                 log_path.relative_to(self.context_dir.absolute()))
-
-        with log_path.open('ab') as logf:
-            # Create subprocess to process the run
-            extract_proc = subprocess.Popen([
-                sys.executable, '-m', 'damnit.backend.extract_data',
-                str(proposal), str(run), run_data.value,
-                '--data-location', data_location,
-            ], cwd=self.context_dir, stdout=logf, stderr=subprocess.STDOUT)
-        self.extract_procs_queue.put((proposal, run, extract_proc))
+        req = ExtractionRequest(run, proposal, run_data, data_location)
+        self.submitter.submit(req)
 
 
 def listen():
