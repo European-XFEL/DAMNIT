@@ -14,15 +14,22 @@ import os
 import pickle
 import sys
 import time
+from contextlib import contextmanager
+from datetime import timezone
 import traceback
 from contextlib import contextmanager
 from datetime import timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
+from unittest.mock import MagicMock
+from graphlib import CycleError, TopologicalSorter
 from subprocess import run
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 import extra_data
 import h5py
@@ -626,18 +633,23 @@ def filesystem(host='localhost'):
 
     with TemporaryDirectory() as td:
         try:
-            mount_command = (
-               f"sshfs {host}:{extra_data.read_machinery.DATA_ROOT_DIR} {td} "
-               # deactivate password prompt to fail if we don't have a valid ssh key
-               "-o ssh_command='ssh -o PasswordAuthentication=no'"
-            )
-            print('cmd:', mount_command)
-            run(mount_command, check=True, shell=True)
+            mount_command = [
+               "/gpfs/exfel/sw/software/bin/sshfs",
+               f"{host}:{extra_data.read_machinery.DATA_ROOT_DIR}", str(td),
+               # deactivate password prompt and GSSAPI to fail fast if
+               # we don't have a valid ssh key
+               "-o", "PasswordAuthentication=no", "-o", "GSSAPIAuthentication=no",
+               # proxy through machine with 10G connection to the online cluster
+               "-o", "ProxyJump=10.255.34.101",
+            ]
+            res = run(mount_command, check=True)
+            if res.returncode != 0:
+                raise RuntimeError(res.stderr)
 
             with patch("extra_data.read_machinery.DATA_ROOT_DIR", td):
                 yield
         finally:
-            run(f"fusermount -u {td}", check=True, shell=True)
+            run(["fusermount", "-u", str(td)], check=True)
 
 
 def execute_context(args):
@@ -745,10 +757,6 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        if args.cluster_job and args.data_location != 'localhost':
-            # Only run cluster jobs with data on Maxwell
-            log.info('Skipping cluster jobs for remote data [%s].', args.data_location)
-            return
         with filesystem(args.data_location):
             execute_context(args)
     elif args.subcmd == "ctx":

@@ -195,7 +195,7 @@ class Extractor:
 
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=(), mock=False,
-                           data_location='localhost',):
+                           data_location='localhost'):
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
