@@ -60,6 +60,8 @@ class TableView(QtWidgets.QTableView):
         self.show_logs_action = QtWidgets.QAction('View processing logs')
         self.show_logs_action.triggered.connect(self.show_run_logs)
         self.context_menu.addAction(self.show_logs_action)
+        self.process_action = QtWidget.QAction('Reprocess runs')
+        self.context_menu.addAction(self.process_action)
 
     def setModel(self, model: 'DamnitTableModel'):
         """
