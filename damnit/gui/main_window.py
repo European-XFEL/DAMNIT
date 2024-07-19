@@ -627,15 +627,9 @@ da-dev@xfel.eu"""
                                     f"'{quantity}' with {data.ndim} dimensions (not supported).")
                 return
 
-            # Use the train ID if it's been saved, otherwise generate an X axis
-            if "trainId" in data.coords:
-                x = data.trainId
-            else:
-                x = np.arange(len(data))
-
             canvas = Canvas(
                 self,
-                x=[fix_data_for_plotting(x)],
+                x=[np.arange(len(data))],
                 y=[fix_data_for_plotting(data)],
                 xlabel=f"Event (run {run})",
                 ylabel=variable.title,
