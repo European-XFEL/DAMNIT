@@ -49,6 +49,7 @@ class Settings(Enum):
 class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
+    save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
 
     db = None
     db_id = None
@@ -62,6 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._received_update = False
         self._context_path = None
         self._context_is_saved = True
+        self._context_code_to_save = None
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -109,13 +111,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._context_is_saved:
             dialog = QMessageBox(QMessageBox.Warning,
                                  "Warning - unsaved changes",
-                                 "There are unsaved changes to the context, do you want to save before exiting?",
-                                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+                                 "There are unsaved changes to the context, do you want to go back and save?",
+                                 QMessageBox.Discard | QMessageBox.Cancel)
             result = dialog.exec()
 
-            if result == QMessageBox.Save:
-                self.save_context()
-            elif result == QMessageBox.Cancel:
+            if result == QMessageBox.Cancel:
                 event.ignore()
                 return
 
@@ -745,6 +745,7 @@ da-dev@xfel.eu"""
         test_widget = QtWidgets.QWidget()
 
         self._editor.textChanged.connect(self.on_context_changed)
+        self._editor.check_result.connect(self.test_context_result)
 
         vbox = QtWidgets.QGridLayout()
         test_widget.setLayout(vbox)
@@ -800,7 +801,17 @@ da-dev@xfel.eu"""
         self.mark_context_saved()
 
     def test_context(self):
-        test_result, output = self._editor.test_context(self.db, self._context_path.parent)
+        self.set_error_icon('wait')
+        self._editor.launch_test_context(self.db)
+
+    def test_context_result(self, test_result, output, checked_code):
+        # want_save, self._context_save_wanted = self._context_save_wanted, False
+        if self._context_code_to_save == checked_code:
+            if saving := test_result is not ContextTestResult.ERROR:
+                self._context_path.write_text(self._context_code_to_save)
+                self.mark_context_saved()
+            self._context_code_to_save = None
+            self.save_context_finished.emit(saving)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
@@ -826,7 +837,6 @@ da-dev@xfel.eu"""
                 self.set_error_icon("green")
 
         self._editor.setFocus()
-        return test_result
 
     def set_error_icon(self, icon):
         self._context_status_icon.load(icon_path(f"{icon}_circle.svg"))
@@ -839,12 +849,9 @@ da-dev@xfel.eu"""
         QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
 
     def save_context(self):
-        if self.test_context() == ContextTestResult.ERROR:
-            return
-
-        self._context_path.write_text(self._editor.text())
-        self.mark_context_saved()
-        self._editor.setFocus()
+        self._context_code_to_save = self._editor.text()
+        self.test_context()
+        # If the check passes, .test_context_result() saves the file
 
     def mark_context_saved(self):
         self._context_is_saved = True
