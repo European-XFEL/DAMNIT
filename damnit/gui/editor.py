@@ -4,8 +4,8 @@ from io import StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont, QGuiApplication, QCursor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QFont
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 
 from pyflakes.reporter import Reporter
@@ -21,7 +21,64 @@ class ContextTestResult(Enum):
     WARNING = 1
     ERROR = 2
 
+
+class ContextFileCheckerThread(QThread):
+    # ContextTestResult, traceback, lineno, offset, checked_code
+    check_result = pyqtSignal(object, str, int, int, str)
+
+    def __init__(self, code, context_python, parent=None):
+        super().__init__(parent)
+        self.code = code
+        self.context_python = context_python
+
+    def run(self):
+        error_info = None
+
+        # If a different environment is not specified, we can evaluate the
+        # context file directly.
+        if self.context_python is None:
+            try:
+                ContextFile.from_str(self.code)
+            except:
+                # Extract the error information
+                error_info = extract_error_info(*sys.exc_info())
+
+        # Otherwise, write it to a temporary file to evaluate it from another
+        # process.
+        else:
+            with NamedTemporaryFile(prefix=".tmp_ctx") as ctx_file:
+                ctx_path = Path(ctx_file.name)
+                ctx_path.write_text(self.code)
+
+                ctx, error_info = get_context_file(ctx_path, self.context_python)
+
+        if error_info is not None:
+            stacktrace, lineno, offset = error_info
+            self.check_result.emit(ContextTestResult.ERROR, stacktrace, lineno, offset, self.code)
+            return
+
+        # If that worked, try pyflakes
+        out_buffer = StringIO()
+        reporter = Reporter(out_buffer, out_buffer)
+        pyflakes_check(self.code, "<ctx>", reporter)
+        # Disgusting hack to avoid getting warnings for "var#foo", "meta#foo",
+        # and "mymdc#foo" type annotations. This needs some tweaking to avoid
+        # missing real errors.
+        pyflakes_output = "\n".join([line for line in out_buffer.getvalue().split("\n")
+                                     if not line.endswith("undefined name 'var'") \
+                                     and not line.endswith("undefined name 'meta'") \
+                                     and not line.endswith("undefined name 'mymdc'")])
+
+        if len(pyflakes_output) > 0:
+            res, info = ContextTestResult.WARNING, pyflakes_output
+        else:
+            res, info = ContextTestResult.OK, None
+        self.check_result.emit(res, info, -1, -1, self.code)
+
+
 class Editor(QsciScintilla):
+    check_result = pyqtSignal(object, str, str)  # result, info, checked_code
+
     def __init__(self):
         super().__init__()
 
@@ -50,38 +107,15 @@ class Editor(QsciScintilla):
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
 
-    def test_context(self, db, db_dir):
-        """
-        Check if the current context file is valid.
-
-        Returns a tuple of (result, output_msg).
-        """
-        error_info = None
+    def launch_test_context(self, db):
         context_python = db.metameta.get("context_python")
+        thread = ContextFileCheckerThread(self.text(), context_python, parent=self)
+        thread.check_result.connect(self.on_test_result)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
 
-        # If a different environment is not specified, we can evaluate the
-        # context file directly.
-        if context_python is None:
-            try:
-                ContextFile.from_str(self.text())
-            except:
-                # Extract the error information
-                error_info = extract_error_info(*sys.exc_info())
-
-        # Otherwise, write it to a temporary file to evaluate it from another
-        # process.
-        else:
-            with NamedTemporaryFile(prefix=".tmp_ctx", dir=db_dir) as ctx_file:
-                ctx_path = Path(ctx_file.name)
-                ctx_path.write_text(self.text())
-
-                QGuiApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
-                ctx, error_info = get_context_file(ctx_path, context_python)
-                QGuiApplication.restoreOverrideCursor()
-
-        if error_info is not None:
-            stacktrace, lineno, offset = error_info
-
+    def on_test_result(self, res, info, lineno, offset, checked_code):
+        if res is ContextTestResult.ERROR:
             if lineno != -1:
                 # The line numbers reported by Python are 1-indexed so we
                 # decrement before passing them to scintilla.
@@ -93,21 +127,4 @@ class Editor(QsciScintilla):
                 if lineno != self.getCursorPosition()[0]:
                     self.setCursorPosition(lineno, offset)
 
-            return ContextTestResult.ERROR, stacktrace
-
-        # If that worked, try pyflakes
-        out_buffer = StringIO()
-        reporter = Reporter(out_buffer, out_buffer)
-        pyflakes_check(self.text(), "<ctx>", reporter)
-        # Disgusting hack to avoid getting warnings for "var#foo", "meta#foo",
-        # and "mymdc#foo" type annotations. This needs some tweaking to avoid
-        # missing real errors.
-        pyflakes_output = "\n".join([line for line in out_buffer.getvalue().split("\n")
-                                     if not line.endswith("undefined name 'var'") \
-                                     and not line.endswith("undefined name 'meta'") \
-                                     and not line.endswith("undefined name 'mymdc'")])
-
-        if len(pyflakes_output) > 0:
-            return ContextTestResult.WARNING, pyflakes_output
-        else:
-            return ContextTestResult.OK, None
+        self.check_result.emit(res, info, checked_code)

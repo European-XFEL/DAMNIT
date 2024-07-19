@@ -84,8 +84,14 @@ def test_editor(mock_db, mock_ctx, qtbot):
     assert "Ctrl + S" in status_bar.currentMessage()
 
     # Saving OK code should work
-    win._save_btn.clicked.emit()
-    assert editor.test_context(db, db_dir)[0] == ContextTestResult.OK
+    with qtbot.waitSignal(win.save_context_finished):
+        win._save_btn.clicked.emit()
+    assert ctx_path.read_text() == old_code
+
+    with qtbot.waitSignal(editor.check_result) as sig:
+        editor.launch_test_context(db)
+    assert sig.args[0] == ContextTestResult.OK
+
     assert ctx_path.read_text() == old_code
     assert status_bar.currentMessage() == str(ctx_path.resolve())
 
@@ -93,7 +99,7 @@ def test_editor(mock_db, mock_ctx, qtbot):
     # editor.test_context() function instead of MainWindow.test_context()
     # because the win._check_btn.clicked has already been connected to the
     # original function, so mocking it will not make Qt call the mock object.
-    with patch.object(editor, "test_context", return_value=(None, None)) as test_context:
+    with patch.object(editor, "launch_test_context") as test_context:
         win._check_btn.clicked.emit()
         test_context.assert_called_once()
 
@@ -118,15 +124,15 @@ def test_editor(mock_db, mock_ctx, qtbot):
     qtbot.waitExposed(win)
     assert win.isVisible()
 
-    # 'Save' should close the window and save
-    with patch.object(QMessageBox, "exec", return_value=QMessageBox.Save):
-        win.close()
-        assert win.isHidden()
-        assert ctx_path.read_text() == new_code
+    # Save the valid code
+    with qtbot.waitSignal(win.save_context_finished):
+        win.save_context()
+    assert ctx_path.read_text() == new_code
 
     # Attempting to save ERROR'ing code should not save anything
     editor.setText("123 = 456")
-    win.save_context()
+    with qtbot.waitSignal(win.save_context_finished):
+        win.save_context()
     assert ctx_path.read_text() == new_code
 
     # But saving WARNING code should work
@@ -135,8 +141,11 @@ def test_editor(mock_db, mock_ctx, qtbot):
     x = 1
     """)
     editor.setText(warning_code)
-    assert editor.test_context(db, db_dir)[0] == ContextTestResult.WARNING
-    win.save_context()
+    with qtbot.waitSignal(editor.check_result) as sig:
+        editor.launch_test_context(db)
+    assert sig.args[0] == ContextTestResult.WARNING
+    with qtbot.waitSignal(editor.check_result):
+        win.save_context()
     assert ctx_path.read_text() == warning_code
 
 def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
