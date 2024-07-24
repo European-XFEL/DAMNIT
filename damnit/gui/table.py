@@ -4,6 +4,7 @@ import time
 from base64 import b64encode
 from itertools import groupby
 
+import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox
@@ -17,6 +18,100 @@ log = logging.getLogger(__name__)
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
 COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class FilterProxy(QtCore.QSortFilterProxyModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.filters = {}
+
+    def set_filter(self, column, expression=None):
+        if expression is not None:
+            self.filters[column] = expression
+        elif self.filters.get(column) is not None:
+            del self.filters[column]
+        self.invalidateFilter()
+
+    def clear_filter(self):
+        self.filters = {}
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        for col, expr in self.filters.items():
+            data = self.sourceModel().index(source_row, col, source_parent).data()
+            if not expr(data):
+                return False
+        return True
+
+
+# class NumericalRangeFilterWidget(QtWidgets.QDialog):
+#     filterChanged = QtCore.pyqtSignal(float, float, bool)
+
+#     def __init__(self, data, parent=None):
+#         super().__init__(parent)
+
+#         self.data = np.asarray(
+#             [d for d in data if isinstance(d, (float, int))], dtype=np.float64)
+
+#         self.allow_nans = QtWidgets.QCheckBox('Allow NaNs')
+#         self.allow_nans.setChecked(True)
+#         self.allow_nans.stateChanged.connect(self.rangeChanged)
+
+#         self.clear_filter = QtWidgets.QPushButton('Clear')
+#         self.clear_filter.clicked.connect(self.clear)
+#         self.ok = QtWidgets.QPushButton('Done')
+#         self.ok.clicked.connect(self.close)
+
+#         hbox = QtWidgets.QHBoxLayout()
+#         hbox.addWidget(self.clear_filter)
+#         hbox.addWidget(self.ok)
+
+#         layout = QtWidgets.QVBoxLayout()
+#         layout.addWidget(self.allow_nans)
+#         layout.addLayout(hbox)
+#         self.setLayout(layout)
+#         self.show()
+
+#     @QtCore.pyqtSlot()
+#     def rangeChanged(self):
+#         allow_nans = self.allow_nans.isChecked()
+#         self.filterChanged.emit(self.data.min(), self.data.max(), allow_nans)
+        
+#     def clear(self):
+#         self.filterChanged.emit(-np.inf, np.inf, True)
+#         self.close()
+
+
+class StringFilterMenu(QtWidgets.QMenu):
+    def __init__(self, data, column_index, parent=None):
+        super().__init__(parent)
+        self.column_index = column_index
+
+        self.signalMapper = QtCore.QSignalMapper(self)
+
+        actionAll = QtWidgets.QAction("All", self)
+        actionAll.triggered.connect(self.onActionAllTriggered)
+        self.addAction(actionAll)
+        self.addSeparator()
+
+        for idx, value in enumerate(sorted(set(data))):              
+            action = QtWidgets.QAction(value, self)
+            self.signalMapper.setMapping(action, idx)  
+            action.triggered.connect(self.signalMapper.map)  
+            self.addAction(action)
+
+        self.signalMapper.mapped.connect(self.onSignalMapperMapped)  
+
+    @QtCore.pyqtSlot()
+    def onActionAllTriggered(self):
+        self.parent().model().set_filter(self.column_index, lambda *args: True)
+
+    @QtCore.pyqtSlot(int)
+    def onSignalMapperMapped(self, idx):
+        str_action = self.signalMapper.mapping(idx).text()
+        str_filter = QtCore.QRegExp(str_action, QtCore.Qt.CaseSensitive, QtCore.QRegExp.FixedString)
+        self.parent().model().set_filter(self.column_index, lambda data: str_filter.exactMatch(data))
+
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -32,6 +127,10 @@ class TableView(QtWidgets.QTableView):
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
+
+        self.horizontalHeader().setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.horizontalHeader().customContextMenuRequested.connect(self.show_filter_menu)
+        self.filter_menu = None
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
         self.verticalHeader().setStyleSheet("QHeaderView"
@@ -72,17 +171,20 @@ class TableView(QtWidgets.QTableView):
             old_model.deleteLater()
 
         self.damnit_model = model
-        sfpm = QtCore.QSortFilterProxyModel(self)
+        sfpm = FilterProxy(self)
         sfpm.setSourceModel(model)
-        sfpm.setSortRole(Qt.ItemDataRole.UserRole)  # Numeric sort where relevant
+        # sfpm.setSortRole(Qt.ItemDataRole.UserRole)  # Numeric sort where relevant
         super().setModel(sfpm)
+        # TODO self.clear_filter_button.clicked.connect(self.model().clearFilter)
+        # TODO model.columnsChanged.connect(self.populateColumnToggle)
+
         # When loading a new model, the saved column order is applied at the
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
-        self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
-        self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
-        self.horizontalHeader().setSectionsClickable(True)
+        # self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
+        # self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
+        # self.horizontalHeader().setSectionsClickable(True)
         if model is not None:
             self.model().rowsInserted.connect(self.style_comment_rows)
             self.model().rowsInserted.connect(self.resize_new_rows)
@@ -271,6 +373,18 @@ class TableView(QtWidgets.QTableView):
         row = self.selected_rows()[0].row()
         prop, run = self.damnit_model.row_to_proposal_run(row)
         self.log_view_requested.emit(prop, run)
+
+    def show_filter_menu(self, point):
+        column = self.horizontalHeader().logicalIndexAt(point.x())
+        model = self.model()
+        column_data = [model.data(model.index(row, column))
+                       for row in range(model.rowCount())]
+
+        if all(isinstance(col, (str, type(None))) for col in column_data):
+            data = [c for c in column_data if c is not None]
+            self.filter_menu = StringFilterMenu(data, column, self)
+            self.filter_menu.popup(QtGui.QCursor.pos())
+            return
 
 
 class DamnitTableModel(QtGui.QStandardItemModel):
