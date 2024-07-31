@@ -26,9 +26,10 @@ class ContextFileCheckerThread(QThread):
     # ContextTestResult, traceback, lineno, offset, checked_code
     check_result = pyqtSignal(object, str, int, int, str)
 
-    def __init__(self, code, context_python, parent=None):
+    def __init__(self, code, db_dir, context_python, parent=None):
         super().__init__(parent)
         self.code = code
+        self.db_dir = db_dir
         self.context_python = context_python
 
     def run(self):
@@ -46,7 +47,7 @@ class ContextFileCheckerThread(QThread):
         # Otherwise, write it to a temporary file to evaluate it from another
         # process.
         else:
-            with NamedTemporaryFile(prefix=".tmp_ctx") as ctx_file:
+            with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
                 ctx_path = Path(ctx_file.name)
                 ctx_path.write_text(self.code)
 
@@ -109,7 +110,7 @@ class Editor(QsciScintilla):
 
     def launch_test_context(self, db):
         context_python = db.metameta.get("context_python")
-        thread = ContextFileCheckerThread(self.text(), context_python, parent=self)
+        thread = ContextFileCheckerThread(self.text(), db.path.parent, context_python, parent=self)
         thread.check_result.connect(self.on_test_result)
         thread.finished.connect(thread.deleteLater)
         thread.start()
