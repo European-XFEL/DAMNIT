@@ -128,7 +128,8 @@ class ExtractionSubmitter:
         Returns the job ID & cluster
         """
         res = subprocess.run(
-            self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True, check=True
+            self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True, check=True,
+            cwd=self.context_dir,
         )
         job_id, _, cluster = res.stdout.partition(';')
         job_id = job_id.strip()
@@ -162,7 +163,8 @@ class ExtractionSubmitter:
         # Duplicate output to the log file
         with tee(log_path) as pipe:
             subprocess.run(
-                self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True
+                self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True,
+                cwd=self.context_dir,
             )
 
     def execute_direct(self, req: ExtractionRequest):
@@ -173,7 +175,8 @@ class ExtractionSubmitter:
         # Duplicate output to the log file
         with tee(log_path) as pipe:
             subprocess.run(
-                req.python_cmd(), stdout=pipe, stderr=subprocess.STDOUT, check=True
+                req.python_cmd(), stdout=pipe, stderr=subprocess.STDOUT, check=True,
+                cwd=self.context_dir,
             )
 
     def srun_cmd(self, req: ExtractionRequest):
