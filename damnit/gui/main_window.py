@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import xarray as xr
+from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
 from pandas.api.types import infer_dtype
 from plotly.graph_objects import Figure as PlotlyFigure
@@ -30,7 +31,7 @@ from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
-from .kafka import UpdateAgent
+from ..kafka import UpdateProducer
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
 from .plot import Canvas, Plot
@@ -89,7 +90,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self._tab_widget)
 
         self.table = None
-        
+
         self.zulip_messenger = None
 
         self._create_view()
@@ -124,10 +125,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def stop_update_listener_thread(self):
         if self._updates_thread is not None:
-            self.update_agent.stop()
+            self.update_consumer.stop()
             self._updates_thread.exit()
             self._updates_thread.wait()
             self._updates_thread = None
+
+            # We call flush() here to ensure that all messages are sent since we
+            # don't pass `flush=True` anywhere else.
+            self.update_producer.kafka_prd.flush(timeout=10)
 
     def center_window(self):
         """
@@ -288,7 +293,7 @@ da-dev@xfel.eu"""
         self.table.add_editable_column(name)
 
         if self._connect_to_kafka:
-            self.update_agent.variable_set(name, title, description, variable_type)
+            self.update_producer.variable_set(name, title, variable_type)
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
@@ -376,12 +381,12 @@ da-dev@xfel.eu"""
         action_precreate_runs = QtWidgets.QAction("Pre-create new runs", self)
         action_precreate_runs.triggered.connect(self.precreate_runs_dialog)
         tableMenu = menu_bar.addMenu("Table")
-        
+
         tableMenu.addAction(action_columns)
         tableMenu.addAction(self.action_autoscroll)
         tableMenu.addAction(action_precreate_runs)
-        
-        #jump to run 
+
+        #jump to run
         menu_bar_right = QtWidgets.QMenuBar(self)
         searchMenu = menu_bar_right.addMenu(
             QtGui.QIcon(icon_path("search_icon.png")), "&Search Run")
@@ -396,7 +401,7 @@ da-dev@xfel.eu"""
         searchMenu.addAction(actionWidget)
         menu_bar.setCornerWidget(menu_bar_right, Qt.TopRightCorner)
 
-        
+
     def scroll_to_run(self, run):
         try:
             run = int(run)
@@ -505,7 +510,8 @@ da-dev@xfel.eu"""
         assert self.db_id is not None
 
         try:
-            self.update_agent = UpdateAgent(self.db_id)
+            self.update_consumer = UpdateConsumer(self.db.kafka_topic)
+            self.update_producer = UpdateProducer(self.db.kafka_topic)
         except NoBrokersAvailable:
             QtWidgets.QMessageBox.warning(self, "Broker connection failed",
                                           f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
@@ -513,10 +519,10 @@ da-dev@xfel.eu"""
             return
 
         self._updates_thread = QtCore.QThread()
-        self.update_agent.moveToThread(self._updates_thread)
+        self.update_consumer.moveToThread(self._updates_thread)
 
-        self._updates_thread.started.connect(self.update_agent.listen_loop)
-        self.update_agent.message.connect(self.handle_update)
+        self._updates_thread.started.connect(self.update_consumer.listen_loop)
+        self.update_consumer.message.connect(self.handle_update)
         QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
     def _set_comment_date(self):
@@ -734,7 +740,7 @@ da-dev@xfel.eu"""
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
-        
+
         collapsible.add_widget(plotting_group)
 
         vertical_layout.setSpacing(0)
@@ -869,7 +875,7 @@ da-dev@xfel.eu"""
         log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
         self.db.set_variable(prop, run, name, ReducedData(value))
         if self._connect_to_kafka:
-            self.update_agent.run_values_updated(prop, run, name, value)
+            self.update_producer.run_values_updated(prop, run, name, value)
 
     def save_time_comment(self, comment_id, value):
         if self.db is None:
@@ -878,11 +884,11 @@ da-dev@xfel.eu"""
 
         log.debug("Saving time-based comment ID %d", comment_id)
         self.db.change_standalone_comment(comment_id, value)
-        
+
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
-            self.zulip_messenger = ZulipMessenger(self)       
-        
+            self.zulip_messenger = ZulipMessenger(self)
+
         if not self.zulip_messenger.ok:
             self.zulip_messenger = None
             return False
@@ -993,6 +999,37 @@ class LogViewWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.text_edit)
         self.resize(1000, 800)
 
+class UpdateConsumer(QtCore.QObject):
+    message = QtCore.pyqtSignal(object)
+
+    def __init__(self, topic: str) -> None:
+        QtCore.QObject.__init__(self)
+
+        self.kafka_cns = KafkaConsumer(
+            topic, bootstrap_servers=UPDATE_BROKERS
+        )
+        self.running = False
+
+    def listen_loop(self) -> None:
+        self.running = True
+
+        while self.running:
+            # Note: this doesn't throw an exception on timeout, it just returns
+            # an empty dict.
+            topic_messages = self.kafka_cns.poll(timeout_ms=100)
+
+            for topic, messages in topic_messages.items():
+                for msg in messages:
+                    try:
+                        unpickled_msg = pickle.loads(msg.value)
+                    except Exception:
+                        log.error("Kafka event could not be un-pickled.", exc_info=True)
+                        continue
+
+                    self.message.emit(unpickled_msg)
+
+    def stop(self):
+        self.running = False
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
     if not db_path(context_dir).is_file():
