@@ -1,9 +1,12 @@
 import logging
 import re
+from pathlib import Path
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
+
+from extra_data.read_machinery import find_proposal
 
 from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
@@ -56,6 +59,16 @@ def fmt_run_ranges(run_nums: list[int]) -> str:
             s_pieces.append(f"{start}-{end}")
 
     return ", ".join(s_pieces)
+
+
+def find_runs(runs: list[int], propnum: str) -> list[int]:
+    try:
+        prop_dir = Path(find_proposal(f"p{int(propnum):06}"))
+        raw_runs = {p.name for p in (prop_dir / 'raw').iterdir()}
+    except:  # E.g. propnum is not numeric or permission denied
+        return []
+
+    return [run for run in runs if f'r{run:04}' in raw_runs]
 
 
 class ProcessingDialog(QtWidgets.QDialog):
@@ -125,9 +138,13 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.edit_runs.setFocus()
 
     def validate_runs(self):
-        self.selected_runs = runs = parse_run_ranges(self.edit_runs.text())
+        runs = parse_run_ranges(self.edit_runs.text())
+        self.selected_runs = find_runs(runs, self.edit_prop.text())
         if runs:
-            self.runs_hint.setText(f"{len(runs)} runs selected")
+            msg = f"{len(self.selected_runs)} runs selected"
+            if nmissing := len(runs) - len(self.selected_runs):
+                msg += f" - {nmissing} more run numbers don't exist or aren't accessible"
+            self.runs_hint.setText(msg)
         else:
             self.runs_hint.setText(RUNS_MSG)
         self.validate()
