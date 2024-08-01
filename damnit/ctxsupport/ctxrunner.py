@@ -337,6 +337,8 @@ class ContextFile:
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
+                t1 = time.perf_counter()
+                log.info("Computed %s in %.03f s", name, t1 - t0)
                 res[name] = data
         return Results(res, self)
 
