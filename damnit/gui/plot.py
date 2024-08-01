@@ -238,15 +238,18 @@ class Canvas(QtWidgets.QDialog):
         self._nan_warning_label.hide()
 
         if dataarray is not None:
-            if dataarray.ndim == 3 and dataarray.shape[-1] in (3, 4):
-                dataarray.plot.imshow(ax=self._axis)
-            else:
-                dataarray.plot(ax=self._axis)
+            if np.all(np.isnan(dataarray)):
+                self._nan_warning_label.show()
 
-            if dataarray.ndim == 2:
-                vmin = np.nanquantile(dataarray.data, 0.01, method='nearest')
-                vmax = np.nanquantile(dataarray.data, 0.99, method='nearest')
-                self._image.set_clim(vmin, vmax)
+            if dataarray.ndim == 1:
+                dataarray.plot(ax=self._axis)
+            elif dataarray.ndim == 2:
+                dataarray.plot.imshow(ax=self._axis, interpolation='nearest')
+                vmin = np.nanquantile(dataarray, 0.01, method='nearest')
+                vmax = np.nanquantile(dataarray, 0.99, method='nearest')
+                self._axis.set_clim(vmin, vmax)
+            elif dataarray.ndim == 3 and dataarray.shape[-1] in (3, 4):
+                dataarray.plot.imshow(ax=self._axis, interpolation='antialiased')
 
         elif (xs is None and ys is None) and self.plot_type == "histogram1D":
             xs, ys = [], []
