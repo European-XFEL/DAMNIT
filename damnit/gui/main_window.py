@@ -50,6 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
     save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
+    context_saved = QtCore.pyqtSignal()
 
     db = None
     db_id = None
@@ -87,6 +88,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Disable the main window at first since we haven't loaded any database yet
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
+
+        self.context_saved.connect(self.launch_update_computed_vars)
 
         self.table = None
         
@@ -262,6 +265,7 @@ da-dev@xfel.eu"""
         self.launch_update_computed_vars()
 
     def launch_update_computed_vars(self):
+        # Triggered when we open a proposal & when saving the context file
         log.debug("Launching subprocess to read variables from context file")
         proc = QtCore.QProcess(parent=self)
         # Show stdout & stderr with the parent process
@@ -812,6 +816,7 @@ da-dev@xfel.eu"""
                 self.mark_context_saved()
             self._context_code_to_save = None
             self.save_context_finished.emit(saving)
+            self.context_saved.emit()
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
