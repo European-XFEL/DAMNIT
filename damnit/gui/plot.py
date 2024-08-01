@@ -239,9 +239,15 @@ class Canvas(QtWidgets.QDialog):
 
         if dataarray is not None:
             if dataarray.ndim == 3 and dataarray.shape[-1] in (3, 4):
-                dataarray.plot.imshow(ax=self._axis, vmin=dataarray.quantile(0.01), vmax=dataarray.quantile(0.99))
+                dataarray.plot.imshow(ax=self._axis)
             else:
                 dataarray.plot(ax=self._axis)
+
+            if dataarray.ndim == 2:
+                vmin = np.nanquantile(dataarray.data, 0.01, method='nearest')
+                vmax = np.nanquantile(dataarray.data, 0.99, method='nearest')
+                self._image.set_clim(vmin, vmax)
+
         elif (xs is None and ys is None) and self.plot_type == "histogram1D":
             xs, ys = [], []
 
