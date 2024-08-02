@@ -345,6 +345,7 @@ da-dev@xfel.eu"""
         self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
         self.action_export.triggered.connect(self.export_table)
         self.action_process = QtWidgets.QAction("Reprocess runs", self)
+        self.action_process.setShortcut("Shift+R")
         self.action_process.triggered.connect(self.process_runs)
 
         action_adeqt = QtWidgets.QAction("Python console", self)
@@ -808,7 +809,7 @@ da-dev@xfel.eu"""
         self.set_error_icon('wait')
         self._editor.launch_test_context(self.db)
 
-    def test_context_result(self, test_result, output, checked_code):
+    def test_context_result(self, test_result, output, checked_code, context):
         # want_save, self._context_save_wanted = self._context_save_wanted, False
         if self._context_code_to_save == checked_code:
             if saving := test_result is not ContextTestResult.ERROR:
@@ -817,6 +818,10 @@ da-dev@xfel.eu"""
             self._context_code_to_save = None
             self.save_context_finished.emit(saving)
             self.context_saved.emit()
+
+        # save context in database if it has changed and is valid
+        if context is not None:
+            self.db.save_context(self._context_path, context)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
@@ -924,10 +929,7 @@ da-dev@xfel.eu"""
             prop = self.db.metameta.get("proposal", "")
             sel_runs = []
 
-        var_ids_titles = zip(self.table.computed_columns(),
-                             self.table.computed_columns(by_title=True))
-
-        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        dlg = ProcessingDialog(str(prop), sel_runs, parent=self)
         if dlg.exec() == QtWidgets.QDialog.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
