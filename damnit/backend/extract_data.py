@@ -81,8 +81,8 @@ class ContextFileUnpickler(pickle.Unpickler):
         else:
             return super().find_class(module, name)
 
-def get_context_file(ctx_path: Path, context_python=None):
-    ctx_path = ctx_path.absolute()
+def get_context_file(ctx_path: str | Path, context_python=None):
+    ctx_path = Path(ctx_path).absolute()
     db_dir = ctx_path.parent
 
     if context_python is None:

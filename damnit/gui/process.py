@@ -7,9 +7,13 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
 
 from extra_data.read_machinery import find_proposal
+from natsort import natsorted
+from superqt.utils import thread_worker
 
-from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
+from ..backend.extract_data import get_context_file
+from ..context import RunData
+from .widgets import QtWaitingSpinner
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +22,21 @@ run_range_re = re.compile(r"(\d+)(-\d+)?$")
 RUNS_MSG = "Enter run numbers & ranges e.g. '17, 20-32'"
 
 deselected_vars = set()
+
+
+@thread_worker
+def get_context_file_vars(ctx_path: str, python_path: str = None) -> dict[str, str]:
+    vars = {}
+    try:
+        ctx, err = get_context_file(ctx_path, python_path)
+    except Exception:
+        err = True
+    else:
+        if ctx is not None:
+            for var in natsorted(ctx.vars.values(), key=lambda e: e.title):
+                vars[var.name] = var.title
+
+    return vars, err is not None
 
 
 def parse_run_ranges(ranges: str) -> list[int]:
@@ -76,7 +95,7 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None):
+    def __init__(self, proposal: str, runs: list[int], parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("Process runs")
@@ -124,18 +143,42 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        for var_id, title in var_ids_titles:
-            itm = QtWidgets.QListWidgetItem(title)
-            itm.setData(Qt.UserRole, var_id)
-            itm.setCheckState(Qt.Unchecked if var_id in deselected_vars else Qt.Checked)
-            self.vars_list.addItem(itm)
+        context_python = self.parent().db.metameta.get("context_python")
+        vars_getter = get_context_file_vars(self.parent()._context_path, context_python)
+        vars_getter.returned.connect(self.update_list_items)
+        vars_getter.start()
 
-        self.vars_list.itemChanged.connect(self.validate_vars)
+        self.spinner = QtWaitingSpinner(self.vars_list, modality=Qt.ApplicationModal)
+        self.spinner.start()
 
         self.validate_runs()
-        self.validate_vars()
 
         self.edit_runs.setFocus()
+
+    def _stop_spinner(self):
+        if self.spinner.isSpinning():
+            self.spinner.stop()
+            self.spinner.hide()
+
+    def update_list_items(self, args):
+        variables, err = args
+        self._stop_spinner()
+
+        self.vars_list.clear()
+
+        for var_id, title, in variables.items():
+            item = QtWidgets.QListWidgetItem(title)
+            item.setData(Qt.UserRole, var_id)
+            item.setCheckState(Qt.Unchecked if var_id in deselected_vars else Qt.Checked)
+            self.vars_list.addItem(item)
+
+        self.validate_vars()
+
+        if err:
+            text = self.runs_hint.text()
+            self.runs_hint.setText(
+                f'{text}\n\n/!\\ context file contains error! Check the editor'
+            )
 
     def validate_runs(self):
         runs = parse_run_ranges(self.edit_runs.text())
