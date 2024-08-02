@@ -35,7 +35,6 @@ def _get_context_file_vars(path: str, python_path: str):
     d = {}
     exec(codeobj, d)
     vars = {v.name: v.title for v in d.values() if isinstance(v, Variable)}
-    print(vars)
     return vars
 
 
@@ -112,7 +111,7 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None):
+    def __init__(self, proposal: str, runs: list[int], parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("Process runs")
@@ -160,7 +159,7 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        vars_getter = get_context_file_vars('/home/tmichela/um2024/context.py')
+        vars_getter = get_context_file_vars(str(self.parent()._context_path))
         vars_getter.returned.connect(self.update_list_items)
         vars_getter.start()
 
