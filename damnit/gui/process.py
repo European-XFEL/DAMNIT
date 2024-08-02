@@ -1,5 +1,8 @@
 import logging
 import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 from PyQt5 import QtWidgets
@@ -7,9 +10,14 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
 
 from extra_data.read_machinery import find_proposal
+from natsort import natsorted
+from superqt.utils import thread_worker
+from superqt import QSearchableListWidget
 
-from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
+from ..backend.extract_data import get_context_file
+from ..context import RunData
+from .widgets import QtWaitingSpinner
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +25,45 @@ run_range_re = re.compile(r"(\d+)(-\d+)?$")
 
 RUNS_MSG = "Enter run numbers & ranges e.g. '17, 20-32'"
 
-deselected_vars = set()
+
+@dataclass
+class VariableInfo:
+    name: str = None
+    title: str = None
+    selected: bool = True
+
+
+@dataclass
+class ContextFileInfo:
+    file_path: Path = None
+    mtime: float = None
+    error: bool = False
+    variables: defaultdict = field(default_factory=partial(defaultdict, VariableInfo))
+
+    def sorted_vars(self):
+        return [v for v in natsorted(self.variables.values(), key=lambda e: e.title)]
+
+ctx_info = ContextFileInfo()
+
+
+@thread_worker
+def get_context_file_vars(ctx_path: Path, python_path: str = None):
+    try:
+        ctx, err = get_context_file(ctx_path, python_path)
+    except Exception:
+        err = True
+    else:
+        if ctx is not None:
+            # remove variables if they are not in the context file
+            for var in set(ctx_info.variables).difference(ctx.vars):
+                ctx_info.variables.pop(var)
+
+            for var in natsorted(ctx.vars.values(), key=lambda e: e.title):
+                # try to get the exising var info, to keep the checkbox state
+                vi = ctx_info.variables.setdefault(var.name, VariableInfo(var.name, var.title))
+                # update the title in case it has changed
+                vi.title = var.title
+    ctx_info.error = err
 
 
 def parse_run_ranges(ranges: str) -> list[int]:
@@ -76,10 +122,12 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None):
+    def __init__(self, proposal: str, runs: list[int], parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("Process runs")
+        self.setSizeGripEnabled(True)
+        self.setMinimumSize(300, 200)
 
         main_vbox = QtWidgets.QVBoxLayout()
         self.setLayout(main_vbox)
@@ -106,7 +154,9 @@ class ProcessingDialog(QtWidgets.QDialog):
         grid1.addWidget(self.edit_runs, 1, 1)
         grid1.addWidget(self.runs_hint, 2, 0, 1, 2)
 
-        self.vars_list = QtWidgets.QListWidget()
+        self.vars_list = QSearchableListWidget()
+        self.vars_list.filter_widget.setPlaceholderText("Filter variables")
+        self.vars_list.layout().setContentsMargins(0, 0, 0, 0)
         vbox2.addWidget(self.vars_list)
 
         self.btn_select_all = QtWidgets.QPushButton("Select all")
@@ -124,18 +174,53 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        for var_id, title in var_ids_titles:
-            itm = QtWidgets.QListWidgetItem(title)
-            itm.setData(Qt.UserRole, var_id)
-            itm.setCheckState(Qt.Unchecked if var_id in deselected_vars else Qt.Checked)
-            self.vars_list.addItem(itm)
+        context_python = self.parent().db.metameta.get("context_python")
+        context_file = Path(self.parent()._context_path)
 
-        self.vars_list.itemChanged.connect(self.validate_vars)
+        vars_getter = None
+        if ctx_info.file_path != context_file:
+            ctx_info.file_path = context_file
+            ctx_info.mtime = context_file.stat().st_mtime
+            ctx_info.variables.clear()
+            vars_getter = get_context_file_vars(self.parent()._context_path, context_python)
+        elif ctx_info.mtime != context_file.stat().st_mtime:
+            vars_getter = get_context_file_vars(self.parent()._context_path, context_python)
+
+        self.spinner = QtWaitingSpinner(self.vars_list.list_widget, modality=Qt.ApplicationModal)
+        if vars_getter is not None:
+            vars_getter.returned.connect(self.update_list_items)
+            vars_getter.start()
+            self.spinner.start()
+        else:
+            self.update_list_items()
 
         self.validate_runs()
-        self.validate_vars()
 
         self.edit_runs.setFocus()
+
+    def _stop_spinner(self):
+        if self.spinner.isSpinning():
+            self.spinner.stop()
+            self.spinner.hide()
+
+    def update_list_items(self):
+        self._stop_spinner()
+
+        self.vars_list.clear()
+
+        for var in ctx_info.sorted_vars():
+            item = QtWidgets.QListWidgetItem(var.title)
+            item.setData(Qt.UserRole, var.name)
+            item.setCheckState(Qt.Checked if var.selected else Qt.Unchecked)
+            self.vars_list.addItem(item)
+
+        self.validate_vars()
+
+        if ctx_info.error:
+            self.runs_hint.setText(
+                f'{self.runs_hint.text()}\n\n'
+                '/!\\ context file contains error! Check the editor'
+            )
 
     def validate_runs(self):
         runs = parse_run_ranges(self.edit_runs.text())
@@ -174,12 +259,8 @@ class ProcessingDialog(QtWidgets.QDialog):
             itm.setCheckState(Qt.Unchecked)
 
     def save_vars_selection(self):
-        # We save the deselected variables, so new variables are selected
-        global deselected_vars
-        deselected_vars = {
-            itm.data(Qt.UserRole) for itm in self._var_list_items()
-            if itm.checkState() == Qt.Unchecked
-        }
+        for item, var in zip(self._var_list_items(), ctx_info.sorted_vars()):
+            var.selected = item.checkState() == Qt.Checked
 
     def accept(self):
         self.save_vars_selection()
