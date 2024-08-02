@@ -1,7 +1,5 @@
 import logging
-import os
 import re
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from PyQt5 import QtWidgets
@@ -9,10 +7,12 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
 
 from extra_data.read_machinery import find_proposal
+from natsort import natsorted
 from superqt.utils import thread_worker
 
-from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
+from ..backend.extract_data import get_context_file
+from ..context import RunData
 from .widgets import QtWaitingSpinner
 
 log = logging.getLogger(__name__)
@@ -24,35 +24,19 @@ RUNS_MSG = "Enter run numbers & ranges e.g. '17, 20-32'"
 deselected_vars = set()
 
 
-def _get_context_file_vars(path: str, python_path: str):
-    import sys
-    sys.path.insert(0, python_path)
-
-    from damnit_ctx import Variable
-
-    code = Path(path).read_text()
-    codeobj = compile(code, path, 'exec')
-    d = {}
-    exec(codeobj, d)
-    vars = {v.name: v.title for v in d.values() if isinstance(v, Variable)}
-    return vars
-
-
 @thread_worker
-def get_context_file_vars(ctx_path: str) -> dict[str, str]:
-    env = os.environ.copy()
-    ctxsupport_dir = str(Path(__file__).parents[1] / 'ctxsupport')
-    python_path = env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
-    python_path = f'{ctxsupport_dir}{os.pathsep}{python_path}'
+def get_context_file_vars(ctx_path: str, python_path: str = None) -> dict[str, str]:
+    vars = {}
+    try:
+        ctx, err = get_context_file(ctx_path, python_path)
+    except Exception:
+        err = True
+    else:
+        if ctx is not None:
+            for var in natsorted(ctx.vars.values(), key=lambda e: e.title):
+                vars[var.name] = var.title
 
-    # from multiprocessing import Process
-    # get_vars = Process(target=_get_context_file_vars, args=(ctx_path, python_path))
-    # get_vars.start()
-    # vars = get_vars.get()
-    # get_vars.join()
-    with ProcessPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_get_context_file_vars, ctx_path, python_path)
-        return future.result()
+    return vars, err is not None
 
 
 def parse_run_ranges(ranges: str) -> list[int]:
@@ -159,7 +143,8 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        vars_getter = get_context_file_vars(str(self.parent()._context_path))
+        context_python = self.parent().db.metameta.get("context_python")
+        vars_getter = get_context_file_vars(self.parent()._context_path, context_python)
         vars_getter.returned.connect(self.update_list_items)
         vars_getter.start()
 
@@ -175,7 +160,8 @@ class ProcessingDialog(QtWidgets.QDialog):
             self.spinner.stop()
             self.spinner.hide()
 
-    def update_list_items(self, variables: dict[str, str]):
+    def update_list_items(self, args):
+        variables, err = args
         self._stop_spinner()
 
         self.vars_list.clear()
@@ -187,6 +173,12 @@ class ProcessingDialog(QtWidgets.QDialog):
             self.vars_list.addItem(item)
 
         self.validate_vars()
+
+        if err:
+            text = self.runs_hint.text()
+            self.runs_hint.setText(
+                f'{text}\n\n/!\\ context file contains error! Check the editor'
+            )
 
     def validate_runs(self):
         runs = parse_run_ranges(self.edit_runs.text())
