@@ -161,6 +161,7 @@ class ProcessingDialog(QtWidgets.QDialog):
             self.spinner.hide()
 
     def update_list_items(self, args):
+        global deselected_vars
         variables, err = args
         self._stop_spinner()
 
