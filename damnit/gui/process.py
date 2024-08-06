@@ -1,3 +1,4 @@
+import ast
 import logging
 import re
 from collections import defaultdict
@@ -46,24 +47,53 @@ class ContextFileInfo:
 ctx_info = ContextFileInfo()
 
 
-@thread_worker
-def get_context_file_vars(ctx_path: Path, python_path: str = None):
-    try:
-        ctx, err = get_context_file(ctx_path, python_path)
-    except Exception:
-        err = True
-    else:
-        if ctx is not None:
-            # remove variables if they are not in the context file
-            for var in set(ctx_info.variables).difference(ctx.vars):
-                ctx_info.variables.pop(var)
+def get_variable_list(ctx_path: Path):
+    context = ctx_path.read_text()
 
-            for var in natsorted(ctx.vars.values(), key=lambda e: e.title):
-                # try to get the exising var info, to keep the checkbox state
-                vi = ctx_info.variables.setdefault(var.name, VariableInfo(var.name, var.title))
-                # update the title in case it has changed
-                vi.title = var.title
-    ctx_info.error = err
+    try:
+        tree = ast.parse(context)
+    except SyntaxError:
+        return
+
+    def _is_variable(node):
+        for decorator in node.decorator_list:
+            func = decorator.func
+            while isinstance(func, ast.Attribute):
+                func = func.value
+            if func.id == 'Variable':
+                return decorator
+
+    def _get_kwarg(decorator, name='title'):
+        for kw in decorator.keywords:
+            if kw.arg == name:
+                return kw.value.value
+
+    variables = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if variable := _is_variable(node):
+                title = _get_kwarg(variable) or node.name
+                variables.append(VariableInfo(node.name, title))
+
+    return variables
+
+
+@thread_worker
+def get_context_file_vars(ctx_path: Path):
+    variables = get_variable_list(ctx_path)
+    if variables is None:
+        ctx_info.variables.clear()
+        ctx_info.error = True
+        return
+
+    for var in set(ctx_info.variables).difference({v.name for v in variables}):
+        ctx_info.variables.pop(var)
+
+    for var in natsorted(variables, key=lambda e: e.title):
+        # try to get the exising var info, to keep the checkbox state
+        viv = ctx_info.variables.setdefault(var.name, var)
+        # update the title in case it has changed
+        viv.title = var.title
 
 
 def parse_run_ranges(ranges: str) -> list[int]:
@@ -155,7 +185,7 @@ class ProcessingDialog(QtWidgets.QDialog):
         grid1.addWidget(self.runs_hint, 2, 0, 1, 2)
 
         self.vars_list = QSearchableListWidget()
-        self.vars_list.filter_widget.setPlaceholderText("Filter variables")
+        self.vars_list.filter_widget.setPlaceholderText("Search variable")
         self.vars_list.layout().setContentsMargins(0, 0, 0, 0)
         vbox2.addWidget(self.vars_list)
 
@@ -174,17 +204,15 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        context_python = self.parent().db.metameta.get("context_python")
         context_file = Path(self.parent()._context_path)
-
         vars_getter = None
         if ctx_info.file_path != context_file:
             ctx_info.file_path = context_file
             ctx_info.mtime = context_file.stat().st_mtime
             ctx_info.variables.clear()
-            vars_getter = get_context_file_vars(self.parent()._context_path, context_python)
+            vars_getter = get_context_file_vars(context_file)
         elif ctx_info.mtime != context_file.stat().st_mtime:
-            vars_getter = get_context_file_vars(self.parent()._context_path, context_python)
+            vars_getter = get_context_file_vars(context_file)
 
         self.spinner = QtWaitingSpinner(self.vars_list.list_widget, modality=Qt.ApplicationModal)
         if vars_getter is not None:
