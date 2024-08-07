@@ -380,6 +380,7 @@ da-dev@xfel.eu"""
         self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
         self.action_export.triggered.connect(self.export_table)
         self.action_process = QtWidgets.QAction("Reprocess runs", self)
+        self.action_process.setShortcut("Shift+R")
         self.action_process.triggered.connect(self.process_runs)
 
         action_adeqt = QtWidgets.QAction("Python console", self)
@@ -960,10 +961,7 @@ da-dev@xfel.eu"""
             prop = self.db.metameta.get("proposal", "")
             sel_runs = []
 
-        var_ids_titles = zip(self.table.computed_columns(),
-                             self.table.computed_columns(by_title=True))
-
-        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        dlg = ProcessingDialog(str(prop), sel_runs, parent=self)
         if dlg.exec() == QtWidgets.QDialog.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
