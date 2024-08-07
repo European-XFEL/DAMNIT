@@ -51,6 +51,10 @@ class MainWindow(QtWidgets.QMainWindow):
     context_dir_changed = QtCore.pyqtSignal(str)
     save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
     context_saved = QtCore.pyqtSignal()
+    check_context_file_timer = None
+    vars_ctx_size_mtime = None
+    editor_ctx_size_mtime = None
+    updating_vars = False
 
     db = None
     db_id = None
@@ -263,17 +267,48 @@ da-dev@xfel.eu"""
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
         self.launch_update_computed_vars()
+        self.start_watching_context_file()
 
     def launch_update_computed_vars(self):
         # Triggered when we open a proposal & when saving the context file
         log.debug("Launching subprocess to read variables from context file")
+        self.updating_vars = True
         proc = QtCore.QProcess(parent=self)
         # Show stdout & stderr with the parent process
         proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
+        proc.finished.connect(self.done_update_computed_vars)
         proc.finished.connect(proc.deleteLater)
         proc.setWorkingDirectory(str(self.context_dir))
         proc.start(sys.executable, ['-m', 'damnit.cli', 'read-context'])
         proc.closeWriteChannel()
+
+    def done_update_computed_vars(self):
+        self.updating_vars = False
+        self.vars_ctx_size_mtime = self.get_context_size_mtime()
+
+    def get_context_size_mtime(self):
+        st = self._context_path.stat()
+        return st.st_size, st.st_mtime
+
+    def poll_context_file(self):
+        size_mtime = self.get_context_size_mtime()
+        if (self.vars_ctx_size_mtime != size_mtime) and not self.updating_vars:
+            log.info("Context file changed, updating computed variables")
+            self.launch_update_computed_vars()
+
+        if (self.editor_ctx_size_mtime != size_mtime) and self._context_is_saved:
+            log.info("Context file changed, reloading editor")
+            self.reload_context()
+
+    def start_watching_context_file(self):
+        if self.check_context_file_timer is not None:
+            self.check_context_file_timer.stop()
+            self.check_context_file_timer.deleteLater()
+
+        self.check_context_file_timer = tmr = QtCore.QTimer(self)
+        tmr.setInterval(30_000)
+        tmr.timeout.connect(self.poll_context_file)
+        tmr.start()
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
@@ -865,6 +900,7 @@ da-dev@xfel.eu"""
         self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("black"))
         self._editor_status_message = str(self._context_path.resolve())
         self.on_tab_changed(self._tab_widget.currentIndex())
+        self.editor_ctx_size_mtime = self.get_context_size_mtime()
 
     def save_value(self, prop, run, name, value):
         if self.db is None:
