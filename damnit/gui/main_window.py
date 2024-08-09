@@ -571,11 +571,6 @@ da-dev@xfel.eu"""
         cell_data = self.table.get_value_at(index)
         is_image = self.table.itemFromIndex(index).data(Qt.DecorationRole) is not None
 
-        if not (is_image or isinstance(cell_data, (int, float))):
-            QMessageBox.warning(self, "Can't inspect variable",
-                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
-            return
-
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]
         except FileNotFoundError:
@@ -587,6 +582,11 @@ da-dev@xfel.eu"""
             self.show_status_message(f"Unrecognized variable: '{quantity}'",
                                      timeout=7000,
                                      stylesheet=StatusbarStylesheet.ERROR)
+            return
+
+        if not (is_image or variable.type_hint() or isinstance(cell_data, (int, float))):
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
             return
 
         if variable.type_hint() is DataType.PlotlyFigure:
