@@ -688,7 +688,10 @@ def execute_context(args):
         # Make sure that we always select the most data possible, so proc
         # variables have access to raw data too.
         actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
-        run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
+        run_dc = extra_data.open_run(
+            args.proposal, args.run, data=actual_run_data.value,
+            _use_voview=args.data_location=='localhost'
+        )
 
     res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 

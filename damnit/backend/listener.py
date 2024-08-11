@@ -124,7 +124,7 @@ class EventProcessor:
         self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-        req = ExtractionRequest(run, proposal, run_data, data_location)
+        req = ExtractionRequest(run, proposal, run_data, data_location=data_location)
         self.submitter.submit(req)
 
 
