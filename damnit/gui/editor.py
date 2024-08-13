@@ -45,34 +45,23 @@ class ContextFileCheckerThread(QThread):
         self.context_getter = context_getter
 
     def run(self):
-        error_info = None
-
-        # If a different environment is not specified, we can evaluate the
-        # context file directly.
-        if self.context_python is None:
-            try:
-                ContextFile.from_str(self.code)
-            except:
-                # Extract the error information
-                error_info = extract_error_info(*sys.exc_info())
-
-        # Otherwise, write it to a temporary file to evaluate it from another
+        # Write the context to a temporary file to evaluate it from another
         # process.
-        else:
-            with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
-                ctx_path = Path(ctx_file.name)
-                ctx_path.write_text(self.code)
+        with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
+            ctx_path = Path(ctx_file.name)
+            ctx_path.write_text(self.code)
 
-                try:
-                    ctx, error_info = self.context_getter(ctx_path, self.context_python)
-                except:
-                    # Not a failure to evalute the context file, but a failure
-                    # to *attempt* to evaluate the context file (e.g. because of
-                    # a missing dependency).
-                    help_msg = "# This is a partial error, please check the terminal for the full error message and ask for help from DA or the DOC."
-                    traceback_str = f"{help_msg}\n\n{traceback.format_exc()}"
-                    self.check_result.emit(ContextTestResult.ERROR, traceback_str, 0, 0, self.code)
-                    return
+            context_python = sys.executable if self.context_python is None else self.context_python
+            try:
+                ctx, error_info = self.context_getter(ctx_path, context_python)
+            except:
+                # Not a failure to evalute the context file, but a failure
+                # to *attempt* to evaluate the context file (e.g. because of
+                # a missing dependency).
+                help_msg = "# This is a partial error, please check the terminal for the full error message and ask for help from DA or the DOC."
+                traceback_str = f"{help_msg}\n\n{traceback.format_exc()}"
+                self.check_result.emit(ContextTestResult.ERROR, traceback_str, 0, 0, self.code)
+                return
 
         if error_info is not None:
             stacktrace, lineno, offset = error_info
