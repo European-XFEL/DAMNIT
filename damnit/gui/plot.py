@@ -172,6 +172,9 @@ class PlotWindow(QtWidgets.QDialog):
             y_max = y_max + y_range * margin
             self._axis.set_ylim((y_min, y_max))
 
+    def update(self):
+        pass  # Overridden in subclasses
+
 class HistogramPlotWindow(PlotWindow):
     show_autoscale = True
 
@@ -240,6 +243,11 @@ class HistogramPlotWindow(PlotWindow):
 
     def _make_cursors(self):
         return [mplcursors.cursor(self._hist_objects, hover=True)]
+
+    def update(self):
+        if self.summary_values:
+            x = self.main_window.table.numbers_for_plotting(self.xlabel)
+            self.update_canvas([x])
 
     def update_canvas(self, xs, legend=None):
         plot_exists = bool(self._hist_objects)
@@ -329,6 +337,13 @@ class ScatterPlotWindow(PlotWindow):
 
     def _make_cursors(self):
         return [mplcursors.cursor(self._lines, hover=True)]
+
+    def update(self):
+        if self.summary_values:
+            x, y = self.main_window.table.numbers_for_plotting(
+                self.xlabel, self.ylabel
+            )
+            self.update_canvas([x], [y])
 
     def update_canvas(self, xs=None, ys=None, legend=None):
         cmap = matplotlib.colormaps["tab20"]
@@ -726,18 +741,7 @@ class PlottingControls:
 
     def update(self):
         for plot_window in self._plot_windows:
-            if not plot_window.summary_values:
-                # Plots with runs as series don't need to be updated (unless the
-                # variables have been changed by re-running the backend on a
-                # modified context file, but luckily this hasn't been
-                # implemented yet).
-                continue
-
-            cols = plot_window.columns_for_update
-            x, y = self.table.numbers_for_plotting(cols)  # TODO
-
-            log.debug("Updating plot for %s", cols)
-            plot_window.update_canvas([np.array(x)], [np.array(y)])
+            plot_window.update()
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel=None):
         variables = RunVariables(self._main_window._context_path.parent, run)
