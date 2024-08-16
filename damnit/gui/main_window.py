@@ -33,7 +33,7 @@ from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
-from .plot import Canvas, PlottingControls
+from .plot import ImagePlotWindow, ScatterPlotWindow, Xarray1DPlotWindow, PlottingControls
 from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
@@ -605,39 +605,40 @@ da-dev@xfel.eu"""
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
 
-        if variable.type_hint() is DataType.DataArray:
-            canvas = Canvas(self, dataarray=data, title=f'{variable.title} (run {run})')
-            self._canvas_inspect.append(canvas)
-            canvas.show()
+        if not isinstance(data, (np.ndarray, xr.DataArray)):
+            log.error("Only array objects are expected here, not %r", type(data))
             return
 
-        data = xr.DataArray(data)
+        title = f'{variable.title} (run {run})'
 
-        if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
-            canvas = Canvas(
+        data = data.squeeze()
+
+        if data.ndim == 1:
+            if isinstance(data, xr.DataArray):
+                canvas = Xarray1DPlotWindow(self, data, title=title)
+            else:
+                canvas = ScatterPlotWindow(self,
+                    x=[np.arange(len(data))],
+                    y=[fix_data_for_plotting(data)],
+                    xlabel=f"Event (run {run})",
+                    ylabel=variable.title,
+                    title=title,
+            )
+        elif data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
+            canvas = ImagePlotWindow(
                 self,
-                image=data.data,
+                image=data,
                 title=f"{variable.title} (run {run})",
             )
+        elif data.ndim == 0:
+            # If this is a scalar value, then we can't plot it
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' is a scalar, there's nothing more to plot.")
+            return
         else:
-            if data.ndim == 0:
-                # If this is a scalar value, then we can't plot it
-                QMessageBox.warning(self, "Can't inspect variable",
-                                    f"'{quantity}' is a scalar, there's nothing more to plot.")
-                return
-            if data.ndim > 2:
-                QMessageBox.warning(self, "Can't inspect variable",
-                                    f"'{quantity}' with {data.ndim} dimensions (not supported).")
-                return
-
-            canvas = Canvas(
-                self,
-                x=[np.arange(len(data))],
-                y=[fix_data_for_plotting(data)],
-                xlabel=f"Event (run {run})",
-                ylabel=variable.title,
-                fmt="o",
-            )
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' with {data.ndim} dimensions (not supported).")
+            return
 
         self._canvas_inspect.append(canvas)
         canvas.show()
