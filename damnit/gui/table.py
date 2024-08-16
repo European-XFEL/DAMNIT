@@ -650,22 +650,20 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             )
         return pixmap
 
-    def numbers_for_plotting(self, xcol, ycol, by_title=True):
-        xcol_ix = self.find_column(xcol, by_title)
-        ycol_ix = self.find_column(ycol, by_title)
-        res_x, res_y = [], []
+    def numbers_for_plotting(self, *cols, by_title=True):
+        col_ixs = [self.find_column(c, by_title) for c in cols]
+        res = [[]  for _ in cols]
         for r in range(self.rowCount()):
             status_item = self.item(r, 0)
             if status_item is None or status_item.checkState() != Qt.Checked:
                 continue
 
-            xval = self.get_value_at_rc(r, xcol_ix)
-            yval = self.get_value_at_rc(r, ycol_ix)
-            if isinstance(xval, (int, float)) and isinstance(yval, (int, float)):
-                res_x.append(xval)
-                res_y.append(yval)
+            vals = [self.get_value_at_rc(r, ci) for ci in col_ixs]
+            if all(isinstance(val, (int, float)) for val in vals):
+                for res_list, val in zip(res, vals):
+                    res_list.append(val)
 
-        return res_x, res_y
+        return res
 
     def get_value_at(self, index):
         """Get the value for programmatic use, not for display"""
