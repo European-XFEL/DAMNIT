@@ -343,7 +343,7 @@ class ScatterPlotWindow(PlotWindow):
             x, y = self.main_window.table.numbers_for_plotting(
                 self.xlabel, self.ylabel
             )
-            self.update_canvas([x], [y])
+            self.update_canvas([np.array(x)], [np.array(y)])
 
     def update_canvas(self, xs=None, ys=None, legend=None):
         cmap = matplotlib.colormaps["tab20"]
