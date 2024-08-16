@@ -33,7 +33,7 @@ from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
-from .plot import Canvas, Plot
+from .plot import Canvas, PlottingControls
 from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
@@ -705,7 +705,7 @@ da-dev@xfel.eu"""
         comment_timer.start()
 
         # plotting control
-        self.plot = Plot(self)
+        self.plot = PlottingControls(self)
         plotting_group = QtWidgets.QGroupBox("Plotting controls")
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()

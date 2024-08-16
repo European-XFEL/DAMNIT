@@ -38,6 +38,7 @@ class Canvas(QtWidgets.QDialog):
         plot_type="default",
         strongly_correlated=True,
         autoscale=False,
+        summary_values=False,
     ):
         super().__init__()
         self.setWindowFlags(
@@ -55,7 +56,10 @@ class Canvas(QtWidgets.QDialog):
 
         layout = QtWidgets.QVBoxLayout(self)
 
+        self.xlabel = xlabel
+        self.ylabel = ylabel
         self.plot_type = plot_type
+        self.summary_values = summary_values
         is_histogram = self.plot_type != "default"
 
         self.figure = Figure(figsize=(8, 5))
@@ -461,34 +465,31 @@ class SearchableComboBox(QtWidgets.QComboBox):
             super().focusInEvent(event)
 
 
-class Plot:
+class PlottingControls:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
-
-        self.plot_type = "default"
 
         self._button_plot = QtWidgets.QPushButton(main_window)
         self._button_plot.setEnabled(True)
         self._button_plot.setText("Plot summary for all runs")
-        self._button_plot.clicked.connect(lambda: self._button_plot_clicked(False))
+        self._button_plot.clicked.connect(self._plot_summaries_clicked)
 
         self._button_plot_runs = QtWidgets.QPushButton(
             "Plot for selected runs", main_window
         )
-        self._button_plot_runs.clicked.connect(lambda: self._button_plot_clicked(True))
+        self._button_plot_runs.clicked.connect(self._plot_run_data_clicked)
+
+        self._combo_box_x_axis = SearchableComboBox(self._main_window)
+        self._combo_box_y_axis = SearchableComboBox(self._main_window)
 
         self._toggle_probability_density = QtWidgets.QPushButton(
             "Histogram", main_window
         )
         self._toggle_probability_density.setCheckable(True)
-        self._toggle_probability_density.setChecked(True)
-        self._toggle_probability_density.toggle()
-        self._toggle_probability_density.clicked.connect(
-            self._toggle_probability_density_clicked
+        self._toggle_probability_density.setChecked(False)
+        self._toggle_probability_density.toggled.connect(
+            self._combo_box_y_axis.setDisabled
         )
-
-        self._combo_box_x_axis = SearchableComboBox(self._main_window)
-        self._combo_box_y_axis = SearchableComboBox(self._main_window)
 
         self.vs_button = QtWidgets.QToolButton()
         self.vs_button.setText("vs.")
@@ -497,14 +498,7 @@ class Plot:
 
         self._combo_box_x_axis.setCurrentText("Run")
 
-        self._canvas = {
-            "key.x": [],
-            "key.y": [],
-            "canvas": [],
-            "type": [],
-            "legend": [],
-            "runs_as_series": [],
-        }
+        self._plot_windows = []
 
     def update_columns(self):
         keys = self.table.column_titles
@@ -537,17 +531,10 @@ class Plot:
     def table(self):
         return self._main_window.table
 
-    def _button_plot_clicked(self, runs_as_series):
+    def _plot_run_data_clicked(self):
         selected_rows = self._main_window.table_view.selected_rows()
         xlabel = self._combo_box_x_axis.currentText()
         ylabel = self._combo_box_y_axis.currentText()
-
-        # Don't try to plot columns with non-numeric types, which might include
-        # e.g. images or strings. Note that the run and proposal columns are
-        # special cases, since we definitely might want to plot against those
-        # columns but they may have pd.NA's from comment rows (which are only
-        # given a timestamp).
-        safe_cols = ["Proposal", "Run"]
 
         xvals, _yvals = self.table.numbers_for_plotting(xlabel, ylabel)
         if not xvals:
@@ -563,14 +550,13 @@ class Plot:
         for index in selected_rows:
             log.info("Selected row %d", index.row())
 
-        if runs_as_series:
-            if len(selected_rows) == 0:
-                QMessageBox.warning(
-                    self._main_window,
-                    "No runs selected",
-                    "When plotting runs as series, you must select some runs in the table.",
-                )
-                return
+        if len(selected_rows) == 0:
+            QMessageBox.warning(
+                self._main_window,
+                "No runs selected",
+                "When plotting runs as series, you must select some runs in the table.",
+            )
+            return
 
         # Find the proposals of currently selected runs
         props_runs = [self.table.row_to_proposal_run(ix.row()) for ix in selected_rows]
@@ -584,25 +570,26 @@ class Plot:
             )
             return
 
-        if self.plot_type == "histogram1D":
+        plot_type = "histogram1D" if self._toggle_probability_density.isChecked() else "default"
+        if plot_type == "histogram1D":
             ylabel = xlabel
 
         runs = []
         xs, ys = [], []
         strongly_correlated = True
-        if runs_as_series:
-            for p, r in props_runs:
-                try:
-                    correlated, xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
-                    strongly_correlated = strongly_correlated and correlated
-                except Exception as e:
-                    log.warning(f"Couldn't retrieve data for '{xlabel}', '{ylabel}': {e}")
-                else:
-                    runs.append(r)
-                    xs.append(xi)
-                    ys.append(yi)
 
-        if runs_as_series and (len(xs) == 0 or len(ys) == 0):
+        for p, r in props_runs:
+            try:
+                correlated, xi, yi = self.get_run_series_data(p, r, xlabel, ylabel)
+                strongly_correlated = strongly_correlated and correlated
+            except Exception as e:
+                log.warning(f"Couldn't retrieve data for '{xlabel}', '{ylabel}': {e}")
+            else:
+                runs.append(r)
+                xs.append(xi)
+                ys.append(yi)
+
+        if len(xs) == 0 or len(ys) == 0:
             log.warning("Error getting data for plot", exc_info=True)
             QMessageBox.warning(
                 self._main_window,
@@ -611,16 +598,15 @@ class Plot:
             )
             return
 
-        if runs_as_series:
-            # Check that each X/Y pair has the same length
-            for run, x, y in zip(runs, xs, ys):
-                if len(x) != len(y):
-                    QMessageBox.warning(self._main_window,
-                                        "X and Y have different lengths",
-                                        f"'{xlabel}' and '{ylabel}' have different lengths for run {run}, they " \
-                                        "must be the same to be plotted.\n\n" \
-                                        f"'{xlabel}' has length {len(x)} and '{ylabel}' has length {len(y)}.")
-                    return
+        # Check that each X/Y pair has the same length
+        for run, x, y in zip(runs, xs, ys):
+            if len(x) != len(y):
+                QMessageBox.warning(self._main_window,
+                                    "X and Y have different lengths",
+                                    f"'{xlabel}' and '{ylabel}' have different lengths for run {run}, they " \
+                                    "must be the same to be plotted.\n\n" \
+                                    f"'{xlabel}' has length {len(x)} and '{ylabel}' has length {len(y)}.")
+                return
 
         log.info("New plot for x=%r, y=%r", xlabel, ylabel)
         canvas = Canvas(
@@ -630,67 +616,69 @@ class Plot:
             xlabel=xlabel,
             ylabel=ylabel,
             legend=runs,
-            plot_type=self.plot_type,
+            plot_type=plot_type,
             strongly_correlated=strongly_correlated,
             # Autoscale if new points can appear, or we can change histogram binning
-            autoscale=(not runs_as_series) or (self.plot_type == "histogram1D"),
+            autoscale=(plot_type == "histogram1D"),
         )
-        if runs_as_series:
-            canvas.setWindowTitle(f"Runs: {runs}")
+        canvas.setWindowTitle(f"Runs: {runs}")
+        canvas.update_canvas(xs, ys)
 
-        self._canvas["key.x"].append(xlabel)
-        self._canvas["key.y"].append(ylabel)
-        self._canvas["canvas"].append(canvas)
-        self._canvas["type"].append(self.plot_type)
-        self._canvas["runs_as_series"].append(selected_rows if runs_as_series else None)
+        self._plot_windows.append(canvas)
+
+        canvas.show()
+
+    def _plot_summaries_clicked(self):
+        xlabel = self._combo_box_x_axis.currentText()
+        ylabel = self._combo_box_y_axis.currentText()
+
+        xvals, _yvals = self.table.numbers_for_plotting(xlabel, ylabel)
+        if not xvals:
+            QMessageBox.warning(
+                self._main_window,
+                "Plotting failed",
+                f"No numeric data found in {xlabel} & {ylabel}."
+            )
+            return
+
+        plot_type = "histogram1D" if self._toggle_probability_density.isChecked() else "default"
+        if plot_type == "histogram1D":
+            ylabel = xlabel
+
+        log.info("New plot for x=%r, y=%r", xlabel, ylabel)
+        canvas = Canvas(
+            self._main_window,
+            x=[],
+            y=[],
+            xlabel=xlabel,
+            ylabel=ylabel,
+            legend=[],
+            plot_type=plot_type,
+            strongly_correlated=True,
+            # Autoscale if new points can appear, or we can change histogram binning
+            autoscale=True,
+            summary_values=True,
+        )
+        self._plot_windows.append(canvas)
 
         self.update()
 
         canvas.show()
 
-    def _toggle_probability_density_clicked(self):
-        if self._toggle_probability_density.isChecked():
-            self._combo_box_y_axis.setEnabled(False)
-            self.plot_type = "histogram1D"
-        else:
-            self._combo_box_y_axis.setEnabled(True)
-            self.plot_type = "default"
-
     def update(self):
-        for index, (xi, yi, ci, runs_as_series) in enumerate(
-            zip(
-                self._canvas["key.x"].copy(),
-                self._canvas["key.y"].copy(),
-                self._canvas["canvas"].copy(),
-                self._canvas["runs_as_series"].copy(),
-            )
-        ):
-            xs = []
-            ys = []
-
-            if runs_as_series:
+        for plot_window in self._plot_windows:
+            if not plot_window.summary_values:
                 # Plots with runs as series don't need to be updated (unless the
                 # variables have been changed by re-running the backend on a
                 # modified context file, but luckily this hasn't been
                 # implemented yet).
-                if ci.has_data:
-                    continue
+                continue
 
-                # Find the proposals of currently selected runs
-                proposal = [index.siblingAtColumn(1).data() for index in runs_as_series]
-                run = [index.siblingAtColumn(2).data() for index in runs_as_series]
+            xlab, ylab = plot_window.xlabel, plot_window.ylabel
+            x, y = self.table.numbers_for_plotting(xlab, ylab)
 
-                for pi, ri in zip(proposal, run):
-                    strongly_correlated, x, y = self.get_run_series_data(pi, ri, xi, yi)
-                    xs.append(fix_data_for_plotting(x))
-                    ys.append(fix_data_for_plotting(y))
-            else:
-                x, y = self.table.numbers_for_plotting(xi, yi)
-                xs.append(np.array(x))
-                ys.append(np.array(y))
-
-            log.debug("Updating plot for x=%s, y=%s", xi, yi)
-            ci.update_canvas(xs, ys)
+            log.debug("Updating plot for x=%s, y=%s", xlab, ylab)
+            plot_window.update_canvas([np.array(x)], [np.array(y)])
 
     def get_run_series_data(self, proposal, run, xlabel, ylabel):
         variables = RunVariables(self._main_window._context_path.parent, run)
