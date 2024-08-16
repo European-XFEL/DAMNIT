@@ -321,8 +321,8 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
 
     win = MainWindow(db_dir, False)
     qtbot.addWidget(win)
-    win.plot._button_plot_clicked(False)
-    assert len(win.plot._canvas["canvas"]) == 1
+    win.plot._plot_summaries_clicked()
+    assert len(win.plot._plot_windows) == 1
 
     extract_mock_run(2)
     msg = {
@@ -705,7 +705,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     win.plot._combo_box_y_axis.setCurrentText("Constant array")
 
     with patch.object(QMessageBox, "warning") as warning:
-        win.plot._button_plot_clicked(False)
+        win.plot._plot_summaries_clicked()
         warning.assert_not_called()
 
     # And plot an array
@@ -718,7 +718,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     array_sorted_idx = win.table_view.model().mapFromSource(array_index)
     win.table_view.setCurrentIndex(array_sorted_idx)
     with patch.object(QMessageBox, "warning") as warning:
-        win.plot._button_plot_clicked(True)
+        win.plot._plot_run_data_clicked()
         warning.assert_not_called()
 
     # Check that the text for the array that changes is bold
