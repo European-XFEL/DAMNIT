@@ -22,6 +22,7 @@ from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
+from damnit.gui.plot import ScatterPlotWindow, HistogramPlotWindow
 from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import reduced_data_from_dict, mkcontext, extract_mock_run
@@ -321,8 +322,18 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
 
     win = MainWindow(db_dir, False)
     qtbot.addWidget(win)
+
+    # Open 1 scatter plot
     win.plot._plot_summaries_clicked()
     assert len(win.plot._plot_windows) == 1
+
+    # Open 1 histogram
+    win.plot._toggle_probability_density.setChecked(True)
+    win.plot._plot_summaries_clicked()
+    assert len(win.plot._plot_windows) == 2
+    assert [type(pw) for pw in win.plot._plot_windows] == [
+        ScatterPlotWindow, HistogramPlotWindow
+    ]
 
     extract_mock_run(2)
     msg = {
