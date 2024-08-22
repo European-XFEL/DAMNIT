@@ -232,14 +232,18 @@ class Extractor:
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
-        ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
-        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
-        if set(ctx_slurm.vars) > set(ctx.vars):
-            submitter = ExtractionSubmitter(Path.cwd(), self.db)
-            cluster_req = ExtractionRequest(
-                run, proposal, run_data, cluster=True, match=match, mock=mock
+        if not cluster:
+            ctx_slurm = self.ctx_whole.filter(
+                run_data=run_data, name_matches=match, variables=variables, cluster=True
             )
-            submitter.submit(cluster_req)
+            ctx_no_slurm = ctx_slurm.filter(cluster=False)
+            if set(ctx_slurm.vars) > set(ctx_no_slurm.vars):
+                submitter = ExtractionSubmitter(Path.cwd(), self.db)
+                cluster_req = ExtractionRequest(
+                    run, proposal, mock=mock,
+                    run_data=run_data, cluster=True, match=match, variables=variables
+                )
+                submitter.submit(cluster_req)
 
 
 def main(argv=None):
