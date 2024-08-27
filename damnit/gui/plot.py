@@ -22,7 +22,7 @@ from ..util import fix_data_for_plotting
 
 log = logging.getLogger(__name__)
 
-CORRELATION_MSG = """\ 
+CORRELATION_MSG = """\
 Note: the variables being plotted are not strongly correlated.
 AMORE currently expects that all arrays are train-resolved; and when plotting  
 two arrays against each other that have train ID information, AMORE will use the  
