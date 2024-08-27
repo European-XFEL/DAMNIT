@@ -110,7 +110,7 @@ class PlotWindow(QtWidgets.QDialog):
         self.layout.addWidget(self._navigation_toolbar)
 
         self._cursors = []
-        self._zoom_factory = None
+        self._scroll_zoom = None
         self._panmanager = PanManager(self.figure, MouseButton.LEFT)
 
         self.figure.tight_layout()
@@ -122,6 +122,13 @@ class PlotWindow(QtWidgets.QDialog):
 
     def _make_cursors(self):
         return []  # Overridden in subclasses
+
+    def _setup_scroll_zoom(self):
+        # This needs to be redone when plotting changes the axes limits, so it
+        # zooms on the correct position.
+        if self._scroll_zoom is not None:
+            self._scroll_zoom()  # Call to disconnect
+        self._scroll_zoom = zoom_factory(self._axis, base_scale=1.07)
 
     def toggle_annotations(self, state):
         if state == QtCore.Qt.Checked:
@@ -306,9 +313,7 @@ class HistogramPlotWindow(PlotWindow):
                 np.nanmin(x_all), np.nanmax(x_all), 0, np.nanmax(y_all), margin=0.05,
             )
 
-        if self._zoom_factory is not None:
-            self._zoom_factory()
-        self._zoom_factory = zoom_factory(self._axis, base_scale=1.07)
+        self._setup_scroll_zoom()
 
         # Update the toolbar history so that clicking the home button resets the
         # plot limits properly.
@@ -393,9 +398,7 @@ class ScatterPlotWindow(PlotWindow):
 
             self.autoscale(xs_min, xs_max, ys_min, ys_max, margin=0.05)
 
-        if self._zoom_factory is not None:
-            self._zoom_factory()
-        self._zoom_factory = zoom_factory(self._axis, base_scale=1.07)
+        self._setup_scroll_zoom()
 
         # Update the toolbar history so that clicking the home button resets the
         # plot limits properly.
@@ -420,6 +423,7 @@ class Xarray1DPlotWindow(PlotWindow):
             self._nan_warning_label.show()
 
         data.plot(ax=self._axis)
+        self._setup_scroll_zoom()
         # The plot call above can add axis labels, so we need to do this again
         self.figure.tight_layout()
 
@@ -490,9 +494,7 @@ class ImagePlotWindow(PlotWindow):
                 vmax = np.nanquantile(image, 0.99, method='nearest')
                 self._image.set_clim(vmin, vmax)
 
-        if self._zoom_factory is not None:
-            self._zoom_factory()
-        self._zoom_factory = zoom_factory(self._axis, base_scale=1.07)
+        self._setup_scroll_zoom()
 
         # Update the toolbar history so that clicking the home button resets the
         # plot limits properly.
