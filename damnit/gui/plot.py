@@ -202,12 +202,16 @@ class HistogramPlotWindow(PlotWindow):
 
         self.update_canvas(data, legend=legend)
 
+    def _clear_data(self):
+        for o in self._hist_objects:
+            o.remove()
+        self._hist_objects = []
+
     def probability_density_bins_changed(self):
         self.n_bins = self._probability_density_bins.value()
 
         # Regenerate the histograms
-        for b in self._hist_objects:
-            b.remove()
+        self._clear_data()
         self._nan_warning_label.hide()
 
         xs, ys = [], []
@@ -220,7 +224,7 @@ class HistogramPlotWindow(PlotWindow):
             y, x, patches = self._axis.hist(
                 data, bins=self.n_bins, **self._hist_kwargs[i]
             )
-            self._hist_objects[i] = patches
+            self._hist_objects.append(patches)
 
             xs.append(x)
             ys.append(y)
@@ -253,11 +257,11 @@ class HistogramPlotWindow(PlotWindow):
         plot_exists = bool(self._hist_objects)
         cmap = matplotlib.colormaps["tab20"]
         self._nan_warning_label.hide()
+        self._clear_data()
 
         self._axis.grid(visible=True)
         self.data_x = xs
 
-        self._hist_objects = []
         self._hist_kwargs = []
         x_all, y_all = [], []
         for i, data, label in zip(
@@ -686,7 +690,6 @@ class PlottingControls:
                 strongly_correlated=strongly_correlated,
             )
         canvas.setWindowTitle(f"Runs: {runs}")
-        canvas.update_canvas(xs, ys)
 
         self._plot_windows.append(canvas)
 
