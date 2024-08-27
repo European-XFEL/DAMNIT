@@ -420,6 +420,8 @@ class Xarray1DPlotWindow(PlotWindow):
             self._nan_warning_label.show()
 
         data.plot(ax=self._axis)
+        # The plot call above can add axis labels, so we need to do this again
+        self.figure.tight_layout()
 
 class ImagePlotWindow(PlotWindow):
     _image = None
@@ -462,6 +464,8 @@ class ImagePlotWindow(PlotWindow):
                 )
             else:  # RGB(A) colour image
                 image.plot.imshow(ax=self._axis, interpolation='antialiased')
+            # xarray plotting methods can add labels, so fix the layout:
+            self.figure.tight_layout()
         else:
             # Numpy array
             is_color_image = image.ndim == 3
