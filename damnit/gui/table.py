@@ -5,7 +5,7 @@ from base64 import b64encode
 from itertools import groupby
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QProcess
 from PyQt5.QtWidgets import QMessageBox
 from superqt.utils import qthrottled
 
@@ -414,6 +414,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
         self._load_from_db()
 
+        self.slurm_check_timer = QtCore.QTimer(self)
+        self.slurm_check_timer.timeout.connect(self.check_slurm_jobs)
+        self.slurm_check_timer.start(120_000)
+
     @staticmethod
     def _load_columns(db: DamnitDB, col_settings):
         t0 = time.perf_counter()
@@ -760,6 +764,54 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         else:
             runnr_item.setData(f"{run}", Qt.ItemDataRole.DisplayRole)
             runnr_item.setToolTip("")
+
+    def check_slurm_jobs(self):
+        """Every 2 minutes, check for crashed/cancelled Slurm jobs"""
+        jobs_by_cluster = {}
+        for info in self.processing_jobs.values():
+            if cluster := info['slurm_cluster']:
+                jobs_by_cluster.setdefault(cluster, []).append(info)
+
+        for cluster, infos in jobs_by_cluster.items():
+            self._check_slurm_jobs_cluster(cluster, infos)
+
+    def _check_slurm_jobs_cluster(self, cluster, infos):
+        jids = [i['slurm_job_id'] for i in infos]
+        # Passing 1 Job ID can give an 'Invalid job id' error if it has
+        # already left the queue. With multiple, we always get a list back.
+        if len(jids) == 1:
+            jids.append("1")
+
+        args = ["--clusters", cluster, "--jobs=" + ",".join(jids),
+                "--format=%i %T", "--noheader"]
+        log.info("Squeue check: %r", args)
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.ForwardedErrorChannel)
+
+        def done():
+            proc.deleteLater()
+            if proc.exitStatus() != QProcess.NormalExit or proc.exitCode() != 0:
+                log.warning("Error calling squeue")
+                return
+            stdout = bytes(proc.readAllStandardOutput()).decode()
+
+            still_running = set()
+            for line in stdout.splitlines():
+                job_id, status = line.strip().split()
+                if status == 'RUNNING':
+                    still_running.add(job_id)
+
+            for info in infos:
+                proc_id = info['processing_id']
+                job_id = info['slurm_job_id']
+                if (proc_id in self.processing_jobs) and (job_id not in still_running):
+                    del self.processing_jobs[proc_id]
+                    self.update_processing_status(info['proposal'], info['run'])
+                    log.info("Slurm job %s on %s (%s) crashed or was cancelled",
+                             info['slurm_job_id'], info['slurm_cluster'], proc_id)
+
+        proc.finished.connect(done)
+        proc.start("squeue", args)
 
     def add_editable_column(self, name):
         if name == "Status":
