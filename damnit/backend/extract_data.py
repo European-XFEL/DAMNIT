@@ -187,9 +187,17 @@ class RunExtractor(Extractor):
             'run': run,
             'data': run_data.value,
             'hostname': socket.gethostname(),
-            'slurm_cluster': os.environ.get('SLURM_CLUSTER_NAME', ''),
+            'slurm_cluster': self._slurm_cluster(),
             'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
         })
+
+    @staticmethod
+    def _slurm_cluster():
+        # For some reason, SLURM_CLUSTER_NAME is '(null)'. This is a workaround:
+        if not os.environ.get('SLURM_JOB_ID', ''):
+            return None
+        partition = os.environ.get('SLURM_JOB_PARTITION', '')
+        return 'solaris' if (partition == 'solcpu') else 'maxwell'
 
     @property
     def out_path(self):
