@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 import h5py
 import numpy as np
@@ -203,6 +204,19 @@ class Extractor:
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
+        processing_id = str(uuid4())
+        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+            MsgKind.processing_started, {
+                'processing_id': processing_id,
+                'proposal': proposal,
+                'run': run,
+                'data': run_data.value,
+                'hostname': socket.gethostname(),
+                'slurm_cluster': os.environ.get('SLURM_CLUSTER_NAME', ''),
+                'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
+            }
+        ))
+
         out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if out_path.parent.stat().st_uid == os.getuid():
@@ -231,6 +245,10 @@ class Extractor:
             self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
 
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
+
+        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+            MsgKind.processing_finished, {'processing_id': processing_id}
+        ))
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         if not cluster:
