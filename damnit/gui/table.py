@@ -723,12 +723,16 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         processing_id = info['processing_id']
         self.processing_jobs[processing_id] = info
         self.update_processing_status(info['proposal'], info['run'])
+        log.debug("Processing started for p%s r%s on %s (%s)",
+                  info['proposal'], info['run'], info['hostname'], processing_id)
 
     def handle_processing_finished(self, info):
         processing_id = info['processing_id']
         info = self.processing_jobs.pop(processing_id, None)
         if info is not None:
             self.update_processing_status(info['proposal'], info['run'])
+            log.debug("Processing finished for p%s r%s (%s)",
+                      info['proposal'], info['run'], processing_id)
 
     def update_processing_status(self, proposal, run):
         """Show/hide the processing indicator for the given run"""
