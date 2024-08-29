@@ -31,45 +31,15 @@ from .extraction_control import ExtractionRequest, ExtractionSubmitter
 log = logging.getLogger(__name__)
 
 
-def run_in_subprocess(args, **kwargs):
+def prepare_env():
+    # Ensure subprocess can import ctxrunner & damnit_ctx
     env = os.environ.copy()
     ctxsupport_dir = str(Path(__file__).parents[1] / 'ctxsupport')
     env['PYTHONPATH'] = ctxsupport_dir + (
         os.pathsep + env['PYTHONPATH'] if 'PYTHONPATH' in env else ''
     )
+    return env
 
-    return subprocess.run(args, env=env, **kwargs)
-
-
-def extract_in_subprocess(
-        proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        variables=(), python_exe=None, mock=False
-):
-    if not python_exe:
-        python_exe = sys.executable
-
-    args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run), run_data.value,
-            '--save', out_path]
-    if cluster:
-        args.append('--cluster-job')
-    if mock:
-        args.append("--mock")
-    if variables:
-        for v in variables:
-            args.extend(['--var', v])
-    else:
-        for m in match:
-            args.extend(['--match', m])
-
-    with TemporaryDirectory() as td:
-        # Save a separate copy of the reduced data, so we can send an update
-        # with only the variables that we've extracted.
-        reduced_out_path = Path(td, 'reduced.h5')
-        args.extend(['--save-reduced', str(reduced_out_path)])
-
-        run_in_subprocess(args, check=True)
-
-        return load_reduced_data(reduced_out_path)
 
 class ContextFileUnpickler(pickle.Unpickler):
     """
@@ -97,8 +67,8 @@ def get_context_file(ctx_path: Path, context_python=None):
     else:
         with TemporaryDirectory() as d:
             out_file = Path(d) / "context.pickle"
-            run_in_subprocess([context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)],
-                              cwd=db_dir, check=True)
+            subprocess.run([context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)],
+                            cwd=db_dir, env=prepare_env(), check=True)
 
             with out_file.open("rb") as f:
                 unpickler = ContextFileUnpickler(f)
@@ -199,6 +169,56 @@ class Extractor:
             ))
         self.kafka_prd.flush()
 
+    def extract_in_subprocess(
+            self, proposal, run, out_path, processing_id, cluster=False,
+            run_data=RunData.ALL, match=(), variables=(), python_exe=None, mock=False
+    ):
+        if not python_exe:
+            python_exe = sys.executable
+
+        args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run),
+                run_data.value, '--save', out_path]
+        if cluster:
+            args.append('--cluster-job')
+        if mock:
+            args.append("--mock")
+        if variables:
+            for v in variables:
+                args.extend(['--var', v])
+        else:
+            for m in match:
+                args.extend(['--match', m])
+
+        with TemporaryDirectory() as td:
+            # Save a separate copy of the reduced data, so we can send an update
+            # with only the variables that we've extracted.
+            reduced_out_path = Path(td, 'reduced.h5')
+            args.extend(['--save-reduced', str(reduced_out_path)])
+
+            p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
+
+            while True:
+                try:
+                    retcode = p.wait(timeout=10)
+                    break
+                except subprocess.TimeoutExpired:
+                    self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+                        MsgKind.processing_running, {
+                            'processing_id': processing_id,
+                            'proposal': proposal,
+                            'run': run,
+                            'data': run_data.value,
+                            'hostname': socket.gethostname(),
+                            'slurm_cluster': os.environ.get('SLURM_CLUSTER_NAME', ''),
+                            'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
+                        }
+                    ))
+
+            if retcode:
+                raise subprocess.CalledProcessError(retcode, p.args)
+
+            return load_reduced_data(reduced_out_path)
+
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=(), variables=(), mock=False):
         if proposal is None:
@@ -206,7 +226,7 @@ class Extractor:
 
         processing_id = str(uuid4())
         self.kafka_prd.send(self.db.kafka_topic, msg_dict(
-            MsgKind.processing_started, {
+            MsgKind.processing_running, {
                 'processing_id': processing_id,
                 'proposal': proposal,
                 'run': run,
@@ -223,7 +243,7 @@ class Extractor:
             os.chmod(out_path.parent, 0o777)
 
         python_exe = self.db.metameta.get('context_python', '')
-        reduced_data = extract_in_subprocess(
+        reduced_data = self.extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
             match=match, variables=variables, python_exe=python_exe, mock=mock,
         )
