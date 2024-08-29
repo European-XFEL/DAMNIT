@@ -24,7 +24,7 @@ from testpath import MockCommand
 
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
-from damnit.backend.extract_data import Extractor, add_to_db
+from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
@@ -646,14 +646,13 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Create Extractor with a mocked KafkaProducer
     with patch(f"{pkg}.KafkaProducer") as _:
-        extractor = Extractor()
+        extractor = RunExtractor(1234, 42, cluster=False, run_data=RunData.ALL)
 
     # Test regular variables and slurm variables are executed
     reduced_data = reduced_data_from_dict({ "n": 53 })
-    with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
+    with patch(f"{pkg}.RunExtractor.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
          MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
-        extractor.extract_and_ingest(1234, 42, cluster=False,
-                                     run_data=RunData.ALL)
+        extractor.extract_and_ingest()
         extract_in_subprocess.assert_called_once()
         extractor.kafka_prd.send.assert_called()
         sbatch.assert_called()
@@ -748,7 +747,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db.metameta["context_python"] = str(venv.python)
 
     with patch(f"{pkg}.KafkaProducer"):
-        Extractor().extract_and_ingest(1234, 42, mock=True)
+        RunExtractor(1234, 42, mock=True).extract_and_ingest()
 
     with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
         assert f["foo/data"][()] == 42

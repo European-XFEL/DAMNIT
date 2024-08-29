@@ -169,24 +169,54 @@ class Extractor:
             ))
         self.kafka_prd.flush()
 
-    def extract_in_subprocess(
-            self, proposal, run, out_path, processing_id, cluster=False,
-            run_data=RunData.ALL, match=(), variables=(), python_exe=None, mock=False
-    ):
-        if not python_exe:
-            python_exe = sys.executable
+class RunExtractor(Extractor):
+    def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
+                 match=(), variables=(), mock=False):
+        super().__init__()
+        self.proposal = proposal
+        self.run = run
+        self.cluster = cluster
+        self.run_data = run_data
+        self.match = match
+        self.variables = variables
+        self.mock = mock
+        self.uuid = str(uuid4())
+        self.running_msg = msg_dict(MsgKind.processing_running, {
+            'processing_id': self.uuid,
+            'proposal': proposal,
+            'run': run,
+            'data': run_data.value,
+            'hostname': socket.gethostname(),
+            'slurm_cluster': os.environ.get('SLURM_CLUSTER_NAME', ''),
+            'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
+        })
 
-        args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run),
-                run_data.value, '--save', out_path]
-        if cluster:
+    @property
+    def out_path(self):
+        return Path('extracted_data', f'p{self.proposal}_r{self.run}.h5')
+
+    def _notify_running(self):
+        self.kafka_prd.send(self.db.kafka_topic, self.running_msg)
+
+    def _notify_finished(self):
+        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+            MsgKind.processing_finished, {'processing_id': self.uuid}
+        ))
+
+    def extract_in_subprocess(self):
+        python_exe = self.db.metameta.get('context_python', '') or sys.executable
+
+        args = [python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
+                self.run_data.value, '--save', self.out_path]
+        if self.cluster:
             args.append('--cluster-job')
-        if mock:
+        if self.mock:
             args.append("--mock")
-        if variables:
-            for v in variables:
+        if self.variables:
+            for v in self.variables:
                 args.extend(['--var', v])
         else:
-            for m in match:
+            for m in self.match:
                 args.extend(['--match', m])
 
         with TemporaryDirectory() as td:
@@ -202,85 +232,55 @@ class Extractor:
                     retcode = p.wait(timeout=10)
                     break
                 except subprocess.TimeoutExpired:
-                    self.kafka_prd.send(self.db.kafka_topic, msg_dict(
-                        MsgKind.processing_running, {
-                            'processing_id': processing_id,
-                            'proposal': proposal,
-                            'run': run,
-                            'data': run_data.value,
-                            'hostname': socket.gethostname(),
-                            'slurm_cluster': os.environ.get('SLURM_CLUSTER_NAME', ''),
-                            'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
-                        }
-                    ))
+                    self._notify_running()
 
             if retcode:
                 raise subprocess.CalledProcessError(retcode, p.args)
 
             return load_reduced_data(reduced_out_path)
 
-    def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), variables=(), mock=False):
-        if proposal is None:
-            proposal = self.db.metameta['proposal']
+    def extract_and_ingest(self):
+        self._notify_running()
+        self.out_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.out_path.parent.stat().st_uid == os.getuid():
+            os.chmod(self.out_path.parent, 0o777)
 
-        processing_id = str(uuid4())
-        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
-            MsgKind.processing_running, {
-                'processing_id': processing_id,
-                'proposal': proposal,
-                'run': run,
-                'data': run_data.value,
-                'hostname': socket.gethostname(),
-                'slurm_cluster': os.environ.get('SLURM_CLUSTER_NAME', ''),
-                'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
-            }
-        ))
-
-        out_path = Path('extracted_data', f'p{proposal}_r{run}.h5')
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        if out_path.parent.stat().st_uid == os.getuid():
-            os.chmod(out_path.parent, 0o777)
-
-        python_exe = self.db.metameta.get('context_python', '')
-        reduced_data = self.extract_in_subprocess(
-            proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, variables=variables, python_exe=python_exe, mock=mock,
-        )
+        reduced_data = self.extract_in_subprocess()
         log.info("Reduced data has %d fields", len(reduced_data))
-        add_to_db(reduced_data, self.db, proposal, run)
+        add_to_db(reduced_data, self.db, self.proposal, self.run)
 
         # Send all the updates for scalars
         image_values = { name: reduced for name, reduced in reduced_data.items()
                          if isinstance(reduced.value, bytes) }
         update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': run, 'proposal': proposal, 'values': { name: reduced.value for name, reduced in reduced_data.items()
-                                                          if name not in image_values }})
+            'run': self.run, 'proposal': self.proposal, 'values': {
+                name: reduced.value for name, reduced in reduced_data.items()
+                if name not in image_values
+            }
+        })
         self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
 
         # And each image update separately so we don't hit any size limits
         for name, reduced in image_values.items():
             update_msg = msg_dict(MsgKind.run_values_updated, {
-                'run': run, 'proposal': proposal, 'values': { name: reduced.value }})
+                'run': self.run, 'proposal': self.proposal, 'values': { name: reduced.value }})
             self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
 
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
-        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
-            MsgKind.processing_finished, {'processing_id': processing_id}
-        ))
+        self._notify_finished()
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
-        if not cluster:
+        if not self.cluster:
             ctx_slurm = self.ctx_whole.filter(
-                run_data=run_data, name_matches=match, variables=variables, cluster=True
+                run_data=self.run_data, name_matches=self.match, variables=self.variables, cluster=True
             )
             ctx_no_slurm = ctx_slurm.filter(cluster=False)
             if set(ctx_slurm.vars) > set(ctx_no_slurm.vars):
                 submitter = ExtractionSubmitter(Path.cwd(), self.db)
                 cluster_req = ExtractionRequest(
-                    run, proposal, mock=mock,
-                    run_data=run_data, cluster=True, match=match, variables=variables
+                    self.run, self.proposal, mock=self.mock, run_data=self.run_data,
+                    cluster=True, match=self.match, variables=self.variables
                 )
                 submitter.submit(cluster_req)
 
@@ -314,16 +314,17 @@ def main(argv=None):
         log.info("Extracting cluster variables in Slurm job %s",
                  os.environ.get('SLURM_JOB_ID', '?'))
 
-    extr = Extractor()
+    extr = RunExtractor(args.proposal, args.run,
+                        cluster=args.cluster_job,
+                        run_data=RunData(args.run_data),
+                        match=args.match,
+                        variables=args.var,
+                        mock=args.mock)
     if args.update_vars:
         extr.update_db_vars()
 
-    extr.extract_and_ingest(args.proposal, args.run,
-                            cluster=args.cluster_job,
-                            run_data=RunData(args.run_data),
-                            match=args.match,
-                            variables=args.var,
-                            mock=args.mock)
+    extr.extract_and_ingest()
+    extr.kafka_prd.flush(timeout=10)
 
 
 if __name__ == '__main__':
