@@ -537,8 +537,8 @@ da-dev@xfel.eu"""
             self.table_view.apply_tag_filter(
                 self.table_view._current_tag_filter
             )
-        elif msg_kind == MsgKind.processing_started:
-            self.table.handle_processing_started(data)
+        elif msg_kind == MsgKind.processing_running:
+            self.table.handle_processing_running(data)
         elif msg_kind == MsgKind.processing_finished:
             self.table.handle_processing_finished(data)
 

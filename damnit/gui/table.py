@@ -719,11 +719,11 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 self.column_titles[col_ix] = title
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
 
-    def handle_processing_started(self, info):
+    def handle_processing_running(self, info):
         processing_id = info['processing_id']
         self.processing_jobs[processing_id] = info
         self.update_processing_status(info['proposal'], info['run'])
-        log.debug("Processing started for p%s r%s on %s (%s)",
+        log.debug("Processing running for p%s r%s on %s (%s)",
                   info['proposal'], info['run'], info['hostname'], processing_id)
 
     def handle_processing_finished(self, info):

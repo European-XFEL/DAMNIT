@@ -1073,9 +1073,9 @@ def test_processing_status(mock_db_with_data, qtbot):
 
     # Test with an existing run
     prid1, prid2 = str(uuid4()), str(uuid4())
-    tbl.handle_processing_started(d | {'run': 1, 'processing_id': prid1})
+    tbl.handle_processing_running(d | {'run': 1, 'processing_id': prid1})
     assert shows_as_processing(1)
-    tbl.handle_processing_started(d | {'run': 1, 'processing_id': prid2})
+    tbl.handle_processing_running(d | {'run': 1, 'processing_id': prid2})
     tbl.handle_processing_finished({'processing_id': prid1})
     assert shows_as_processing(1)
     tbl.handle_processing_finished({'processing_id': prid2})
@@ -1083,6 +1083,6 @@ def test_processing_status(mock_db_with_data, qtbot):
 
     # Processing starting for a new run should add a row
     assert tbl.rowCount() == 1
-    tbl.handle_processing_started(d | {'run': 2, 'processing_id': str(uuid4())})
+    tbl.handle_processing_running(d | {'run': 2, 'processing_id': str(uuid4())})
     assert tbl.rowCount() == 2
     assert shows_as_processing(2)
