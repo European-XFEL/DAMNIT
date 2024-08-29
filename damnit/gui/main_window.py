@@ -489,8 +489,8 @@ da-dev@xfel.eu"""
             )
         elif msg_kind == MsgKind.variable_set:
             self.table.handle_variable_set(data)
-        elif msg_kind == MsgKind.processing_started:
-            self.table.handle_processing_started(data)
+        elif msg_kind == MsgKind.processing_running:
+            self.table.handle_processing_running(data)
         elif msg_kind == MsgKind.processing_finished:
             self.table.handle_processing_finished(data)
 
