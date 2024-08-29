@@ -385,6 +385,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
         self.standalone_comment_index = {}
+        self.processing_jobs = {}  # UUID -> job info
 
         self._bold_font = QtGui.QFont()
         self._bold_font.setBold(True)
@@ -652,6 +653,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.run_index[(proposal, run)] = row_ix = self.rowCount()
         self.appendRow(row)
         self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(str(run)))
+        return row_ix
 
     def insert_comment_row(self, comment_id: int, comment: str, timestamp: float):
         blank = self.itemPrototype().clone()
@@ -716,6 +718,44 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             if title != old_title:
                 self.column_titles[col_ix] = title
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
+
+    def handle_processing_started(self, info):
+        processing_id = info['processing_id']
+        self.processing_jobs[processing_id] = info
+        self.update_processing_status(info['proposal'], info['run'])
+
+    def handle_processing_finished(self, info):
+        processing_id = info['processing_id']
+        info = self.processing_jobs.pop(processing_id, None)
+        if info is not None:
+            self.update_processing_status(info['proposal'], info['run'])
+
+    def update_processing_status(self, proposal, run):
+        """Show/hide the processing indicator for the given run"""
+        jobs_for_run = [i for i in self.processing_jobs.values()
+                        if i['proposal'] == proposal and i['run'] == run]
+        try:
+            row_ix = self.find_row(proposal, run)
+        except KeyError:
+            if jobs_for_run:
+                row_ix = self.insert_run_row(proposal, run, {}, {}, {})
+            else:
+                return
+
+        runnr_item = self.item(row_ix, 2)
+        if jobs_for_run:
+            runnr_item.setData(f"{run} ⚙️", Qt.ItemDataRole.DisplayRole)
+            if len(jobs_for_run) == 1:
+                info = jobs_for_run[0]
+                msg = f"Processing on {info['hostname']}"
+                if job_id := info['slurm_job_id']:
+                    msg += f" (Slurm job {job_id})"
+                runnr_item.setToolTip(msg)
+            else:
+                runnr_item.setToolTip(f"Processing in {len(jobs_for_run)} jobs")
+        else:
+            runnr_item.setData(f"{run}", Qt.ItemDataRole.DisplayRole)
+            runnr_item.setToolTip("")
 
     def add_editable_column(self, name):
         if name == "Status":
