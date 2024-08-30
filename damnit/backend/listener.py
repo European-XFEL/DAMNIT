@@ -5,6 +5,7 @@ import os
 import platform
 from pathlib import Path
 from socket import gethostname
+from threading import Thread
 
 from kafka import KafkaConsumer
 
@@ -110,7 +111,11 @@ class EventProcessor:
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
         req = ExtractionRequest(run, proposal, run_data)
-        self.submitter.submit(req)
+        try:
+            self.submitter.submit(req)
+        except Exception:
+            log.warning("Slurm job submission failed, starting process locally")
+            Thread(target=self.submitter.execute_direct, args=(req, )).start()
 
 
 def listen():
