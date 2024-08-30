@@ -1,5 +1,6 @@
 import os
 import fcntl
+import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ import h5netcdf
 import xarray as xr
 from xarray.backends import H5NetCDFStore
 from xarray.backends.api import dump_to_store
+
+log = logging.getLogger(__name__)
 
 @dataclass
 class ToWrite:
@@ -36,6 +39,8 @@ class WriterThread(Thread):
         self.have_lock = False
         self.queue = Queue()
         self.abort = False
+        self.n_reduced = 0
+        self.n_main = 0
 
     def stop(self, abort=False):
         if abort:
@@ -85,6 +90,7 @@ class WriterThread(Thread):
                             path, data=item.data, **item.compression_opts
                         )
                         ds.attrs.update(item.attrs)
+                        self.n_reduced += 1
                     else:
                         if item.name in h5f:
                             del h5f[item.name]
@@ -99,9 +105,13 @@ class WriterThread(Thread):
                             h5f.create_dataset(
                                 path, data=item.data, **item.compression_opts
                             )
+                        self.n_main += 1
         finally:
             os.close(self.lock_fd)
             self.lock_fd = -1
+
+            log.info("Written %d data & %d summary variables to %s",
+                     self.n_main, self.n_reduced, self.file_path)
 
 
 def write_xarray_object(obj, group, ncf: h5netcdf.File):
@@ -130,3 +140,30 @@ def dataarray_to_dataset_for_netcdf(self: xr.DataArray):
         dataset = self.to_dataset()
 
     return dataset
+
+
+@contextmanager
+def writer_threads(paths, reduced_paths):
+    threads = [
+        WriterThread(path) for path in paths
+    ] + [
+        WriterThread(path, reduced_only=True) for path in reduced_paths
+    ]
+    error = False
+    for thread in threads:
+        thread.start()
+    try:
+        yield threads
+    except:
+        error = True
+        raise
+    finally:
+        for thread in threads:
+            thread.stop(abort=error)
+        for thread in threads:
+            # If there was no error, give threads a generous amount of time
+            # to do any further writes.
+            thread.join(timeout=(5 if error else 120))
+            if thread.is_alive():
+                log.warning("HDF5 writer thread for %s did not stop properly",
+                            thread.file_path)

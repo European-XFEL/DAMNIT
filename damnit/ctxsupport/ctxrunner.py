@@ -28,7 +28,7 @@ import requests
 import xarray as xr
 import yaml
 
-from damnit_h5write import SummaryToWrite, ToWrite, WriterThread
+from damnit_h5write import SummaryToWrite, ToWrite, writer_threads
 from damnit_ctx import RunData, Variable, Cell, isinstance_no_import
 
 log = logging.getLogger(__name__)
@@ -770,21 +770,11 @@ def main(argv=None):
             actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
             run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
 
-        writers = [
-            WriterThread(path) for path in args.save
-        ] + [
-            WriterThread(path, reduced_only=True) for path in args.save_reduced
-        ]
-        for thread in writers:
-            thread.start()
+        with writer_threads(args.save, args.save_reduced) as writers:
+            res = ctx.execute(
+                run_dc, args.run, args.proposal, input_vars={}, writers=writers
+            )
 
-        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={}, writers=writers)
-
-        for thread in writers:
-            thread.stop()
-            thread.join(timeout=5)
-            if thread.is_alive():
-                log.warning("Writer thread did not stop properly")
     elif args.subcmd == "ctx":
         error_info = None
 
