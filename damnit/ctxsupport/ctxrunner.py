@@ -268,6 +268,8 @@ class ContextFile:
         res = {'start_time': Cell(np.asarray(get_start_time(run_data)))}
         mymdc = None
 
+        self.queue_write('start_time', res['start_time'], writers)
+
         for name in self.ordered_vars():
             t0 = time.perf_counter()
             var = self.vars[name]
