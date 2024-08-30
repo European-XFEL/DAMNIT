@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import QMessageBox
 from superqt.utils import qthrottled
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
+from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
 
@@ -385,7 +386,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
         self.standalone_comment_index = {}
-        self.processing_jobs = {}  # UUID -> job info
+        self.processing_jobs = QtExtractionJobTracker(self)
+        self.processing_jobs.run_jobs_changed.connect(self.update_processing_status)
 
         self._bold_font = QtGui.QFont()
         self._bold_font.setBold(True)
@@ -413,10 +415,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.setItem(r, 0, checkbox_proto.clone())
 
         self._load_from_db()
-
-        self.slurm_check_timer = QtCore.QTimer(self)
-        self.slurm_check_timer.timeout.connect(self.check_slurm_jobs)
-        self.slurm_check_timer.start(120_000)
 
     @staticmethod
     def _load_columns(db: DamnitDB, col_settings):
@@ -724,24 +722,13 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
 
     def handle_processing_running(self, info):
-        processing_id = info['processing_id']
-        self.processing_jobs[processing_id] = info
-        self.update_processing_status(info['proposal'], info['run'])
-        log.debug("Processing running for p%s r%s on %s (%s)",
-                  info['proposal'], info['run'], info['hostname'], processing_id)
+        self.processing_jobs.on_processing_running(info)
 
     def handle_processing_finished(self, info):
-        processing_id = info['processing_id']
-        info = self.processing_jobs.pop(processing_id, None)
-        if info is not None:
-            self.update_processing_status(info['proposal'], info['run'])
-            log.debug("Processing finished for p%s r%s (%s)",
-                      info['proposal'], info['run'], processing_id)
+        self.processing_jobs.on_processing_finished(info)
 
-    def update_processing_status(self, proposal, run):
+    def update_processing_status(self, proposal, run, jobs_for_run):
         """Show/hide the processing indicator for the given run"""
-        jobs_for_run = [i for i in self.processing_jobs.values()
-                        if i['proposal'] == proposal and i['run'] == run]
         try:
             row_ix = self.find_row(proposal, run)
         except KeyError:
@@ -764,54 +751,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         else:
             runnr_item.setData(f"{run}", Qt.ItemDataRole.DisplayRole)
             runnr_item.setToolTip("")
-
-    def check_slurm_jobs(self):
-        """Every 2 minutes, check for crashed/cancelled Slurm jobs"""
-        jobs_by_cluster = {}
-        for info in self.processing_jobs.values():
-            if cluster := info['slurm_cluster']:
-                jobs_by_cluster.setdefault(cluster, []).append(info)
-
-        for cluster, infos in jobs_by_cluster.items():
-            self._check_slurm_jobs_cluster(cluster, infos)
-
-    def _check_slurm_jobs_cluster(self, cluster, infos):
-        jids = [i['slurm_job_id'] for i in infos]
-        # Passing 1 Job ID can give an 'Invalid job id' error if it has
-        # already left the queue. With multiple, we always get a list back.
-        if len(jids) == 1:
-            jids.append("1")
-
-        args = ["--clusters", cluster, "--jobs=" + ",".join(jids),
-                "--format=%i %T", "--noheader"]
-        log.info("Squeue check: %r", args)
-        proc = QProcess(self)
-        proc.setProcessChannelMode(QProcess.ForwardedErrorChannel)
-
-        def done():
-            proc.deleteLater()
-            if proc.exitStatus() != QProcess.NormalExit or proc.exitCode() != 0:
-                log.warning("Error calling squeue")
-                return
-            stdout = bytes(proc.readAllStandardOutput()).decode()
-
-            still_running = set()
-            for line in stdout.splitlines():
-                job_id, status = line.strip().split()
-                if status == 'RUNNING':
-                    still_running.add(job_id)
-
-            for info in infos:
-                proc_id = info['processing_id']
-                job_id = info['slurm_job_id']
-                if (proc_id in self.processing_jobs) and (job_id not in still_running):
-                    del self.processing_jobs[proc_id]
-                    self.update_processing_status(info['proposal'], info['run'])
-                    log.info("Slurm job %s on %s (%s) crashed or was cancelled",
-                             info['slurm_job_id'], info['slurm_cluster'], proc_id)
-
-        proc.finished.connect(done)
-        proc.start("squeue", args)
 
     def add_editable_column(self, name):
         if name == "Status":
@@ -979,6 +918,39 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         df.index = row_labels
 
         return df
+
+
+class QtExtractionJobTracker(ExtractionJobTracker, QtCore.QObject):
+    run_jobs_changed = QtCore.pyqtSignal(int, int, object) # prop, run, jobs
+
+    def __init__(self, parent):
+        super().__init__()
+        QtCore.QObject.__init__(self, parent)
+
+        # Check for crashed Slurm jobs every 2 minutes
+        self.slurm_check_timer = QtCore.QTimer(self)
+        self.slurm_check_timer.timeout.connect(self.check_slurm_jobs)
+        self.slurm_check_timer.start(120_000)
+
+    def squeue_check_jobs(self, cmd, jobs_to_check):
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.ForwardedErrorChannel)
+
+        def done():
+            proc.deleteLater()
+            if proc.exitStatus() != QProcess.NormalExit or proc.exitCode() != 0:
+                log.warning("Error calling squeue")
+                return
+            stdout = bytes(proc.readAllStandardOutput()).decode()
+            self.process_squeue_output(stdout, jobs_to_check)
+
+        proc.finished.connect(done)
+        proc.start(cmd[0], cmd[1:])
+
+    def on_run_jobs_changed(self, proposal, run):
+        jobs = [i for i in self.jobs.values()
+                if i['proposal'] == proposal and i['run'] == run]
+        self.run_jobs_changed.emit(proposal, run, jobs)
 
 
 def prettify_notation(value):
