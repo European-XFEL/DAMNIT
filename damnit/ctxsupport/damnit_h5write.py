@@ -89,6 +89,9 @@ class WriterThread(Thread):
                                 return
                         except Empty:
                             break  # Nothing waiting; release the lock
+
+                        if self.abort:
+                            return
         finally:
             os.close(self.lock_fd)
             self.lock_fd = -1
