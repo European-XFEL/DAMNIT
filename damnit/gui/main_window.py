@@ -6,15 +6,11 @@ from argparse import ArgumentParser
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from socket import gethostname
 
 import h5py
 import numpy as np
-import pandas as pd
 import xarray as xr
 from kafka.errors import NoBrokersAvailable
-from pandas.api.types import infer_dtype
-from plotly.graph_objects import Figure as PlotlyFigure
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
@@ -24,7 +20,7 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
-from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
+from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import process_log_path, ExtractionSubmitter
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
@@ -273,7 +269,7 @@ da-dev@xfel.eu"""
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
-        before_pos = n_static_cols + 1
+        before_pos = n_static_cols
         if before == None:
             before_pos += self.table_view.get_movable_columns_count()
         else:

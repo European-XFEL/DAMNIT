@@ -134,8 +134,8 @@ class TableView(QtWidgets.QTableView):
             self.settings_changed.emit()
 
     def item_moved(self, parent, start, end, destination, row):
-        # Take account of the static columns, and the Status column
-        col_offset = self._static_columns_widget.count() + 1
+        # Take account of the static columns
+        col_offset = self._static_columns_widget.count()
 
         col_from = start + col_offset
         col_to = self._columns_widget.currentIndex().row() + col_offset
@@ -174,8 +174,9 @@ class TableView(QtWidgets.QTableView):
         if positions is None:
             rows_count = self._columns_widget.count()
             positions = [ii + rows_count for ii in range(len(columns))]
+
         for column, status, position in zip(columns, statuses, positions):
-            if column in ["Status", "comment_id"]:
+            if column == "comment_id":
                 continue
 
             item = QtWidgets.QListWidgetItem(column)
@@ -203,7 +204,7 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.clear()
         self._static_columns_widget.clear()
 
-        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
+        static_columns = ["Status", "Proposal", "Run", "Timestamp", "Comment"]
         for column, status in zip(columns, statuses):
             if column in static_columns:
                 item = QtWidgets.QListWidgetItem(column)
