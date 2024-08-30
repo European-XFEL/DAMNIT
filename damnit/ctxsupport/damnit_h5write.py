@@ -4,7 +4,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from queue import Queue
+from queue import Queue, Empty
 from threading import Thread
 
 import h5py
@@ -56,7 +56,7 @@ class WriterThread(Thread):
                 self.have_lock = True
                 return
             except (PermissionError, BlockingIOError):
-                time.sleep(1)
+                time.sleep(0.5)
 
     @contextmanager
     def locked_h5_access(self):
@@ -79,39 +79,48 @@ class WriterThread(Thread):
                 if (item := self.queue.get()) is None:
                     return
 
-                assert isinstance(item, ToWrite)
-
                 with self.locked_h5_access() as (h5f, ncf):
-                    if isinstance(item, SummaryToWrite):
-                        path = f'.reduced/{item.name}'
-                        if path in h5f:
-                            del h5f[path]
-                        ds = h5f.create_dataset(
-                            path, data=item.data, **item.compression_opts
-                        )
-                        ds.attrs.update(item.attrs)
-                        self.n_reduced += 1
-                    else:
-                        if item.name in h5f:
-                            del h5f[item.name]
+                    while True:
+                        self._write_one(item, h5f, ncf)
 
-                        # Create the group and set attributes
-                        h5f.require_group(item.name).attrs.update(item.attrs)
-
-                        if isinstance(item.data, (xr.Dataset, xr.DataArray)):
-                            write_xarray_object(item.data, item.name, ncf)
-                        else:
-                            path = f"{item.name}/data"
-                            h5f.create_dataset(
-                                path, data=item.data, **item.compression_opts
-                            )
-                        self.n_main += 1
+                        # Try to do more writes without reopening file
+                        try:
+                            if (item := self.queue.get(timeout=0.2)) is None:
+                                return
+                        except Empty:
+                            break  # Nothing waiting; release the lock
         finally:
             os.close(self.lock_fd)
             self.lock_fd = -1
 
             log.info("Written %d data & %d summary variables to %s",
                      self.n_main, self.n_reduced, self.file_path)
+
+    def _write_one(self, item: ToWrite, h5f: h5py.File, ncf: h5netcdf.File):
+        if isinstance(item, SummaryToWrite):
+            path = f'.reduced/{item.name}'
+            if path in h5f:
+                del h5f[path]
+            ds = h5f.create_dataset(
+                path, data=item.data, **item.compression_opts
+            )
+            ds.attrs.update(item.attrs)
+            self.n_reduced += 1
+        else:
+            if item.name in h5f:
+                del h5f[item.name]
+
+            # Create the group and set attributes
+            h5f.require_group(item.name).attrs.update(item.attrs)
+
+            if isinstance(item.data, (xr.Dataset, xr.DataArray)):
+                write_xarray_object(item.data, item.name, ncf)
+            else:
+                path = f"{item.name}/data"
+                h5f.create_dataset(
+                    path, data=item.data, **item.compression_opts
+                )
+            self.n_main += 1
 
 
 def write_xarray_object(obj, group, ncf: h5netcdf.File):
