@@ -1069,7 +1069,8 @@ def test_processing_status(mock_db_with_data, qtbot):
         runnr_s = tbl.item(row, 2).data(Qt.ItemDataRole.DisplayRole)
         return "⚙️" in runnr_s
 
-    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'slurm_cluster': '', 'slurm_job_id': ''}
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': '', 'slurm_job_id': ''}
 
     # Test with an existing run
     prid1, prid2 = str(uuid4()), str(uuid4())

@@ -755,7 +755,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             runnr_item.setData(f"{run} ⚙️", Qt.ItemDataRole.DisplayRole)
             if len(jobs_for_run) == 1:
                 info = jobs_for_run[0]
-                msg = f"Processing on {info['hostname']}"
+                msg = f"Processing on {info['username']}@{info['hostname']}"
                 if job_id := info['slurm_job_id']:
                     msg += f" (Slurm job {job_id})"
                 runnr_item.setToolTip(msg)
