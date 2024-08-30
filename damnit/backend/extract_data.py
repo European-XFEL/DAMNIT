@@ -13,6 +13,7 @@ import re
 import socket
 import subprocess
 import sys
+from getpass import getuser
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -186,6 +187,7 @@ class RunExtractor(Extractor):
             'run': run,
             'data': run_data.value,
             'hostname': socket.gethostname(),
+            'username': getuser(),
             'slurm_cluster': self._slurm_cluster(),
             'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
         })
