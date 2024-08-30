@@ -113,9 +113,6 @@ class WriterThread(Thread):
             if item.name in h5f:
                 del h5f[item.name]
 
-            # Create the group and set attributes
-            h5f.require_group(item.name).attrs.update(item.attrs)
-
             if isinstance(item.data, (xr.Dataset, xr.DataArray)):
                 write_xarray_object(item.data, item.name, ncf)
             else:
@@ -123,6 +120,8 @@ class WriterThread(Thread):
                 h5f.create_dataset(
                     path, data=item.data, **item.compression_opts
                 )
+            # Add group-level attributes
+            h5f[item.name].attrs.update(item.attrs)
             self.n_main += 1
 
 
