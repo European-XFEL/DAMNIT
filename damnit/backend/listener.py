@@ -113,8 +113,11 @@ class EventProcessor:
         req = ExtractionRequest(run, proposal, run_data)
         try:
             self.submitter.submit(req)
+        except FileNotFoundError:
+            log.warning('Slurm not available, starting process locally.')
+            Thread(target=self.submitter.execute_direct, args=(req, )).start()
         except Exception:
-            log.warning("Slurm job submission failed, starting process locally")
+            log.error("Slurm job submission failed, starting process locally.", exc_info=True)
             Thread(target=self.submitter.execute_direct, args=(req, )).start()
 
 
