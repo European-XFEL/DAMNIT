@@ -26,6 +26,9 @@ conda activate damnit
 pip install '.[gui,backend]'
 ```
 
+If you only need the API there's no need to clone the repo, `pip install
+damnit` should be sufficient.
+
 ## Deployment on Maxwell
 DAMNIT is deployed in a stable and beta module on Maxwell:
 ```bash
