@@ -113,8 +113,13 @@ class VariableData:
                      if not k.startswith('_damnit_')}
         return obj
 
-    def read(self):
-        """Read the data for the variable."""
+    def read(self, deserialize_plotly=True):
+        """Read the data for the variable.
+
+        Args:
+            deserialize_plotly (bool): Whether to deserialize Plotly figures
+                into `Figure` objects. If this is `False` the JSON string will be returned.
+        """
         if self._db_only:
             return self.summary()
 
@@ -130,7 +135,8 @@ class VariableData:
                 import plotly.io as pio
                 # plotly figures are json serialized and saved as uint8 arrays
                 # to enable compression in HDF5
-                return pio.from_json(dset[()].tobytes())
+                byte_array = dset[()].tobytes()
+                return pio.from_json(byte_array) if deserialize_plotly else byte_array.decode()
             elif h5py.check_string_dtype(dset.dtype) is not None:
                 # Strings. Scalar/non-scalar strings need to be read differently.
                 if dset.ndim == 0:
