@@ -866,7 +866,10 @@ def test_event_processor(mock_db, caplog):
     db_dir, db = mock_db
     db.metameta["proposal"] = 1234
 
-    processor = EventProcessor(db_dir)
+    with patch('damnit.backend.listener.KafkaConsumer') as kcon:
+        processor = EventProcessor(db_dir)
+
+    kcon.assert_called_once()
     assert len(local_extraction_threads) == 0
 
     # slurm not available
