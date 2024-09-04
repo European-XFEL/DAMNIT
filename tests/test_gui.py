@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
+from uuid import uuid4
 
 import h5py
 import pytest
@@ -951,3 +952,33 @@ def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
         win.precreate_runs_dialog()
         dialog.assert_called_once()
         assert get_n_runs() == n_runs + 1
+
+def test_processing_status(mock_db_with_data, qtbot):
+    db_dir, db = mock_db_with_data
+    win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
+    tbl = win.table
+
+    def shows_as_processing(run):
+        row = tbl.find_row(1234, run)
+        runnr_s = tbl.item(row, 2).data(Qt.ItemDataRole.DisplayRole)
+        return "⚙️" in runnr_s
+
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': '', 'slurm_job_id': ''}
+
+    # Test with an existing run
+    prid1, prid2 = str(uuid4()), str(uuid4())
+    tbl.handle_processing_running(d | {'run': 1, 'processing_id': prid1})
+    assert shows_as_processing(1)
+    tbl.handle_processing_running(d | {'run': 1, 'processing_id': prid2})
+    tbl.handle_processing_finished({'processing_id': prid1})
+    assert shows_as_processing(1)
+    tbl.handle_processing_finished({'processing_id': prid2})
+    assert not shows_as_processing(1)
+
+    # Processing starting for a new run should add a row
+    assert tbl.rowCount() == 1
+    tbl.handle_processing_running(d | {'run': 2, 'processing_id': str(uuid4())})
+    assert tbl.rowCount() == 2
+    assert shows_as_processing(2)
