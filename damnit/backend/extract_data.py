@@ -6,8 +6,8 @@ file (see ctxrunner.py).
 """
 import argparse
 import copy
-import os
 import logging
+import os
 import pickle
 import re
 import socket
@@ -18,12 +18,11 @@ from tempfile import TemporaryDirectory
 
 import h5py
 import numpy as np
-
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS
-from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
+from .db import BlobTypes, DamnitDB, MsgKind, ReducedData, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 log = logging.getLogger(__name__)

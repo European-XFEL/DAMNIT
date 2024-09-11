@@ -14,22 +14,15 @@ import os
 import pickle
 import sys
 import time
-from contextlib import contextmanager
-from datetime import timezone
 import traceback
 from contextlib import contextmanager
 from datetime import timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
-from unittest.mock import MagicMock
-from graphlib import CycleError, TopologicalSorter
 from subprocess import run
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
-
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
+from unittest.mock import MagicMock, patch
 
 import extra_data
 import h5py
@@ -38,7 +31,8 @@ import requests
 import xarray as xr
 import yaml
 from damnit_ctx import Cell, RunData, Variable, isinstance_no_import
-
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 log = logging.getLogger(__name__)
 
