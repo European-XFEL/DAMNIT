@@ -16,8 +16,8 @@ from threading import Thread
 
 from extra_data.read_machinery import find_proposal
 
-from .db import DamnitDB
 from ..context import RunData
+from .db import DamnitDB
 
 log = logging.getLogger(__name__)
 
@@ -86,12 +86,13 @@ class ExtractionRequest:
     variables: tuple = ()   # Overrides match if present
     mock: bool = False
     update_vars: bool = True
+    mount_host: str = None
 
     def python_cmd(self):
         """Creates the command for a process to do this extraction"""
         cmd = [
             sys.executable, '-m', 'damnit.backend.extract_data',
-            str(self.proposal), str(self.run), self.run_data.value
+            str(self.proposal), str(self.run), self.run_data.value,
         ]
         if self.cluster:
             cmd.append('--cluster-job')
@@ -105,6 +106,9 @@ class ExtractionRequest:
             cmd.append('--mock')
         if self.update_vars:
             cmd.append('--update-vars')
+        if self.mount_host:
+            cmd.extend(['--mount-host', self.mount_host])
+
         return cmd
 
 

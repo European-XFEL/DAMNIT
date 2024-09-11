@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from socket import gethostname
 
 import h5py
 import numpy as np
@@ -14,22 +15,23 @@ from kafka.errors import NoBrokersAvailable
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
+from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
-from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extraction_control import process_log_path, ExtractionSubmitter
+from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
-from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
-from .plot import ImagePlotWindow, ScatterPlotWindow, Xarray1DPlotWindow, PlottingControls
+from .open_dialog import OpenDBDialog
+from .plot import (ImagePlotWindow, PlottingControls, ScatterPlotWindow,
+                   Xarray1DPlotWindow)
 from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
@@ -993,6 +995,16 @@ class LogViewWindow(QtWidgets.QMainWindow):
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
     if not db_path(context_dir).is_file():
+
+        if gethostname().startswith('exflonc'):
+            # prevent starting the backend on the online cluster
+            QMessageBox.warning(
+                None,
+                "Backend setup failed",
+                "Running the DAMNIT backend on the online cluster is not allowed. "
+                "Please, open the damint GUI on Maxwell instead and retry."
+            )
+            return False
 
         button = QMessageBox.question(
             parent, "Database not found",

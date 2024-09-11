@@ -6,8 +6,8 @@ file (see ctxrunner.py).
 """
 import argparse
 import copy
-import os
 import logging
+import os
 import pickle
 import re
 import socket
@@ -18,12 +18,11 @@ from tempfile import TemporaryDirectory
 
 import h5py
 import numpy as np
-
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
 from ..definitions import UPDATE_BROKERS
-from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
+from .db import BlobTypes, DamnitDB, MsgKind, ReducedData, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 log = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ def run_in_subprocess(args, **kwargs):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        variables=(), python_exe=None, mock=False
+        variables=(), python_exe=None, mock=False, mount_host=None,
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -58,6 +57,8 @@ def extract_in_subprocess(
     else:
         for m in match:
             args.extend(['--match', m])
+    if mount_host:
+        args.extend(['--mount-host', mount_host])
 
     with TemporaryDirectory() as td:
         # Save a separate copy of the reduced data, so we can send an update
@@ -198,7 +199,8 @@ class Extractor:
         self.kafka_prd.flush()
 
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), variables=(), mock=False):
+                           run_data=RunData.ALL, match=(), variables=(), mock=False,
+                           mount_host=None):
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
@@ -211,6 +213,7 @@ class Extractor:
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
             match=match, variables=variables, python_exe=python_exe, mock=mock,
+            mount_host=mount_host,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -256,6 +259,7 @@ def main(argv=None):
     # variables (confusing because all extraction now runs in cluster jobs)
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
+    ap.add_argument('--mount-host', help=argparse.SUPPRESS)
     ap.add_argument('--var',  action="append", default=[])
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
@@ -282,7 +286,8 @@ def main(argv=None):
                             run_data=RunData(args.run_data),
                             match=args.match,
                             variables=args.var,
-                            mock=args.mock)
+                            mock=args.mock,
+                            mount_host=args.mount_host)
 
 
 if __name__ == '__main__':
