@@ -677,7 +677,7 @@ def execute_context(args):
     ctx_whole.check()
     ctx = ctx_whole.filter(
         run_data=run_data, cluster=args.cluster_job, name_matches=args.match,
-        variables=arg.var,
+        variables=args.var,
     )
     log.info("Using %d variables (of %d) from context file %s",
             len(ctx.vars), len(ctx_whole.vars),

@@ -93,7 +93,6 @@ class ExtractionRequest:
         cmd = [
             sys.executable, '-m', 'damnit.backend.extract_data',
             str(self.proposal), str(self.run), self.run_data.value,
-            '--mount-host', self.mount_host,
         ]
         if self.cluster:
             cmd.append('--cluster-job')
@@ -107,6 +106,8 @@ class ExtractionRequest:
             cmd.append('--mock')
         if self.update_vars:
             cmd.append('--update-vars')
+        if self.mount_host:
+            cmd.extend(['--mount-host', self.mount_host])
 
         return cmd
 

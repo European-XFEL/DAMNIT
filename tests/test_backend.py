@@ -644,7 +644,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Helper function to raise an exception when proc data isn't available, like
     # open_run(data="proc") would.
-    def mock_open_run(*_, data=None):
+    def mock_open_run(*_, data=None, _use_voview=None):
         if data == "proc":
             raise FileNotFoundError("foo.h5")
         else:
@@ -678,7 +678,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
          patch("ctxrunner.Results"):
         main(["exec", "1234", "42", "proc"])
 
-        open_run.assert_called_with(1234, 42, data="all")
+        open_run.assert_called_with(1234, 42, data="all", _use_voview=True)
 
 def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db

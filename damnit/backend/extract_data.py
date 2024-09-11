@@ -46,7 +46,7 @@ def extract_in_subprocess(
         python_exe = sys.executable
 
     args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run), run_data.value,
-            '--save', out_path, '--mount-host', mount_host]
+            '--save', out_path]
     if cluster:
         args.append('--cluster-job')
     if mock:
@@ -57,6 +57,8 @@ def extract_in_subprocess(
     else:
         for m in match:
             args.extend(['--match', m])
+    if mount_host:
+        args.extend(['--mount-host', mount_host])
 
     with TemporaryDirectory() as td:
         # Save a separate copy of the reduced data, so we can send an update
