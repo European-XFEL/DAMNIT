@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from socket import gethostname
 
 import h5py
 import numpy as np
