@@ -8,6 +8,7 @@ import signal
 import stat
 import subprocess
 import textwrap
+from time import sleep, time
 from unittest.mock import MagicMock, patch
 
 import extra_data as ed
@@ -24,9 +25,11 @@ from testpath import MockCommand
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import Extractor, add_to_db
+from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
+                                     local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
-from damnit.context import (ContextFile, ContextFileErrors, PNGData, Results,
-                            RunData, get_proposal_path)
+from damnit.context import (ContextFile, ContextFileErrors, PNGData, RunData,
+                            get_proposal_path)
 from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE
 from damnit.gui.main_window import MainWindow
 
@@ -857,3 +860,35 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
         assert initialize_and_start_backend(db_dir)
 
     assert backend_is_running(db_dir)
+
+
+def test_event_processor(mock_db, caplog):
+    db_dir, db = mock_db
+    db.metameta["proposal"] = 1234
+
+    with patch('damnit.backend.listener.KafkaConsumer') as kcon:
+        processor = EventProcessor(db_dir)
+
+    kcon.assert_called_once()
+    assert len(local_extraction_threads) == 0
+
+    # slurm not available
+    with (
+        patch('subprocess.run', side_effect=FileNotFoundError),
+        patch('damnit.backend.extraction_control.ExtractionSubmitter.execute_direct', lambda *_: sleep(1))
+    ):
+        with caplog.at_level(logging.WARNING):
+            event = MagicMock(timestamp=time())
+            processor.handle_event(event, {'proposal': 1234, 'run': 1}, RunData.RAW)
+
+        assert 'Slurm not available' in caplog.text
+        assert len(local_extraction_threads) == 1
+        local_extraction_threads[0].join()
+
+        with caplog.at_level(logging.WARNING):
+            for idx in range(MAX_CONCURRENT_THREADS + 1):
+                event = MagicMock(timestamp=time())
+                processor.handle_event(event, {'proposal': 1234, 'run': idx + 1}, RunData.RAW)
+
+        assert len(local_extraction_threads) == MAX_CONCURRENT_THREADS
+        assert 'Too many events processing' in caplog.text

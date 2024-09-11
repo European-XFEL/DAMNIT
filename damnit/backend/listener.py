@@ -5,6 +5,7 @@ import os
 import platform
 from pathlib import Path
 from socket import gethostname
+from threading import Thread
 
 from kafka import KafkaConsumer
 
@@ -29,6 +30,26 @@ KAFKA_CONF = {
 }
 
 log = logging.getLogger(__name__)
+
+# tracking number of local threads running in parallel
+# only relevant if slurm isn't available
+MAX_CONCURRENT_THREADS = min(os.cpu_count() // 2, 10)
+local_extraction_threads = []
+
+
+def execute_direct(submitter, request):
+    for th in local_extraction_threads.copy():
+        if not th.is_alive():
+            local_extraction_threads.pop(local_extraction_threads.index(th))
+
+    if len(local_extraction_threads) >= MAX_CONCURRENT_THREADS:
+        log.warning(f'Too many events processing ({MAX_CONCURRENT_THREADS}), '
+                    f'skip event (p{request.proposal}, r{request.run}, {request.run_data.value})')
+        return
+
+    extr = Thread(target=submitter.execute_direct, args=(request, ))
+    local_extraction_threads.append(extr)
+    extr.start()
 
 
 class EventProcessor:
@@ -55,7 +76,6 @@ class EventProcessor:
                                        consumer_timeout_ms=600_000,
                                        )
         self.events = kafka_conf['events']
-
 
     def __enter__(self):
         return self
@@ -110,7 +130,14 @@ class EventProcessor:
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
         req = ExtractionRequest(run, proposal, run_data)
-        self.submitter.submit(req)
+        try:
+            self.submitter.submit(req)
+        except FileNotFoundError:
+            log.warning('Slurm not available, starting process locally.')
+            execute_direct(self.submitter, req)
+        except Exception:
+            log.error("Slurm job submission failed, starting process locally.", exc_info=True)
+            execute_direct(self.submitter, req)
 
 
 def listen():
@@ -136,6 +163,7 @@ def listen():
     # can start the backend).
     if os.stat("amore.log").st_uid == os.getuid():
         os.chmod("amore.log", 0o666)
+
 
 if __name__ == '__main__':
     listen()
