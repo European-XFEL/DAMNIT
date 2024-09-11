@@ -119,7 +119,7 @@ class EventProcessor:
         self.handle_event(record, msg, RunData.PROC)
 
     def handle_event(self, record, msg: dict, run_data: RunData,
-                     data_location: str = "localhost"):
+                     mount_host: str = None):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
@@ -129,7 +129,7 @@ class EventProcessor:
         self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-        req = ExtractionRequest(run, proposal, run_data, data_location)
+        req = ExtractionRequest(run, proposal, run_data, mount_host)
         self.submitter.submit(req)
 
 

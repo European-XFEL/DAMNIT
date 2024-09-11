@@ -41,13 +41,13 @@ def run_in_subprocess(args, **kwargs):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, data_location='localhost', mock=False
+        python_exe=None, mount_host=None, mock=False
 ):
     if not python_exe:
         python_exe = sys.executable
 
     args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run), run_data.value,
-            '--save', out_path, '--data-location', data_location]
+            '--save', out_path, '--mount-host', mount_host]
     if cluster:
         args.append('--cluster-job')
     if mock:
@@ -195,7 +195,7 @@ class Extractor:
 
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=(), mock=False,
-                           data_location='localhost'):
+                           mount_host=None):
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
@@ -207,7 +207,7 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe, mock=mock, data_location=data_location,
+            match=match, python_exe=python_exe, mock=mock, mount_host=mount_host,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -249,7 +249,7 @@ def main(argv=None):
     # variables (confusing because all extraction now runs in cluster jobs)
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
-    ap.add_argument('--data-location', default='localhost', help=argparse.SUPPRESS)
+    ap.add_argument('--mount-host', help=argparse.SUPPRESS)
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     args = ap.parse_args(argv)
@@ -274,7 +274,7 @@ def main(argv=None):
                             cluster=args.cluster_job,
                             run_data=RunData(args.run_data),
                             match=args.match,
-                            data_location=args.data_location,
+                            mount_host=args.mount_host,
                             mock=args.mock,)
 
 
