@@ -86,14 +86,14 @@ class ExtractionRequest:
     variables: tuple = ()   # Overrides match if present
     mock: bool = False
     update_vars: bool = True
-    data_location: str = 'localhost'
+    mount_host: str = None
 
     def python_cmd(self):
         """Creates the command for a process to do this extraction"""
         cmd = [
             sys.executable, '-m', 'damnit.backend.extract_data',
             str(self.proposal), str(self.run), self.run_data.value,
-            '--data-location', self.data_location,
+            '--mount-host', self.mount_host,
         ]
         if self.cluster:
             cmd.append('--cluster-job')

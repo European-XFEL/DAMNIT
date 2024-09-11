@@ -41,13 +41,13 @@ def run_in_subprocess(args, **kwargs):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        variables=(), python_exe=None, mock=False, data_location='localhost',
+        variables=(), python_exe=None, mock=False, mount_host=None,
 ):
     if not python_exe:
         python_exe = sys.executable
 
     args = [python_exe, '-m', 'ctxrunner', 'exec', str(proposal), str(run), run_data.value,
-            '--save', out_path, '--data-location', data_location]
+            '--save', out_path, '--mount-host', mount_host]
     if cluster:
         args.append('--cluster-job')
     if mock:
@@ -199,7 +199,7 @@ class Extractor:
 
     def extract_and_ingest(self, proposal, run, cluster=False,
                            run_data=RunData.ALL, match=(), variables=(), mock=False,
-                           data_location='localhost'):
+                           mount_host=None):
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
@@ -212,7 +212,7 @@ class Extractor:
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
             match=match, variables=variables, python_exe=python_exe, mock=mock,
-            data_location=data_location,
+            mount_host=mount_host,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -284,9 +284,9 @@ def main(argv=None):
                             cluster=args.cluster_job,
                             run_data=RunData(args.run_data),
                             match=args.match,
-                            mount_host=args.mount_host)
                             variables=args.var,
-                            mock=args.mock)
+                            mock=args.mock,
+                            mount_host=args.mount_host)
 
 
 if __name__ == '__main__':

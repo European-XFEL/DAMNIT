@@ -626,14 +626,14 @@ class Results:
 
 
 @contextmanager
-def filesystem(host='localhost'):
+def filesystem(host=None):
     """Mount remote proposal data with sshfs
 
     mount `/gpfs/exfel/exp/` from `host` and patch
     `extra_data.read_machinery.DATA_ROOT_DIR` to use it instead of the local one.
     Opening a file or a run directory with extra_data will open the remote data.
     """
-    if host == 'localhost':
+    if host is None:
         yield
         return
 
@@ -758,7 +758,7 @@ def main(argv=None):
     exec_ap.add_argument('--var', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
     exec_ap.add_argument('--save-reduced', action='append', default=[])
-    exec_ap.add_argument('--data-location', default='localhost', help=argparse.SUPPRESS)
+    exec_ap.add_argument('--mount-host', help=argparse.SUPPRESS)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
