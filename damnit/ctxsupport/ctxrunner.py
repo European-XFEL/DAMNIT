@@ -243,7 +243,7 @@ class ContextFile:
             for (name, v) in self.vars.items()
         }
 
-    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=()):
+    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=(), variables=()):
         new_vars = {}
         for name, var in self.vars.items():
 
@@ -257,9 +257,13 @@ class ContextFile:
             data_match = run_data == RunData.ALL or var.data == run_data
             # Skip data tagged cluster unless we're in a dedicated Slurm job
             cluster_match = cluster or not var.cluster
-            # Skip Variables that don't match the match list
-            name_match = (len(name_matches) == 0
-                          or any(m.lower() in title.lower() for m in name_matches))
+
+            if variables:  # --var: exact variable names (not titles)
+                name_match = name in variables
+            elif name_matches:  # --match: substring in variable titles
+                name_match = any(m.lower() in title.lower() for m in name_matches)
+            else:
+                name_match = True  # No --var or --match specification
 
             if data_match and cluster_match and name_match:
                 new_vars[name] = var
@@ -343,6 +347,8 @@ class ContextFile:
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
+                t1 = time.perf_counter()
+                log.info("Computed %s in %.03f s", name, t1 - t0)
                 res[name] = data
         return Results(res, self)
 
@@ -676,7 +682,8 @@ def execute_context(args):
     ctx_whole = ContextFile.from_py_file(Path('context.py'))
     ctx_whole.check()
     ctx = ctx_whole.filter(
-        run_data=run_data, cluster=args.cluster_job, name_matches=args.match
+        run_data=run_data, cluster=args.cluster_job, name_matches=args.match,
+        variables=arg.var,
     )
     log.info("Using %d variables (of %d) from context file %s",
             len(ctx.vars), len(ctx_whole.vars),
@@ -690,7 +697,7 @@ def execute_context(args):
         actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
         run_dc = extra_data.open_run(
             args.proposal, args.run, data=actual_run_data.value,
-            _use_voview=args.data_location=='localhost'
+            _use_voview=args.mount_host is None
         )
 
     res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
@@ -748,6 +755,7 @@ def main(argv=None):
     exec_ap.add_argument('--mock', action='store_true')
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
+    exec_ap.add_argument('--var', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
     exec_ap.add_argument('--save-reduced', action='append', default=[])
     exec_ap.add_argument('--data-location', default='localhost', help=argparse.SUPPRESS)
@@ -760,7 +768,7 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        with filesystem(args.data_location):
+        with filesystem(args.mount_host):
             execute_context(args)
     elif args.subcmd == "ctx":
         evaluate_context(args)

@@ -5,6 +5,7 @@ import os
 import platform
 from pathlib import Path
 from socket import gethostname
+from threading import Thread
 
 from extra_data.read_machinery import find_proposal
 from kafka import KafkaConsumer
@@ -33,6 +34,26 @@ ONLINE_HOSTS ={
 }
 
 log = logging.getLogger(__name__)
+
+# tracking number of local threads running in parallel
+# only relevant if slurm isn't available
+MAX_CONCURRENT_THREADS = min(os.cpu_count() // 2, 10)
+local_extraction_threads = []
+
+
+def execute_direct(submitter, request):
+    for th in local_extraction_threads.copy():
+        if not th.is_alive():
+            local_extraction_threads.pop(local_extraction_threads.index(th))
+
+    if len(local_extraction_threads) >= MAX_CONCURRENT_THREADS:
+        log.warning(f'Too many events processing ({MAX_CONCURRENT_THREADS}), '
+                    f'skip event (p{request.proposal}, r{request.run}, {request.run_data.value})')
+        return
+
+    extr = Thread(target=submitter.execute_direct, args=(request, ))
+    local_extraction_threads.append(extr)
+    extr.start()
 
 
 class EventProcessor:
@@ -68,6 +89,7 @@ class EventProcessor:
             else:
                 self.online_data_host = remote_host
         log.info("Processing online data? %s", self.run_online)
+
 
     def __enter__(self):
         return self
@@ -114,7 +136,7 @@ class EventProcessor:
         self.handle_event(record, msg, RunData.PROC)
 
     def handle_event(self, record, msg: dict, run_data: RunData,
-                     data_location: str = "localhost"):
+                     mount_host: str = None):
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
@@ -124,8 +146,16 @@ class EventProcessor:
         self.db.ensure_run(proposal, run, record.timestamp / 1000)
         log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-        req = ExtractionRequest(run, proposal, run_data, data_location=data_location)
-        self.submitter.submit(req)
+        req = ExtractionRequest(run, proposal, run_data, mount_host=mount_host)
+
+        try:
+            self.submitter.submit(req)
+        except FileNotFoundError:
+            log.warning('Slurm not available, starting process locally.')
+            execute_direct(self.submitter, req)
+        except Exception:
+            log.error("Slurm job submission failed, starting process locally.", exc_info=True)
+            execute_direct(self.submitter, req)
 
 
 def listen():

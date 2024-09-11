@@ -6,15 +6,11 @@ from argparse import ArgumentParser
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from socket import gethostname
 
 import h5py
 import numpy as np
-import pandas as pd
 import xarray as xr
 from kafka.errors import NoBrokersAvailable
-from pandas.api.types import infer_dtype
-from plotly.graph_objects import Figure as PlotlyFigure
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
@@ -24,9 +20,8 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
-from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file
-from ..backend.extraction_control import process_log_path
+from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
+from ..backend.extraction_control import process_log_path, ExtractionSubmitter
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
@@ -34,7 +29,8 @@ from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
-from .plot import Canvas, Plot
+from .plot import ImagePlotWindow, ScatterPlotWindow, Xarray1DPlotWindow, PlottingControls
+from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
@@ -49,6 +45,7 @@ class Settings(Enum):
 class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
+    save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
 
     db = None
     db_id = None
@@ -62,6 +59,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._received_update = False
         self._context_path = None
         self._context_is_saved = True
+        self._context_code_to_save = None
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -109,13 +107,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._context_is_saved:
             dialog = QMessageBox(QMessageBox.Warning,
                                  "Warning - unsaved changes",
-                                 "There are unsaved changes to the context, do you want to save before exiting?",
-                                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+                                 "There are unsaved changes to the context, do you want to go back and save?",
+                                 QMessageBox.Discard | QMessageBox.Cancel)
             result = dialog.exec()
 
-            if result == QMessageBox.Save:
-                self.save_context()
-            elif result == QMessageBox.Cancel:
+            if result == QMessageBox.Cancel:
                 event.ignore()
                 return
 
@@ -273,7 +269,7 @@ da-dev@xfel.eu"""
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
-        before_pos = n_static_cols + 1
+        before_pos = n_static_cols
         if before == None:
             before_pos += self.table_view.get_movable_columns_count()
         else:
@@ -324,22 +320,24 @@ da-dev@xfel.eu"""
         )
         action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
 
-        action_create_var = QtWidgets.QAction(
+        self.action_create_var = QtWidgets.QAction(
             QtGui.QIcon.fromTheme("accessories-text-editor"),
             "&Create user variable",
             self
         )
-        action_create_var.setShortcut("Shift+U")
-        action_create_var.setStatusTip("Create user editable variable")
-        action_create_var.triggered.connect(self._menu_create_user_var)
-        action_create_var.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: action_create_var.setEnabled(True))
+        self.action_create_var.setShortcut("Shift+U")
+        self.action_create_var.setStatusTip("Create user editable variable")
+        self.action_create_var.triggered.connect(self._menu_create_user_var)
+        self.action_create_var.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: self.action_create_var.setEnabled(True))
 
-        action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
-        action_export.setStatusTip("Export to Excel/CSV")
-        action_export.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: action_export.setEnabled(True))
-        action_export.triggered.connect(self.export_table)
+        self.action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
+        self.action_export.setStatusTip("Export to Excel/CSV")
+        self.action_export.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
+        self.action_export.triggered.connect(self.export_table)
+        self.action_process = QtWidgets.QAction("Reprocess runs", self)
+        self.action_process.triggered.connect(self.process_runs)
 
         action_adeqt = QtWidgets.QAction("Python console", self)
         action_adeqt.setShortcut("F12")
@@ -359,8 +357,9 @@ da-dev@xfel.eu"""
             QtGui.QIcon(icon_path("AMORE.png")), "&AMORE"
         )
         fileMenu.addAction(action_autoconfigure)
-        fileMenu.addAction(action_create_var)
-        fileMenu.addAction(action_export)
+        fileMenu.addAction(self.action_create_var)
+        fileMenu.addAction(self.action_process)
+        fileMenu.addAction(self.action_export)
         fileMenu.addAction(action_adeqt)
         fileMenu.addAction(action_help)
         fileMenu.addAction(action_exit)
@@ -568,11 +567,6 @@ da-dev@xfel.eu"""
         cell_data = self.table.get_value_at(index)
         is_image = self.table.itemFromIndex(index).data(Qt.DecorationRole) is not None
 
-        if not (is_image or isinstance(cell_data, (int, float))):
-            QMessageBox.warning(self, "Can't inspect variable",
-                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
-            return
-
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]
         except FileNotFoundError:
@@ -586,50 +580,61 @@ da-dev@xfel.eu"""
                                      stylesheet=StatusbarStylesheet.ERROR)
             return
 
+        if not (is_image or variable.type_hint() or isinstance(cell_data, (int, float))):
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
+            return
+
         if variable.type_hint() is DataType.PlotlyFigure:
             pp = PlotlyPlot(variable, self)
             self._canvas_inspect.append(pp)
             pp.show()
             return
 
+        if variable.type_hint() is DataType.Dataset:
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' is a Xarray Dataset (not supported).")
+
         try:
-            data = xr.DataArray(variable.read())
+            data = variable.read()
         except KeyError:
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
 
-        if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
-            canvas = Canvas(
-                self,
-                image=data.data,
-                title=f"{quantity_title} (run {run})",
-            )
-        else:
-            if data.ndim == 0:
-                # If this is a scalar value, then we can't plot it
-                QMessageBox.warning(self, "Can't inspect variable",
-                                    f"'{quantity}' is a scalar, there's nothing more to plot.")
-                return
-            if data.ndim > 2:
-                QMessageBox.warning(self, "Can't inspect variable",
-                                    f"'{quantity}' with {data.ndim} dimensions (not supported).")
-                return
+        if not isinstance(data, (np.ndarray, xr.DataArray)):
+            log.error("Only array objects are expected here, not %r", type(data))
+            return
 
-            # Use the train ID if it's been saved, otherwise generate an X axis
-            if "trainId" in data.coords:
-                x = data.trainId
+        title = f'{variable.title} (run {run})'
+
+        data = data.squeeze()
+
+        if data.ndim == 1:
+            if isinstance(data, xr.DataArray):
+                canvas = Xarray1DPlotWindow(self, data, title=title)
             else:
-                x = np.arange(len(data))
-
-            canvas = Canvas(
-                self,
-                x=[fix_data_for_plotting(x)],
-                y=[fix_data_for_plotting(data)],
-                xlabel=f"Event (run {run})",
-                ylabel=quantity_title,
-                fmt="o",
+                canvas = ScatterPlotWindow(self,
+                    x=[np.arange(len(data))],
+                    y=[fix_data_for_plotting(data)],
+                    xlabel=f"Event (run {run})",
+                    ylabel=variable.title,
+                    title=title,
             )
-
+        elif data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
+            canvas = ImagePlotWindow(
+                self,
+                image=data,
+                title=f"{variable.title} (run {run})",
+            )
+        elif data.ndim == 0:
+            # If this is a scalar value, then we can't plot it
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' is a scalar, there's nothing more to plot.")
+            return
+        else:
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' with {data.ndim} dimensions (not supported).")
+            return
 
         self._canvas_inspect.append(canvas)
         canvas.show()
@@ -663,6 +668,7 @@ da-dev@xfel.eu"""
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
+        self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
 
         vertical_layout.addWidget(self.table_view)
@@ -696,7 +702,7 @@ da-dev@xfel.eu"""
         comment_timer.start()
 
         # plotting control
-        self.plot = Plot(self)
+        self.plot = PlottingControls(self)
         plotting_group = QtWidgets.QGroupBox("Plotting controls")
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -736,6 +742,7 @@ da-dev@xfel.eu"""
         test_widget = QtWidgets.QWidget()
 
         self._editor.textChanged.connect(self.on_context_changed)
+        self._editor.check_result.connect(self.test_context_result)
 
         vbox = QtWidgets.QGridLayout()
         test_widget.setLayout(vbox)
@@ -791,7 +798,17 @@ da-dev@xfel.eu"""
         self.mark_context_saved()
 
     def test_context(self):
-        test_result, output = self._editor.test_context(self.db, self._context_path.parent)
+        self.set_error_icon('wait')
+        self._editor.launch_test_context(self.db)
+
+    def test_context_result(self, test_result, output, checked_code):
+        # want_save, self._context_save_wanted = self._context_save_wanted, False
+        if self._context_code_to_save == checked_code:
+            if saving := test_result is not ContextTestResult.ERROR:
+                self._context_path.write_text(self._context_code_to_save)
+                self.mark_context_saved()
+            self._context_code_to_save = None
+            self.save_context_finished.emit(saving)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
@@ -817,7 +834,6 @@ da-dev@xfel.eu"""
                 self.set_error_icon("green")
 
         self._editor.setFocus()
-        return test_result
 
     def set_error_icon(self, icon):
         self._context_status_icon.load(icon_path(f"{icon}_circle.svg"))
@@ -830,12 +846,9 @@ da-dev@xfel.eu"""
         QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
 
     def save_context(self):
-        if self.test_context() == ContextTestResult.ERROR:
-            return
-
-        self._context_path.write_text(self._editor.text())
-        self.mark_context_saved()
-        self._editor.setFocus()
+        self._context_code_to_save = self._editor.text()
+        self.test_context()
+        # If the check passes, .test_context_result() saves the file
 
     def mark_context_saved(self):
         self._context_is_saved = True
@@ -889,6 +902,39 @@ da-dev@xfel.eu"""
         df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         self.zulip_messenger.send_table(df)
+
+    def process_runs(self):
+        sel_runs_by_prop = {}
+        for ix in self.table_view.selected_rows():
+            run_prop, run_num = self.table.row_to_proposal_run(ix.row())
+            sel_runs_by_prop.setdefault(run_prop, []).append(run_num)
+
+        if sel_runs_by_prop:
+            prop, sel_runs = max(sel_runs_by_prop.items(), key=lambda p: len(p[1]))
+            sel_runs.sort()
+        else:
+            prop = self.db.metameta.get("proposal", "")
+            sel_runs = []
+
+        var_ids_titles = zip(self.table.computed_columns(),
+                             self.table.computed_columns(by_title=True))
+
+        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            submitter = ExtractionSubmitter(self.context_dir, self.db)
+
+            try:
+                reqs = dlg.extraction_requests()
+                for req in reqs:
+                    submitter.submit(req)
+            except Exception as e:
+                log.error("Error launching processing", exc_info=True)
+                self.show_status_message(f"Error launching processing: {e}",
+                                         10_000, stylesheet=StatusbarStylesheet.ERROR)
+            else:
+                self.show_status_message(
+                    f"Launched processing for {len(reqs)} runs", 10_000
+                )
 
     adeqt_window = None
 

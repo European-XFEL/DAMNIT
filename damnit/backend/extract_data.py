@@ -41,7 +41,7 @@ def run_in_subprocess(args, **kwargs):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False, data_location='localhost',
+        variables=(), python_exe=None, mock=False, data_location='localhost',
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -52,8 +52,12 @@ def extract_in_subprocess(
         args.append('--cluster-job')
     if mock:
         args.append("--mock")
-    for m in match:
-        args.extend(['--match', m])
+    if variables:
+        for v in variables:
+            args.extend(['--var', v])
+    else:
+        for m in match:
+            args.extend(['--match', m])
 
     with TemporaryDirectory() as td:
         # Save a separate copy of the reduced data, so we can send an update
@@ -194,7 +198,7 @@ class Extractor:
         self.kafka_prd.flush()
 
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), mock=False,
+                           run_data=RunData.ALL, match=(), variables=(), mock=False,
                            data_location='localhost'):
         if proposal is None:
             proposal = self.db.metameta['proposal']
@@ -207,7 +211,8 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe, mock=mock, data_location=data_location,
+            match=match, variables=variables, python_exe=python_exe, mock=mock,
+            data_location=data_location,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -229,14 +234,18 @@ class Extractor:
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
-        ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
-        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
-        if set(ctx_slurm.vars) > set(ctx.vars):
-            submitter = ExtractionSubmitter(Path.cwd(), self.db)
-            cluster_req = ExtractionRequest(
-                run, proposal, run_data, cluster=True, match=match, mock=mock
+        if not cluster:
+            ctx_slurm = self.ctx_whole.filter(
+                run_data=run_data, name_matches=match, variables=variables, cluster=True
             )
-            submitter.submit(cluster_req)
+            ctx_no_slurm = ctx_slurm.filter(cluster=False)
+            if set(ctx_slurm.vars) > set(ctx_no_slurm.vars):
+                submitter = ExtractionSubmitter(Path.cwd(), self.db)
+                cluster_req = ExtractionRequest(
+                    run, proposal, mock=mock,
+                    run_data=run_data, cluster=True, match=match, variables=variables
+                )
+                submitter.submit(cluster_req)
 
 
 def main(argv=None):
@@ -249,7 +258,8 @@ def main(argv=None):
     # variables (confusing because all extraction now runs in cluster jobs)
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
-    ap.add_argument('--data-location', default='localhost', help=argparse.SUPPRESS)
+    ap.add_argument('--mount-host', help=argparse.SUPPRESS)
+    ap.add_argument('--var',  action="append", default=[])
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     args = ap.parse_args(argv)
@@ -274,8 +284,9 @@ def main(argv=None):
                             cluster=args.cluster_job,
                             run_data=RunData(args.run_data),
                             match=args.match,
-                            mock=args.mock,
-                            data_location=args.data_location)
+                            mount_host=args.mount_host)
+                            variables=args.var,
+                            mock=args.mock)
 
 
 if __name__ == '__main__':

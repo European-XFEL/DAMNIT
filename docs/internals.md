@@ -3,6 +3,14 @@
 This page describes some internal details of DAMNIT. It will probably not be of
 interest to you unless you're a developer.
 
+## Making a new release
+
+To make a new release you need to:
+
+1. Bump the version number in `damnit/__init__.py`.
+1. Make a git tag for the new version on the new commit. Our CI will
+   automatically pick that up and publish a new release to PyPI.
+
 ## Installation
 
 To install both the frontend and backend:
@@ -17,6 +25,9 @@ conda create -n damnit python
 conda activate damnit
 pip install '.[gui,backend]'
 ```
+
+If you only need the API there's no need to clone the repo, `pip install
+damnit` should be sufficient.
 
 ## Deployment on Maxwell
 DAMNIT is deployed in a stable and beta module on Maxwell:

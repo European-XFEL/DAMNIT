@@ -130,6 +130,9 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     assert isinstance(fig, PlotlyFigure)
     assert fig == px.bar(x=["a", "b", "c"], y=[1, 3, 2])
 
+    json_str = rv["plotly_mc_plotface"].read(deserialize_plotly=False)
+    assert isinstance(json_str, str)
+
 def test_api_dependencies(venv):
     package_path = Path(__file__).parent.parent
     venv.install(package_path)

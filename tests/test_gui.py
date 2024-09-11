@@ -22,6 +22,7 @@ from damnit.backend.extract_data import add_to_db
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
+from damnit.gui.plot import ScatterPlotWindow, HistogramPlotWindow
 from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import reduced_data_from_dict, mkcontext, extract_mock_run
@@ -84,8 +85,14 @@ def test_editor(mock_db, mock_ctx, qtbot):
     assert "Ctrl + S" in status_bar.currentMessage()
 
     # Saving OK code should work
-    win._save_btn.clicked.emit()
-    assert editor.test_context(db, db_dir)[0] == ContextTestResult.OK
+    with qtbot.waitSignal(win.save_context_finished):
+        win._save_btn.clicked.emit()
+    assert ctx_path.read_text() == old_code
+
+    with qtbot.waitSignal(editor.check_result) as sig:
+        editor.launch_test_context(db)
+    assert sig.args[0] == ContextTestResult.OK
+
     assert ctx_path.read_text() == old_code
     assert status_bar.currentMessage() == str(ctx_path.resolve())
 
@@ -93,7 +100,7 @@ def test_editor(mock_db, mock_ctx, qtbot):
     # editor.test_context() function instead of MainWindow.test_context()
     # because the win._check_btn.clicked has already been connected to the
     # original function, so mocking it will not make Qt call the mock object.
-    with patch.object(editor, "test_context", return_value=(None, None)) as test_context:
+    with patch.object(editor, "launch_test_context") as test_context:
         win._check_btn.clicked.emit()
         test_context.assert_called_once()
 
@@ -118,15 +125,15 @@ def test_editor(mock_db, mock_ctx, qtbot):
     qtbot.waitExposed(win)
     assert win.isVisible()
 
-    # 'Save' should close the window and save
-    with patch.object(QMessageBox, "exec", return_value=QMessageBox.Save):
-        win.close()
-        assert win.isHidden()
-        assert ctx_path.read_text() == new_code
+    # Save the valid code
+    with qtbot.waitSignal(win.save_context_finished):
+        win.save_context()
+    assert ctx_path.read_text() == new_code
 
     # Attempting to save ERROR'ing code should not save anything
     editor.setText("123 = 456")
-    win.save_context()
+    with qtbot.waitSignal(win.save_context_finished):
+        win.save_context()
     assert ctx_path.read_text() == new_code
 
     # But saving WARNING code should work
@@ -135,8 +142,11 @@ def test_editor(mock_db, mock_ctx, qtbot):
     x = 1
     """)
     editor.setText(warning_code)
-    assert editor.test_context(db, db_dir)[0] == ContextTestResult.WARNING
-    win.save_context()
+    with qtbot.waitSignal(editor.check_result) as sig:
+        editor.launch_test_context(db)
+    assert sig.args[0] == ContextTestResult.WARNING
+    with qtbot.waitSignal(editor.check_result):
+        win.save_context()
     assert ctx_path.read_text() == warning_code
 
 def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
@@ -312,8 +322,18 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
 
     win = MainWindow(db_dir, False)
     qtbot.addWidget(win)
-    win.plot._button_plot_clicked(False)
-    assert len(win.plot._canvas["canvas"]) == 1
+
+    # Open 1 scatter plot
+    win.plot._plot_summaries_clicked()
+    assert len(win.plot._plot_windows) == 1
+
+    # Open 1 histogram
+    win.plot._toggle_probability_density.setChecked(True)
+    win.plot._plot_summaries_clicked()
+    assert len(win.plot._plot_windows) == 2
+    assert [type(pw) for pw in win.plot._plot_windows] == [
+        ScatterPlotWindow, HistogramPlotWindow
+    ]
 
     extract_mock_run(2)
     msg = {
@@ -696,7 +716,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     win.plot._combo_box_y_axis.setCurrentText("Constant array")
 
     with patch.object(QMessageBox, "warning") as warning:
-        win.plot._button_plot_clicked(False)
+        win.plot._plot_summaries_clicked()
         warning.assert_not_called()
 
     # And plot an array
@@ -709,7 +729,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     array_sorted_idx = win.table_view.model().mapFromSource(array_index)
     win.table_view.setCurrentIndex(array_sorted_idx)
     with patch.object(QMessageBox, "warning") as warning:
-        win.plot._button_plot_clicked(True)
+        win.plot._plot_run_data_clicked()
         warning.assert_not_called()
 
     # Check that the text for the array that changes is bold

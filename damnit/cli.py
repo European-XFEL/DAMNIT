@@ -105,6 +105,10 @@ def main(argv=None):
         help="Run jobs one-by-one with live output in the terminal"
     )
     reprocess_ap.add_argument(
+        '--direct', action='store_true',
+        help="Run processing in subprocesses on this node, instead of via Slurm"
+    )
+    reprocess_ap.add_argument(
         'run', nargs='+',
         help="Run number, e.g. 96. Multiple runs can be specified at once, "
              "or pass 'all' to reprocess all runs in the database."
@@ -220,7 +224,9 @@ def main(argv=None):
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
         from .backend.extraction_control import reprocess
-        reprocess(args.run, args.proposal, args.match, args.mock, args.watch)
+        reprocess(
+            args.run, args.proposal, args.match, args.mock, args.watch, args.direct
+        )
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor
