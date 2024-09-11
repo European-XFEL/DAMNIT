@@ -1,4 +1,5 @@
 import logging
+import os
 import shelve
 import sys
 import time
@@ -1037,9 +1038,13 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
 
 
 def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
+    QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
+
+    # Required for the WebViewer to load pages
+    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox'
 
     if software_opengl:
         QtWidgets.QApplication.setAttribute(
