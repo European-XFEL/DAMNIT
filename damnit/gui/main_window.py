@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shelve
 import sys
 import time
@@ -7,6 +8,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from socket import gethostname
 
 import h5py
 import numpy as np
@@ -1046,7 +1048,8 @@ def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
     # Required for the WebViewer to load pages
     os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox'
 
-    if software_opengl:
+    if software_opengl or re.match(r'^max-exfl\d{3}.desy.de$', gethostname()):
+        log.info('Use software OpenGL.')
         QtWidgets.QApplication.setAttribute(
             Qt.AA_UseSoftwareOpenGL
         )
