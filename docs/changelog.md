@@ -2,6 +2,8 @@
 
 ## [0.1.4]
 
+2024-09-03
+
 Only API change: added a deserialize_plotly option to read() to allow reading the Plotly JSON string.
 
 Added:
@@ -24,6 +26,8 @@ Fixed:
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.1.3...0.1.4)
 
 ## [0.1.3]
+
+2024-07-25
 
 Added:
 
@@ -61,6 +65,8 @@ Fixed:
 
 ## [0.1.2]
 
+2024-04-26
+
 Fixed:
 
 - API support for comments and timestamps (!242).
@@ -69,6 +75,8 @@ Fixed:
 
 ## [0.1.1]
 
+2024-04-24
+
 Fixed:
 
 - API dependencies (!239)
@@ -76,6 +84,8 @@ Fixed:
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.1...0.1.1)
 
 ## [0.1]
+
+2024-04-23
 
 Initial release of the DAMNIT Python API.
 
