@@ -265,11 +265,7 @@ def main(argv=None):
     # Hide some logging from Kafka to make things more readable
     logging.getLogger('kafka').setLevel(logging.WARNING)
 
-    if (run := args.run) == -1:
-        log.debug("Getting run number from Slurm array task ID")
-        run = int(os.environ['SLURM_ARRAY_TASK_ID'])
-
-    print(f"\n----- Processing r{run} (p{args.proposal}) -----", file=sys.stderr)
+    print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
     log.info(f"run_data={args.run_data}, match={args.match}")
     if args.mock:
         log.info("Using mock run object for testing")
@@ -281,7 +277,7 @@ def main(argv=None):
     if args.update_vars:
         extr.update_db_vars()
 
-    extr.extract_and_ingest(args.proposal, run,
+    extr.extract_and_ingest(args.proposal, args.run,
                             cluster=args.cluster_job,
                             run_data=RunData(args.run_data),
                             match=args.match,

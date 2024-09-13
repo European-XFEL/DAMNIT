@@ -10,9 +10,9 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from ctypes import CDLL
-from dataclasses import dataclass, replace
-from itertools import groupby
+from dataclasses import dataclass
 from pathlib import Path
+from secrets import token_hex
 from threading import Thread
 
 from extra_data.read_machinery import find_proposal
@@ -39,8 +39,6 @@ def default_slurm_partition():
 
 
 def process_log_path(run, proposal, ctx_dir=Path('.'), create=True):
-    if run == -1:
-        run = "%a"  # Slurm array task ID
     p = ctx_dir.absolute() / 'process_logs' / f"r{run}-p{proposal}.out"
     if create:
         p.parent.mkdir(exist_ok=True)
@@ -76,6 +74,16 @@ def proposal_runs(proposal):
     proposal_name = f"p{int(proposal):06d}"
     raw_dir = Path(find_proposal(proposal_name)) / "raw"
     return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
+
+def batches(l, n):
+    start = 0
+    while True:
+        end = start + n
+        batch = l[start:end]
+        if not batch:
+            return
+        yield batch
+        start = end
 
 
 @dataclass
@@ -164,50 +172,55 @@ class ExtractionSubmitter:
 
     def submit_multi(self, reqs: list[ExtractionRequest], limit_running=30):
         """Submit multiple requests using Slurm job arrays.
-
-        Requests with only the run number different are grouped together.
-        limit_running controls how many can run simultaneously *within* each
-        group. Normally most/all runs will be in one group, so this will be
-        close to the overall limit.
         """
         out = []
-        # run -1 tells extract_data to take the run # from the Slurm array task
-        for generic_req, req_group in groupby(reqs, key=lambda r: replace(r, run=-1)):
-            cmd = self.sbatch_cmd(generic_req)  # -1 -> use Slurm array task id
-            runs = [req.run for req in req_group]
-            array_spec = self._abbrev_array_nums(runs) + f'%{limit_running}'
-            cmd += ['--array', array_spec]
+
+        assert len({r.cluster for r in reqs}) <= 1  # Don't mix cluster/non-cluster
+
+        # Array jobs are limited to 1001 in Slurm config (MaxArraySize)
+        for req_group in batches(reqs, 1000):
+            grpid = token_hex(8)   # random unique string
+            scripts_dir = self.context_dir / '.tmp'
+            scripts_dir.mkdir(exist_ok=True)
+            if scripts_dir.stat().st_uid == os.getuid():
+                scripts_dir.chmod(0o777)
+
+            for i, req in enumerate(req_group):
+                script_file = scripts_dir / f'launch-{grpid}-{i}.sh'
+                log_path = process_log_path(req.run, req.proposal, self.context_dir)
+                script_file.write_text(
+                    'rm "$0"\n'  # Script cleans itself up
+                    f'{shlex.join(req.python_cmd())} >>"{log_path}" 2>&1'
+                )
+                script_file.chmod(0o777)
+
+            script_expr = f".tmp/launch-{grpid}-$SLURM_ARRAY_TASK_ID.sh"
+            cmd = self.sbatch_array_cmd(script_expr, req_group, limit_running)
             res = subprocess.run(
                 cmd, stdout=subprocess.PIPE, text=True, check=True, cwd=self.context_dir,
             )
             job_id, _, cluster = res.stdout.partition(';')
             job_id = job_id.strip()
             cluster = cluster.strip() or 'maxwell'
-            log.info("Launched Slurm (%s) job %s with array %s (%d runs) to run context file",
-                     cluster, job_id, array_spec, len(runs))
+            log.info("Launched Slurm (%s) job array %s (%d runs) to run context file",
+                     cluster, job_id, len(req_group))
             out.append((job_id, cluster))
 
         return out
 
-    @staticmethod
-    def _abbrev_array_nums(nums: list[int]) -> str:
-        range_starts, range_ends = [nums[0]], []
-        current_range_end = nums[0]
-        for r in nums[1:]:
-            if r > current_range_end + 1:
-                range_ends.append(current_range_end)
-                range_starts.append(r)
-            current_range_end = r
-        range_ends.append(current_range_end)
-
-        s_pieces = []
-        for start, end in zip(range_starts, range_ends):
-            if start == end:
-                s_pieces.append(str(start))
-            else:
-                s_pieces.append(f"{start}-{end}")
-
-        return ",".join(s_pieces)
+    def sbatch_array_cmd(self, script_expr, reqs, limit_running=30):
+        """Make the sbatch command for an array job"""
+        req = reqs[0]  # This should never be called with an empty list
+        return [
+            'sbatch', '--parsable',
+            *self._resource_opts(req.cluster),
+            # Slurm doesn't know the run number, so we redirect inside the job
+            '-o', '/dev/null',
+            '--open-mode=append',
+            '--job-name', f"p{req.proposal}-damnit",
+            '--array', f"0-{len(reqs)-1}%{limit_running}",
+            '--wrap', f'exec {script_expr}'
+        ]
 
     def execute_in_slurm(self, req: ExtractionRequest):
         """Run an extraction job in srun with live output"""
