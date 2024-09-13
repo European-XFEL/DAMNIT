@@ -63,6 +63,7 @@ def main(argv=None):
     gui_ap.add_argument(
         "--software-opengl", action="store_true",
         help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
+             "Active by default on Maxwell if not started on a display node."
     )
 
     listen_ap = subparsers.add_parser(
