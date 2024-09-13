@@ -10,7 +10,8 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from ctypes import CDLL
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from itertools import groupby
 from pathlib import Path
 from threading import Thread
 
@@ -38,6 +39,8 @@ def default_slurm_partition():
 
 
 def process_log_path(run, proposal, ctx_dir=Path('.'), create=True):
+    if run == -1:
+        run = "%a"  # Slurm array task ID
     p = ctx_dir.absolute() / 'process_logs' / f"r{run}-p{proposal}.out"
     if create:
         p.parent.mkdir(exist_ok=True)
@@ -143,16 +146,68 @@ class ExtractionSubmitter:
         log.info("Processing output will be written to %s",
                  log_path.relative_to(self.context_dir.absolute()))
 
+        if req.run == -1:
+            job_name = f"p{req.proposal}-damnit"
+        else:
+            # We put the run number first so that it's visible in
+            # squeue's default 11-character column for the JobName.
+            job_name = f"r{req.run}-p{req.proposal}-damnit"
+
         return [
             'sbatch', '--parsable',
             *self._resource_opts(req.cluster),
             '-o', log_path,
             '--open-mode=append',
-            # Note: we put the run number first so that it's visible in
-            # squeue's default 11-character column for the JobName.
-            '--job-name', f"r{req.run}-p{req.proposal}-damnit",
+            '--job-name', job_name,
             '--wrap', shlex.join(req.python_cmd())
         ]
+
+    def submit_multi(self, reqs: list[ExtractionRequest], limit_running=30):
+        """Submit multiple requests using Slurm job arrays.
+
+        Requests with only the run number different are grouped together.
+        limit_running controls how many can run simultaneously *within* each
+        group. Normally most/all runs will be in one group, so this will be
+        close to the overall limit.
+        """
+        out = []
+        # run -1 tells extract_data to take the run # from the Slurm array task
+        for generic_req, req_group in groupby(reqs, key=lambda r: replace(r, run=-1)):
+            cmd = self.sbatch_cmd(generic_req)  # -1 -> use Slurm array task id
+            runs = [req.run for req in req_group]
+            array_spec = self._abbrev_array_nums(runs) + f'%{limit_running}'
+            cmd += ['--array', array_spec]
+            res = subprocess.run(
+                cmd, stdout=subprocess.PIPE, text=True, check=True, cwd=self.context_dir,
+            )
+            job_id, _, cluster = res.stdout.partition(';')
+            job_id = job_id.strip()
+            cluster = cluster.strip() or 'maxwell'
+            log.info("Launched Slurm (%s) job %s with array %s (%d runs) to run context file",
+                     cluster, job_id, array_spec, len(runs))
+            out.append((job_id, cluster))
+
+        return out
+
+    @staticmethod
+    def _abbrev_array_nums(nums: list[int]) -> str:
+        range_starts, range_ends = [nums[0]], []
+        current_range_end = nums[0]
+        for r in nums[1:]:
+            if r > current_range_end + 1:
+                range_ends.append(current_range_end)
+                range_starts.append(r)
+            current_range_end = r
+        range_ends.append(current_range_end)
+
+        s_pieces = []
+        for start, end in zip(range_starts, range_ends):
+            if start == end:
+                s_pieces.append(str(start))
+            else:
+                s_pieces.append(f"{start}-{end}")
+
+        return ",".join(s_pieces)
 
     def execute_in_slurm(self, req: ExtractionRequest):
         """Run an extraction job in srun with live output"""
@@ -243,6 +298,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
                 else:
                     unavailable_runs.append((proposal, run))
 
+        props_runs.sort()
         print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
     else:
         try:
@@ -274,11 +330,11 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
     for req in reqs[1:]:
         req.update_vars = False
 
-    for prop, run in props_runs:
-        req = ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
-        if direct:
+    if direct:
+        for req in reqs:
             submitter.execute_direct(req)
-        elif watch:
+    elif watch:
+        for req in reqs:
             submitter.execute_in_slurm(req)
-        else:
-            submitter.submit(req)
+    else:
+        submitter.submit_multi(reqs)
