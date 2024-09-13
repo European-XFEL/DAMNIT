@@ -423,6 +423,7 @@ class Xarray1DPlotWindow(PlotWindow):
             self._nan_warning_label.show()
 
         data.plot(ax=self._axis)
+        self._axis.grid()
         self._setup_scroll_zoom()
         # The plot call above can add axis labels, so we need to do this again
         self.figure.tight_layout()
