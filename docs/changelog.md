@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Fixed:
+
+- Added back grid lines for plots of `DataArray`'s (!334).
+
 ## [0.1.4]
 
 2024-09-03
