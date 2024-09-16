@@ -97,7 +97,7 @@ class MyMetadataClient:
     @_cache
     def _techniques_info(self, run: int) -> dict[str, Any]:
         run_info = self._run_info(run)
-        response = requests.get(f'{self.server}/api/mymed/runs/{run_info["id"]}',
+        response = requests.get(f'{self.server}/api/mymdc/runs/{run_info["id"]}',
                                 headers=self._headers, timeout=self.timeout)
         response.raise_for_status()
         return response.json()['techniques']
@@ -126,7 +126,7 @@ class MyMetadataClient:
         return ', '.join(t['name'] for t in self._techniques_info(run))
 
     def techniques_identifier(self, run: int) -> str:
-        return ', '.join(t['indentifier'] for t in self._techniques_info(run))
+        return ', '.join(t['identifier'] for t in self._techniques_info(run))
 
 
 class ContextFileErrors(RuntimeError):
@@ -191,7 +191,7 @@ class ContextFile:
         for name, var in self.vars.items():
             mymdc_args = var.arg_dependencies("mymdc#")
             for arg_name, annotation in mymdc_args.items():
-                if annotation not in ["sample_name", "run_type"]:
+                if annotation not in ["sample_name", "run_type", "techniques_name", "techniques_identifier"]:
                     problems.append(f"Argument '{arg_name}' of variable '{name}' has an invalid MyMdC dependency: '{annotation}'")
 
         if problems:
@@ -319,12 +319,8 @@ class ContextFile:
                     elif annotation.startswith("mymdc#"):
                         if mymdc is None:
                             mymdc = MyMetadataClient(proposal)
-
-                        mymdc_field = annotation.removeprefix("mymdc#")
-                        if mymdc_field == "sample_name":
-                            kwargs[arg_name] = mymdc.sample_name(run_number)
-                        elif mymdc_field == "run_type":
-                            kwargs[arg_name] = mymdc.run_type(run_number)
+                        metadata = annotation.removeprefix('mymdc#')
+                        kwargs[arg_name] = getattr(mymdc, metadata)(run_number)
 
                     elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number
