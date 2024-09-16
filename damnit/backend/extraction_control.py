@@ -288,7 +288,7 @@ class ExtractionSubmitter:
         return opts
 
 
-def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False):
+def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=30):
     """Called by the 'amore-proto reprocess' subcommand"""
     submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
@@ -354,4 +354,4 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
         for req in reqs:
             submitter.execute_in_slurm(req)
     else:
-        submitter.submit_multi(reqs)
+        submitter.submit_multi(reqs, limit_running=limit_running)
