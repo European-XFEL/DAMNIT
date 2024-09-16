@@ -196,6 +196,10 @@ class ExtractionSubmitter:
 
             script_expr = f".tmp/launch-{grpid}-$SLURM_ARRAY_TASK_ID.sh"
             cmd = self.sbatch_array_cmd(script_expr, req_group, limit_running)
+            if out:
+                # 1 batch at a time, to simplify limiting concurrent jobs
+                prev_job = out[-1][0]
+                cmd.append(f"--dependency=afterany:{prev_job}")
             res = subprocess.run(
                 cmd, stdout=subprocess.PIPE, text=True, check=True, cwd=self.context_dir,
             )
