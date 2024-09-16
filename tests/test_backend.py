@@ -726,6 +726,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     # Make sure that the GUI evaluates the context file correctly (which it does
     # upon opening a database directory).
     win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
 
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
