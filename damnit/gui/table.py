@@ -214,9 +214,15 @@ class TableView(QtWidgets.QTableView):
                                                   QtWidgets.QSizePolicy.Minimum)
 
         # Remove the static columns
-        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
-                                            if x[0] not in static_columns]))
-        self.add_new_columns(columns, statuses)
+        new_columns = []
+        new_statuses = []
+        for col, status in zip(columns, statuses):
+            if col in static_columns:
+                continue
+            new_columns.append(col)
+            new_statuses.append(status)
+
+        self.add_new_columns(new_columns, new_statuses)
 
     def get_column_states(self):
         column_states = { }
