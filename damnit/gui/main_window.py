@@ -928,8 +928,7 @@ da-dev@xfel.eu"""
 
             try:
                 reqs = dlg.extraction_requests()
-                for req in reqs:
-                    submitter.submit(req)
+                submitter.submit_multi(reqs)
             except Exception as e:
                 log.error("Error launching processing", exc_info=True)
                 self.show_status_message(f"Error launching processing: {e}",

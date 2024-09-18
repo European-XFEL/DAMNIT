@@ -110,6 +110,10 @@ def main(argv=None):
         help="Run processing in subprocesses on this node, instead of via Slurm"
     )
     reprocess_ap.add_argument(
+        '--concurrent-jobs', type=int, default=30,
+        help="The maximum number of jobs that will run at once (default 30)"
+    )
+    reprocess_ap.add_argument(
         'run', nargs='+',
         help="Run number, e.g. 96. Multiple runs can be specified at once, "
              "or pass 'all' to reprocess all runs in the database."
@@ -226,7 +230,8 @@ def main(argv=None):
 
         from .backend.extraction_control import reprocess
         reprocess(
-            args.run, args.proposal, args.match, args.mock, args.watch, args.direct
+            args.run, args.proposal, args.match, args.mock, args.watch, args.direct,
+            limit_running=args.concurrent_jobs,
         )
 
     elif args.subcmd == 'read-context':
