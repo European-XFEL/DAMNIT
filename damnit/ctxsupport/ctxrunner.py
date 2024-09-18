@@ -122,10 +122,10 @@ class MyMetadataClient:
 
         return response.json()["name"]
 
-    def techniques_name(self, run: int) -> str:
+    def technique_names(self, run: int) -> str:
         return ', '.join(t['name'] for t in self._techniques_info(run))
 
-    def techniques_identifier(self, run: int) -> str:
+    def technique_identifiers(self, run: int) -> str:
         return ', '.join(t['identifier'] for t in self._techniques_info(run))
 
 
