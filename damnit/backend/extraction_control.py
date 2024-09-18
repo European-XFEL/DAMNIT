@@ -170,7 +170,7 @@ class ExtractionSubmitter:
             '--wrap', shlex.join(req.python_cmd())
         ]
 
-    def submit_multi(self, reqs: list[ExtractionRequest], limit_running=30):
+    def submit_multi(self, reqs: list[ExtractionRequest], limit_running=15):
         """Submit multiple requests using Slurm job arrays.
         """
         out = []

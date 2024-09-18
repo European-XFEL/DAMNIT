@@ -110,8 +110,8 @@ def main(argv=None):
         help="Run processing in subprocesses on this node, instead of via Slurm"
     )
     reprocess_ap.add_argument(
-        '--concurrent-jobs', type=int, default=30,
-        help="The maximum number of jobs that will run at once (default 30)"
+        '--concurrent-jobs', type=int, default=15,
+        help="The maximum number of jobs that will run at once (default 15)"
     )
     reprocess_ap.add_argument(
         'run', nargs='+',
