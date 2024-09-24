@@ -44,7 +44,6 @@ def test_connect_to_kafka(mock_db, qtbot):
          patch(f"{pkg}.KafkaProducer") as kafka_prd:
         win = MainWindow(db_dir, False)
         qtbot.addWidget(win)
-        win.close()
         kafka_cns.assert_not_called()
         kafka_prd.assert_not_called()
 
@@ -52,7 +51,6 @@ def test_connect_to_kafka(mock_db, qtbot):
          patch(f"{pkg}.KafkaProducer") as kafka_prd:
         win = MainWindow(db_dir, True)
         qtbot.addWidget(win)
-        win.close()
         kafka_cns.assert_called_once()
         kafka_prd.assert_called_once()
 
