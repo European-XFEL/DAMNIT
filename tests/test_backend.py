@@ -399,13 +399,9 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     def run_type(run, x: "mymdc#run_type"):
         return x
 
-    @Variable(title="Run Technique IDs")
-    def technique_ids(run, x: "mymdc#technique_identifiers"):
-        return x
-
-    @Variable(title="Run Technique names")
-    def technique_names(run, x: "mymdc#technique_names"):
-        return x
+    @Variable(title="Run Techniques")
+    def techniques(run, x: "mymdc#techniques"):
+        return ', '.join(t['name'] for t in x)
     """
     mymdc_ctx = mkcontext(mymdc_code)
 
@@ -446,8 +442,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     assert results.cells["sample"].data == "mithril"
     assert results.cells["run_type"].data == "alchemy"
-    assert results.cells["technique_ids"].data == "PaNET01168, PaNET01188"
-    assert results.cells["technique_names"].data == "SFX, SAXS"
+    assert results.cells["techniques"].data == "SFX, SAXS"
 
 
 def test_return_bool(mock_run, tmp_path):

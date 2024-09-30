@@ -91,12 +91,11 @@ arguments if they have the right _annotations_, currently.
 
 - `mymdc#run_type`: The run type from myMdC.
 - `mymdc#sample_name`: The sample name from myMdC.
-- `mymdc#technique_identifiers`: list of
+- `mymdc#techniques`: list of
   [technique](https://expands-eu.github.io/ExPaNDS-experimental-techniques-ontology/index-en.html)
-  identifiers associated with the run.
-- `mymdc#technique_names`: list of
-  [technique](https://expands-eu.github.io/ExPaNDS-experimental-techniques-ontology/index-en.html)
-  names associated with the run.
+  associated with the run. Each technique listed is a `dict` containing the
+  following keys: `description`, `flg_available`, `id`, `identifier`, `name`,
+  `runs_techniques_id`, `url`.
 
 You can also use annotations to express a dependency between `Variable`'s using
 the `var#<name>` annotation:

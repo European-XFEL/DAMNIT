@@ -95,7 +95,7 @@ class MyMetadataClient:
         return json["runs"][0]
 
     @_cache
-    def _techniques_info(self, run: int) -> dict[str, Any]:
+    def techniques(self, run: int) -> dict[str, Any]:
         run_info = self._run_info(run)
         response = requests.get(f'{self.server}/api/mymdc/runs/{run_info["id"]}',
                                 headers=self._headers, timeout=self.timeout)
@@ -121,12 +121,6 @@ class MyMetadataClient:
         response.raise_for_status()
 
         return response.json()["name"]
-
-    def technique_names(self, run: int) -> str:
-        return ', '.join(t['name'] for t in self._techniques_info(run))
-
-    def technique_identifiers(self, run: int) -> str:
-        return ', '.join(t['identifier'] for t in self._techniques_info(run))
 
 
 class ContextFileErrors(RuntimeError):
@@ -191,7 +185,7 @@ class ContextFile:
         for name, var in self.vars.items():
             mymdc_args = var.arg_dependencies("mymdc#")
             for arg_name, annotation in mymdc_args.items():
-                if annotation not in ["sample_name", "run_type", "techniques_name", "techniques_identifier"]:
+                if annotation not in ["sample_name", "run_type", "techniques"]:
                     problems.append(f"Argument '{arg_name}' of variable '{name}' has an invalid MyMdC dependency: '{annotation}'")
 
         if problems:
