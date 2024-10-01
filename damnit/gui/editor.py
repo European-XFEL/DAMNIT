@@ -12,8 +12,6 @@ from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
 
 from ..backend.extract_data import get_context_file
-from ..ctxsupport.ctxrunner import extract_error_info
-from ..context import ContextFile
 
 
 class ContextTestResult(Enum):
@@ -24,7 +22,7 @@ class ContextTestResult(Enum):
 
 class ContextFileCheckerThread(QThread):
     # ContextTestResult, traceback, lineno, offset, checked_code
-    check_result = pyqtSignal(object, str, int, int, str)
+    check_result = pyqtSignal(object, str, int, int, str, object)
 
     def __init__(self, code, db_dir, context_python, parent=None):
         super().__init__(parent)
@@ -33,29 +31,15 @@ class ContextFileCheckerThread(QThread):
         self.context_python = context_python
 
     def run(self):
-        error_info = None
-
-        # If a different environment is not specified, we can evaluate the
-        # context file directly.
-        if self.context_python is None:
-            try:
-                ContextFile.from_str(self.code)
-            except:
-                # Extract the error information
-                error_info = extract_error_info(*sys.exc_info())
-
-        # Otherwise, write it to a temporary file to evaluate it from another
-        # process.
-        else:
-            with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
-                ctx_path = Path(ctx_file.name)
-                ctx_path.write_text(self.code)
-
-                ctx, error_info = get_context_file(ctx_path, self.context_python)
+        # Write the context to a temporary file to evaluate it from another process.
+        with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
+            ctx_path = Path(ctx_file.name)
+            ctx_path.write_text(self.code)
+            ctx, error_info = get_context_file(ctx_path, self.context_python)
 
         if error_info is not None:
             stacktrace, lineno, offset = error_info
-            self.check_result.emit(ContextTestResult.ERROR, stacktrace, lineno, offset, self.code)
+            self.check_result.emit(ContextTestResult.ERROR, stacktrace, lineno, offset, self.code, None)
             return
 
         # If that worked, try pyflakes
@@ -74,11 +58,11 @@ class ContextFileCheckerThread(QThread):
             res, info = ContextTestResult.WARNING, pyflakes_output
         else:
             res, info = ContextTestResult.OK, None
-        self.check_result.emit(res, info, -1, -1, self.code)
+        self.check_result.emit(res, info, -1, -1, self.code, ctx)
 
 
 class Editor(QsciScintilla):
-    check_result = pyqtSignal(object, str, str)  # result, info, checked_code
+    check_result = pyqtSignal(object, str, str, object)  # result, info, checked_code, context
 
     def __init__(self):
         super().__init__()
@@ -115,7 +99,7 @@ class Editor(QsciScintilla):
         thread.finished.connect(thread.deleteLater)
         thread.start()
 
-    def on_test_result(self, res, info, lineno, offset, checked_code):
+    def on_test_result(self, res, info, lineno, offset, checked_code, context):
         if res is ContextTestResult.ERROR:
             if lineno != -1:
                 # The line numbers reported by Python are 1-indexed so we
@@ -128,4 +112,4 @@ class Editor(QsciScintilla):
                 if lineno != self.getCursorPosition()[0]:
                     self.setCursorPosition(lineno, offset)
 
-        self.check_result.emit(res, info, checked_code)
+        self.check_result.emit(res, info, checked_code, context)

@@ -81,28 +81,26 @@ class ContextFileUnpickler(pickle.Unpickler):
         else:
             return super().find_class(module, name)
 
-def get_context_file(ctx_path: Path, context_python=None):
-    ctx_path = ctx_path.absolute()
+
+def get_context_file(ctx_path: str | Path, context_python=None):
+    ctx_path = Path(ctx_path).absolute()
+    context_python = context_python or sys.executable
     db_dir = ctx_path.parent
 
-    if context_python is None:
-        db = DamnitDB.from_dir(ctx_path.parent)
-        with db.conn:
-            ctx = ContextFile.from_py_file(ctx_path)
+    with TemporaryDirectory() as d:
+        out_file = Path(d) / "context.pickle"
+        run_in_subprocess(
+            [context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file),],
+            cwd=db_dir,
+            check=True,
+        )
 
-        db.close()
-        return ctx, None
-    else:
-        with TemporaryDirectory() as d:
-            out_file = Path(d) / "context.pickle"
-            run_in_subprocess([context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)],
-                              cwd=db_dir, check=True)
+        with out_file.open("rb") as f:
+            unpickler = ContextFileUnpickler(f)
+            ctx, error_info = unpickler.load()
 
-            with out_file.open("rb") as f:
-                unpickler = ContextFileUnpickler(f)
-                ctx, error_info = unpickler.load()
+            return ctx, error_info
 
-                return ctx, error_info
 
 def load_reduced_data(h5_path):
     def get_dset_value(ds):
@@ -185,8 +183,10 @@ class Extractor:
             value_serializer=lambda d: pickle.dumps(d),
         )
         context_python = self.db.metameta.get("context_python")
-        self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
+        context_file = Path('context.py')
+        self.ctx_whole, error_info = get_context_file(context_file, context_python=context_python)
         assert error_info is None, error_info
+        self.db.save_context(context_file, self.ctx_whole)
 
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())

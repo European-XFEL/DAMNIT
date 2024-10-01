@@ -115,7 +115,11 @@ class TableView(QtWidgets.QTableView):
         deselected. The `for_restore` argument lets you specify which behaviour
         you want.
         """
-        column_index = self.damnit_model.find_column(name, by_title=True)
+        try:
+            column_index = self.damnit_model.find_column(name, by_title=True)
+        except KeyError:
+            log.error("Could not find column %r to set visibility", name)
+            return
 
         self.setColumnHidden(column_index, not visible)
 

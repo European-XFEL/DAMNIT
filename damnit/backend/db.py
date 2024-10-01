@@ -33,6 +33,7 @@ CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
 CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
 CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
 CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
+CREATE TABLE IF NOT EXISTS context(version INTEGER PRIMARY KEY, mtime REAL, size INTEGER, content TEXT, variables TEXT);
 """
 
 
@@ -349,6 +350,49 @@ class DamnitDB:
             """, (name, ))
 
             self.update_views()
+
+    def save_context(self, context_file: str | Path, context):
+        stat = Path(context_file).stat()
+        variables = context.vars_to_dict()
+
+        code, vars, mtime, size = self.load_context()
+        if (
+            context.code == code and
+            variables == vars and
+            stat.st_mtime == mtime and
+            stat.st_size == size
+        ):
+            return
+
+        with self.conn:
+            self.conn.execute("""
+            INSERT INTO context (mtime, size, content, variables) VALUES (?, ?, ?, ?)
+            """, (stat.st_mtime, stat.st_size, context.code, json.dumps(variables)))
+
+    def load_context(self, version: int = None):
+        with self.conn:
+            max_id = self.conn.execute('SELECT MAX(version) FROM context').fetchone()[0]
+
+            if max_id is None:
+                return (None, ) * 4
+
+            if version is None:
+                version = max_id
+            elif version < 0:
+                version += max_id
+            else:
+                # get the version requested
+                pass
+
+            row = self.conn.execute(
+                'SELECT * FROM context WHERE version = ?', (version, )
+            ).fetchone()
+
+        if not row:
+            return (None, ) * 4
+
+        _, mtime, size, content, variables = row
+        return content, json.loads(variables), mtime, size
 
 class MetametaMapping(MutableMapping):
     def __init__(self, conn):

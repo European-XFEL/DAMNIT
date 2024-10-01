@@ -1,15 +1,22 @@
 import logging
 import re
+import sys
 from pathlib import Path
+from subprocess import run
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
 
 from extra_data.read_machinery import find_proposal
+from natsort import natsorted
+from superqt.utils import thread_worker
+from superqt import QSearchableListWidget
 
-from ..context import RunData
+from ..backend.db import DamnitDB
 from ..backend.extraction_control import ExtractionRequest
+from ..context import RunData
+from .widgets import QtWaitingSpinner
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +24,27 @@ run_range_re = re.compile(r"(\d+)(-\d+)?$")
 
 RUNS_MSG = "Enter run numbers & ranges e.g. '17, 20-32'"
 
+
 deselected_vars = set()
+
+@thread_worker
+def get_context_file_vars(ctx_path: Path, db_path: Path):
+    db = DamnitDB(db_path)
+
+    def _vars(_path):
+        mtime, size = _path.stat().st_mtime, _path.stat().st_size
+        _, variables, last_mtime, last_size = db.load_context()
+
+        if mtime == last_mtime and size == last_size:
+            return variables
+
+    if (vars := _vars(ctx_path)) is None:
+        run([sys.executable, '-m', 'damnit.cli', 'read-context'])
+        if (vars := _vars(ctx_path)) is None:
+            # the context file probably contains errors
+            return {}
+
+    return {k: v for k, v in natsorted(vars.items(), key=lambda e: e[1]['title'])}
 
 
 def parse_run_ranges(ranges: str) -> list[int]:
@@ -76,10 +103,12 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None):
+    def __init__(self, proposal: str, runs: list[int], parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("Process runs")
+        self.setSizeGripEnabled(True)
+        self.setMinimumSize(300, 200)
 
         main_vbox = QtWidgets.QVBoxLayout()
         self.setLayout(main_vbox)
@@ -106,7 +135,9 @@ class ProcessingDialog(QtWidgets.QDialog):
         grid1.addWidget(self.edit_runs, 1, 1)
         grid1.addWidget(self.runs_hint, 2, 0, 1, 2)
 
-        self.vars_list = QtWidgets.QListWidget()
+        self.vars_list = QSearchableListWidget()
+        self.vars_list.filter_widget.setPlaceholderText("Search variable")
+        self.vars_list.layout().setContentsMargins(0, 0, 0, 0)
         vbox2.addWidget(self.vars_list)
 
         self.btn_select_all = QtWidgets.QPushButton("Select all")
@@ -124,18 +155,40 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        for var_id, title in var_ids_titles:
-            itm = QtWidgets.QListWidgetItem(title)
-            itm.setData(Qt.UserRole, var_id)
-            itm.setCheckState(Qt.Unchecked if var_id in deselected_vars else Qt.Checked)
-            self.vars_list.addItem(itm)
-
-        self.vars_list.itemChanged.connect(self.validate_vars)
+        context_file = Path(self.parent()._context_path)
+        self.spinner = QtWaitingSpinner(self.vars_list.list_widget, modality=Qt.ApplicationModal)
+        vars_getter = get_context_file_vars(context_file, self.parent().db.path)
+        vars_getter.returned.connect(self.update_list_items)
+        vars_getter.start()
+        self.spinner.start()
 
         self.validate_runs()
-        self.validate_vars()
 
         self.edit_runs.setFocus()
+
+    def _stop_spinner(self):
+        if self.spinner.isSpinning():
+            self.spinner.stop()
+            self.spinner.hide()
+
+    def update_list_items(self, vars):
+        self._stop_spinner()
+
+        self.vars_list.clear()
+
+        for var_name, attrs in vars.items():
+            item = QtWidgets.QListWidgetItem(attrs['title'])
+            item.setData(Qt.UserRole, var_name)
+            item.setCheckState(Qt.Unchecked if var_name in deselected_vars else Qt.Checked)
+            self.vars_list.addItem(item)
+
+        self.validate_vars()
+
+        if len(vars) == 0:
+            self.runs_hint.setText(
+                f'{self.runs_hint.text()}\n\n'
+                'Context file has no Variable or contains errors!'
+            )
 
     def validate_runs(self):
         runs = parse_run_ranges(self.edit_runs.text())
@@ -210,7 +263,6 @@ class ProcessingDialog(QtWidgets.QDialog):
         for req in l[1:]:
             req.update_vars = False
         return l
-
 
 
 if __name__ == '__main__':
