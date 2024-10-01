@@ -12,8 +12,6 @@ from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
 
 from ..backend.extract_data import get_context_file
-from ..ctxsupport.ctxrunner import extract_error_info
-from ..context import ContextFile
 
 
 class ContextTestResult(Enum):
@@ -33,25 +31,14 @@ class ContextFileCheckerThread(QThread):
         self.context_python = context_python
 
     def run(self):
-        error_info = None
-
-        # If a different environment is not specified, we can evaluate the
-        # context file directly.
-        if self.context_python is None:
-            try:
-                ContextFile.from_str(self.code)
-            except:
-                # Extract the error information
-                error_info = extract_error_info(*sys.exc_info())
-
-        # Otherwise, write it to a temporary file to evaluate it from another
+        # Write the context to a temporary file to evaluate it from another
         # process.
-        else:
-            with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
-                ctx_path = Path(ctx_file.name)
-                ctx_path.write_text(self.code)
+        with NamedTemporaryFile(prefix=".tmp_ctx", dir=self.db_dir) as ctx_file:
+            ctx_path = Path(ctx_file.name)
+            ctx_path.write_text(self.code)
 
-                ctx, error_info = get_context_file(ctx_path, self.context_python)
+            context_python = sys.executable if self.context_python is None else self.context_python
+            ctx, error_info = get_context_file(ctx_path, context_python)
 
         if error_info is not None:
             stacktrace, lineno, offset = error_info
