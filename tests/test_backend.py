@@ -398,6 +398,10 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     @Variable(title="Run type")
     def run_type(run, x: "mymdc#run_type"):
         return x
+
+    @Variable(title="Run Techniques")
+    def techniques(run, x: "mymdc#techniques"):
+        return ', '.join(t['name'] for t in x)
     """
     mymdc_ctx = mkcontext(mymdc_code)
 
@@ -416,11 +420,16 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert headers["X-API-key"] == "foo"
 
         if "proposals/by_number" in url:
-            result = dict(runs=[dict(sample_id=1, experiment_id=1)])
+            result = dict(runs=[dict(id=1, sample_id=1, experiment_id=1)])
         elif "samples" in url:
             result = dict(name="mithril")
         elif "experiments" in url:
             result = dict(name="alchemy")
+        elif "/runs/" in url:
+            result = {'techniques': [
+                {'identifier': 'PaNET01168', 'name': 'SFX'},
+                {'identifier': 'PaNET01188', 'name': 'SAXS'},
+            ]}
 
         response = MagicMock()
         response.json.return_value = result
@@ -430,8 +439,10 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with patch.object(requests, "get", side_effect=mock_get), \
          patch.object(ed.read_machinery, "find_proposal", return_value=tmp_path):
         results = results_create(mymdc_ctx)
+
     assert results.cells["sample"].data == "mithril"
     assert results.cells["run_type"].data == "alchemy"
+    assert results.cells["techniques"].data == "SFX, SAXS"
 
 
 def test_return_bool(mock_run, tmp_path):

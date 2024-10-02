@@ -76,16 +76,26 @@ Variable functions can return any of:
 
 The functions must always take in one argument, `run`, to which is passed a
 [`DataCollection`](https://extra-data.readthedocs.io/en/latest/reading_files.html#data-structure)
-of the data in the run.  In addition, a function can take some other special
-arguments if they have the right _annotations_:
+of the data in the run. In addition, a function can take some other special
+arguments if they have the right _annotations_, currently.  
+`meta` accesses internal arguments:
 
 - `meta#run_number`: The number of the current run being processed.
 - `meta#proposal`: The number of the current proposal.
 - `meta#proposal_dir`: The root
   [Path](https://docs.python.org/3/library/pathlib.html) to the current
   proposal.
-- `mymdc#sample_name`: The sample name from myMdC.
+
+`mymdc` requests information from the EuXFEL data management portal
+[MyMDC](https://in.xfel.eu/metadata/):
+
 - `mymdc#run_type`: The run type from myMdC.
+- `mymdc#sample_name`: The sample name from myMdC.
+- `mymdc#techniques`: list of
+  [technique](https://expands-eu.github.io/ExPaNDS-experimental-techniques-ontology/index-en.html)
+  associated with the run. Each technique listed is a `dict` containing the
+  following keys: `description`, `flg_available`, `id`, `identifier`, `name`,
+  `runs_techniques_id`, `url`.
 
 You can also use annotations to express a dependency between `Variable`'s using
 the `var#<name>` annotation:

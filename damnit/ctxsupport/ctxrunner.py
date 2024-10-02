@@ -17,8 +17,10 @@ import time
 import traceback
 from datetime import timezone
 from enum import Enum
+from functools import wraps
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import extra_data
@@ -70,45 +72,55 @@ class MyMetadataClient:
 
         self._headers = { "X-API-key": self.token }
 
-    def _run_info(self, run):
-        key = (run, "run_info")
-        if key not in self._cache:
-            response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
-                                    headers=self._headers, timeout=self.timeout)
-            response.raise_for_status()
-            json = response.json()
-            if len(json["runs"]) == 0:
-                raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
+    @staticmethod
+    def _cache(func):
+        @wraps(func)
+        def wrapper(self, run):
+            key = (run, func.__name__)
+            if key in self._cache:
+                return self._cache[key]
+            self._cache[key] = func(self, run)
+            return self._cache[key]
+        return wrapper
 
-            self._cache[key] = json["runs"][0]
+    @_cache
+    def _run_info(self, run: int) -> dict[str, Any]:
+        response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
+                                headers=self._headers, timeout=self.timeout)
+        response.raise_for_status()
+        json = response.json()
+        if len(json["runs"]) == 0:
+            raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
 
-        return self._cache[key]
+        return json["runs"][0]
 
-    def sample_name(self, run):
-        key = (run, "sample_name")
-        if key not in self._cache:
-            run_info = self._run_info(run)
-            sample_id = run_info["sample_id"]
-            response = requests.get(f"{self.server}/api/mymdc/samples/{sample_id}",
-                                    headers=self._headers, timeout=self.timeout)
-            response.raise_for_status()
+    @_cache
+    def techniques(self, run: int) -> dict[str, Any]:
+        run_info = self._run_info(run)
+        response = requests.get(f'{self.server}/api/mymdc/runs/{run_info["id"]}',
+                                headers=self._headers, timeout=self.timeout)
+        response.raise_for_status()
+        return response.json()['techniques']
 
-            self._cache[key] = response.json()["name"]
+    @_cache
+    def sample_name(self, run: int) -> str:
+        run_info = self._run_info(run)
+        sample_id = run_info["sample_id"]
+        response = requests.get(f"{self.server}/api/mymdc/samples/{sample_id}",
+                                headers=self._headers, timeout=self.timeout)
+        response.raise_for_status()
 
-        return self._cache[key]
+        return response.json()["name"]
 
-    def run_type(self, run):
-        key = (run, "run_type")
-        if key not in self._cache:
-            run_info = self._run_info(run)
-            experiment_id = run_info["experiment_id"]
-            response = requests.get(f"{self.server}/api/mymdc/experiments/{experiment_id}",
-                                    headers=self._headers, timeout=self.timeout)
-            response.raise_for_status()
+    @_cache
+    def run_type(self, run: int) -> str:
+        run_info = self._run_info(run)
+        experiment_id = run_info["experiment_id"]
+        response = requests.get(f"{self.server}/api/mymdc/experiments/{experiment_id}",
+                                headers=self._headers, timeout=self.timeout)
+        response.raise_for_status()
 
-            self._cache[key] = response.json()["name"]
-
-        return self._cache[key]
+        return response.json()["name"]
 
 
 class ContextFileErrors(RuntimeError):
@@ -173,7 +185,7 @@ class ContextFile:
         for name, var in self.vars.items():
             mymdc_args = var.arg_dependencies("mymdc#")
             for arg_name, annotation in mymdc_args.items():
-                if annotation not in ["sample_name", "run_type"]:
+                if annotation not in ["sample_name", "run_type", "techniques"]:
                     problems.append(f"Argument '{arg_name}' of variable '{name}' has an invalid MyMdC dependency: '{annotation}'")
 
         if problems:
@@ -301,12 +313,8 @@ class ContextFile:
                     elif annotation.startswith("mymdc#"):
                         if mymdc is None:
                             mymdc = MyMetadataClient(proposal)
-
-                        mymdc_field = annotation.removeprefix("mymdc#")
-                        if mymdc_field == "sample_name":
-                            kwargs[arg_name] = mymdc.sample_name(run_number)
-                        elif mymdc_field == "run_type":
-                            kwargs[arg_name] = mymdc.run_type(run_number)
+                        metadata = annotation.removeprefix('mymdc#')
+                        kwargs[arg_name] = getattr(mymdc, metadata)(run_number)
 
                     elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number
