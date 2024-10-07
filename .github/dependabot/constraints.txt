@@ -14,5 +14,5 @@ pytest-qt==4.4.0
 pytest-xvfb==3.0.0
 QScintilla==2.13.0
 supervisor==4.2.5
-termcolor==2.4.0
+termcolor==2.5.0
 xarray==2024.9.0
