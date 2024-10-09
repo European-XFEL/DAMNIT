@@ -30,6 +30,7 @@ import requests
 import xarray as xr
 import yaml
 
+from damnit_h5write import SummaryToWrite, ToWrite, writer_threads
 from damnit_ctx import RunData, Variable, Cell, isinstance_no_import
 
 log = logging.getLogger(__name__)
@@ -275,9 +276,11 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
+    def execute(self, run_data, run_number, proposal, input_vars, writers=()) -> 'Results':
         res = {'start_time': Cell(np.asarray(get_start_time(run_data)))}
         mymdc = None
+
+        self.queue_write('start_time', res['start_time'], writers)
 
         for name in self.ordered_vars():
             t0 = time.perf_counter()
@@ -348,7 +351,78 @@ class ContextFile:
                 t1 = time.perf_counter()
                 log.info("Computed %s in %.03f s", name, t1 - t0)
                 res[name] = data
+
+                self.queue_write(name, data, writers)
+
         return Results(res, self)
+
+    def queue_write(self, name, cell, writers):
+        summary_val, opts = self._prepare_hdf5(self._summarise(cell))
+        summary_entry = SummaryToWrite(name, summary_val, cell.summary_attrs(), opts)
+
+        ds_attrs, group_attrs = {}, {}
+        OBJ_TYPE_HINT = '_damnit_objtype'
+        obj = cell.data
+        if isinstance(obj, (xr.DataArray, xr.Dataset)):
+            if isinstance(obj, xr.DataArray):
+                # HDF5 doesn't allow slashes in names :(
+                if obj.name is not None and "/" in obj.name:
+                    obj.name = obj.name.replace("/", "_")
+                obj = _set_encoding(obj)
+                group_attrs[OBJ_TYPE_HINT] = DataType.DataArray.value
+            else:  # Dataset
+                vars_names = {}
+                for var_name, dataarray in obj.items():
+                    if var_name is not None and "/" in var_name:
+                        vars_names[var_name] = var_name.replace("/", "_")
+                    _set_encoding(dataarray)
+                obj = obj.rename_vars(vars_names)
+                group_attrs[OBJ_TYPE_HINT] = DataType.Dataset.value
+
+            data_entry = ToWrite(name, obj, group_attrs)
+        else:
+            if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
+                value = figure2array(obj)
+                group_attrs[OBJ_TYPE_HINT] = DataType.Image.value
+            elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+                # we want to compresss plotly figures in HDF5 files
+                # so we need to convert the data to array of uint8
+                value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
+                group_attrs[OBJ_TYPE_HINT] = DataType.PlotlyFigure.value
+            elif isinstance(obj, str):
+                value = obj
+            else:
+                value = np.asarray(obj)
+
+            arr, compression_opts = self._prepare_hdf5(value)
+            data_entry = ToWrite(name, arr, group_attrs, compression_opts)
+
+        for writer in writers:
+            writer.queue.put(summary_entry)
+            if not writer.reduced_only:
+                writer.queue.put(data_entry)
+
+    @staticmethod
+    def _summarise(cell):
+        if (summary_val := cell.get_summary()) is not None:
+            return summary_val
+
+        # If a summary wasn't specified, try some default fallbacks
+        return default_summary(cell.data)
+
+    @staticmethod
+    def _prepare_hdf5(obj):
+        if isinstance(obj, str):
+            return np.array(obj, dtype=h5py.string_dtype()), {}
+        elif isinstance(obj, PNGData):  # Thumbnail
+            return np.frombuffer(obj.data, dtype=np.uint8), {}
+        # Anything else should already be an array
+        elif obj.ndim > 0 and (
+                np.issubdtype(obj.dtype, np.number) or
+                np.issubdtype(obj.dtype, np.bool_)):
+            return obj, COMPRESSION_OPTS
+        else:
+            return obj, {}
 
 
 def get_start_time(xd_run):
@@ -475,6 +549,32 @@ def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
     return data_array
 
 
+def default_summary(data):
+    if isinstance(data, str):
+        return data
+    elif isinstance(data, xr.Dataset):
+        size = data.nbytes / 1e6
+        return f"Dataset ({size:.2f}MB)"
+    elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
+        # For the sake of space and memory we downsample images to a
+        # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
+        image_shape = data.get_size_inches() * data.dpi
+        zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
+        return figure2png(data, dpi=(data.dpi * zoom_ratio))
+    elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
+        return plotly2png(data)
+
+    elif isinstance(data, (np.ndarray, xr.DataArray)):
+        if data.ndim == 0:
+            return data
+        elif data.ndim == 2:
+            return generate_thumbnail(np.nan_to_num(data))
+        else:
+            return f"{data.dtype}: {data.shape}"
+
+    return None
+
+
 class Results:
     def __init__(self, cells, ctx):
         self.cells = cells
@@ -499,30 +599,7 @@ class Results:
             return summary_val
 
         # If a summary wasn't specified, try some default fallbacks
-        data = cell.data
-        if isinstance(data, str):
-            return data
-        elif isinstance(data, xr.Dataset):
-            size = data.nbytes / 1e6
-            return f"Dataset ({size:.2f}MB)"
-        elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
-            # For the sake of space and memory we downsample images to a
-            # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
-            image_shape = data.get_size_inches() * data.dpi
-            zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-            return figure2png(data, dpi=(data.dpi * zoom_ratio))
-        elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
-            return plotly2png(data)
-
-        elif isinstance(data, (np.ndarray, xr.DataArray)):
-            if data.ndim == 0:
-                return data
-            elif data.ndim == 2:
-                return generate_thumbnail(np.nan_to_num(data))
-            else:
-                return f"{data.dtype}: {data.shape}"
-
-        return None
+        return default_summary(cell.data)
 
     def save_hdf5(self, hdf5_path, reduced_only=False):
         xarray_dsets = []
@@ -703,12 +780,11 @@ def main(argv=None):
             actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
             run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
 
-        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
+        with writer_threads(args.save, args.save_reduced) as writers:
+            res = ctx.execute(
+                run_dc, args.run, args.proposal, input_vars={}, writers=writers
+            )
 
-        for path in args.save:
-            res.save_hdf5(path)
-        for path in args.save_reduced:
-            res.save_hdf5(path, reduced_only=True)
     elif args.subcmd == "ctx":
         error_info = None
 
