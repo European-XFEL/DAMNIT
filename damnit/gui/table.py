@@ -614,7 +614,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
-        title = var_info['title']
+        title = var_info['title'] or col_id
         try:
             col_ix = self.find_column(col_id)
         except KeyError:
