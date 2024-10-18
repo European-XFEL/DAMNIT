@@ -6,6 +6,7 @@ file (see ctxrunner.py).
 """
 import argparse
 import copy
+import getpass
 import os
 import logging
 import pickle
@@ -265,13 +266,15 @@ def main(argv=None):
     # Hide some logging from Kafka to make things more readable
     logging.getLogger('kafka').setLevel(logging.WARNING)
 
-    print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
+    username = getpass.getuser()
+    hostname = socket.gethostname()
+    print(f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {hostname} -----", file=sys.stderr)
     log.info(f"run_data={args.run_data}, match={args.match}")
     if args.mock:
         log.info("Using mock run object for testing")
     if args.cluster_job:
-        log.info("Extracting cluster variables in Slurm job %s on %s",
-                 os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
+        log.info("Extracting cluster variables in Slurm job %s",
+                 os.environ.get('SLURM_JOB_ID', '?'))
 
     extr = Extractor()
     if args.update_vars:
