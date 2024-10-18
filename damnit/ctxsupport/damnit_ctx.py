@@ -50,6 +50,8 @@ class Variable:
     def __call__(self, func):
         self.func = func
         self.name = func.__name__
+        if self.title is None:
+            self.title = self.name
         return self
 
     def check(self):
