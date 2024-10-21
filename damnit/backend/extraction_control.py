@@ -355,3 +355,73 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
             submitter.execute_in_slurm(req)
     else:
         submitter.submit_multi(reqs, limit_running=limit_running)
+
+
+class ExtractionJobTracker:
+    """Track running extraction jobs using their running/finished messages"""
+    def __init__(self):
+        self.jobs = {}  # keyed by processing_id
+
+    def on_processing_running(self, info):
+        proc_id = info['processing_id']
+        if info != self.jobs.get(proc_id, None):
+            self.jobs[proc_id] = info
+            self.on_run_jobs_changed(info['proposal'], info['run'])
+            log.debug("Processing running for p%s r%s on %s (%s)",
+                      info['proposal'], info['run'], info['hostname'], proc_id)
+
+    def on_processing_finished(self, info):
+        proc_id = info['processing_id']
+        info = self.jobs.pop(proc_id, None)
+        if info is not None:
+            self.on_run_jobs_changed(info['proposal'], info['run'])
+            log.debug("Processing finished for p%s r%s (%s)",
+                      info['proposal'], info['run'], proc_id)
+
+    def on_run_jobs_changed(self, proposal, run):
+        pass   # Implement in subclass
+
+    def check_slurm_jobs(self):
+        """Check for any Slurm jobs that exited without a 'finished' message"""
+        jobs_by_cluster = {}
+        for info in self.jobs.values():
+            if cluster := info['slurm_cluster']:
+                jobs_by_cluster.setdefault(cluster, []).append(info)
+
+        for cluster, infos in jobs_by_cluster.items():
+            jids = [i['slurm_job_id'] for i in infos]
+            # Passing 1 Job ID can give an 'Invalid job id' error if it has
+            # already left the queue. With multiple, we always get a list back.
+            if len(jids) == 1:
+                jids.append("1")
+
+            cmd = ["squeue", "--clusters", cluster, "--jobs=" + ",".join(jids),
+                   "--format=%i %T", "--noheader"]
+            self.squeue_check_jobs(cmd, infos)
+
+    # Running the squeue subprocess is separated here so GUI code can override
+    # it, to avoid blocking the event loop if squeue is slow for any reason.
+    def squeue_check_jobs(self, cmd, jobs_to_check):
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            log.warning("Error calling squeue")
+            return
+
+        self.process_squeue_output(res.stdout, jobs_to_check)
+
+    def process_squeue_output(self, stdout: str, jobs_to_check):
+        """Inspect squeue output to clean up crashed jobs"""
+        still_running = set()
+        for line in stdout.splitlines():
+            job_id, status = line.strip().split()
+            if status == 'RUNNING':
+                still_running.add(job_id)
+
+        for info in jobs_to_check:
+            proc_id = info['processing_id']
+            job_id = info['slurm_job_id']
+            if (proc_id in self.jobs) and (job_id not in still_running):
+                del self.jobs[proc_id]
+                self.on_run_jobs_changed(info['proposal'], info['run'])
+                log.info("Slurm job %s on %s (%s) crashed or was cancelled",
+                         info['slurm_job_id'], info['slurm_cluster'], proc_id)
