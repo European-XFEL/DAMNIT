@@ -127,6 +127,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
+        self.stop_watching_context_file()
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -301,14 +302,18 @@ da-dev@xfel.eu"""
             self.reload_context()
 
     def start_watching_context_file(self):
-        if self.check_context_file_timer is not None:
-            self.check_context_file_timer.stop()
-            self.check_context_file_timer.deleteLater()
+        self.stop_watching_context_file()  # Only 1 timer at a time
 
         self.check_context_file_timer = tmr = QtCore.QTimer(self)
         tmr.setInterval(30_000)
         tmr.timeout.connect(self.poll_context_file)
         tmr.start()
+
+    def stop_watching_context_file(self):
+        if self.check_context_file_timer is not None:
+            self.check_context_file_timer.stop()
+            self.check_context_file_timer.deleteLater()
+            self.check_context_file_timer = None
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
