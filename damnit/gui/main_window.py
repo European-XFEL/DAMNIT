@@ -854,9 +854,9 @@ da-dev@xfel.eu"""
             if saving := test_result is not ContextTestResult.ERROR:
                 self._context_path.write_text(self._context_code_to_save)
                 self.mark_context_saved()
+                self.context_saved.emit()
             self._context_code_to_save = None
             self.save_context_finished.emit(saving)
-            self.context_saved.emit()
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
