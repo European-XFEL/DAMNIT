@@ -49,6 +49,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
     save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
+    check_context_file_timer = None
+    vars_ctx_size_mtime = None
+    editor_ctx_size_mtime = None
 
     db = None
     db_id = None
@@ -87,6 +90,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
+        self.save_context_finished.connect(self._save_context_finished)
+
         self.table = None
         
         self.zulip_messenger = None
@@ -119,6 +124,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
         self.stop_update_listener_thread()
+        self.stop_watching_context_file()
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -259,9 +265,19 @@ da-dev@xfel.eu"""
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
         self.launch_update_computed_vars()
+        self.start_watching_context_file()
 
-    def launch_update_computed_vars(self):
+    def _save_context_finished(self, saved):
+        if saved:
+            self.launch_update_computed_vars()
+
+    def launch_update_computed_vars(self, ctx_size_mtime=None):
+        # Triggered when we open a proposal & when saving the context file
         log.debug("Launching subprocess to read variables from context file")
+        # Store the size & mtime before processing the file: better to capture
+        # this just before a change and process the same version twice than
+        # just after & potentially miss a change.
+        self.vars_ctx_size_mtime = ctx_size_mtime or self.get_context_size_mtime()
         proc = QtCore.QProcess(parent=self)
         # Show stdout & stderr with the parent process
         proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
@@ -269,6 +285,35 @@ da-dev@xfel.eu"""
         proc.setWorkingDirectory(str(self.context_dir))
         proc.start(sys.executable, ['-m', 'damnit.cli', 'read-context'])
         proc.closeWriteChannel()
+        # The subprocess will send updates for any changes: see .handle_update()
+
+    def get_context_size_mtime(self):
+        st = self._context_path.stat()
+        return st.st_size, st.st_mtime
+
+    def poll_context_file(self):
+        size_mtime = self.get_context_size_mtime()
+        if self.vars_ctx_size_mtime != size_mtime:
+            log.info("Context file changed, updating computed variables")
+            self.launch_update_computed_vars(size_mtime)
+
+        if (self.editor_ctx_size_mtime != size_mtime) and self._context_is_saved:
+            log.info("Context file changed, reloading editor")
+            self.reload_context()
+
+    def start_watching_context_file(self):
+        self.stop_watching_context_file()  # Only 1 timer at a time
+
+        self.check_context_file_timer = tmr = QtCore.QTimer(self)
+        tmr.setInterval(30_000)
+        tmr.timeout.connect(self.poll_context_file)
+        tmr.start()
+
+    def stop_watching_context_file(self):
+        if self.check_context_file_timer is not None:
+            self.check_context_file_timer.stop()
+            self.check_context_file_timer.deleteLater()
+            self.check_context_file_timer = None
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
@@ -792,13 +837,31 @@ da-dev@xfel.eu"""
         self.on_tab_changed(self._tab_widget.currentIndex())
         self._context_is_saved = False
 
+    def _ctx_contents_size_mtime(self):
+        """Get the contents of the context file, plus its size & mtime"""
+        # There's no way to do this atomically, so we stat the file before &
+        # after reading and check that the results match.
+        size_mtime_before = self.get_context_size_mtime()
+        for _ in range(20):
+            contents = self._context_path.read_text()
+            size_mtime_after = self.get_context_size_mtime()
+            if size_mtime_after == size_mtime_before:
+                return contents, size_mtime_after
+
+            size_mtime_before = size_mtime_after
+
+        raise RuntimeError(
+            "Could not get consistent filesystem metadata for context file"
+        )
+
     def reload_context(self):
         if not self._context_path.is_file():
             self.show_status_message("No context.py file found")
             return
-        self._editor.setText(self._context_path.read_text())
+        contents, size_mtime = self._ctx_contents_size_mtime()
+        self._editor.setText(contents)
         self.test_context()
-        self.mark_context_saved()
+        self.mark_context_saved(size_mtime)
 
     def test_context(self):
         self.set_error_icon('wait')
@@ -853,13 +916,14 @@ da-dev@xfel.eu"""
         self.test_context()
         # If the check passes, .test_context_result() saves the file
 
-    def mark_context_saved(self):
+    def mark_context_saved(self, ctx_size_mtime=None):
         self._context_is_saved = True
         self._tabbar_style.enable_bold = False
         self._tab_widget.setTabText(1, "Context file")
         self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("black"))
         self._editor_status_message = str(self._context_path.resolve())
         self.on_tab_changed(self._tab_widget.currentIndex())
+        self.editor_ctx_size_mtime = ctx_size_mtime or self.get_context_size_mtime()
 
     def save_value(self, prop, run, name, value):
         if self.db is None:
