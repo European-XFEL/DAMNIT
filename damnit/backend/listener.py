@@ -147,6 +147,11 @@ def listen():
     file_handler.setFormatter(formatter)
     logging.root.addHandler(file_handler)
 
+    # Ensure that the log file is writable by everyone (so that different users
+    # can start the backend).
+    if os.stat("amore.log").st_uid == os.getuid():
+        os.chmod("amore.log", 0o666)
+
     log.info(f"Running on {platform.node()} under user {getpass.getuser()}, PID {os.getpid()}")
     try:
         with EventProcessor() as processor:
@@ -158,12 +163,6 @@ def listen():
 
     # Flush all logs
     logging.shutdown()
-
-    # Ensure that the log file is writable by everyone (so that different users
-    # can start the backend).
-    if os.stat("amore.log").st_uid == os.getuid():
-        os.chmod("amore.log", 0o666)
-
 
 if __name__ == '__main__':
     listen()
