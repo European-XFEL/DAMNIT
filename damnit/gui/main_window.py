@@ -54,7 +54,6 @@ class MainWindow(QtWidgets.QMainWindow):
     check_context_file_timer = None
     vars_ctx_size_mtime = None
     editor_ctx_size_mtime = None
-    updating_vars = False
 
     db = None
     db_id = None
@@ -273,7 +272,6 @@ da-dev@xfel.eu"""
     def launch_update_computed_vars(self, ctx_size_mtime=None):
         # Triggered when we open a proposal & when saving the context file
         log.debug("Launching subprocess to read variables from context file")
-        self.updating_vars = True
         # Store the size & mtime before processing the file: better to capture
         # this just before a change and process the same version twice than
         # just after & potentially miss a change.
@@ -281,14 +279,11 @@ da-dev@xfel.eu"""
         proc = QtCore.QProcess(parent=self)
         # Show stdout & stderr with the parent process
         proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
-        proc.finished.connect(self.done_update_computed_vars)
         proc.finished.connect(proc.deleteLater)
         proc.setWorkingDirectory(str(self.context_dir))
         proc.start(sys.executable, ['-m', 'damnit.cli', 'read-context'])
         proc.closeWriteChannel()
-
-    def done_update_computed_vars(self):
-        self.updating_vars = False
+        # The subprocess will send updates for any changes: see .handle_update()
 
     def get_context_size_mtime(self):
         st = self._context_path.stat()
@@ -296,7 +291,7 @@ da-dev@xfel.eu"""
 
     def poll_context_file(self):
         size_mtime = self.get_context_size_mtime()
-        if (self.vars_ctx_size_mtime != size_mtime) and not self.updating_vars:
+        if self.vars_ctx_size_mtime != size_mtime:
             log.info("Context file changed, updating computed variables")
             self.launch_update_computed_vars(size_mtime)
 
