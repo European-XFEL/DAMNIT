@@ -50,7 +50,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
     save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
-    context_saved = QtCore.pyqtSignal()
     check_context_file_timer = None
     vars_ctx_size_mtime = None
     editor_ctx_size_mtime = None
@@ -92,7 +91,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
-        self.context_saved.connect(self.launch_update_computed_vars)
+        self.save_context_finished.connect(self._save_context_finished)
 
         self.table = None
         
@@ -268,6 +267,10 @@ da-dev@xfel.eu"""
         self.context_dir_changed.emit(str(path))
         self.launch_update_computed_vars()
         self.start_watching_context_file()
+
+    def _save_context_finished(self, saved):
+        if saved:
+            self.launch_update_computed_vars()
 
     def launch_update_computed_vars(self, ctx_size_mtime=None):
         # Triggered when we open a proposal & when saving the context file
@@ -870,7 +873,6 @@ da-dev@xfel.eu"""
             if saving := test_result is not ContextTestResult.ERROR:
                 self._context_path.write_text(self._context_code_to_save)
                 self.mark_context_saved()
-                self.context_saved.emit()
             self._context_code_to_save = None
             self.save_context_finished.emit(saving)
 
