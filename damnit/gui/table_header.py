@@ -1,10 +1,77 @@
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QHeaderView, QMenu, QAction, QListWidgetItem, QWidgetAction, QPushButton
+from PyQt5.QtWidgets import QHeaderView, QMenu, QAction, QListWidgetItem, QWidgetAction, QPushButton, QHBoxLayout, QWidget
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QColor
 from superqt import QSearchableListWidget
 from fonticon_fa6 import FA6S
 from superqt.fonticon import icon
+
+
+class ToggleButtonsWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QHBoxLayout()
+        self.all_button = QPushButton('All')
+        self.none_button = QPushButton('None')
+        # Set buttons to be checkable (toggleable)
+        self.all_button.setCheckable(True)
+        self.none_button.setCheckable(True)
+
+        if all(item.checkState() == Qt.Checked for item in parent._list_items()):
+            self.all_button.setChecked(True)
+        elif all(item.checkState() == Qt.Unchecked for item in parent._list_items()):
+            self.on_none_clicked.setChecked(True)
+
+        # Set style sheets for different states
+        self.style_sheet = """
+            QPushButton {
+                padding: 5px;
+                border: 2px solid #8f8f91;
+                border-radius: 6px;
+                background-color: #f0f0f0;
+                min-width: 80px;
+            }
+            QPushButton:checked {
+                background-color: #4CAF50;
+                color: white;
+                border: 2px solid #45a049;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:checked:hover {
+                background-color: #45a049;
+            }
+        """
+        self.setStyleSheet(self.style_sheet)
+
+        self.all_button.clicked.connect(self.on_all_clicked)
+        self.none_button.clicked.connect(self.on_none_clicked)
+
+        layout.addWidget(self.all_button)
+        layout.addWidget(self.none_button)
+        self.setLayout(layout)
+
+    def on_all_clicked(self):
+        if self.all_button.isChecked():
+            self.none_button.setChecked(False)
+
+            for item in self.parent()._list_items():
+                item.setCheckState(Qt.Checked)
+        else:
+            # don't change state when clicking on checked button
+            self.all_button.setChecked(True)
+
+    def on_none_clicked(self):
+        if self.none_button.isChecked():
+            self.all_button.setChecked(False)
+
+            for item in self.parent()._list_items():
+                item.setCheckState(Qt.Unchecked)
+        else:
+            # don't change state when clicking on checked button
+            self.none_button.setChecked(True)
 
 
 class FilterStatus(QPushButton):
@@ -134,7 +201,7 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
 
     def filterAcceptsRow(self, source_row, source_parent):
         for col, expr in self.filters.items():
-            data = self.sourceModel().index(source_row, col, source_parent).data()
+            data = self.sourceModel().index(source_row, col, source_parent).data(Qt.UserRole)
             if not expr(data):
                 return False
         return True
@@ -146,49 +213,65 @@ class SearchMenu(QMenu):
         self.column = column
         self.model = model
 
-        action_all = QAction("All", self)
-        action_all.triggered.connect(self.onActionAllTriggered)
-        self.addAction(action_all)
-
         self.item_list = QSearchableListWidget()
         self.item_list.filter_widget.setPlaceholderText("Search")
         self.item_list.layout().setContentsMargins(0, 0, 0, 0)
         self.item_list.itemChanged.connect(self.selectionChanged)
 
-        unique_data = set()
-        for row in range(model.rowCount()):
-            _item = model.index(row, column)
-            if _item is None:
-                continue
-            data = _item.data()
-            # print(f'row:{row}, col:{self.column}, data:{data}')
-            unique_data.add(data)
-
-        for data in sorted(unique_data, key=lambda item: str(item) if item is not None else ''):
+        sel_values = self._unique_values(filtered=True, display=False)
+        for disp, data in sorted(self._unique_values()):
             item = QListWidgetItem()
             item.setData(Qt.UserRole, data)
-            item.setData(Qt.DisplayRole, str(data or ''))
-            item.setCheckState(Qt.Checked)
+            item.setData(Qt.DisplayRole, disp)
+            item.setCheckState(Qt.Checked if (data in sel_values) else Qt.Unchecked)
             self.item_list.addItem(item)
 
         list_action = QWidgetAction(self)
         list_action.setDefaultWidget(self.item_list)
+
+        self.all_none = ToggleButtonsWidget(self)
+        self.all_none.layout().setContentsMargins(0, 0, 0, 0)
+        action_all_none = QWidgetAction(self)
+        action_all_none.setDefaultWidget(self.all_none)
+
+        self.addAction(action_all_none)
         self.addAction(list_action)
 
-    @QtCore.pyqtSlot()
-    def onActionAllTriggered(self):
-        self.model.set_filter(self.column, None)
+    def _unique_values(self, filtered=False, display=True):
+        model = self.model if filtered else self.model.sourceModel()
+
+        values = set()
+        for row in range(model.rowCount()):
+            item = model.index(row, self.column)
+            if item is None:
+                continue
+            
+            if display:
+                value = (item.data(Qt.DisplayRole) or '', item.data(Qt.UserRole))
+            else:
+                value = item.data(Qt.UserRole)
+            values.add(value)
+        return values
+
+    def _list_items(self):
+        for idx in range(self.item_list.count()):
+            yield self.item_list.item(idx)
 
     @QtCore.pyqtSlot()
     def selectionChanged(self):
         selection = set()
-        for idx in range(self.item_list.count()):
-            item = self.item_list.item(idx)
-            if item.checkState() == Qt.Checked:
-                data = item.data(Qt.DisplayRole)
-                selection.add(item.data(Qt.DisplayRole))
+        all_selected = True
 
-        self.model.set_filter(self.column, lambda data: data in selection)
+        for item in self._list_items():
+            if item.checkState() == Qt.Checked:
+                selection.add(item.data(Qt.UserRole))
+            else:
+                all_selected = False
+        print(selection, [type(s) for s in selection])
+        if all_selected:
+            self.model.set_filter(self.column, None)
+        else:
+            self.model.set_filter(self.column, lambda data: data in selection)
 
 
 class HeaderView(QHeaderView):
