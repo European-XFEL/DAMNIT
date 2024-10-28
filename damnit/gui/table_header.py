@@ -1,13 +1,87 @@
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QHeaderView, QMenu, QAction, QListWidgetItem, QWidgetAction, QPushButton, QHBoxLayout, QWidget
+from PyQt5.QtWidgets import QHeaderView, QMenu, QAction, QListWidgetItem, QWidgetAction, QPushButton, QHBoxLayout, QWidget, QVBoxLayout, QLineEdit, QCheckBox
 from PyQt5.QtCore import Qt, QRect
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QDoubleValidator
 from superqt import QSearchableListWidget
 from fonticon_fa6 import FA6S
 from superqt.fonticon import icon
 
 
+class NumericRangeInput(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QVBoxLayout()
+
+        self.min_input = QLineEdit()
+        self.max_input = QLineEdit()
+        self.min_input.setPlaceholderText("Min")
+        self.max_input.setPlaceholderText("Max")
+        
+        # Create and set validator for numerical input
+        # Allow both positive and negative numbers with decimals
+        validator = QDoubleValidator()
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        self.min_input.setValidator(validator)
+        self.max_input.setValidator(validator)
+
+        self.include_nan = QCheckBox("include None")
+
+        # # Style the inputs
+        # style_sheet = """
+        #     QLineEdit {
+        #         padding: 5px;
+        #         border: 1px solid #ccc;
+        #         border-radius: 4px;
+        #         background-color: white;
+        #     }
+        #     QLineEdit:focus {
+        #         border: 1px solid #4CAF50;
+        #     }
+        #     QCheckBox {
+        #         spacing: 5px;
+        #     }
+        #     QCheckBox::indicator {
+        #         width: 13px;
+        #         height: 13px;
+        #     }
+        #     QCheckBox::indicator:unchecked {
+        #         border: 1px solid #ccc;
+        #         background-color: white;
+        #     }
+        #     QCheckBox::indicator:checked {
+        #         border: 1px solid #4CAF50;
+        #         background-color: #4CAF50;
+        #     }
+        # """
+        # self.setStyleSheet(style_sheet)
+
+        layout.addWidget(self.min_input)
+        layout.addWidget(self.max_input)
+        layout.addWidget(self.include_nan)
+        layout.setSpacing(10)
+        self.setLayout(layout)
+        
+    def get_values(self):
+        """Get the current values from the inputs"""
+        min_val = self.min_input.text()
+        max_val = self.max_input.text()
+        include_nan = self.include_nan.isChecked()
+        
+        # Convert to float if not empty
+        min_val = float(min_val) if min_val else None
+        max_val = float(max_val) if max_val else None
+        
+        return {
+            'min': min_val,
+            'max': max_val,
+            'include_nan': include_nan
+        }
+
+
 class ToggleButtonsWidget(QWidget):
+    toggled = QtCore.pyqtSignal(bool)  # all: True, none: False
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -48,17 +122,29 @@ class ToggleButtonsWidget(QWidget):
 
         self.all_button.clicked.connect(self.on_all_clicked)
         self.none_button.clicked.connect(self.on_none_clicked)
+        parent.selectionChanged.connect(self._check_selection)
 
         layout.addWidget(self.all_button)
         layout.addWidget(self.none_button)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
+
+    def _check_selection(self):
+        if all(e.checkState() == Qt.Checked for e in self.parent()._list_items()):
+            self.all_button.setChecked(True)
+        elif all(e.checkState() == Qt.Unchecked for e in self.parent()._list_items()):
+            self.none_button.setChecked(True)
+        else:
+            self.all_button.setChecked(False)
+            self.none_button.setChecked(False)
 
     def on_all_clicked(self):
         if self.all_button.isChecked():
             self.none_button.setChecked(False)
+            self.toggled.emit(True)
 
-            for item in self.parent()._list_items():
-                item.setCheckState(Qt.Checked)
+            # for item in self.parent()._list_items():
+            #     item.setCheckState(Qt.Checked)
         else:
             # don't change state when clicking on checked button
             self.all_button.setChecked(True)
@@ -66,9 +152,10 @@ class ToggleButtonsWidget(QWidget):
     def on_none_clicked(self):
         if self.none_button.isChecked():
             self.all_button.setChecked(False)
+            self.toggled.emit(False)
 
-            for item in self.parent()._list_items():
-                item.setCheckState(Qt.Unchecked)
+            # for item in self.parent()._list_items():
+            #     item.setCheckState(Qt.Unchecked)
         else:
             # don't change state when clicking on checked button
             self.none_button.setChecked(True)
@@ -208,6 +295,8 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
 
 
 class SearchMenu(QMenu):
+    selectionChanged = QtCore.pyqtSignal()
+
     def __init__(self, column, model, parent=None):
         super().__init__(parent)
         self.column = column
@@ -216,8 +305,9 @@ class SearchMenu(QMenu):
         self.item_list = QSearchableListWidget()
         self.item_list.filter_widget.setPlaceholderText("Search")
         self.item_list.layout().setContentsMargins(0, 0, 0, 0)
-        self.item_list.itemChanged.connect(self.selectionChanged)
+        self.item_list.itemChanged.connect(self.selection_changed)
 
+        all_numeric = True
         sel_values = self._unique_values(filtered=True, display=False)
         for disp, data in sorted(self._unique_values()):
             item = QListWidgetItem()
@@ -226,13 +316,24 @@ class SearchMenu(QMenu):
             item.setCheckState(Qt.Checked if (data in sel_values) else Qt.Unchecked)
             self.item_list.addItem(item)
 
+            if not isinstance(data, (int, float, type(None))):
+                all_numeric = False
+
         list_action = QWidgetAction(self)
         list_action.setDefaultWidget(self.item_list)
 
         self.all_none = ToggleButtonsWidget(self)
-        self.all_none.layout().setContentsMargins(0, 0, 0, 0)
+        self.all_none.toggled.connect(self.set_all_items)
         action_all_none = QWidgetAction(self)
         action_all_none.setDefaultWidget(self.all_none)
+
+        # all values in this column are numbers
+        if all_numeric:
+            self.min_max = NumericRangeInput(self)
+            action_min_max = QWidgetAction(self)
+            action_min_max.setDefaultWidget(self.min_max)
+            self.addAction(action_min_max)
+            self.addSeparator()
 
         self.addAction(action_all_none)
         self.addAction(list_action)
@@ -257,21 +358,34 @@ class SearchMenu(QMenu):
         for idx in range(self.item_list.count()):
             yield self.item_list.item(idx)
 
+    @QtCore.pyqtSlot(bool)
+    def set_all_items(self, checked):
+        for item in self._list_items():
+            item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+
     @QtCore.pyqtSlot()
-    def selectionChanged(self):
+    def selection_changed(self):
         selection = set()
         all_selected = True
+        none_selected = True
 
         for item in self._list_items():
             if item.checkState() == Qt.Checked:
                 selection.add(item.data(Qt.UserRole))
+                none_selected = False
             else:
                 all_selected = False
+
         print(selection, [type(s) for s in selection])
         if all_selected:
             self.model.set_filter(self.column, None)
+            # self.all_none.all_button.setChecked(True)
         else:
             self.model.set_filter(self.column, lambda data: data in selection)
+            # self.all_none.all_button.setChecked(False)
+            # if none_selected:
+            #     self.all_none.none_button.setChecked(True)
+        self.selectionChanged.emit()
 
 
 class HeaderView(QHeaderView):
