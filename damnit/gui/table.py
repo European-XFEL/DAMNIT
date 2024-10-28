@@ -16,7 +16,7 @@ from superqt.fonticon import icon
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
-from .table_header import HeaderView, FilterProxy, SearchMenu
+from .table_filter import FilterProxy, SearchMenu
 
 log = logging.getLogger(__name__)
 
@@ -30,312 +30,70 @@ COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 # filter by column values
 # group columns
 
+class HeaderView(QHeaderView):
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self.setSectionsMovable(True)  # TODO to activate that we need to update variable order in the table
+        self.setSectionResizeMode(QHeaderView.Interactive)
+        self.setSectionsClickable(True)
+        self.hovered_section = -1
+        self.menu_hovered = False
 
-# def check_type_consistency(model, column):
-#     """
-#     Check if all items in a specific column have the same data type.
-    
-#     Args:
-#         model: QStandardItemModel
-#         column: int, column index to check
-    
-#     Returns:
-#         tuple: (bool, type or None) - (is_consistent, common_type)
-#     """
-#     if model.rowCount() == 0:
-#         return True, None
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        hovered_section = self.logicalIndexAt(event.pos())
+        old_hovered = self.hovered_section
+        old_menu_hovered = self.menu_hovered
 
-#     types = set()
-#     for row in range(model.rowCount()):
-#         item = model.index(row, column)
-#         item_data = item.data(Qt.ItemDataRole.UserRole)
-#         if item and item_data is not None:
-#             types.add(type(item_data))
+        self.hovered_section = hovered_section
+        self.menu_hovered = self.is_menu_hovered(event.pos())
 
-#     if len(types) == 1:
-#         return True, types.pop()
-#     return False, None
+        if old_hovered != self.hovered_section or old_menu_hovered != self.menu_hovered:
+            self.updateSection(old_hovered)
+            self.updateSection(self.hovered_section)
 
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        old_hovered = self.hovered_section
+        self.hovered_section = -1
+        self.menu_hovered = False
+        self.updateSection(old_hovered)
 
-# def check_type_numeric(model, column):
-#     """Check if all non-null values in column can be converted to float"""
-#     for row in range(model.rowCount()):
-#         item = model.item(row, column)
-#         item_data = item.data(Qt.ItemDataRole.UserRole)
-#         if item and item_data:
-#             try:
-#                 float(item_data)
-#             except ValueError:
-#                 return False
-#     return True
+    def paintSection(self, painter, rect, logicalIndex):
+        painter.save()
+        super().paintSection(painter, rect, logicalIndex)
+        painter.restore()
 
+        # If this section is being hovered, draw the menu
+        if logicalIndex == self.hovered_section:
+            # Set up the painter for the menu
+            painter.save()
+            font = painter.font()
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.setPen(QColor(60, 60, 60) if self.menu_hovered else QColor(120, 120, 120))
+            painter.drawText(self.menu_box(rect), Qt.AlignCenter, "⋮")
+            painter.restore()
 
-# class FilterProxy(QtCore.QSortFilterProxyModel):
-#     filterChanged = QtCore.pyqtSignal()
+    def mousePressEvent(self, event):
+        index = self.logicalIndexAt(event.pos())
+        if index == self.hovered_section and self.is_menu_hovered(event.pos()):
+            self.parent().show_horizontal_header_menu(index, event.globalPos())
+        else:
+            super().mousePressEvent(event)
 
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-#         self.filters = {}
+    def menu_box(self, rect):
+        """Return the menu interration area"""
+        return QRect(rect.left() + 2, rect.top() + 2, 18, 18)
 
-#     def set_filter(self, column, expression=None):
-#         print('set_filter', column, expression)
-#         if expression is not None:
-#             self.filters[column] = expression
-#         elif self.filters.get(column) is not None:
-#             print('clear filter:', column)
-#             del self.filters[column]
-#         self.invalidateFilter()
-#         self.filterChanged.emit()
-
-#     def clear_filter(self):
-#         self.filters = {}
-#         self.invalidateFilter()
-#         self.filterChanged.emit()
-
-#     def filterAcceptsRow(self, source_row, source_parent):
-#         for col, expr in self.filters.items():
-#             data = self.sourceModel().index(source_row, col, source_parent).data()
-#             if not expr(data):
-#                 return False
-#         return True
-
-
-# class NumericalRangeFilterWidget(QtWidgets.QDialog):
-#     filterChanged = QtCore.pyqtSignal(float, float, bool)
-
-#     def __init__(self, data, parent=None):
-#         super().__init__(parent)
-
-#         self.data = np.asarray(
-#             [d for d in data if isinstance(d, (float, int))], dtype=np.float64)
-
-#         self.allow_nans = QtWidgets.QCheckBox('Allow NaNs')
-#         self.allow_nans.setChecked(True)
-#         self.allow_nans.stateChanged.connect(self.rangeChanged)
-
-#         self.clear_filter = QtWidgets.QPushButton('Clear')
-#         self.clear_filter.clicked.connect(self.clear)
-#         self.ok = QtWidgets.QPushButton('Done')
-#         self.ok.clicked.connect(self.close)
-
-#         hbox = QtWidgets.QHBoxLayout()
-#         hbox.addWidget(self.clear_filter)
-#         hbox.addWidget(self.ok)
-
-#         layout = QtWidgets.QVBoxLayout()
-#         layout.addWidget(self.allow_nans)
-#         layout.addLayout(hbox)
-#         self.setLayout(layout)
-#         self.show()
-
-#     @QtCore.pyqtSlot()
-#     def rangeChanged(self):
-#         allow_nans = self.allow_nans.isChecked()
-#         self.filterChanged.emit(self.data.min(), self.data.max(), allow_nans)
-        
-#     def clear(self):
-#         self.filterChanged.emit(-np.inf, np.inf, True)
-#         self.close()
-
-
-# class StringFilterMenu(QtWidgets.QMenu):
-#     def __init__(self, data, column_index, parent=None):
-#         super().__init__(parent)
-#         self.column_index = column_index
-
-#         self.signalMapper = QtCore.QSignalMapper(self)
-
-#         actionAll = QtWidgets.QAction("All", self)
-#         actionAll.triggered.connect(self.onActionAllTriggered)
-#         self.addAction(actionAll)
-#         self.addSeparator()
-
-#         for idx, value in enumerate(sorted(set(data))):              
-#             action = QtWidgets.QAction(value, self)
-#             self.signalMapper.setMapping(action, idx)  
-#             action.triggered.connect(self.signalMapper.map)  
-#             self.addAction(action)
-
-#         self.signalMapper.mapped.connect(self.onSignalMapperMapped)  
-
-#     @QtCore.pyqtSlot()
-#     def onActionAllTriggered(self):
-#         self.parent().model().set_filter(self.column_index, lambda *args: True)
-
-#     @QtCore.pyqtSlot(int)
-#     def onSignalMapperMapped(self, idx):
-#         str_action = self.signalMapper.mapping(idx).text()
-#         str_filter = QtCore.QRegExp(str_action, QtCore.Qt.CaseSensitive, QtCore.QRegExp.FixedString)
-#         self.parent().model().set_filter(self.column_index, lambda data: str_filter.exactMatch(data))
-
-
-# class SearchMenu(QMenu):
-#     def __init__(self, column, model, parent=None):
-#         super().__init__(parent)
-#         self.column = column
-#         self.model = model
-
-#         action_all = QAction("All", self)
-#         action_all.triggered.connect(self.onActionAllTriggered)
-#         self.addAction(action_all)
-
-#         self.item_list = QSearchableListWidget()
-#         self.item_list.filter_widget.setPlaceholderText("Search")
-#         self.item_list.layout().setContentsMargins(0, 0, 0, 0)
-#         self.item_list.itemChanged.connect(self.selectionChanged)
-
-#         unique_data = set()
-#         for row in range(model.rowCount()):
-#             _item = model.index(row, column)
-#             if _item is None:
-#                 continue
-#             data = _item.data()
-#             print(f'row:{row}, col:{self.column}, data:{data}')
-#             unique_data.add(data)
-
-#         for data in sorted(unique_data, key=lambda item: str(item) if item is not None else ''):
-#             item = QListWidgetItem()
-#             item.setData(Qt.UserRole, data)
-#             item.setData(Qt.DisplayRole, str(data or ''))
-#             item.setCheckState(Qt.Checked)
-#             self.item_list.addItem(item)
-
-#         list_action = QWidgetAction(self)
-#         list_action.setDefaultWidget(self.item_list)
-#         self.addAction(list_action)
-
-#     @QtCore.pyqtSlot()
-#     def onActionAllTriggered(self):
-#         print('SearchMenu.onActionAllTriggered')
-#         self.model.set_filter(self.column, None)
-
-#     @QtCore.pyqtSlot()
-#     def selectionChanged(self):
-#         print('SearchMenu.selectionChanged')
-#         selection = set()
-#         for idx in range(self.item_list.count()):
-#             item = self.item_list.item(idx)
-#             if item.checkState() == Qt.Checked:
-#                 data = item.data(Qt.DisplayRole)
-#                 selection.add(item.data(Qt.DisplayRole))
-
-#         self.model.set_filter(self.column, lambda data: data in selection)
-
-
-# class HeaderView(QHeaderView):
-#     def __init__(self, orientation, parent=None):
-#         super().__init__(orientation, parent)
-#         # self.setSectionsMovable(True)
-#         self.setSectionResizeMode(QHeaderView.Interactive)
-#         self.setSectionsClickable(True)
-#         self.hovered_section = -1
-#         self.button_hovered = False
-
-#     def mouseMoveEvent(self, event):
-#         super().mouseMoveEvent(event)
-#         hovered_section = self.logicalIndexAt(event.pos())
-#         old_hovered = self.hovered_section
-#         old_button_hovered = self.button_hovered
-
-#         self.hovered_section = hovered_section
-#         self.button_hovered = self.isButtonHovered(event.pos())
-
-#         if old_hovered != self.hovered_section or old_button_hovered != self.button_hovered:
-#             self.updateSection(old_hovered)
-#             self.updateSection(self.hovered_section)
-
-#     def leaveEvent(self, event):
-#         super().leaveEvent(event)
-#         old_hovered = self.hovered_section
-#         self.hovered_section = -1
-#         self.button_hovered = False
-#         self.updateSection(old_hovered)
-
-#     def paintSection(self, painter, rect, logicalIndex):
-#         painter.save()
-#         super().paintSection(painter, rect, logicalIndex)
-#         painter.restore()
-
-#         # If this section is being hovered, draw the button
-#         if logicalIndex == self.hovered_section:
-#             button_rect = self.getButtonRect(rect)
-            
-#             # Set up the painter for the button
-#             painter.save()
-            
-#             # Draw the "V" character
-#             font = painter.font()
-#             font.setPointSize(10)
-#             painter.setFont(font)
-            
-#             if self.button_hovered:
-#                 # Use a different color when button is hovered
-#                 painter.setPen(QColor(60, 60, 60))
-#             else:
-#                 painter.setPen(QColor(120, 120, 120))
-                
-#             painter.drawText(button_rect, Qt.AlignCenter, "⋮")
-            
-#             painter.restore()
-
-#     def mousePressEvent(self, event):
-#         index = self.logicalIndexAt(event.pos())
-#         if index == self.hovered_section and self.isButtonHovered(event.pos()):
-#             # self.showHeaderMenu(index, event.globalPos())
-#             self.parent().show_horizontal_header_menu(index, event.globalPos())
-#         else:
-#             super().mousePressEvent(event)
-
-#     def showHeaderMenu(self, index, pos):
-#         menu = QMenu(self)
-#         sort_asc_action = QAction("Sort Ascending", self)
-#         sort_desc_action = QAction("Sort Descending", self)
-#         filter_action = QAction("Filter", self)
-
-#         menu.addAction(sort_asc_action)
-#         menu.addAction(sort_desc_action)
-#         menu.addSeparator()
-#         menu.addAction(filter_action)
-
-#         sort_asc_action.triggered.connect(lambda: self.parent().sortByColumn(index, Qt.AscendingOrder))
-#         sort_desc_action.triggered.connect(lambda: self.parent().sortByColumn(index, Qt.DescendingOrder))
-#         filter_action.triggered.connect(lambda: SearchMenu(index, self.parent().model(), self).popup(pos))
-
-#         menu.exec_(pos)
-
-#     def filterColumn(self, column):
-#         # Implement your filter logic here
-#         print(f"Filtering column {column}")
-
-#         model = self.parent().model()
-
-#         types = set()
-#         for row in range(model.rowCount()):
-#             item = model.index(row, column)
-#             if item and item.data() is not None:
-#                 types.add(type(item.data(Qt.ItemDataRole.UserRole)))
-#         print('types', types)
-
-#         # column_data = [model.data(model.index(row, column)) for row in range(model.rowCount())]
-
-#         # if all(isinstance(col, (str, type(None))) for col in column_data):
-#         #     data = [c for c in column_data if c is not None]
-#         #     self.filter_menu = StringFilterMenu(data, column, self)
-#         #     self.filter_menu.popup(QtGui.QCursor.pos())
-#         #     return
-
-#     def getButtonRect(self, rect):
-#         return QRect(rect.left() + 2, rect.top() + 2, 18, 18)
-
-#     def isButtonHovered(self, pos):
-#         index = self.logicalIndexAt(pos)
-#         if index != -1:
-#             rect = self.rect()
-#             rect.setLeft(self.sectionViewportPosition(index))
-#             rect.setRight(self.sectionViewportPosition(index) + self.sectionSize(index) - 1)
-#             button_rect = self.getButtonRect(rect)
-#             return button_rect.contains(pos)
-#         return False
+    def is_menu_hovered(self, pos):
+        index = self.logicalIndexAt(pos)
+        if index != -1:
+            rect = self.rect()
+            rect.setLeft(self.sectionViewportPosition(index))
+            rect.setRight(self.sectionViewportPosition(index) + self.sectionSize(index) - 1)
+            return self.menu_box(rect).contains(pos)
+        return False
 
 
 class TableView(QtWidgets.QTableView):
@@ -348,16 +106,14 @@ class TableView(QtWidgets.QTableView):
         self.setAlternatingRowColors(False)
 
         # self.setSortingEnabled(True)
-        self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        # self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        # self.horizontalHeader().setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        # self.horizontalHeader().customContextMenuRequested.connect(self.show_filter_menu)
-        self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
-        self.filter_menu = None
+        # self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
+        self.sortByColumn(0, Qt.AscendingOrder)
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
         self.verticalHeader().setStyleSheet("QHeaderView"
@@ -391,8 +147,7 @@ class TableView(QtWidgets.QTableView):
 
     def setModel(self, model: 'DamnitTableModel'):
         """
-        Overload of setModel() to make sure that we restyle the comment rows
-        when the model is updated.
+        Overload
         """
         if (old_sel_model := self.selectionModel()) is not None:
             old_sel_model.deleteLater()
@@ -400,28 +155,25 @@ class TableView(QtWidgets.QTableView):
             old_model.deleteLater()
 
         self.damnit_model = model
-        
+
         sfpm = FilterProxy(self)
         sfpm.setSourceModel(model)
         sfpm.setSortRole(Qt.ItemDataRole.UserRole)  # Numeric sort where relevant
         super().setModel(sfpm)
-        # TODO self.clear_filter_button.clicked.connect(self.model().clearFilter)
-        # TODO model.columnsChanged.connect(self.populateColumnToggle)
 
         # When loading a new model, the saved column order is applied at the
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
-        # self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
-        # self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
+        self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
         # self.horizontalHeader().setSectionsClickable(True)
         if model is not None:
-            self.model().rowsInserted.connect(self.style_comment_rows)
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
             self.resizeRowsToContents()
-        
+
+        # self.sortByColumn(0, Qt.AscendingOrder)
         self.model_updated.emit()
 
     def selected_rows(self):
@@ -573,17 +325,19 @@ class TableView(QtWidgets.QTableView):
 
         return column_states
 
-    def style_comment_rows(self, *_):
-        self.clearSpans()
-        model : DamnitTableModel = self.damnit_model
-        comment_col = model.find_column("Comment", by_title=True)
-        timestamp_col = model.find_column("Timestamp", by_title=True)
+    # def style_comment_rows(self, *_):
+    #     print('?!?!?!?!')
+    #     self.clearSpans()
+    #     model : DamnitTableModel = self.damnit_model
+    #     comment_col = model.find_column("Comment", by_title=True)
+    #     timestamp_col = model.find_column("Timestamp", by_title=True)
 
-        proxy_mdl = self.model()
-        for row_ix in model.standalone_comment_rows():
-            ix = proxy_mdl.mapFromSource(self.damnit_model.createIndex(row_ix, 0))
-            self.setSpan(ix.row(), 0, 1, timestamp_col)
-            self.setSpan(ix.row(), comment_col, 1, 1000)
+    #     proxy_mdl = self.model()
+    #     for row_ix in model.standalone_comment_rows():
+    #         print(']]]', row_ix)
+    #         ix = proxy_mdl.mapFromSource(self.damnit_model.createIndex(row_ix, 0))
+    #         self.setSpan(ix.row(), 0, 1, timestamp_col)
+    #         self.setSpan(ix.row(), comment_col, 1, 1000)
 
     def resize_new_rows(self, parent, first, last):
         for row in range(first, last + 1):
@@ -638,6 +392,10 @@ class TableView(QtWidgets.QTableView):
 
         menu.exec_(pos)
 
+    # def rowMoved(self, row, oldIndex, newIndex):
+    #     print('moved', row, oldIndex, newIndex)
+    #     super().rowMoved(row, oldIndex, newIndex)
+
 
 class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
@@ -658,7 +416,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.db = db
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
-        self.standalone_comment_index = {}
+        # self.standalone_comment_index = {}
 
         self._bold_font = QtGui.QFont()
         self._bold_font.setBold(True)
@@ -804,18 +562,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 attrs = json.loads(attr_json) if attr_json else {}
                 self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
 
-        comments_start = row_ix + 1
-        comment_rows = self.db.conn.execute("""
-            SELECT rowid, timestamp, comment FROM time_comments
-        """).fetchall()
-        for row_ix, (cid, ts, comment) in enumerate(comment_rows, start=comments_start):
-            self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
-            self.setItem(
-                row_ix, self.column_index["comment"], self.comment_item(comment, cid)
-            )
-            row_headers.append('')
-            self.standalone_comment_index[cid] = row_ix
-
         self.setVerticalHeaderLabels(row_headers)
         t1 = time.perf_counter()
         log.info(f"Filled rows in {t1 - t0:.3f} s")
@@ -867,8 +613,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item = self.item(row, comment_col)
         return item and item.data(COMMENT_ID_ROLE)
 
-    def standalone_comment_rows(self):
-        return sorted(self.standalone_comment_index.values())
+    # def standalone_comment_rows(self):
+    #     return sorted(self.standalone_comment_index.values())
 
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
@@ -927,13 +673,13 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.appendRow(row)
         self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(str(run)))
 
-    def insert_comment_row(self, comment_id: int, comment: str, timestamp: float):
-        blank = self.itemPrototype().clone()
-        ts_item = self.text_item(timestamp, display=timestamp2str(timestamp))
-        row = [blank, blank, blank, ts_item, self.comment_item(comment, comment_id)]
-        self.standalone_comment_index[comment_id] = row_ix = self.rowCount()
-        self.appendRow(row)
-        self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(''))
+    # def insert_comment_row(self, comment_id: int, comment: str, timestamp: float):
+    #     blank = self.itemPrototype().clone()
+    #     ts_item = self.text_item(timestamp, display=timestamp2str(timestamp))
+    #     row = [blank, blank, blank, ts_item, self.comment_item(comment, comment_id)]
+    #     self.standalone_comment_index[comment_id] = row_ix = self.rowCount()
+    #     self.appendRow(row)
+    #     self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(''))
 
     def handle_run_values_changed(self, proposal, run, values: dict):
         known_col_ids = set(self.column_ids)
