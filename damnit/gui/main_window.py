@@ -687,6 +687,11 @@ da-dev@xfel.eu"""
         comment_button.setEnabled(True)
         comment_button.clicked.connect(self._comment_button_clicked)
 
+
+        from .table_header import FilterStatus
+        self.filter_status_button = FilterStatus(self.table_view, self)
+        comment_horizontal_layout.addWidget(self.filter_status_button, stretch=2)
+
         comment_horizontal_layout.addWidget(comment_button)
         comment_horizontal_layout.addWidget(self.comment, stretch=3)
         comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
@@ -904,6 +909,7 @@ da-dev@xfel.eu"""
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
+
 class TableViewStyle(QtWidgets.QProxyStyle):
     """
     Subclass that enables instant tooltips for widgets in a TableView.
@@ -914,6 +920,7 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return 0
         else:
             return super().styleHint(hint, option, widget, returnData)
+
 
 class TabBarStyle(QtWidgets.QProxyStyle):
     """
@@ -948,6 +955,84 @@ class LogViewWindow(QtWidgets.QMainWindow):
         self.text_edit.document().setDefaultFont(font)
         self.setCentralWidget(self.text_edit)
         self.resize(1000, 800)
+
+
+# from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+
+# # TODO change this to a custom QPushButton with a popup menu (clear all filters, clear filter for ..., etc.)
+# class FilterListWidget(QtWidgets.QMainWindow):
+#     """Displays active filters from FilterProxyModel"""
+#     filtersUpdated = QtCore.pyqtSignal(int)  # number of active filters
+
+#     def __init__(self, proxy_model, parent=None):
+#         super().__init__(parent)
+#         self.proxy_model = proxy_model
+#         self.filter_rows = {}  # Maps column index to row widget
+
+#         # Main layout
+#         self.main_layout = QVBoxLayout(self)
+#         self.main_layout.setSpacing(5)
+#         self.main_layout.setContentsMargins(5, 5, 5, 5)
+
+#         # Initialize empty state
+#         self.empty_label = QLabel("No active filters")
+#         self.main_layout.addWidget(self.empty_label)
+
+#         self.proxy_model.filterChanged.connect(self.update_filters)
+
+#     def update_filters(self):
+#         """Update the displayed filters based on the current filter dictionary"""
+#         print('update filters', self.proxy_model.filters)
+
+#         # Clear existing rows that are no longer in filters
+#         for column in set(self.filter_rows).difference(self.proxy_model.filters):
+#             self.remove_filter(column)
+
+#         # Add new filters
+#         for column in set(self.proxy_model.filters).difference(self.filter_rows):
+#             self.add_filter_row(column)
+
+#         # Show/hide empty state
+#         self.empty_label.setVisible(len(self.filter_rows) == 0)
+#         self.filtersUpdated.emit(len(self.filter_rows))
+
+#     def add_filter_row(self, column):
+#         """Add a new row showing a filter"""
+
+#         # Create row widget and layout
+#         row_widget = QWidget()
+#         row_layout = QHBoxLayout(row_widget)
+#         row_layout.setContentsMargins(0, 0, 0, 0)
+
+#         # Add column title label
+#         column_title = self.proxy_model.sourceModel().column_title(column)
+#         label = QLabel(f"Filter on {column_title}")
+#         row_layout.addWidget(label)
+
+#         # Add spacer
+#         row_layout.addStretch()
+
+#         # Add remove button
+#         remove_btn = QPushButton("×")
+#         remove_btn.setFixedSize(20, 20)
+#         remove_btn.clicked.connect(lambda: self.remove_filter(column))
+#         row_layout.addWidget(remove_btn)
+
+#         # Add to main layout and store reference
+#         self.main_layout.addWidget(row_widget)
+#         self.filter_rows[column] = row_widget
+
+#     def remove_filter_row(self, column):
+#         """Remove a filter row from the widget"""
+#         if column in self.filter_rows:
+#             row_widget = self.filter_rows.pop(column)
+#             self.main_layout.removeWidget(row_widget)
+#             row_widget.deleteLater()
+
+#     def remove_filter(self, column):
+#         """Remove a filter"""
+#         self.remove_filter_row(column)
+#         self.empty_label.setVisible(len(self.filter_rows) == 0)
 
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
