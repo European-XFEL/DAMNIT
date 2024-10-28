@@ -1,5 +1,5 @@
 import socket
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import numpy as np

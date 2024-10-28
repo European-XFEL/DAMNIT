@@ -57,6 +57,7 @@ nav:
   - backend.md
   - api.md
   - internals.md
+  - changelog.md
   - contact.md
 
 plugins:

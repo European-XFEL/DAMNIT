@@ -8,6 +8,7 @@ import signal
 import stat
 import subprocess
 import textwrap
+from time import sleep, time
 from unittest.mock import MagicMock, patch
 
 import extra_data as ed
@@ -24,9 +25,11 @@ from testpath import MockCommand
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import Extractor, add_to_db
+from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
+                                     local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
-from damnit.context import (ContextFile, ContextFileErrors, PNGData, Results,
-                            RunData, get_proposal_path)
+from damnit.context import (ContextFile, ContextFileErrors, PNGData, RunData,
+                            get_proposal_path)
 from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE
 from damnit.gui.main_window import MainWindow
 
@@ -395,6 +398,10 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     @Variable(title="Run type")
     def run_type(run, x: "mymdc#run_type"):
         return x
+
+    @Variable(title="Run Techniques")
+    def techniques(run, x: "mymdc#techniques"):
+        return ', '.join(t['name'] for t in x)
     """
     mymdc_ctx = mkcontext(mymdc_code)
 
@@ -413,11 +420,16 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert headers["X-API-key"] == "foo"
 
         if "proposals/by_number" in url:
-            result = dict(runs=[dict(sample_id=1, experiment_id=1)])
+            result = dict(runs=[dict(id=1, sample_id=1, experiment_id=1)])
         elif "samples" in url:
             result = dict(name="mithril")
         elif "experiments" in url:
             result = dict(name="alchemy")
+        elif "/runs/" in url:
+            result = {'techniques': [
+                {'identifier': 'PaNET01168', 'name': 'SFX'},
+                {'identifier': 'PaNET01188', 'name': 'SAXS'},
+            ]}
 
         response = MagicMock()
         response.json.return_value = result
@@ -427,8 +439,10 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with patch.object(requests, "get", side_effect=mock_get), \
          patch.object(ed.read_machinery, "find_proposal", return_value=tmp_path):
         results = results_create(mymdc_ctx)
+
     assert results.cells["sample"].data == "mithril"
     assert results.cells["run_type"].data == "alchemy"
+    assert results.cells["techniques"].data == "SFX, SAXS"
 
 
 def test_return_bool(mock_run, tmp_path):
@@ -723,6 +737,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     # Make sure that the GUI evaluates the context file correctly (which it does
     # upon opening a database directory).
     win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
 
 def test_initialize_and_start_backend(tmp_path, bound_port, request):
     db_dir = tmp_path / "foo"
@@ -857,3 +872,35 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
         assert initialize_and_start_backend(db_dir)
 
     assert backend_is_running(db_dir)
+
+
+def test_event_processor(mock_db, caplog):
+    db_dir, db = mock_db
+    db.metameta["proposal"] = 1234
+
+    with patch('damnit.backend.listener.KafkaConsumer') as kcon:
+        processor = EventProcessor(db_dir)
+
+    kcon.assert_called_once()
+    assert len(local_extraction_threads) == 0
+
+    # slurm not available
+    with (
+        patch('subprocess.run', side_effect=FileNotFoundError),
+        patch('damnit.backend.extraction_control.ExtractionSubmitter.execute_direct', lambda *_: sleep(1))
+    ):
+        with caplog.at_level(logging.WARNING):
+            event = MagicMock(timestamp=time())
+            processor.handle_event(event, {'proposal': 1234, 'run': 1}, RunData.RAW)
+
+        assert 'Slurm not available' in caplog.text
+        assert len(local_extraction_threads) == 1
+        local_extraction_threads[0].join()
+
+        with caplog.at_level(logging.WARNING):
+            for idx in range(MAX_CONCURRENT_THREADS + 1):
+                event = MagicMock(timestamp=time())
+                processor.handle_event(event, {'proposal': 1234, 'run': idx + 1}, RunData.RAW)
+
+        assert len(local_extraction_threads) == MAX_CONCURRENT_THREADS
+        assert 'Too many events processing' in caplog.text

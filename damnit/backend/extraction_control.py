@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from ctypes import CDLL
 from dataclasses import dataclass
 from pathlib import Path
+from secrets import token_hex
 from threading import Thread
 
 from extra_data.read_machinery import find_proposal
@@ -74,6 +75,16 @@ def proposal_runs(proposal):
     raw_dir = Path(find_proposal(proposal_name)) / "raw"
     return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
 
+def batches(l, n):
+    start = 0
+    while True:
+        end = start + n
+        batch = l[start:end]
+        if not batch:
+            return
+        yield batch
+        start = end
+
 
 @dataclass
 class ExtractionRequest:
@@ -83,6 +94,7 @@ class ExtractionRequest:
     run_data: RunData
     cluster: bool = False
     match: tuple = ()
+    variables: tuple = ()   # Overrides match if present
     mock: bool = False
     update_vars: bool = True
 
@@ -94,8 +106,12 @@ class ExtractionRequest:
         ]
         if self.cluster:
             cmd.append('--cluster-job')
-        for m in self.match:
-            cmd.extend(['--match', m])
+        if self.variables:
+            for v in self.variables:
+                cmd.extend(['--var', v])
+        else:
+            for m in self.match:
+                cmd.extend(['--match', m])
         if self.mock:
             cmd.append('--mock')
         if self.update_vars:
@@ -123,7 +139,8 @@ class ExtractionSubmitter:
         Returns the job ID & cluster
         """
         res = subprocess.run(
-            self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True, check=True
+            self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True, check=True,
+            cwd=self.context_dir,
         )
         job_id, _, cluster = res.stdout.partition(';')
         job_id = job_id.strip()
@@ -137,15 +154,76 @@ class ExtractionSubmitter:
         log.info("Processing output will be written to %s",
                  log_path.relative_to(self.context_dir.absolute()))
 
+        if req.run == -1:
+            job_name = f"p{req.proposal}-damnit"
+        else:
+            # We put the run number first so that it's visible in
+            # squeue's default 11-character column for the JobName.
+            job_name = f"r{req.run}-p{req.proposal}-damnit"
+
         return [
             'sbatch', '--parsable',
             *self._resource_opts(req.cluster),
             '-o', log_path,
             '--open-mode=append',
-            # Note: we put the run number first so that it's visible in
-            # squeue's default 11-character column for the JobName.
-            '--job-name', f"r{req.run}-p{req.proposal}-damnit",
+            '--job-name', job_name,
             '--wrap', shlex.join(req.python_cmd())
+        ]
+
+    def submit_multi(self, reqs: list[ExtractionRequest], limit_running=15):
+        """Submit multiple requests using Slurm job arrays.
+        """
+        out = []
+
+        assert len({r.cluster for r in reqs}) <= 1  # Don't mix cluster/non-cluster
+
+        # Array jobs are limited to 1001 in Slurm config (MaxArraySize)
+        for req_group in batches(reqs, 1000):
+            grpid = token_hex(8)   # random unique string
+            scripts_dir = self.context_dir / '.tmp'
+            scripts_dir.mkdir(exist_ok=True)
+            if scripts_dir.stat().st_uid == os.getuid():
+                scripts_dir.chmod(0o777)
+
+            for i, req in enumerate(req_group):
+                script_file = scripts_dir / f'launch-{grpid}-{i}.sh'
+                log_path = process_log_path(req.run, req.proposal, self.context_dir)
+                script_file.write_text(
+                    'rm "$0"\n'  # Script cleans itself up
+                    f'{shlex.join(req.python_cmd())} >>"{log_path}" 2>&1'
+                )
+                script_file.chmod(0o777)
+
+            script_expr = f".tmp/launch-{grpid}-$SLURM_ARRAY_TASK_ID.sh"
+            cmd = self.sbatch_array_cmd(script_expr, req_group, limit_running)
+            if out:
+                # 1 batch at a time, to simplify limiting concurrent jobs
+                prev_job = out[-1][0]
+                cmd.append(f"--dependency=afterany:{prev_job}")
+            res = subprocess.run(
+                cmd, stdout=subprocess.PIPE, text=True, check=True, cwd=self.context_dir,
+            )
+            job_id, _, cluster = res.stdout.partition(';')
+            job_id = job_id.strip()
+            cluster = cluster.strip() or 'maxwell'
+            log.info("Launched Slurm (%s) job array %s (%d runs) to run context file",
+                     cluster, job_id, len(req_group))
+            out.append((job_id, cluster))
+
+        return out
+
+    def sbatch_array_cmd(self, script_expr, reqs, limit_running=30):
+        """Make the sbatch command for an array job"""
+        req = reqs[0]  # This should never be called with an empty list
+        return [
+            'sbatch', '--parsable',
+            *self._resource_opts(req.cluster),
+            # Slurm doesn't know the run number, so we redirect inside the job
+            '-o', '/dev/null',
+            '--open-mode=append',
+            '--job-name', f"p{req.proposal}-damnit",
+            '--array', f"0-{len(reqs)-1}%{limit_running}",
+            '--wrap', f'exec {script_expr}'
         ]
 
     def execute_in_slurm(self, req: ExtractionRequest):
@@ -157,7 +235,8 @@ class ExtractionSubmitter:
         # Duplicate output to the log file
         with tee(log_path) as pipe:
             subprocess.run(
-                self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True
+                self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True,
+                cwd=self.context_dir,
             )
 
     def execute_direct(self, req: ExtractionRequest):
@@ -168,7 +247,8 @@ class ExtractionSubmitter:
         # Duplicate output to the log file
         with tee(log_path) as pipe:
             subprocess.run(
-                req.python_cmd(), stdout=pipe, stderr=subprocess.STDOUT, check=True
+                req.python_cmd(), stdout=pipe, stderr=subprocess.STDOUT, check=True,
+                cwd=self.context_dir,
             )
 
     def srun_cmd(self, req: ExtractionRequest):
@@ -208,7 +288,7 @@ class ExtractionSubmitter:
         return opts
 
 
-def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False):
+def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=30):
     """Called by the 'amore-proto reprocess' subcommand"""
     submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
@@ -235,6 +315,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
                 else:
                     unavailable_runs.append((proposal, run))
 
+        props_runs.sort()
         print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
     else:
         try:
@@ -266,11 +347,11 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
     for req in reqs[1:]:
         req.update_vars = False
 
-    for prop, run in props_runs:
-        req = ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
-        if direct:
+    if direct:
+        for req in reqs:
             submitter.execute_direct(req)
-        elif watch:
+    elif watch:
+        for req in reqs:
             submitter.execute_in_slurm(req)
-        else:
-            submitter.submit(req)
+    else:
+        submitter.submit_multi(reqs, limit_running=limit_running)

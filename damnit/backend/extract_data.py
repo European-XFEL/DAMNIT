@@ -6,6 +6,7 @@ file (see ctxrunner.py).
 """
 import argparse
 import copy
+import getpass
 import os
 import logging
 import pickle
@@ -41,7 +42,7 @@ def run_in_subprocess(args, **kwargs):
 
 def extract_in_subprocess(
         proposal, run, out_path, cluster=False, run_data=RunData.ALL, match=(),
-        python_exe=None, mock=False
+        variables=(), python_exe=None, mock=False
 ):
     if not python_exe:
         python_exe = sys.executable
@@ -52,8 +53,12 @@ def extract_in_subprocess(
         args.append('--cluster-job')
     if mock:
         args.append("--mock")
-    for m in match:
-        args.extend(['--match', m])
+    if variables:
+        for v in variables:
+            args.extend(['--var', v])
+    else:
+        for m in match:
+            args.extend(['--match', m])
 
     with TemporaryDirectory() as td:
         # Save a separate copy of the reduced data, so we can send an update
@@ -194,7 +199,7 @@ class Extractor:
         self.kafka_prd.flush()
 
     def extract_and_ingest(self, proposal, run, cluster=False,
-                           run_data=RunData.ALL, match=(), mock=False):
+                           run_data=RunData.ALL, match=(), variables=(), mock=False):
         if proposal is None:
             proposal = self.db.metameta['proposal']
 
@@ -206,7 +211,7 @@ class Extractor:
         python_exe = self.db.metameta.get('context_python', '')
         reduced_data = extract_in_subprocess(
             proposal, run, out_path, cluster=cluster, run_data=run_data,
-            match=match, python_exe=python_exe, mock=mock,
+            match=match, variables=variables, python_exe=python_exe, mock=mock,
         )
         log.info("Reduced data has %d fields", len(reduced_data))
         add_to_db(reduced_data, self.db, proposal, run)
@@ -228,14 +233,18 @@ class Extractor:
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
-        ctx =       self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=cluster)
-        ctx_slurm = self.ctx_whole.filter(run_data=run_data, name_matches=match, cluster=True)
-        if set(ctx_slurm.vars) > set(ctx.vars):
-            submitter = ExtractionSubmitter(Path.cwd(), self.db)
-            cluster_req = ExtractionRequest(
-                run, proposal, run_data, cluster=True, match=match, mock=mock
+        if not cluster:
+            ctx_slurm = self.ctx_whole.filter(
+                run_data=run_data, name_matches=match, variables=variables, cluster=True
             )
-            submitter.submit(cluster_req)
+            ctx_no_slurm = ctx_slurm.filter(cluster=False)
+            if set(ctx_slurm.vars) > set(ctx_no_slurm.vars):
+                submitter = ExtractionSubmitter(Path.cwd(), self.db)
+                cluster_req = ExtractionRequest(
+                    run, proposal, mock=mock,
+                    run_data=run_data, cluster=True, match=match, variables=variables
+                )
+                submitter.submit(cluster_req)
 
 
 def main(argv=None):
@@ -248,6 +257,7 @@ def main(argv=None):
     # variables (confusing because all extraction now runs in cluster jobs)
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
+    ap.add_argument('--var',  action="append", default=[])
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     args = ap.parse_args(argv)
@@ -256,13 +266,15 @@ def main(argv=None):
     # Hide some logging from Kafka to make things more readable
     logging.getLogger('kafka').setLevel(logging.WARNING)
 
-    print(f"\n----- Processing r{args.run} (p{args.proposal}) -----", file=sys.stderr)
+    username = getpass.getuser()
+    hostname = socket.gethostname()
+    print(f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {hostname} -----", file=sys.stderr)
     log.info(f"run_data={args.run_data}, match={args.match}")
     if args.mock:
         log.info("Using mock run object for testing")
     if args.cluster_job:
-        log.info("Extracting cluster variables in Slurm job %s on %s",
-                 os.environ.get('SLURM_JOB_ID', '?'), socket.gethostname())
+        log.info("Extracting cluster variables in Slurm job %s",
+                 os.environ.get('SLURM_JOB_ID', '?'))
 
     extr = Extractor()
     if args.update_vars:
@@ -272,6 +284,7 @@ def main(argv=None):
                             cluster=args.cluster_job,
                             run_data=RunData(args.run_data),
                             match=args.match,
+                            variables=args.var,
                             mock=args.mock)
 
 

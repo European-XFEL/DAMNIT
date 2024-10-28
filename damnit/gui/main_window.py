@@ -1,4 +1,6 @@
 import logging
+import os
+import re
 import shelve
 import sys
 import time
@@ -10,11 +12,8 @@ from socket import gethostname
 
 import h5py
 import numpy as np
-import pandas as pd
 import xarray as xr
 from kafka.errors import NoBrokersAvailable
-from pandas.api.types import infer_dtype
-from plotly.graph_objects import Figure as PlotlyFigure
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
@@ -24,9 +23,8 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
-from ..backend.db import BlobTypes, DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extract_data import get_context_file
-from ..backend.extraction_control import process_log_path
+from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
+from ..backend.extraction_control import process_log_path, ExtractionSubmitter
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
@@ -34,7 +32,8 @@ from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
-from .plot import Canvas, Plot
+from .plot import ImagePlotWindow, ScatterPlotWindow, Xarray1DPlotWindow, PlottingControls
+from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
@@ -49,6 +48,10 @@ class Settings(Enum):
 class MainWindow(QtWidgets.QMainWindow):
 
     context_dir_changed = QtCore.pyqtSignal(str)
+    save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
+    check_context_file_timer = None
+    vars_ctx_size_mtime = None
+    editor_ctx_size_mtime = None
 
     db = None
     db_id = None
@@ -62,6 +65,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._received_update = False
         self._context_path = None
         self._context_is_saved = True
+        self._context_code_to_save = None
 
         self._settings_db_path = Path.home() / ".local" / "state" / "damnit" / "settings.db"
 
@@ -86,6 +90,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
+        self.save_context_finished.connect(self._save_context_finished)
+
         self.table = None
         
         self.zulip_messenger = None
@@ -109,17 +115,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._context_is_saved:
             dialog = QMessageBox(QMessageBox.Warning,
                                  "Warning - unsaved changes",
-                                 "There are unsaved changes to the context, do you want to save before exiting?",
-                                 QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+                                 "There are unsaved changes to the context, do you want to go back and save?",
+                                 QMessageBox.Discard | QMessageBox.Cancel)
             result = dialog.exec()
 
-            if result == QMessageBox.Save:
-                self.save_context()
-            elif result == QMessageBox.Cancel:
+            if result == QMessageBox.Cancel:
                 event.ignore()
                 return
 
         self.stop_update_listener_thread()
+        self.stop_watching_context_file()
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -260,9 +265,19 @@ da-dev@xfel.eu"""
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
         self.launch_update_computed_vars()
+        self.start_watching_context_file()
 
-    def launch_update_computed_vars(self):
+    def _save_context_finished(self, saved):
+        if saved:
+            self.launch_update_computed_vars()
+
+    def launch_update_computed_vars(self, ctx_size_mtime=None):
+        # Triggered when we open a proposal & when saving the context file
         log.debug("Launching subprocess to read variables from context file")
+        # Store the size & mtime before processing the file: better to capture
+        # this just before a change and process the same version twice than
+        # just after & potentially miss a change.
+        self.vars_ctx_size_mtime = ctx_size_mtime or self.get_context_size_mtime()
         proc = QtCore.QProcess(parent=self)
         # Show stdout & stderr with the parent process
         proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
@@ -270,10 +285,39 @@ da-dev@xfel.eu"""
         proc.setWorkingDirectory(str(self.context_dir))
         proc.start(sys.executable, ['-m', 'damnit.cli', 'read-context'])
         proc.closeWriteChannel()
+        # The subprocess will send updates for any changes: see .handle_update()
+
+    def get_context_size_mtime(self):
+        st = self._context_path.stat()
+        return st.st_size, st.st_mtime
+
+    def poll_context_file(self):
+        size_mtime = self.get_context_size_mtime()
+        if self.vars_ctx_size_mtime != size_mtime:
+            log.info("Context file changed, updating computed variables")
+            self.launch_update_computed_vars(size_mtime)
+
+        if (self.editor_ctx_size_mtime != size_mtime) and self._context_is_saved:
+            log.info("Context file changed, reloading editor")
+            self.reload_context()
+
+    def start_watching_context_file(self):
+        self.stop_watching_context_file()  # Only 1 timer at a time
+
+        self.check_context_file_timer = tmr = QtCore.QTimer(self)
+        tmr.setInterval(30_000)
+        tmr.timeout.connect(self.poll_context_file)
+        tmr.start()
+
+    def stop_watching_context_file(self):
+        if self.check_context_file_timer is not None:
+            self.check_context_file_timer.stop()
+            self.check_context_file_timer.deleteLater()
+            self.check_context_file_timer = None
 
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
-        before_pos = n_static_cols + 1
+        before_pos = n_static_cols
         if before == None:
             before_pos += self.table_view.get_movable_columns_count()
         else:
@@ -340,6 +384,8 @@ da-dev@xfel.eu"""
         self.action_export.setEnabled(False)
         self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
         self.action_export.triggered.connect(self.export_table)
+        self.action_process = QtWidgets.QAction("Reprocess runs", self)
+        self.action_process.triggered.connect(self.process_runs)
 
         action_adeqt = QtWidgets.QAction("Python console", self)
         action_adeqt.setShortcut("F12")
@@ -360,6 +406,7 @@ da-dev@xfel.eu"""
         )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(self.action_create_var)
+        fileMenu.addAction(self.action_process)
         fileMenu.addAction(self.action_export)
         fileMenu.addAction(action_adeqt)
         fileMenu.addAction(action_help)
@@ -568,11 +615,6 @@ da-dev@xfel.eu"""
         cell_data = self.table.get_value_at(index)
         is_image = self.table.itemFromIndex(index).data(Qt.DecorationRole) is not None
 
-        if not (is_image or isinstance(cell_data, (int, float))):
-            QMessageBox.warning(self, "Can't inspect variable",
-                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
-            return
-
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]
         except FileNotFoundError:
@@ -584,6 +626,11 @@ da-dev@xfel.eu"""
             self.show_status_message(f"Unrecognized variable: '{quantity}'",
                                      timeout=7000,
                                      stylesheet=StatusbarStylesheet.ERROR)
+            return
+
+        if not (is_image or variable.type_hint() or isinstance(cell_data, (int, float))):
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
             return
 
         if variable.type_hint() is DataType.PlotlyFigure:
@@ -602,39 +649,40 @@ da-dev@xfel.eu"""
             log.warning(f'"{quantity}" not found in {variable.file}...')
             return
 
-        if variable.type_hint() is DataType.DataArray:
-            canvas = Canvas(self, dataarray=data, title=f'{variable.title} (run {run})')
-            self._canvas_inspect.append(canvas)
-            canvas.show()
+        if not isinstance(data, (np.ndarray, xr.DataArray)):
+            log.error("Only array objects are expected here, not %r", type(data))
             return
 
-        data = xr.DataArray(data)
+        title = f'{variable.title} (run {run})'
 
-        if data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
-            canvas = Canvas(
+        data = data.squeeze()
+
+        if data.ndim == 1:
+            if isinstance(data, xr.DataArray):
+                canvas = Xarray1DPlotWindow(self, data, title=title)
+            else:
+                canvas = ScatterPlotWindow(self,
+                    x=[np.arange(len(data))],
+                    y=[fix_data_for_plotting(data)],
+                    xlabel=f"Event (run {run})",
+                    ylabel=variable.title,
+                    title=title,
+            )
+        elif data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
+            canvas = ImagePlotWindow(
                 self,
-                image=data.data,
+                image=data,
                 title=f"{variable.title} (run {run})",
             )
+        elif data.ndim == 0:
+            # If this is a scalar value, then we can't plot it
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' is a scalar, there's nothing more to plot.")
+            return
         else:
-            if data.ndim == 0:
-                # If this is a scalar value, then we can't plot it
-                QMessageBox.warning(self, "Can't inspect variable",
-                                    f"'{quantity}' is a scalar, there's nothing more to plot.")
-                return
-            if data.ndim > 2:
-                QMessageBox.warning(self, "Can't inspect variable",
-                                    f"'{quantity}' with {data.ndim} dimensions (not supported).")
-                return
-
-            canvas = Canvas(
-                self,
-                x=[np.arange(len(data))],
-                y=[fix_data_for_plotting(data)],
-                xlabel=f"Event (run {run})",
-                ylabel=variable.title,
-                fmt="o",
-            )
+            QMessageBox.warning(self, "Can't inspect variable",
+                                f"'{quantity}' with {data.ndim} dimensions (not supported).")
+            return
 
         self._canvas_inspect.append(canvas)
         canvas.show()
@@ -668,6 +716,7 @@ da-dev@xfel.eu"""
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
+        self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
 
         vertical_layout.addWidget(self.table_view)
@@ -706,7 +755,7 @@ da-dev@xfel.eu"""
         comment_timer.start()
 
         # plotting control
-        self.plot = Plot(self)
+        self.plot = PlottingControls(self)
         plotting_group = QtWidgets.QGroupBox("Plotting controls")
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -746,6 +795,7 @@ da-dev@xfel.eu"""
         test_widget = QtWidgets.QWidget()
 
         self._editor.textChanged.connect(self.on_context_changed)
+        self._editor.check_result.connect(self.test_context_result)
 
         vbox = QtWidgets.QGridLayout()
         test_widget.setLayout(vbox)
@@ -792,16 +842,44 @@ da-dev@xfel.eu"""
         self.on_tab_changed(self._tab_widget.currentIndex())
         self._context_is_saved = False
 
+    def _ctx_contents_size_mtime(self):
+        """Get the contents of the context file, plus its size & mtime"""
+        # There's no way to do this atomically, so we stat the file before &
+        # after reading and check that the results match.
+        size_mtime_before = self.get_context_size_mtime()
+        for _ in range(20):
+            contents = self._context_path.read_text()
+            size_mtime_after = self.get_context_size_mtime()
+            if size_mtime_after == size_mtime_before:
+                return contents, size_mtime_after
+
+            size_mtime_before = size_mtime_after
+
+        raise RuntimeError(
+            "Could not get consistent filesystem metadata for context file"
+        )
+
     def reload_context(self):
         if not self._context_path.is_file():
             self.show_status_message("No context.py file found")
             return
-        self._editor.setText(self._context_path.read_text())
+        contents, size_mtime = self._ctx_contents_size_mtime()
+        self._editor.setText(contents)
         self.test_context()
-        self.mark_context_saved()
+        self.mark_context_saved(size_mtime)
 
     def test_context(self):
-        test_result, output = self._editor.test_context(self.db, self._context_path.parent)
+        self.set_error_icon('wait')
+        self._editor.launch_test_context(self.db)
+
+    def test_context_result(self, test_result, output, checked_code):
+        # want_save, self._context_save_wanted = self._context_save_wanted, False
+        if self._context_code_to_save == checked_code:
+            if saving := test_result is not ContextTestResult.ERROR:
+                self._context_path.write_text(self._context_code_to_save)
+                self.mark_context_saved()
+            self._context_code_to_save = None
+            self.save_context_finished.emit(saving)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
@@ -827,7 +905,6 @@ da-dev@xfel.eu"""
                 self.set_error_icon("green")
 
         self._editor.setFocus()
-        return test_result
 
     def set_error_icon(self, icon):
         self._context_status_icon.load(icon_path(f"{icon}_circle.svg"))
@@ -840,20 +917,18 @@ da-dev@xfel.eu"""
         QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
 
     def save_context(self):
-        if self.test_context() == ContextTestResult.ERROR:
-            return
+        self._context_code_to_save = self._editor.text()
+        self.test_context()
+        # If the check passes, .test_context_result() saves the file
 
-        self._context_path.write_text(self._editor.text())
-        self.mark_context_saved()
-        self._editor.setFocus()
-
-    def mark_context_saved(self):
+    def mark_context_saved(self, ctx_size_mtime=None):
         self._context_is_saved = True
         self._tabbar_style.enable_bold = False
         self._tab_widget.setTabText(1, "Context file")
         self._tab_widget.tabBar().setTabTextColor(1, QtGui.QColor("black"))
         self._editor_status_message = str(self._context_path.resolve())
         self.on_tab_changed(self._tab_widget.currentIndex())
+        self.editor_ctx_size_mtime = ctx_size_mtime or self.get_context_size_mtime()
 
     def save_value(self, prop, run, name, value):
         if self.db is None:
@@ -899,6 +974,38 @@ da-dev@xfel.eu"""
         df = df.applymap(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         self.zulip_messenger.send_table(df)
+
+    def process_runs(self):
+        sel_runs_by_prop = {}
+        for ix in self.table_view.selected_rows():
+            run_prop, run_num = self.table.row_to_proposal_run(ix.row())
+            sel_runs_by_prop.setdefault(run_prop, []).append(run_num)
+
+        if sel_runs_by_prop:
+            prop, sel_runs = max(sel_runs_by_prop.items(), key=lambda p: len(p[1]))
+            sel_runs.sort()
+        else:
+            prop = self.db.metameta.get("proposal", "")
+            sel_runs = []
+
+        var_ids_titles = zip(self.table.computed_columns(),
+                             self.table.computed_columns(by_title=True))
+
+        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            submitter = ExtractionSubmitter(self.context_dir, self.db)
+
+            try:
+                reqs = dlg.extraction_requests()
+                submitter.submit_multi(reqs)
+            except Exception as e:
+                log.error("Error launching processing", exc_info=True)
+                self.show_status_message(f"Error launching processing: {e}",
+                                         10_000, stylesheet=StatusbarStylesheet.ERROR)
+            else:
+                self.show_status_message(
+                    f"Launched processing for {len(reqs)} runs", 10_000
+                )
 
     adeqt_window = None
 
@@ -1081,11 +1188,16 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
 
 
 def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
+    QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
 
-    if software_opengl:
+    # Required for the WebViewer to load pages
+    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox'
+
+    if software_opengl or re.match(r'^max-exfl\d{3}.desy.de$', gethostname()):
+        log.info('Use software OpenGL.')
         QtWidgets.QApplication.setAttribute(
             Qt.AA_UseSoftwareOpenGL
         )

@@ -63,6 +63,7 @@ def main(argv=None):
     gui_ap.add_argument(
         "--software-opengl", action="store_true",
         help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
+             "Active by default on Maxwell if not started on a display node."
     )
 
     listen_ap = subparsers.add_parser(
@@ -107,6 +108,10 @@ def main(argv=None):
     reprocess_ap.add_argument(
         '--direct', action='store_true',
         help="Run processing in subprocesses on this node, instead of via Slurm"
+    )
+    reprocess_ap.add_argument(
+        '--concurrent-jobs', type=int, default=15,
+        help="The maximum number of jobs that will run at once (default 15)"
     )
     reprocess_ap.add_argument(
         'run', nargs='+',
@@ -225,7 +230,8 @@ def main(argv=None):
 
         from .backend.extraction_control import reprocess
         reprocess(
-            args.run, args.proposal, args.match, args.mock, args.watch, args.direct
+            args.run, args.proposal, args.match, args.mock, args.watch, args.direct,
+            limit_running=args.concurrent_jobs,
         )
 
     elif args.subcmd == 'read-context':

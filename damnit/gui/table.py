@@ -386,6 +386,8 @@ class TableView(QtWidgets.QTableView):
         self.show_logs_action = QtWidgets.QAction('View processing logs')
         self.show_logs_action.triggered.connect(self.show_run_logs)
         self.context_menu.addAction(self.show_logs_action)
+        self.process_action = QtWidgets.QAction('Reprocess runs')
+        self.context_menu.addAction(self.process_action)
 
     def setModel(self, model: 'DamnitTableModel'):
         """
@@ -445,7 +447,11 @@ class TableView(QtWidgets.QTableView):
         deselected. The `for_restore` argument lets you specify which behaviour
         you want.
         """
-        column_index = self.damnit_model.find_column(name, by_title=True)
+        try:
+            column_index = self.damnit_model.find_column(name, by_title=True)
+        except KeyError:
+            log.error("Could not find column %r to set visibility", name)
+            return
 
         self.setColumnHidden(column_index, not visible)
 
@@ -464,8 +470,8 @@ class TableView(QtWidgets.QTableView):
             self.settings_changed.emit()
 
     def item_moved(self, parent, start, end, destination, row):
-        # Take account of the static columns, and the Status column
-        col_offset = self._static_columns_widget.count() + 1
+        # Take account of the static columns
+        col_offset = self._static_columns_widget.count()
 
         col_from = start + col_offset
         col_to = self._columns_widget.currentIndex().row() + col_offset
@@ -504,8 +510,9 @@ class TableView(QtWidgets.QTableView):
         if positions is None:
             rows_count = self._columns_widget.count()
             positions = [ii + rows_count for ii in range(len(columns))]
+
         for column, status, position in zip(columns, statuses, positions):
-            if column in ["Status", "comment_id"]:
+            if column == "comment_id":
                 continue
 
             item = QtWidgets.QListWidgetItem(column)
@@ -533,7 +540,7 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.clear()
         self._static_columns_widget.clear()
 
-        static_columns = ["Proposal", "Run", "Timestamp", "Comment"]
+        static_columns = ["Status", "Proposal", "Run", "Timestamp", "Comment"]
         for column, status in zip(columns, statuses):
             if column in static_columns:
                 item = QtWidgets.QListWidgetItem(column)
@@ -543,9 +550,15 @@ class TableView(QtWidgets.QTableView):
                                                   QtWidgets.QSizePolicy.Minimum)
 
         # Remove the static columns
-        columns, statuses = map(list, zip(*[x for x in zip(columns, statuses)
-                                            if x[0] not in static_columns]))
-        self.add_new_columns(columns, statuses)
+        new_columns = []
+        new_statuses = []
+        for col, status in zip(columns, statuses):
+            if col in static_columns:
+                continue
+            new_columns.append(col)
+            new_statuses.append(status)
+
+        self.add_new_columns(new_columns, new_statuses)
 
     def get_column_states(self):
         column_states = { }
@@ -831,6 +844,14 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def column_title_to_id(self, title):
         return self.column_id(self.find_column(title, by_title=True))
 
+    def computed_columns(self, by_title=False):
+        for i, col_id in enumerate(self.column_ids[5:], start=5):
+            if col_id not in self.editable_columns:
+                if by_title:
+                    yield self.column_titles[i]
+                else:
+                    yield col_id
+
     def find_row(self, proposal, run):
         return self.run_index[(proposal, run)]
 
@@ -950,7 +971,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
-        title = var_info['title']
+        title = var_info['title'] or col_id
         try:
             col_ix = self.find_column(col_id)
         except KeyError:
@@ -993,22 +1014,20 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             )
         return pixmap
 
-    def numbers_for_plotting(self, xcol, ycol, by_title=True):
-        xcol_ix = self.find_column(xcol, by_title)
-        ycol_ix = self.find_column(ycol, by_title)
-        res_x, res_y = [], []
+    def numbers_for_plotting(self, *cols, by_title=True):
+        col_ixs = [self.find_column(c, by_title) for c in cols]
+        res = [[]  for _ in cols]
         for r in range(self.rowCount()):
             status_item = self.item(r, 0)
             if status_item is None or status_item.checkState() != Qt.Checked:
                 continue
 
-            xval = self.get_value_at_rc(r, xcol_ix)
-            yval = self.get_value_at_rc(r, ycol_ix)
-            if isinstance(xval, (int, float)) and isinstance(yval, (int, float)):
-                res_x.append(xval)
-                res_y.append(yval)
+            vals = [self.get_value_at_rc(r, ci) for ci in col_ixs]
+            if all(isinstance(val, (int, float)) for val in vals):
+                for res_list, val in zip(res, vals):
+                    res_list.append(val)
 
-        return res_x, res_y
+        return res
 
     def get_value_at(self, index):
         """Get the value for programmatic use, not for display"""
