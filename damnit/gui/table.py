@@ -16,7 +16,7 @@ from superqt.fonticon import icon
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
-from .table_header import HeaderView, FilterProxy, SearchMenu
+from .table_filter import FilterProxy, SearchMenu
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +29,71 @@ COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 # resiseable columns
 # filter by column values
 # group columns
+
+class HeaderView(QHeaderView):
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self.setSectionsMovable(True)  # TODO to activate that we need to update variable order in the table
+        self.setSectionResizeMode(QHeaderView.Interactive)
+        self.setSectionsClickable(True)
+        self.hovered_section = -1
+        self.menu_hovered = False
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        hovered_section = self.logicalIndexAt(event.pos())
+        old_hovered = self.hovered_section
+        old_menu_hovered = self.menu_hovered
+
+        self.hovered_section = hovered_section
+        self.menu_hovered = self.is_menu_hovered(event.pos())
+
+        if old_hovered != self.hovered_section or old_menu_hovered != self.menu_hovered:
+            self.updateSection(old_hovered)
+            self.updateSection(self.hovered_section)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        old_hovered = self.hovered_section
+        self.hovered_section = -1
+        self.menu_hovered = False
+        self.updateSection(old_hovered)
+
+    def paintSection(self, painter, rect, logicalIndex):
+        painter.save()
+        super().paintSection(painter, rect, logicalIndex)
+        painter.restore()
+
+        # If this section is being hovered, draw the menu
+        if logicalIndex == self.hovered_section:
+            # Set up the painter for the menu
+            painter.save()
+            font = painter.font()
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.setPen(QColor(60, 60, 60) if self.menu_hovered else QColor(120, 120, 120))
+            painter.drawText(self.menu_box(rect), Qt.AlignCenter, "⋮")
+            painter.restore()
+
+    def mousePressEvent(self, event):
+        index = self.logicalIndexAt(event.pos())
+        if index == self.hovered_section and self.is_menu_hovered(event.pos()):
+            self.parent().show_horizontal_header_menu(index, event.globalPos())
+        else:
+            super().mousePressEvent(event)
+
+    def menu_box(self, rect):
+        """Return the menu interration area"""
+        return QRect(rect.left() + 2, rect.top() + 2, 18, 18)
+
+    def is_menu_hovered(self, pos):
+        index = self.logicalIndexAt(pos)
+        if index != -1:
+            rect = self.rect()
+            rect.setLeft(self.sectionViewportPosition(index))
+            rect.setRight(self.sectionViewportPosition(index) + self.sectionSize(index) - 1)
+            return self.menu_box(rect).contains(pos)
+        return False
 
 
 class TableView(QtWidgets.QTableView):
@@ -47,7 +112,7 @@ class TableView(QtWidgets.QTableView):
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
+        # self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
         self.sortByColumn(0, Qt.AscendingOrder)
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
@@ -84,10 +149,10 @@ class TableView(QtWidgets.QTableView):
         """
         Overload
         """
-        # if (old_sel_model := self.selectionModel()) is not None:
-        #     old_sel_model.deleteLater()
-        # if (old_model := self.model()) is not None:
-        #     old_model.deleteLater()
+        if (old_sel_model := self.selectionModel()) is not None:
+            old_sel_model.deleteLater()
+        if (old_model := self.model()) is not None:
+            old_model.deleteLater()
 
         self.damnit_model = model
 
@@ -100,7 +165,7 @@ class TableView(QtWidgets.QTableView):
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
-        # self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
+        self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
         # self.horizontalHeader().setSectionsClickable(True)
         if model is not None:
             self.model().rowsInserted.connect(self.resize_new_rows)
