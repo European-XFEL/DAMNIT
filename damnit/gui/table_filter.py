@@ -1,4 +1,4 @@
-from math import nan, inf
+from math import nan, inf, isnan
 
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import QHeaderView, QMenu, QAction, QListWidgetItem, QWidgetAction, QPushButton, QHBoxLayout, QWidget, QVBoxLayout, QLineEdit, QCheckBox
@@ -8,6 +8,7 @@ from superqt import QSearchableListWidget
 from fonticon_fa6 import FA6S
 from superqt.fonticon import icon
 from superqt.utils import qdebounced
+from natsort import natsorted
 
 
 class NumericRangeInput(QWidget):
@@ -190,7 +191,7 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
         return True
 
 
-class SearchMenu(QMenu):
+class FilterMenu(QMenu):
     selectionChanged = QtCore.pyqtSignal()
 
     def __init__(self, column, model, parent=None):
@@ -206,7 +207,7 @@ class SearchMenu(QMenu):
 
         self.all_numeric = True
         sel_values = self._unique_values(filtered=True, display=False)
-        for disp, data in sorted(self._unique_values()):
+        for disp, data in natsorted(self._unique_values()):
             item = QListWidgetItem()
             item.setData(Qt.UserRole, data)
             item.setData(Qt.DisplayRole, disp)
@@ -249,9 +250,9 @@ class SearchMenu(QMenu):
                 continue
 
             if display:
-                value = (item.data(Qt.DisplayRole) or '', item.data(Qt.UserRole))
+                value = (item.data(Qt.DisplayRole) or '', item.data(Qt.UserRole) or nan)
             else:
-                value = item.data(Qt.UserRole or nan)
+                value = item.data(Qt.UserRole) or nan
             values.add(value)
 
         return values
