@@ -8,7 +8,7 @@ import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, QRect
-from PyQt5.QtGui import QColor, QPen
+from PyQt5.QtGui import QColor, QPen, QCursor
 from PyQt5.QtWidgets import QAction, QHeaderView, QMenu, QMessageBox, QWidgetAction, QListWidgetItem
 from superqt import QSearchableListWidget
 from superqt.fonticon import icon
@@ -16,84 +16,18 @@ from superqt.fonticon import icon
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
-from .table_filter import FilterProxy, SearchMenu
+from .table_filter import FilterProxy, FilterMenu
 
 log = logging.getLogger(__name__)
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
-COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 # movable columns
 # resiseable columns
 # filter by column values
 # group columns
-
-class HeaderView(QHeaderView):
-    def __init__(self, orientation, parent=None):
-        super().__init__(orientation, parent)
-        self.setSectionsMovable(True)  # TODO to activate that we need to update variable order in the table
-        self.setSectionResizeMode(QHeaderView.Interactive)
-        self.setSectionsClickable(True)
-        self.hovered_section = -1
-        self.menu_hovered = False
-
-    def mouseMoveEvent(self, event):
-        super().mouseMoveEvent(event)
-        hovered_section = self.logicalIndexAt(event.pos())
-        old_hovered = self.hovered_section
-        old_menu_hovered = self.menu_hovered
-
-        self.hovered_section = hovered_section
-        self.menu_hovered = self.is_menu_hovered(event.pos())
-
-        if old_hovered != self.hovered_section or old_menu_hovered != self.menu_hovered:
-            self.updateSection(old_hovered)
-            self.updateSection(self.hovered_section)
-
-    def leaveEvent(self, event):
-        super().leaveEvent(event)
-        old_hovered = self.hovered_section
-        self.hovered_section = -1
-        self.menu_hovered = False
-        self.updateSection(old_hovered)
-
-    def paintSection(self, painter, rect, logicalIndex):
-        painter.save()
-        super().paintSection(painter, rect, logicalIndex)
-        painter.restore()
-
-        # If this section is being hovered, draw the menu
-        if logicalIndex == self.hovered_section:
-            # Set up the painter for the menu
-            painter.save()
-            font = painter.font()
-            font.setPointSize(10)
-            painter.setFont(font)
-            painter.setPen(QColor(60, 60, 60) if self.menu_hovered else QColor(120, 120, 120))
-            painter.drawText(self.menu_box(rect), Qt.AlignCenter, "⋮")
-            painter.restore()
-
-    def mousePressEvent(self, event):
-        index = self.logicalIndexAt(event.pos())
-        if index == self.hovered_section and self.is_menu_hovered(event.pos()):
-            self.parent().show_horizontal_header_menu(index, event.globalPos())
-        else:
-            super().mousePressEvent(event)
-
-    def menu_box(self, rect):
-        """Return the menu interration area"""
-        return QRect(rect.left() + 2, rect.top() + 2, 18, 18)
-
-    def is_menu_hovered(self, pos):
-        index = self.logicalIndexAt(pos)
-        if index != -1:
-            rect = self.rect()
-            rect.setLeft(self.sectionViewportPosition(index))
-            rect.setRight(self.sectionViewportPosition(index) + self.sectionSize(index) - 1)
-            return self.menu_box(rect).contains(pos)
-        return False
 
 
 class TableView(QtWidgets.QTableView):
@@ -105,15 +39,11 @@ class TableView(QtWidgets.QTableView):
         super().__init__()
         self.setAlternatingRowColors(False)
 
-        # self.setSortingEnabled(True)
-        # self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
-
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        # self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
-        self.sortByColumn(0, Qt.AscendingOrder)
+        # self.sortByColumn(0, Qt.AscendingOrder)
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
         self.verticalHeader().setStyleSheet("QHeaderView"
@@ -165,8 +95,12 @@ class TableView(QtWidgets.QTableView):
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
-        self.setHorizontalHeader(HeaderView(Qt.Horizontal, self))
-        # self.horizontalHeader().setSectionsClickable(True)
+        self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
+        header = self.horizontalHeader()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self.show_horizontal_header_menu)
+        # header.setSectionsMovable(True)  # TODO need to update variable order in the table / emit settings_changed
+
         if model is not None:
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
@@ -325,20 +259,6 @@ class TableView(QtWidgets.QTableView):
 
         return column_states
 
-    # def style_comment_rows(self, *_):
-    #     print('?!?!?!?!')
-    #     self.clearSpans()
-    #     model : DamnitTableModel = self.damnit_model
-    #     comment_col = model.find_column("Comment", by_title=True)
-    #     timestamp_col = model.find_column("Timestamp", by_title=True)
-
-    #     proxy_mdl = self.model()
-    #     for row_ix in model.standalone_comment_rows():
-    #         print(']]]', row_ix)
-    #         ix = proxy_mdl.mapFromSource(self.damnit_model.createIndex(row_ix, 0))
-    #         self.setSpan(ix.row(), 0, 1, timestamp_col)
-    #         self.setSpan(ix.row(), comment_col, 1, 1000)
-
     def resize_new_rows(self, parent, first, last):
         for row in range(first, last + 1):
             self.resizeRowToContents(row)
@@ -371,7 +291,9 @@ class TableView(QtWidgets.QTableView):
         prop, run = self.damnit_model.row_to_proposal_run(row)
         self.log_view_requested.emit(prop, run)
 
-    def show_horizontal_header_menu(self, index, pos):
+    def show_horizontal_header_menu(self, position):
+        pos = QCursor.pos()
+        index = self.horizontalHeader().logicalIndexAt(position)
         menu = QMenu(self)
         sort_asc_action = QAction(icon(FA6S.arrow_up_short_wide), "Sort Ascending", self)
         sort_desc_action = QAction(icon(FA6S.arrow_down_wide_short), "Sort Descending", self)
@@ -382,12 +304,12 @@ class TableView(QtWidgets.QTableView):
         menu.addAction(sort_desc_action)
         menu.addSeparator()
         menu.addAction(filter_action)
-        menu.addSeparator()
-        menu.addAction(hide_action)
+        # menu.addSeparator()
+        # menu.addAction(hide_action)
 
         sort_asc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.AscendingOrder))
         sort_desc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.DescendingOrder))
-        filter_action.triggered.connect(lambda: SearchMenu(index, self.model(), self).popup(pos))
+        filter_action.triggered.connect(lambda: FilterMenu(index, self.model(), self).popup(pos))
         hide_action.triggered.connect(lambda: print("TODO"))
 
         menu.exec_(pos)
@@ -405,10 +327,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def __init__(self, db: DamnitDB, column_settings: dict, parent):
         self.column_ids, self.column_titles = self._load_columns(db, column_settings)
         n_run_rows = db.conn.execute("SELECT count(*) FROM run_info").fetchone()[0]
-        n_cmnt_rows = db.conn.execute("SELECT count(*) FROM time_comments").fetchone()[0]
-        log.info(f"Table will have {n_run_rows} runs & {n_cmnt_rows} standalone comments")
+        log.info(f"Table will have {n_run_rows} runs")
 
-        super().__init__(n_run_rows + n_cmnt_rows, len(self.column_ids), parent)
+        super().__init__(n_run_rows, len(self.column_ids), parent)
         self.setHorizontalHeaderLabels(self.column_titles)
         self._main_window = parent
         self.is_sorted_by = ""
@@ -416,7 +337,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.db = db
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
-        # self.standalone_comment_index = {}
 
         self._bold_font = QtGui.QFont()
         self._bold_font.setBold(True)
@@ -508,12 +428,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         )
         return item
 
-    def comment_item(self, text, comment_id=None):
+    def comment_item(self, text):
         item = QtGui.QStandardItem(text)  # Editable by default
         item.setToolTip(text)
-        if comment_id is not None:
-            # For standalone comments, integer ID
-            item.setData(comment_id, COMMENT_ID_ROLE)
         return item
 
     def new_item(self, value, column_id, max_diff, attrs):
@@ -613,9 +530,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item = self.item(row, comment_col)
         return item and item.data(COMMENT_ID_ROLE)
 
-    # def standalone_comment_rows(self):
-    #     return sorted(self.standalone_comment_index.values())
-
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
         start_run = max([r for (p, r) in self.run_index if p == proposal]) + 1
@@ -672,14 +586,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.run_index[(proposal, run)] = row_ix = self.rowCount()
         self.appendRow(row)
         self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(str(run)))
-
-    # def insert_comment_row(self, comment_id: int, comment: str, timestamp: float):
-    #     blank = self.itemPrototype().clone()
-    #     ts_item = self.text_item(timestamp, display=timestamp2str(timestamp))
-    #     row = [blank, blank, blank, ts_item, self.comment_item(comment, comment_id)]
-    #     self.standalone_comment_index[comment_id] = row_ix = self.rowCount()
-    #     self.appendRow(row)
-    #     self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(''))
 
     def handle_run_values_changed(self, proposal, run, values: dict):
         known_col_ids = set(self.column_ids)
@@ -819,13 +725,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                     if not super().setData(index, display, role):
                         return False
 
-            # Send appropriate signals if we edited a standalone comment or an
-            # editable column.
-            if comment_id := self.row_to_comment_id(index.row()):
-                self.time_comment_changed.emit(comment_id, value)
-            else:
-                prop, run = self.row_to_proposal_run(index.row())
-                self.value_changed.emit(int(prop), int(run), changed_column, parsed)
+            prop, run = self.row_to_proposal_run(index.row())
+            self.value_changed.emit(int(prop), int(run), changed_column, parsed)
 
             return True
 

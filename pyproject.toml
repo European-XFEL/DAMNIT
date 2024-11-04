@@ -41,6 +41,7 @@ gui = [
     "fonticon-fontawesome6",
     "mplcursors",
     "mpl-pan-zoom",
+    "natsorted",
     "openpyxl",  # for spreadsheet export
     "PyQt5",
     "PyQtWebEngine",
