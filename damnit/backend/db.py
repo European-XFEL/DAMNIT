@@ -33,6 +33,19 @@ CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
 CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
 CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
 CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
+
+-- Tags related tables
+CREATE TABLE IF NOT EXISTS tags(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS variable_tags(
+    variable_name TEXT NOT NULL,
+    tag_id INTEGER NOT NULL,
+    FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (variable_name, tag_id)
+);
 """
 
 
@@ -349,6 +362,71 @@ class DamnitDB:
             """, (name, ))
 
             self.update_views()
+
+    def add_tag(self, tag_name: str) -> int:
+        """Add a new tag to the database if it doesn't exist.
+        Returns the tag ID."""
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
+        self.conn.commit()
+        cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+        return cursor.fetchone()[0]
+
+    def get_tag_id(self, tag_name: str) -> Optional[int]:
+        """Get the ID of a tag by its name."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    def tag_variable(self, variable_name: str, tag_name: str):
+        """Associate a tag with a variable."""
+        tag_id = self.add_tag(tag_name)
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO variable_tags (variable_name, tag_id) VALUES (?, ?)",
+            (variable_name, tag_id)
+        )
+        self.conn.commit()
+
+    def untag_variable(self, variable_name: str, tag_name: str):
+        """Remove a tag association from a variable."""
+        tag_id = self.get_tag_id(tag_name)
+        if tag_id is not None:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "DELETE FROM variable_tags WHERE variable_name = ? AND tag_id = ?",
+                (variable_name, tag_id)
+            )
+            self.conn.commit()
+
+    def get_variable_tags(self, variable_name: str) -> list[str]:
+        """Get all tags associated with a variable."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT t.name 
+            FROM tags t 
+            JOIN variable_tags vt ON t.id = vt.tag_id 
+            WHERE vt.variable_name = ?
+        """, (variable_name,))
+        return [row[0] for row in cursor.fetchall()]
+
+    def get_variables_by_tag(self, tag_name: str) -> list[str]:
+        """Get all variables that have a specific tag."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT vt.variable_name 
+            FROM variable_tags vt 
+            JOIN tags t ON vt.tag_id = t.id 
+            WHERE t.name = ?
+        """, (tag_name,))
+        return [row[0] for row in cursor.fetchall()]
+
+    def get_all_tags(self) -> list[str]:
+        """Get all existing tags."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT name FROM tags ORDER BY name")
+        return [row[0] for row in cursor.fetchall()]
 
 class MetametaMapping(MutableMapping):
     def __init__(self, conn):
