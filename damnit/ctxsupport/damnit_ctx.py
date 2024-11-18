@@ -70,7 +70,7 @@ class Variable:
                 problems.append(
                     f"tags={self.tags!r} for variable {self.name} (can be a string or an iterable of strings)"
                 )
-        
+
         return problems
 
     @property

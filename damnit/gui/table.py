@@ -65,7 +65,7 @@ class TableView(QtWidgets.QTableView):
 
         # Add tag filtering support
         self._current_tag_filter = set()  # Change to set for multiple tags
-        self._tag_filter_button = QtWidgets.QPushButton("Filter by Tag")
+        self._tag_filter_button = QtWidgets.QPushButton("Variables by Tag")
         self._tag_filter_button.clicked.connect(self._show_tag_filter_menu)
 
     def setModel(self, model: 'DamnitTableModel'):
@@ -108,7 +108,7 @@ class TableView(QtWidgets.QTableView):
         state = item.checkState()
         self.set_column_visibility(item.text(), state == Qt.Checked)
 
-    def set_column_visibility(self, name, visible, for_restore=False):
+    def set_column_visibility(self, name, visible, for_restore=False, save_settings=True):
         """
         Make a column visible or not. This function should be used instead of the lower-level
         setColumnHidden().
@@ -139,7 +139,7 @@ class TableView(QtWidgets.QTableView):
             if len(matching_items) == 1:
                 item = matching_items[0]
                 item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
-        else:
+        elif save_settings:
             self.settings_changed.emit()
 
     def item_moved(self, parent, start, end, destination, row):
@@ -310,7 +310,6 @@ class TableView(QtWidgets.QTableView):
             action = menu.addAction(tag)
             action.setCheckable(True)
             action.setChecked(tag in self._current_tag_filter)
-            # Use a lambda with default argument to capture the current tag
             action.triggered.connect(lambda checked, t=tag: self._toggle_tag_filter(t))
 
         menu.exec_(QtGui.QCursor.pos())
@@ -324,32 +323,40 @@ class TableView(QtWidgets.QTableView):
         self.apply_tag_filter(self._current_tag_filter)
 
     def apply_tag_filter(self, tag_names: set):
-        """Filter columns to show only variables with any of the specified tags."""
+        """Filter columns to show only variables with selected tags."""
         self._current_tag_filter = tag_names
-        
-        if not tag_names:  # Show all columns
-            for col in range(self.model().columnCount()):
-                self.setColumnHidden(col, False)
-            self._tag_filter_button.setText("Filter by Tag")
-            return
 
-        # Get all variables that have any of the selected tags
-        tagged_vars = set()
-        for tag in tag_names:
-            tagged_vars.update(self.damnit_model.db.get_variables_by_tag(tag))
+        # Get user's column visibility preferences
+        column_states = self.get_column_states()
 
-        # Hide/show columns based on whether they're tagged
-        for col in range(self.model().columnCount()):
-            col_name = self.damnit_model.column_id(col)
-            # Don't hide static columns like Status, Proposal, Run, etc.
-            is_static = col < self.get_static_columns_count()
-            self.setColumnHidden(col, not (is_static or col_name in tagged_vars))
+        if not tag_names:
+            # Show all columns that were checked in the column widgets
+            for col, state in column_states.items():
+                self.set_column_visibility(col, state, save_settings=False)
 
-        # Update button text
-        if len(tag_names) == 1:
-            self._tag_filter_button.setText(f"Filtered: {next(iter(tag_names))}")
+            self._tag_filter_button.setText("Variables by Tag")
         else:
-            self._tag_filter_button.setText(f"Filtered: {len(tag_names)} tags")
+            # Get all variables that have any of the selected tags
+            tagged_vars = set()
+            for tag in tag_names:
+                tagged_vars.update(self.damnit_model.db.get_variables_by_tag(tag))
+
+            # Hide/show columns based on whether they're tagged AND checked in column widgets
+            for idx, (col, state) in enumerate(column_states.items()):
+                is_static = idx < self.get_static_columns_count()
+                is_tagged = self.damnit_model.column_title_to_id(col) in tagged_vars
+
+                # Column should be visible if:
+                # 1. It's a static column that's checked in column widgets, or
+                # 2. It's a non-static column that's both tagged and checked in column widgets
+                show = state and (is_static or is_tagged)
+                self.set_column_visibility(col, show, save_settings=False)
+
+            # Update button text
+            if len(tag_names) == 1:
+                self._tag_filter_button.setText(f"Variables: {next(iter(tag_names))}")
+            else:
+                self._tag_filter_button.setText(f"Variables: {len(tag_names)} tags")
 
     def get_toolbar_widgets(self):
         """Return widgets to be added to the toolbar."""
@@ -891,4 +898,3 @@ def prettify_notation(value):
 
 def is_png_bytes(obj):
     return isinstance(obj, bytes) and BlobTypes.identify(obj) is BlobTypes.png
-

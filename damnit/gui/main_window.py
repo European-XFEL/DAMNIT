@@ -707,50 +707,48 @@ da-dev@xfel.eu"""
         return table
 
     def _create_view(self) -> None:
-        """Create the table view."""
         vertical_layout = QtWidgets.QVBoxLayout()
 
         # Create toolbar for table controls
         toolbar = QtWidgets.QToolBar()
         vertical_layout.addWidget(toolbar)
-        
-        # Create the table view
+
+        # the table
         self.table_view = TableView()
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
-        
+
         # Add table view's toolbar widgets
         for widget in self.table_view.get_toolbar_widgets():
             toolbar.addWidget(widget)
-        
+
         vertical_layout.addWidget(self.table_view)
 
-        # Add comment section
+        # add all other widgets on a collapsible layout
         collapsible = CollapsibleWidget()
         vertical_layout.addWidget(collapsible)
-        
-        comment_layout = QtWidgets.QHBoxLayout()
+
+        comment_horizontal_layout = QtWidgets.QHBoxLayout()
         self.comment = QtWidgets.QLineEdit(self)
         self.comment.setText("Time can be edited in the field on the right.")
-        
+
         self.comment_time = QtWidgets.QLineEdit(self)
         self.comment_time.setStyleSheet("width: 25px;")
-        
+
         comment_button = QtWidgets.QPushButton("Additional comment")
         comment_button.setEnabled(True)
         comment_button.clicked.connect(self._comment_button_clicked)
-        
-        comment_layout.addWidget(comment_button)
-        comment_layout.addWidget(self.comment, stretch=3)
-        comment_layout.addWidget(QtWidgets.QLabel("at"))
-        comment_layout.addWidget(self.comment_time, stretch=1)
-        
-        collapsible.add_layout(comment_layout)
-        
-        # Set up comment timer
+
+        comment_horizontal_layout.addWidget(comment_button)
+        comment_horizontal_layout.addWidget(self.comment, stretch=3)
+        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
+        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
+
+        collapsible.add_layout(comment_horizontal_layout)
+
         comment_timer = QtCore.QTimer()
         self._set_comment_date()
         comment_timer.setInterval(30000)
@@ -787,7 +785,7 @@ da-dev@xfel.eu"""
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
-        
+
         collapsible.add_widget(plotting_group)
 
         vertical_layout.setSpacing(0)

@@ -261,13 +261,13 @@ class DamnitDB:
             for name, var in updates.items():
                 existing_tags = set(self.get_variable_tags(name))
                 new_tags = set(var.get('tags', None) or [])
-                
+
                 tags_to_add = new_tags - existing_tags
                 tags_to_remove = existing_tags - new_tags
 
                 for tag in tags_to_add:
                     self.tag_variable(name, tag)
-                
+
                 for tag in tags_to_remove:
                     self.untag_variable(name, tag)
 
@@ -417,9 +417,9 @@ class DamnitDB:
         """Get all tags associated with a variable."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT t.name 
-            FROM tags t 
-            JOIN variable_tags vt ON t.id = vt.tag_id 
+            SELECT t.name
+            FROM tags t
+            JOIN variable_tags vt ON t.id = vt.tag_id
             WHERE vt.variable_name = ?
         """, (variable_name,))
         return [row[0] for row in cursor.fetchall()]
@@ -428,9 +428,9 @@ class DamnitDB:
         """Get all variables that have a specific tag."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT vt.variable_name 
-            FROM variable_tags vt 
-            JOIN tags t ON vt.tag_id = t.id 
+            SELECT vt.variable_name
+            FROM variable_tags vt
+            JOIN tags t ON vt.tag_id = t.id
             WHERE t.name = ?
         """, (tag_name,))
         return [row[0] for row in cursor.fetchall()]

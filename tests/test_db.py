@@ -76,7 +76,7 @@ def test_tags(mock_db_with_data):
     # Test untagging variables
     db.untag_variable("scalar1", "scalar")
     assert set(db.get_variable_tags("scalar1")) == {"integer"}
-    
+
     # Test untagging with nonexistent tag (should not raise error)
     db.untag_variable("scalar1", "nonexistent")
     assert set(db.get_variable_tags("scalar1")) == {"integer"}
