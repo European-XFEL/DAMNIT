@@ -258,6 +258,19 @@ class DamnitDB:
                 for (n, v) in updates.items()
             ])
 
+            for name, var in updates.items():
+                existing_tags = set(self.get_variable_tags(name))
+                new_tags = set(var.get('tags', []))
+                
+                tags_to_add = new_tags - existing_tags
+                tags_to_remove = existing_tags - new_tags
+
+                for tag in tags_to_add:
+                    self.tag_variable(name, tag)
+                
+                for tag in tags_to_remove:
+                    self.untag_variable(name, tag)
+
             if not set(vars) <= set(vars_in_db):
                 # At least 1 variable was new, so remake the views with the new columns
                 self.update_views()
