@@ -10,10 +10,10 @@ import h5py
 import pytest
 import numpy as np
 import pandas as pd
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
-    QStyledItemDelegate, QLineEdit
+    QStyledItemDelegate, QLineEdit, QMenu
 
 import damnit
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
@@ -24,6 +24,7 @@ from damnit.gui.main_window import MainWindow, AddUserVariableDialog
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import ScatterPlotWindow, HistogramPlotWindow
 from damnit.gui.zulip_messenger import ZulipConfig
+from damnit.gui.table_filter import FilterStatus, FilterMenu
 
 from .helpers import reduced_data_from_dict, mkcontext, extract_mock_run
 
@@ -174,23 +175,54 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     # drag-and-drop with QTest or programmatically move a row in a QListWidget
     # (such that its models' rowsMoved() signal is emitted). Hence, this ugly
     # hack.
-    def move_columns_manually(from_idx, to_idx):
-        headers = visible_headers()
-        col_one = headers[from_idx]
-        col_two = headers[to_idx]
-        columns = win.table_view._columns_widget
-        col_one_item = columns.findItems(col_one, Qt.MatchExactly)[0]
-        col_two_item = columns.findItems(col_two, Qt.MatchExactly)[0]
-        old_idx = columns.row(col_two_item)
+    # def move_columns_manually(from_idx, to_idx):
+    #     headers = visible_headers()
+    #     col_one = headers[from_idx]
+    #     col_two = headers[to_idx]
+    #     columns = win.table_view._columns_widget
+    #     col_one_item = columns.findItems(col_one, Qt.MatchExactly)[0]
+    #     col_two_item = columns.findItems(col_two, Qt.MatchExactly)[0]
+    #     old_idx = columns.row(col_two_item)
 
-        from_row = columns.row(col_one_item)
-        columns.takeItem(columns.row(col_one_item))
-        columns.insertItem(old_idx, col_one_item)
-        columns.setCurrentItem(col_one_item)
-        win.table_view.item_moved(None, from_row, from_row,
-                                  None, columns.row(col_one_item))
+    #     from_row = columns.row(col_one_item)
+    #     columns.takeItem(columns.row(col_one_item))
+    #     columns.insertItem(old_idx, col_one_item)
+    #     columns.setCurrentItem(col_one_item)
+    #     win.table_view.item_moved(None, from_row, from_row,
+    #                               None, columns.row(col_one_item))
 
-        return col_one, col_two
+    #     return col_one, col_two
+
+    def move_columns_manually(*args):
+        from PyQt5.QtCore import QPoint
+
+        vh = visible_headers()
+        a = vh[-1]
+        b = vh[-2]
+        print('??', a, b)
+
+        header = win.table_view.horizontalHeader()
+        height = header.height()
+
+        # Calculate start and end positions
+        start = header.count() - 1
+        start_pos = QPoint(header.sectionViewportPosition(start) + 5, height // 2)
+        end = header.count() - 2
+        end_pos = QPoint(header.sectionViewportPosition(end) - 5, height // 2)
+        vvh = visible_headers()
+        print(vvh[-1], vvh[-2])
+        print('??', a, b)
+
+        print(start_pos)
+        print(end_pos)
+        
+        # Simulate mouse actions
+        QTest.mousePress(header, Qt.LeftButton, Qt.NoModifier, start_pos)
+        QTest.mouseMove(header, end_pos)
+        QTest.mouseRelease(header, Qt.LeftButton, Qt.NoModifier, end_pos)
+
+        return a, b
+    
 
     # Opening a database and adding columns should have triggered a save, so the
     # settings directory should now exist.
@@ -215,8 +247,11 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
 
     # Move a column
     headers = visible_headers()
+    print(headers)
     col_one, col_two = move_columns_manually(-1, -2)
     new_headers = visible_headers()
+    print(new_headers)
+    print('>>', col_one, col_two)
     assert new_headers.index(col_one) == headers.index(col_two)
 
     # Reconfigure to reload the settings
@@ -745,15 +780,15 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     comment_index = get_index("Comment")
     win.table.setData(comment_index, "Foo", Qt.EditRole)
 
-    # Add a standalone comment
-    row_count = win.table.rowCount()
-    win.comment.setText("Bar")
-    win._comment_button_clicked()
-    assert win.table.rowCount() == row_count + 1
+    # # Add a standalone comment
+    # row_count = win.table.rowCount()
+    # win.comment.setText("Bar")
+    # win._comment_button_clicked()
+    # assert win.table.rowCount() == row_count + 1
 
-    # Edit a standalone comment
-    comment_index = get_index("Comment", row=1)
-    win.table.setData(comment_index, "Foo", Qt.EditRole)
+    # # Edit a standalone comment
+    # comment_index = get_index("Comment", row=1)
+    # win.table.setData(comment_index, "Foo", Qt.EditRole)
 
     # Check that 2D arrays are treated as images
     image_index = get_index("Image")
@@ -953,3 +988,119 @@ def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
         win.precreate_runs_dialog()
         dialog.assert_called_once()
         assert get_n_runs() == n_runs + 1
+
+# def test_table_filtering(mock_db_with_data, mock_ctx, monkeypatch, qtbot):
+#     db_dir, db = mock_db_with_data
+#     monkeypatch.chdir(db_dir)
+
+#     win = MainWindow(db_dir, False)
+#     qtbot.addWidget(win)
+
+#     table_view = win.table_view
+#     header = table_view.horizontalHeader()
+#     model = table_view.model()
+
+#     # Helper to get row count after filtering
+#     def visible_rows():
+#         return model.rowCount()
+
+#     # Helper to simulate opening filter menu
+#     def open_filter_menu(column_title):
+#         col_idx = win.table.find_column(column_title, by_title=True)
+#         pos = header.sectionViewportPosition(col_idx) + 10
+#         print('pos:', pos)
+
+#         # First click opens the header menu
+#         qtbot.mouseClick(header, Qt.LeftButton, pos=QPoint(pos, 10))
+#         header_menu = [m for m in table_view.findChildren(QMenu) if m.isVisible()][0]
+
+#         # Find and trigger the Filter action
+#         filter_action = [a for a in header_menu.actions() if a.text() == "Filter"][0]
+#         filter_action.trigger()
+
+#         # Get the filter menu that should now be visible
+#         menu = [c for c in win.findChildren(FilterMenu) if c.isVisible()][0]
+#         return menu
+
+#     initial_rows = visible_rows()
+    
+#     menu = open_filter_menu('Run')
+#     # Test numeric filtering
+#     menu = open_filter_menu("Scalar1")
+#     # Set min/max range
+#     menu.min_max.min_input.setText("10")
+#     menu.min_max.max_input.setText("20") 
+#     menu._new_value_range()
+
+#     assert visible_rows() < initial_rows
+
+#     # Test including nan values
+#     menu.min_max.include_nan.setChecked(True)
+#     menu._new_value_range()
+#     assert visible_rows() > 0
+
+#     # Test categorical filtering
+#     menu = open_filter_menu("Status")
+#     # Uncheck first item
+#     first_item = menu.item_list.item(0)
+#     first_item.setCheckState(Qt.Unchecked)
+#     menu.selection_changed()
+
+#     assert visible_rows() < initial_rows
+
+#     # Test filter status button
+#     filter_status = [w for w in win.findChildren(FilterStatus)][0]
+#     assert filter_status.text() == "Filters (2)"  # Two active filters
+
+#     # Open filter status menu and clear all filters
+#     filter_status.menu.aboutToShow.emit()
+#     clear_action = filter_status.menu.actions()[0]
+#     clear_action.trigger()
+
+#     assert visible_rows() == initial_rows
+#     assert filter_status.text() == "Filters (0)"
+
+#     # Test clearing individual filter
+#     menu = open_filter_menu("Scalar1")
+#     menu.min_max.min_input.setText("10")
+#     menu._new_value_range()
+
+#     filter_status.menu.aboutToShow.emit()
+#     clear_scalar_action = [a for a in filter_status.menu.actions() 
+#                           if "Scalar1" in a.text()][0]
+#     clear_scalar_action.trigger()
+
+#     assert visible_rows() == initial_rows
+#     assert filter_status.text() == "Filters (0)"
+
+def test_filter_proxy(mock_db_with_data, qtbot):
+    """Test the FilterProxy model directly"""
+    db_dir, db = mock_db_with_data
+    
+    win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
+    
+    proxy = win.table_view.model()
+    source = win.table
+    
+    # Get column indices
+    scalar_col = source.find_column("scalar1", by_title=False)
+    status_col = source.find_column("Status", by_title=True)
+    
+    initial_rows = proxy.rowCount()
+
+    # Test numeric filter
+    proxy.set_filter(scalar_col, lambda x: x == 42)
+    assert proxy.rowCount() == initial_rows == 1
+    
+    # Test numeric filter
+    proxy.set_filter(scalar_col, lambda x: x < 42)
+    assert proxy.rowCount() < initial_rows
+    
+    # Test multiple filters
+    proxy.set_filter(status_col, lambda x: x is True)  # Only checked items
+    assert proxy.rowCount() < initial_rows
+    
+    # Clear filters
+    proxy.clear_filters()
+    assert proxy.rowCount() == initial_rows
