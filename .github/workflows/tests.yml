@@ -2,9 +2,7 @@ name: Tests
 
 on:
   push:
-    branches:
-      - 'master'
-      - 'feat/tags'
+    branches: [master]
     tags: ["*"]
   pull_request:
 
