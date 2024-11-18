@@ -18,6 +18,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables

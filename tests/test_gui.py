@@ -953,3 +953,55 @@ def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
         win.precreate_runs_dialog()
         dialog.assert_called_once()
         assert get_n_runs() == n_runs + 1
+
+
+def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
+    """Test the tag filtering functionality in the table view."""
+    db_dir, db = mock_db_with_data
+    
+    # Create main window
+    win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
+    
+    table_view = win.table_view
+    
+    # Helper function to count visible variable columns
+    def count_visible_vars():
+        count = 0
+        for col in range(table_view.get_static_columns_count(), table_view.model().columnCount()):
+            if not table_view.isColumnHidden(col):
+                count += 1
+        return count
+    
+    # Test initial state - all columns should be visible
+    initial_var_count = count_visible_vars()
+    assert initial_var_count == len(db.variable_names())
+    
+    # Test filtering with single tag
+    table_view.apply_tag_filter({"scalar"})
+    assert count_visible_vars() == 2  # scalar1 and scalar2
+    assert table_view._tag_filter_button.text() == "Filtered: scalar"
+    
+    # Test filtering with multiple tags
+    table_view.apply_tag_filter({"scalar", "text"})
+    assert count_visible_vars() == 3  # scalar1, scalar2, and empty_string
+    assert table_view._tag_filter_button.text() == "Filtered: 2 tags"
+    
+    # Test filtering with non-existent tag
+    table_view.apply_tag_filter({"nonexistent_tag"})
+    assert count_visible_vars() == 0
+    assert table_view._tag_filter_button.text() == "Filtered: nonexistent_tag"
+    
+    # Test clearing filters
+    table_view.apply_tag_filter(set())
+    assert count_visible_vars() == initial_var_count
+    assert table_view._tag_filter_button.text() == "Filter by Tag"
+    
+    # Test internal state of tag filter set
+    table_view._toggle_tag_filter("scalar")
+    assert "scalar" in table_view._current_tag_filter
+    assert count_visible_vars() == 2
+    
+    table_view._toggle_tag_filter("scalar")  # toggle off
+    assert "scalar" not in table_view._current_tag_filter
+    assert count_visible_vars() == initial_var_count

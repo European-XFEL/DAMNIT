@@ -39,52 +39,47 @@ def test_standalone_comment(mock_db):
     assert res == [(ts, 'Revised comment')]
 
 
-def test_tags(mock_db):
-    _, db = mock_db
+def test_tags(mock_db_with_data):
+    _, db = mock_db_with_data
 
     # Test adding tags and getting tag IDs
-    tag_id1 = db.add_tag("important")
-    tag_id2 = db.add_tag("needs_review")
+    tag_id1 = db.add_tag("SPB")
+    tag_id2 = db.add_tag("SFX")
     assert tag_id1 != tag_id2
-    assert db.get_tag_id("important") == tag_id1
-    assert db.get_tag_id("needs_review") == tag_id2
+    assert db.get_tag_id("SPB") == tag_id1
+    assert db.get_tag_id("SFX") == tag_id2
     assert db.get_tag_id("nonexistent") is None
 
     # Test adding duplicate tag (should return same ID)
-    assert db.add_tag("important") == tag_id1
-
-    # Test tagging variables
-    db.tag_variable("var1", "important")
-    db.tag_variable("var1", "needs_review")
-    db.tag_variable("var2", "important")
+    assert db.add_tag("SPB") == tag_id1
 
     # Test getting tags for a variable
-    var1_tags = db.get_variable_tags("var1")
-    assert set(var1_tags) == {"important", "needs_review"}
-    var2_tags = db.get_variable_tags("var2")
-    assert set(var2_tags) == {"important"}
+    var1_tags = db.get_variable_tags("scalar1")
+    assert set(var1_tags) == {"scalar", "integer"}
+    var2_tags = db.get_variable_tags("scalar2")
+    assert set(var2_tags) == {"scalar", "float"}
     empty_tags = db.get_variable_tags("nonexistent_var")
     assert empty_tags == []
 
     # Test getting variables by tag
-    important_vars = db.get_variables_by_tag("important")
-    assert set(important_vars) == {"var1", "var2"}
-    review_vars = db.get_variables_by_tag("needs_review")
-    assert set(review_vars) == {"var1"}
+    scalar_vars = db.get_variables_by_tag("scalar")
+    assert set(scalar_vars) == {"scalar1", "scalar2"}
+    text_vars = db.get_variables_by_tag("text")
+    assert set(text_vars) == {"empty_string"}
     nonexistent_vars = db.get_variables_by_tag("nonexistent")
     assert nonexistent_vars == []
 
     # Test getting all tags
     all_tags = db.get_all_tags()
-    assert set(all_tags) == {"important", "needs_review"}
+    assert set(all_tags) == {"scalar", "integer", "float", "text", "SPB", "SFX"}
 
     # Test untagging variables
-    db.untag_variable("var1", "important")
-    assert set(db.get_variable_tags("var1")) == {"needs_review"}
+    db.untag_variable("scalar1", "scalar")
+    assert set(db.get_variable_tags("scalar1")) == {"integer"}
     
     # Test untagging with nonexistent tag (should not raise error)
-    db.untag_variable("var1", "nonexistent")
-    assert set(db.get_variable_tags("var1")) == {"needs_review"}
+    db.untag_variable("scalar1", "nonexistent")
+    assert set(db.get_variable_tags("scalar1")) == {"integer"}
 
     # Test untagging with nonexistent variable (should not raise error)
     db.untag_variable("nonexistent_var", "important")

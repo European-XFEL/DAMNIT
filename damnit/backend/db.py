@@ -260,7 +260,7 @@ class DamnitDB:
 
             for name, var in updates.items():
                 existing_tags = set(self.get_variable_tags(name))
-                new_tags = set(var.get('tags', []))
+                new_tags = set(var.get('tags', None) or [])
                 
                 tags_to_add = new_tags - existing_tags
                 tags_to_remove = existing_tags - new_tags
