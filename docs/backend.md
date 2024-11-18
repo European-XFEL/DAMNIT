@@ -47,6 +47,13 @@ these are variables to be executed for each run. The `@Variable` decorator takes
 these arguments:
 
 - `title` (string): title displayed for the variable's column.
+- `tags` (string or list of strings): tags to categorize and filter variables.
+  Tags can be used to group related variables and filter the table view:
+  ```python
+  @Variable(title="AGIPD data", tags=["detector", "agipd", "raw"])
+  def agipd_data(run):
+      ...
+  ```
 - `summary` (string): if the function returns an array, then `summary` will be used to
   reduce it to a single number. Internally it gets mapped to `np.<summary>()`,
   so you can use e.g. `sum` or `nanmean` to compute the summary with `np.sum()`

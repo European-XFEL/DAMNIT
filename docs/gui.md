@@ -79,6 +79,15 @@ information or a note about the run.
 You can add a user-editable variable from the menu in the top left:
 ![](static/user-editable-variables.gif)
 
+## Tag Filtering
+Variables can be tagged in the context file to organize them into logical groups
+(e.g., by detector, data type, or processing stage). The GUI provides an easy
+way to filter variables based on these tags by using the "Filter by Tag" button.
+
+Tags are preserved in the database and are automatically updated when you modify
+them in the context file. For information on how to define tags for variables,
+see the [Variables](backend.md#variables) section.
+
 ## Exporting
 All the data in the run table can be exported to an Excel/CSV file, with the
 caveat that images will not be exported (they'll be replaced with an `<image>`
