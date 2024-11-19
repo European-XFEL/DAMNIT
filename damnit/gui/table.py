@@ -525,11 +525,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             return None, None
         return prop_it.data(Qt.UserRole), run_it.data(Qt.UserRole)
 
-    def row_to_comment_id(self, row):
-        comment_col = 4
-        item = self.item(row, comment_col)
-        return item and item.data(COMMENT_ID_ROLE)
-
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
         start_run = max([r for (p, r) in self.run_index if p == proposal]) + 1
