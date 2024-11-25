@@ -1,4 +1,5 @@
 import sys
+import traceback
 from enum import Enum
 from io import StringIO
 from pathlib import Path
@@ -26,11 +27,16 @@ class ContextFileCheckerThread(QThread):
     # ContextTestResult, traceback, lineno, offset, checked_code
     check_result = pyqtSignal(object, str, int, int, str)
 
-    def __init__(self, code, db_dir, context_python, parent=None):
+    def __init__(self, code, db_dir, context_python, context_getter, parent=None):
         super().__init__(parent)
         self.code = code
         self.db_dir = db_dir
         self.context_python = context_python
+
+        # This is a hack to allow us to test throwing an exception when checking
+        # the context file. It'll always be get_context_file() except when
+        # replaced with a Mock by the tests.
+        self.context_getter = context_getter
 
     def run(self):
         error_info = None
@@ -51,7 +57,16 @@ class ContextFileCheckerThread(QThread):
                 ctx_path = Path(ctx_file.name)
                 ctx_path.write_text(self.code)
 
-                ctx, error_info = get_context_file(ctx_path, self.context_python)
+                try:
+                    ctx, error_info = self.context_getter(ctx_path, self.context_python)
+                except:
+                    # Not a failure to evalute the context file, but a failure
+                    # to *attempt* to evaluate the context file (e.g. because of
+                    # a missing dependency).
+                    help_msg = "# This is a partial error, please check the terminal for the full error message and ask for help from DA or the DOC."
+                    traceback_str = f"{help_msg}\n\n{traceback.format_exc()}"
+                    self.check_result.emit(ContextTestResult.ERROR, traceback_str, 0, 0, self.code)
+                    return
 
         if error_info is not None:
             stacktrace, lineno, offset = error_info
@@ -110,7 +125,7 @@ class Editor(QsciScintilla):
 
     def launch_test_context(self, db):
         context_python = db.metameta.get("context_python")
-        thread = ContextFileCheckerThread(self.text(), db.path.parent, context_python, parent=self)
+        thread = ContextFileCheckerThread(self.text(), db.path.parent, context_python, get_context_file, parent=self)
         thread.check_result.connect(self.on_test_result)
         thread.finished.connect(thread.deleteLater)
         thread.start()
