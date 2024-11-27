@@ -5,6 +5,8 @@
 Fixed:
 
 - Added back grid lines for plots of `DataArray`'s (!334).
+- Fixed thumbnails of 2D `DataArray`'s to match what is displayed when the
+  variable is plotted (!355).
 
 ## [0.1.4]
 
