@@ -18,9 +18,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QWidgetAction,
+    QGroupBox,
 )
 from superqt import QSearchableListWidget
 from superqt.fonticon import icon
+from superqt.utils import qdebounced
 
 
 class FilterType(Enum):
@@ -50,18 +52,24 @@ class NumericFilter(Filter):
         min_val: float = -inf,
         max_val: float = inf,
         include_nan: bool = False,
+        selected_values: Optional[Set[Any]] = None,
     ):
         super().__init__(column, FilterType.NUMERIC)
         self.min_val = min_val
         self.max_val = max_val
         self.include_nan = include_nan
+        self.selected_values = selected_values if selected_values else set()
 
     def accepts(self, value: Any) -> bool:
-        if value in (None, nan) or (isinstance(value, float) and isnan(value)):
+        if value is None or (isinstance(value, float) and isnan(value)):
             return self.include_nan
         try:
             value = float(value)
-            return self.min_val <= value <= self.max_val
+            if self.selected_values and self.min_val <= value <= self.max_val:
+                return value in self.selected_values
+            if not self.selected_values:
+                return self.min_val <= value <= self.max_val
+            return value in self.selected_values
         except (TypeError, ValueError):
             return False
 
@@ -285,23 +293,16 @@ class FilterMenu(QMenu):
         self.column = column
         self.model = model
 
-        # Determine if column is numeric
-        self.is_numeric = True
-        values = set()
-        for row in range(model.sourceModel().rowCount()):
-            value = model.sourceModel().index(row, column).data(Qt.UserRole)
-            values.add(value)
-            # Only check type for non-None, non-NaN values
-            if value is not None and not (isinstance(value, float) and isnan(value)):
-                if not isinstance(value, (int, float)):
-                    self.is_numeric = False
-                    # break
-
-        # Create appropriate filter widget
-        if self.is_numeric:
-            self.filter_widget = NumericFilterWidget(column)
+        if column in self.model.filters:
+            filter = self.model.filters[column]
+            if filter.type == FilterType.NUMERIC:
+                self.filter_widget = NumericFilterWidget.from_filter(filter)
+            elif filter.type == FilterType.CATEGORICAL:
+                self.filter_widget = CategoricalFilterWidget.from_filter(filter)
+            else:
+                raise ValueError(f"Unknown filter type: {filter.type}")
         else:
-            self.filter_widget = CategoricalFilterWidget(column, values)
+            self.filter_widget = self._create_filter_widget(column, model)
 
         # Connect filter widget to model
         self.filter_widget.filterChanged.connect(self._on_filter_changed)
@@ -316,24 +317,50 @@ class FilterMenu(QMenu):
         if existing_filter is not None:
             self.filter_widget.set_filter(existing_filter)
 
+    def _create_filter_widget(self, column: int, model: FilterProxy):
+         # Determine if column is numeric
+        is_numeric = True
+        values = set()
+        for row in range(model.sourceModel().rowCount()):
+            value = model.sourceModel().index(row, column).data(Qt.UserRole)
+            values.add(value)
+            # Only check type for non-None, non-NaN values
+            if value is not None and not (isinstance(value, float) and isnan(value)):
+                if not isinstance(value, (int, float)):
+                    is_numeric = False
+                    # break
+
+        # Create appropriate filter widget
+        if is_numeric:
+            filter_widget = NumericFilterWidget(column, values)
+        else:
+            filter_widget = CategoricalFilterWidget(column, values)
+        return filter_widget
+
+    @qdebounced(timeout=20, leading=False)
     def _on_filter_changed(self, filter: Filter):
         """Apply the new filter to the model."""
+        print('FUUUUUUUUUUU')
         self.model.set_filter(self.column, filter)
 
 
 class NumericFilterWidget(QWidget):
-    """Widget for configuring numeric range filters."""
+    """Widget for configuring numeric filters with both range and value selection."""
 
     filterChanged = QtCore.pyqtSignal(NumericFilter)
 
-    def __init__(self, column: int, parent=None):
+    def __init__(self, column: int, values: Set[Any], parent=None):
         super().__init__(parent)
         self.column = column
+        self.all_values = values
 
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
 
         # Range inputs
+        range_group = QGroupBox("Value Range")
+        range_layout = QVBoxLayout()
+        
         self.min_input = QLineEdit()
         self.max_input = QLineEdit()
         self.min_input.setPlaceholderText("Min")
@@ -345,31 +372,123 @@ class NumericFilterWidget(QWidget):
         self.min_input.setValidator(validator)
         self.max_input.setValidator(validator)
 
+        range_layout.addWidget(self.min_input)
+        range_layout.addWidget(self.max_input)
+        range_group.setLayout(range_layout)
+
+        # Value selection list
+        list_group = QGroupBox("Select Values")
+        list_layout = QVBoxLayout()
+
+        # Searchable list of values
+        self.list_widget = QSearchableListWidget()
+        self.list_widget.filter_widget.setPlaceholderText("Search values...")
+        self.list_widget.layout().setContentsMargins(0, 0, 0, 0)
+
+        # All/None buttons
+        button_layout = QHBoxLayout()
+        self.all_button = QPushButton("Select All")
+        self.none_button = QPushButton("Select None")
+        button_layout.addWidget(self.all_button)
+        button_layout.addWidget(self.none_button)
+
         # NaN handling
         self.include_nan = QCheckBox("Include NaN/empty values")
 
-        # Connect signals
-        self.min_input.editingFinished.connect(self._on_value_changed)
-        self.max_input.editingFinished.connect(self._on_value_changed)
-        self.include_nan.toggled.connect(self._on_value_changed)
+        list_layout.addLayout(button_layout)
+        list_layout.addWidget(self.list_widget)
+        list_group.setLayout(list_layout)
 
-        # Layout
-        layout.addWidget(self.min_input)
-        layout.addWidget(self.max_input)
+        # Main layout
+        layout.addWidget(range_group)
+        layout.addWidget(list_group)
         layout.addWidget(self.include_nan)
         self.setLayout(layout)
 
-    def _on_value_changed(self):
+        # Populate the list initially
+        self._populate_list()
+
+        # Connect signals
+        self.min_input.editingFinished.connect(self._on_range_changed)
+        self.max_input.editingFinished.connect(self._on_range_changed)
+        self.list_widget.itemChanged.connect(self._on_selection_changed)
+        self.all_button.clicked.connect(lambda: self._set_all_checked(True))
+        self.none_button.clicked.connect(lambda: self._set_all_checked(False))
+        self.include_nan.toggled.connect(self._emit_filter)
+
+    @classmethod
+    def from_filter(cls, filter: NumericFilter) -> "NumericFilterWidget":
+        widget = cls(filter.column, filter.selected_values)
+        widget.min_input.setText(str(filter.min_val))
+        widget.max_input.setText(str(filter.max_val))
+        widget.include_nan.setChecked(filter.include_nan)
+        return widget
+
+    def _populate_list(self):
+        """Populate the list widget with values that match the current range."""
+        self.list_widget.clear()
+        
+        min_val = float(self.min_input.text()) if self.min_input.text() else -inf
+        max_val = float(self.max_input.text()) if self.max_input.text() else inf
+
+        # Filter values based on range
+        filtered_values = [v for v in self.all_values 
+                         if (v is None or 
+                             (isinstance(v, (int, float)) and 
+                              min_val <= v <= max_val))]
+
+        # Add filtered values to list
+        for value in natsorted(filtered_values):
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, value)
+            item.setData(
+                Qt.DisplayRole, str(value) if value is not None else "NaN/empty"
+            )
+            item.setCheckState(Qt.Checked)
+            self.list_widget.addItem(item)
+
+    def _on_range_changed(self):
+        """Handle changes in the range inputs."""
+        self._populate_list()  # Update list to match range
+        self._emit_filter()
+
+    def _set_all_checked(self, checked: bool):
+        """Set all items to checked or unchecked state."""
+        for idx in range(self.list_widget.count()):
+            self.list_widget.item(idx).setCheckState(
+                Qt.Checked if checked else Qt.Unchecked
+            )
+        self._emit_filter()
+
+    def _on_selection_changed(self, item: QListWidgetItem = None):
+        """Handle changes in value selection."""
+        self._emit_filter()
+
+    def _emit_filter(self):
         """Create and emit a new NumericFilter based on current widget state."""
         min_val = self.min_input.text()
         max_val = self.max_input.text()
         include_nan = self.include_nan.isChecked()
 
+        # Get range values
         min_val = float(min_val) if min_val else -inf
         max_val = float(max_val) if max_val else inf
 
+        # Get selected values
+        selected_values = {
+            self.list_widget.item(idx).data(Qt.UserRole)
+            for idx in range(self.list_widget.count())
+            if self.list_widget.item(idx).checkState() == Qt.Checked
+        }
+
         self.filterChanged.emit(
-            NumericFilter(self.column, min_val, max_val, include_nan)
+            NumericFilter(
+                self.column,
+                min_val=min_val,
+                max_val=max_val,
+                selected_values=selected_values,
+                include_nan=include_nan
+            )
         )
 
     def set_filter(self, filter: Optional[NumericFilter]):
@@ -378,13 +497,26 @@ class NumericFilterWidget(QWidget):
             self.min_input.clear()
             self.max_input.clear()
             self.include_nan.setChecked(False)
+            self._populate_list()
             return
 
         if filter.min_val != -inf:
             self.min_input.setText(str(filter.min_val))
         if filter.max_val != inf:
             self.max_input.setText(str(filter.max_val))
+        
         self.include_nan.setChecked(filter.include_nan)
+        
+        # Update list and selection
+        self._populate_list()
+        if hasattr(filter, 'selected_values'):
+            for idx in range(self.list_widget.count()):
+                item = self.list_widget.item(idx)
+                item.setCheckState(
+                    Qt.Checked
+                    if item.data(Qt.UserRole) in filter.selected_values
+                    else Qt.Unchecked
+                )
 
 
 class CategoricalFilterWidget(QWidget):
@@ -404,6 +536,23 @@ class CategoricalFilterWidget(QWidget):
         self.list_widget.filter_widget.setPlaceholderText("Search values...")
         self.list_widget.layout().setContentsMargins(0, 0, 0, 0)
 
+        # All/None buttons
+        button_layout = QHBoxLayout()
+        self.all_button = QPushButton("Select All")
+        self.none_button = QPushButton("Select None")
+        button_layout.addWidget(self.all_button)
+        button_layout.addWidget(self.none_button)
+
+        # Connect signals
+        self.list_widget.itemChanged.connect(self._on_selection_changed)
+        self.all_button.clicked.connect(lambda: self._set_all_checked(True))
+        self.none_button.clicked.connect(lambda: self._set_all_checked(False))
+
+        # Layout
+        layout.addLayout(button_layout)
+        layout.addWidget(self.list_widget)
+        self.setLayout(layout)
+
         # Add values to list
         for value in natsorted(values):
             item = QListWidgetItem()
@@ -414,22 +563,10 @@ class CategoricalFilterWidget(QWidget):
             item.setCheckState(Qt.Checked)
             self.list_widget.addItem(item)
 
-        # All/None buttons
-        button_layout = QHBoxLayout()
-        self.all_button = QPushButton("Select All")
-        self.none_button = QPushButton("Select None")
-        self.all_button.clicked.connect(lambda: self._set_all_checked(True))
-        self.none_button.clicked.connect(lambda: self._set_all_checked(False))
-        button_layout.addWidget(self.all_button)
-        button_layout.addWidget(self.none_button)
-
-        # Connect signals
-        self.list_widget.itemChanged.connect(self._on_selection_changed)
-
-        # Layout
-        layout.addLayout(button_layout)
-        layout.addWidget(self.list_widget)
-        self.setLayout(layout)
+    @classmethod
+    def from_filter(cls, filter: CategoricalFilter) -> "CategoricalFilterWidget":
+        widget = cls(filter.column, filter.selected_values)
+        return widget
 
     def _set_all_checked(self, checked: bool):
         """Set all items to checked or unchecked state."""
