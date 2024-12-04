@@ -708,16 +708,22 @@ da-dev@xfel.eu"""
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
-        comment_horizontal_layout = QtWidgets.QHBoxLayout()
+
+        # Create toolbar for table controls
+        toolbar = QtWidgets.QToolBar()
+        vertical_layout.addWidget(toolbar)
 
         # the table
         self.table_view = TableView()
-
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
+
+        # Add table view's toolbar widgets
+        for widget in self.table_view.get_toolbar_widgets():
+            toolbar.addWidget(widget)
 
         vertical_layout.addWidget(self.table_view)
 
@@ -725,7 +731,7 @@ da-dev@xfel.eu"""
         collapsible = CollapsibleWidget()
         vertical_layout.addWidget(collapsible)
 
-        # comments
+        comment_horizontal_layout = QtWidgets.QHBoxLayout()
         self.comment = QtWidgets.QLineEdit(self)
         self.comment.setText("Time can be edited in the field on the right.")
 
@@ -779,7 +785,7 @@ da-dev@xfel.eu"""
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
 
         plotting_group.setLayout(plot_vertical_layout)
-        
+
         collapsible.add_widget(plotting_group)
 
         vertical_layout.setSpacing(0)

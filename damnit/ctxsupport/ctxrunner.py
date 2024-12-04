@@ -239,6 +239,7 @@ class ContextFile:
             name: {
                 'title': v.title,
                 'description': v.description,
+                'tags': v.tags,
                 'attributes': None,
                 'type': None,
             }
