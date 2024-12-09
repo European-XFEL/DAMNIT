@@ -1,10 +1,6 @@
 name: Tests
 
-on:
-  push:
-    branches: ["*"]
-    tags: ["*"]
-  pull_request:
+on: [push, pull_request]
 
 env:
   SYSTEM_PACKAGES: gcc g++ xvfb qtbase5-dev
