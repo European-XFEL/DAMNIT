@@ -1064,27 +1064,41 @@ def test_filter_menu(mock_db_with_data_2, mock_ctx, monkeypatch, qtbot):
 
 
 def test_filters():
-    num_filter = NumericFilter(column=0, min_val=10, max_val=20)
+    # Test numeric filter with selected values
+    num_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15})
     assert num_filter.accepts(15)
+    assert not num_filter.accepts(18)
     assert not num_filter.accepts(5)
     assert not num_filter.accepts(25)
     assert not num_filter.accepts(None)
     assert not num_filter.accepts(np.nan)
     assert not num_filter.accepts("not a number")
 
-    nan_filter = NumericFilter(column=0, min_val=10, max_val=20, include_nan=True)
+    # Test numeric filter with nan handling
+    nan_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15}, include_nan=True)
     assert nan_filter.accepts(15)
     assert nan_filter.accepts(None)
     assert nan_filter.accepts(np.nan)
     assert not nan_filter.accepts(5)
     assert not nan_filter.accepts(25)
+    assert not nan_filter.accepts(18)
 
+    # Test categorical filter with selected values
     cat_filter = CategoricalFilter(column=1, selected_values={"A", "B"})
     assert cat_filter.accepts("A")
     assert cat_filter.accepts("B")
     assert not cat_filter.accepts("C")
     assert not cat_filter.accepts(None)
+    assert not cat_filter.accepts(np.nan)
 
+    # Test categorical filter with nan handling
+    nan_cat_filter = CategoricalFilter(column=1, selected_values={"A"}, include_nan=True)
+    assert nan_cat_filter.accepts("A")
+    assert nan_cat_filter.accepts(None)
+    assert nan_cat_filter.accepts(np.nan)
+    assert not nan_cat_filter.accepts("B")
+
+    # Test empty filters
     empty_filter = CategoricalFilter(column=1)
     assert not empty_filter.accepts("nothing")
     assert not empty_filter.accepts(None)
