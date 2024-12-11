@@ -2,12 +2,18 @@
 
 ## Unreleased
 
+Added:
+- GUI: Add row filtering (!362).
+
 Fixed:
 
 - Added back grid lines for plots of `DataArray`'s (!334).
 - Fixed thumbnails of 2D `DataArray`'s to match what is displayed when the
   variable is plotted (!355).
 - Fixed crashes when the context file environment is missing dependencies (!356).
+
+Deprecated:
+- GUI: Standalone comments are no longer supported in the run table(!362).
 
 ## [0.1.4]
 
