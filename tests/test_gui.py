@@ -1048,12 +1048,14 @@ def test_standalone_comments(mock_db, qtbot):
     
     win = MainWindow(db_dir, False)
     win.show()
+    qtbot.waitExposed(win)
     qtbot.addWidget(win)
     
     # Create and show the TimeComment dialog
     dialog = TimeComment(win)
     qtbot.addWidget(dialog)
     dialog.show()
+    qtbot.waitExposed(dialog)
     
     model = dialog.model
     
