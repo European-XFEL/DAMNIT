@@ -1002,9 +1002,9 @@ def test_filter_proxy(mock_db_with_data_2, qtbot):
     assert proxy_model.rowCount() == 4
 
     # Test multiple filters
-    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45)
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42}, include_nan=False)
     proxy_model.set_filter(scalar1_col, num_filter)
-    assert proxy_model.rowCount() == 3
+    assert proxy_model.rowCount() == 2
 
     # Clear filters
     proxy_model.clear_filters()
