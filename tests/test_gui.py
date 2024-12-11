@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 import textwrap
 from contextlib import contextmanager
 from pathlib import Path
@@ -151,6 +152,15 @@ def test_editor(mock_db, mock_ctx, qtbot):
     with qtbot.waitSignal(editor.check_result):
         win.save_context()
     assert ctx_path.read_text() == warning_code
+
+    # Throwing an exception when evaluating the context file in a different
+    # environment should be handled gracefully. This can happen if running the
+    # ctxrunner itself fails, e.g. because of a missing dependency.
+    db.metameta["context_python"] = sys.executable
+    with qtbot.waitSignal(editor.check_result) as sig, \
+         patch("damnit.gui.editor.get_context_file", side_effect=Exception("foo")):
+        editor.launch_test_context(db)
+    assert sig.args[0] == ContextTestResult.ERROR
 
 def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
