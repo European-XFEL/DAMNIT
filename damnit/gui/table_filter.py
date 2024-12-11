@@ -204,8 +204,6 @@ class FilterMenu(QMenu):
         self.model = model
 
         self.filter_widget = self._create_filter_widget(column, model)
-        if column in self.model.filters:
-            self.filter_widget.set_filter(self.model.filters[column])
 
         # Connect filter widget to model
         self.filter_widget.filterChanged.connect(self._on_filter_changed)

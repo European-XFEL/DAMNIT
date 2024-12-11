@@ -1088,3 +1088,36 @@ def test_standalone_comments(mock_db, qtbot):
     # Test comment persistence
     model.load_comments()
     assert model.rowCount() == 2
+
+
+def test_filter_menu(mock_db_with_data, qtbot):
+    """Test FilterMenu initialization and functionality."""
+    win = MainWindow(mock_db_with_data[0], False)
+    win.show()
+    qtbot.waitExposed(win)
+    qtbot.addWidget(win)
+    model = win.table_view.model()
+
+    # Test numeric column
+    scalar1_col = win.table.find_column("Scalar1", by_title=True)
+    numeric_menu = FilterMenu(scalar1_col, model)
+    qtbot.addWidget(numeric_menu)
+    assert isinstance(numeric_menu.filter_widget, NumericFilterWidget)
+
+    # Test categorical column
+    results_col = win.table.find_column("Results", by_title=True)
+    categorical_menu = FilterMenu(results_col, model)
+    qtbot.addWidget(categorical_menu)
+    assert isinstance(categorical_menu.filter_widget, CategoricalFilterWidget)
+
+    # Test filter application
+    # numeric_filter = NumericFilterWidget(scalar1_col, min_val=0, max_val=100)
+    with qtbot.waitSignal(numeric_menu.filter_widget.filterChanged):
+        numeric_menu.filter_widget._on_selection_changed()
+
+    # Test menu with existing filter
+    existing_filter = CategoricalFilter(results_col, selected_values={"OK"})
+    model.set_filter(results_col, existing_filter)
+    menu_with_filter = FilterMenu(results_col, model)
+    qtbot.addWidget(menu_with_filter)
+    assert menu_with_filter.model.filters[results_col] == existing_filter
