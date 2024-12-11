@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QSearchableListWidget
 from superqt.fonticon import icon
-from superqt.utils import qdebounced
+from superqt.utils import qthrottled
 
 
 class FilterType(Enum):
@@ -51,7 +51,7 @@ class NumericFilter(Filter):
         column: int,
         min_val: float = -inf,
         max_val: float = inf,
-        include_nan: bool = False,
+        include_nan: bool = True,
         selected_values: Optional[Set[Any]] = None,
     ):
         super().__init__(column, FilterType.NUMERIC)
@@ -75,7 +75,7 @@ class NumericFilter(Filter):
 class CategoricalFilter(Filter):
     """Filter for categorical values based on a set of selected values."""
 
-    def __init__(self, column: int, selected_values: Optional[Set[Any]] = None, include_nan: bool = False):
+    def __init__(self, column: int, selected_values: Optional[Set[Any]] = None, include_nan: bool = True):
         super().__init__(column, FilterType.CATEGORICAL)
         self.selected_values = set(selected_values) if selected_values else set()
         self.include_nan = include_nan
@@ -240,7 +240,7 @@ class FilterMenu(QMenu):
             filter_widget = CategoricalFilterWidget(column, values)
         return filter_widget
 
-    @qdebounced(timeout=20, leading=False)
+    @qthrottled(timeout=20, leading=False)
     def _on_filter_changed(self, filter: Filter):
         """Apply the new filter to the model."""
         self.model.set_filter(self.column, filter)

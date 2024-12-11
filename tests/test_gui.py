@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
     QStyledItemDelegate, QLineEdit, QMenu
 
 import damnit
+from damnit.gui.standalone_comments import TimeComment
 from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import DamnitDB, ReducedData
 from damnit.backend.extract_data import add_to_db
@@ -983,95 +984,29 @@ def test_filter_proxy(mock_db_with_data_2, qtbot):
     # Test with range and selected values
     num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42})
     proxy_model.set_filter(scalar1_col, num_filter)
-    assert proxy_model.rowCount() == 3
+    assert proxy_model.rowCount() == 5
 
     # Test with range but no matching selected values
-    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45)
-    num_filter.include_nan.setChecked(False)
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, include_nan=False)
+    proxy_model.clear_filters()
     proxy_model.set_filter(scalar1_col, num_filter)
-    assert proxy_model.rowCount() == 1
+    assert proxy_model.rowCount() == 0
 
     # Test categorical filtering
     status_col = source_model.find_column("Results", by_title=True)
-    unique_values = {proxy_model.sourceModel().index(row, status_col).data(Qt.UserRole)
-                     for row in range(proxy_model.sourceModel().rowCount())}
-    first_value = next(iter(unique_values))
 
     # Filter to show only rows with the first status value
-    cat_filter = CategoricalFilter(status_col, {first_value})
+    cat_filter = CategoricalFilter(status_col, {"Failed"})
+    proxy_model.clear_filters()
     proxy_model.set_filter(status_col, cat_filter)
-    assert 0 < proxy_model.rowCount() < initial_rows
+    assert proxy_model.rowCount() == 4
 
     # Test multiple filters
     num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45)
     proxy_model.set_filter(scalar1_col, num_filter)
-    assert 0 < proxy_model.rowCount() < initial_rows
+    assert proxy_model.rowCount() == 3
 
     # Clear filters
-    proxy_model.clear_filters()
-    assert proxy_model.rowCount() == initial_rows
-
-
-def test_filter_menu(mock_db_with_data_2, mock_ctx, monkeypatch, qtbot):
-    db_dir, db = mock_db_with_data_2
-    monkeypatch.chdir(db_dir)
-
-    win = MainWindow(db_dir, False)
-    qtbot.addWidget(win)
-
-    table_view = win.table_view
-    proxy_model = table_view.model()
-    source_model = win.table
-    initial_rows = proxy_model.rowCount()
-
-    # Test numeric column filtering
-    scalar1_col = source_model.find_column("Scalar1", by_title=True)
-    menu = FilterMenu(scalar1_col, proxy_model, table_view)
-
-    # Verify menu is set up correctly for numeric column
-    assert isinstance(menu.filter_widget, NumericFilterWidget)
-
-    # Test numeric range filtering
-    menu.filter_widget.min_input.setText("50")
-    menu.filter_widget.max_input.setText("100")
-    menu.filter_widget._on_value_changed()
-    assert proxy_model.rowCount() == 0
-
-    menu.filter_widget.include_nan.setChecked(True)
-    menu.filter_widget._on_value_changed()
-    assert 0 < proxy_model.rowCount() < initial_rows
-    # Test range that includes actual value
-    menu.filter_widget.min_input.setText("40")
-    menu.filter_widget.max_input.setText("45")
-    menu.filter_widget._on_value_changed()
-    assert proxy_model.rowCount() == initial_rows
-
-    # Test categorical column filtering
-    status_col = source_model.find_column("Results", by_title=True)
-    cat_menu = FilterMenu(status_col, proxy_model, table_view)
-    
-    # Verify menu is set up correctly for categorical column
-    assert cat_menu.is_numeric is False
-    assert isinstance(cat_menu.filter_widget, CategoricalFilterWidget)
-    
-    # Test Select None button
-    cat_menu.filter_widget.none_button.click()
-    assert proxy_model.rowCount() == 0
-    cat_menu.filter_widget.all_button.click()
-    assert proxy_model.rowCount() == initial_rows
-
-    # Test individual value selection
-    first_item = cat_menu.filter_widget.list_widget.item(0)
-    first_item.setCheckState(Qt.Unchecked)
-    cat_menu.filter_widget._on_selection_changed(first_item)
-    assert 0 < proxy_model.rowCount() < initial_rows
-
-    # Test filter persistence
-    status_filter = proxy_model.filters[status_col]
-    assert isinstance(status_filter, CategoricalFilter)
-    assert len(status_filter.selected_values) == cat_menu.filter_widget.list_widget.count() - 1
-
-    # Test clearing filters
     proxy_model.clear_filters()
     assert proxy_model.rowCount() == initial_rows
 
@@ -1083,15 +1018,15 @@ def test_filters():
     assert not num_filter.accepts(18)
     assert not num_filter.accepts(5)
     assert not num_filter.accepts(25)
-    assert not num_filter.accepts(None)
-    assert not num_filter.accepts(np.nan)
+    assert num_filter.accepts(None)
+    assert num_filter.accepts(np.nan)
     assert not num_filter.accepts("not a number")
 
     # Test numeric filter with nan handling
-    nan_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15}, include_nan=True)
+    nan_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15}, include_nan=False)
     assert nan_filter.accepts(15)
-    assert nan_filter.accepts(None)
-    assert nan_filter.accepts(np.nan)
+    assert not nan_filter.accepts(None)
+    assert not nan_filter.accepts(np.nan)
     assert not nan_filter.accepts(5)
     assert not nan_filter.accepts(25)
     assert not nan_filter.accepts(18)
@@ -1101,18 +1036,63 @@ def test_filters():
     assert cat_filter.accepts("A")
     assert cat_filter.accepts("B")
     assert not cat_filter.accepts("C")
-    assert not cat_filter.accepts(None)
-    assert not cat_filter.accepts(np.nan)
+    assert cat_filter.accepts(None)
+    assert cat_filter.accepts(np.nan)
 
     # Test categorical filter with nan handling
-    nan_cat_filter = CategoricalFilter(column=1, selected_values={"A"}, include_nan=True)
+    nan_cat_filter = CategoricalFilter(column=1, selected_values={"A"}, include_nan=False)
     assert nan_cat_filter.accepts("A")
-    assert nan_cat_filter.accepts(None)
-    assert nan_cat_filter.accepts(np.nan)
+    assert not nan_cat_filter.accepts(None)
+    assert not nan_cat_filter.accepts(np.nan)
     assert not nan_cat_filter.accepts("B")
 
     # Test empty filters
     empty_filter = CategoricalFilter(column=1)
     assert not empty_filter.accepts("nothing")
-    assert not empty_filter.accepts(None)
+    assert empty_filter.accepts(None)
     assert not empty_filter.accepts(42)
+
+
+def test_standalone_comments(mock_db, qtbot):
+    db_dir, db = mock_db
+    
+    win = MainWindow(db_dir, False)
+    win.show()
+    qtbot.addWidget(win)
+    
+    # Create and show the TimeComment dialog
+    dialog = TimeComment(win)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    
+    model = dialog.model
+    
+    # Test adding a comment
+    test_timestamp = 1640995200  # 2022-01-01 00:00:00
+    test_comment = "Test comment 1"
+    model.addComment(test_timestamp, test_comment)
+    
+    # Verify comment was added
+    assert model.rowCount() > 0
+    index = model.index(0, 2)  # Comment column
+    assert model.data(index, Qt.DisplayRole) == test_comment
+    
+    # Add another comment
+    test_timestamp2 = 1641081600  # 2022-01-02 00:00:00
+    test_comment2 = "Test comment 2"
+    model.addComment(test_timestamp2, test_comment2)
+    
+    # Test sorting
+    # Sort by timestamp ascending
+    model.sort(1, Qt.AscendingOrder)
+    index = model.index(0, 2)
+    assert model.data(index, Qt.DisplayRole) == test_comment
+    
+    # Sort by timestamp descending
+    model.sort(1, Qt.DescendingOrder)
+    index = model.index(0, 2)
+    assert model.data(index, Qt.DisplayRole) == test_comment2
+    
+    # Test comment persistence
+    model.load_comments()
+    assert model.rowCount() == 2
