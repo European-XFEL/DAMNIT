@@ -29,11 +29,13 @@ from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
+from .table_filter import FilterStatus
 from .kafka import UpdateAgent
 from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
 from .plot import ImagePlotWindow, ScatterPlotWindow, Xarray1DPlotWindow, PlottingControls
 from .process import ProcessingDialog
+from .standalone_comments import TimeComment
 from .table import DamnitTableModel, TableView, prettify_notation
 from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
@@ -563,18 +565,6 @@ da-dev@xfel.eu"""
         self.update_agent.message.connect(self.handle_update)
         QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
-    def _set_comment_date(self):
-        self.comment_time.setText(
-            time.strftime("%H:%M %d/%m/%Y", time.localtime(time.time()))
-        )
-
-    def _comment_button_clicked(self):
-        ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
-        text = self.comment.text()
-        comment_id = self.db.add_standalone_comment(ts, text)
-        self.table.insert_comment_row(comment_id, text, ts)
-        self.comment.clear()
-
     def get_run_file(self, proposal, run, log=True):
         file_name = self.extracted_data_template.format(proposal, run)
 
@@ -701,14 +691,12 @@ da-dev@xfel.eu"""
     def _create_table_model(self, db, col_settings):
         table = DamnitTableModel(db, col_settings, self)
         table.value_changed.connect(self.save_value)
-        table.time_comment_changed.connect(self.save_time_comment)
         table.run_visibility_changed.connect(lambda row, state: self.plot.update())
         table.rowsInserted.connect(self.on_rows_inserted)
         return table
 
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
-        comment_horizontal_layout = QtWidgets.QHBoxLayout()
 
         # the table
         self.table_view = TableView()
@@ -719,71 +707,27 @@ da-dev@xfel.eu"""
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
 
+        # actions
+        actions_horizontal_layout = QtWidgets.QHBoxLayout()
+
+        # Initialize plot controls
+        self.plot = PlottingControls(self)
+
+        self.plot_dialog_button = QtWidgets.QPushButton("Plot")
+        self.plot_dialog_button.clicked.connect(self.plot.show_dialog)
+        self.filter_status_button = FilterStatus(self.table_view, self)
+        self.comment_button = QtWidgets.QPushButton("Time comment")
+        self.comment_button.clicked.connect(lambda: TimeComment(self).show())
+
+        actions_horizontal_layout.addWidget(self.plot_dialog_button)
+        actions_horizontal_layout.addWidget(self.filter_status_button)
+        actions_horizontal_layout.addWidget(self.comment_button)
+        actions_horizontal_layout.addStretch()
+
+        vertical_layout.addLayout(actions_horizontal_layout)
         vertical_layout.addWidget(self.table_view)
 
-        # add all other widgets on a collapsible layout
-        collapsible = CollapsibleWidget()
-        vertical_layout.addWidget(collapsible)
-
-        # comments
-        self.comment = QtWidgets.QLineEdit(self)
-        self.comment.setText("Time can be edited in the field on the right.")
-
-        self.comment_time = QtWidgets.QLineEdit(self)
-        self.comment_time.setStyleSheet("width: 25px;")
-
-        comment_button = QtWidgets.QPushButton("Additional comment")
-        comment_button.setEnabled(True)
-        comment_button.clicked.connect(self._comment_button_clicked)
-
-        comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=3)
-        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
-        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
-
-        collapsible.add_layout(comment_horizontal_layout)
-
-        comment_timer = QtCore.QTimer()
-        self._set_comment_date()
-        comment_timer.setInterval(30000)
-        comment_timer.timeout.connect(self._set_comment_date)
-        comment_timer.start()
-
-        # plotting control
-        self.plot = PlottingControls(self)
-        plotting_group = QtWidgets.QGroupBox("Plotting controls")
-        plot_vertical_layout = QtWidgets.QVBoxLayout()
-        plot_horizontal_layout = QtWidgets.QHBoxLayout()
-        plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
-
-        plot_horizontal_layout.addWidget(self.plot._button_plot)
-        self.plot._button_plot_runs.setMinimumWidth(200)
-        plot_horizontal_layout.addStretch()
-
-        plot_horizontal_layout.addWidget(QtWidgets.QLabel("Y:"))
-        plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
-        plot_horizontal_layout.addWidget(self.plot.vs_button)
-        plot_horizontal_layout.addWidget(QtWidgets.QLabel("X:"))
-        plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
-
-        plot_vertical_layout.addLayout(plot_horizontal_layout)
-
-        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        self.plot._button_plot.setMinimumWidth(200)
-        plot_parameters_horizontal_layout.addStretch()
-
-        plot_parameters_horizontal_layout.addWidget(
-            self.plot._toggle_probability_density
-        )
-
-        plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
-
-        plotting_group.setLayout(plot_vertical_layout)
-        
-        collapsible.add_widget(plotting_group)
-
-        vertical_layout.setSpacing(0)
-        vertical_layout.setContentsMargins(0, 0, 0, 0)
+        vertical_layout.setContentsMargins(0, 7, 0, 0)
         self._view_widget.setLayout(vertical_layout)
 
     def configure_editor(self):
@@ -935,14 +879,6 @@ da-dev@xfel.eu"""
         if self._connect_to_kafka:
             self.update_agent.run_values_updated(prop, run, name, value)
 
-    def save_time_comment(self, comment_id, value):
-        if self.db is None:
-            log.warning("No SQLite database in use, comment not saved")
-            return
-
-        log.debug("Saving time-based comment ID %d", comment_id)
-        self.db.change_standalone_comment(comment_id, value)
-        
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
             self.zulip_messenger = ZulipMessenger(self)       
@@ -1011,6 +947,7 @@ da-dev@xfel.eu"""
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
+
 class TableViewStyle(QtWidgets.QProxyStyle):
     """
     Subclass that enables instant tooltips for widgets in a TableView.
@@ -1021,6 +958,7 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return 0
         else:
             return super().styleHint(hint, option, widget, returnData)
+
 
 class TabBarStyle(QtWidgets.QProxyStyle):
     """
