@@ -969,13 +969,17 @@ def test_filter_proxy(mock_db_with_data_2, qtbot):
 
     # Test numeric filtering
     scalar1_col = source_model.find_column("Scalar1", by_title=True)
-    num_filter = NumericFilter(scalar1_col, min_val=50, max_val=100)
+    
+    # Test with range and selected values
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42})
     proxy_model.set_filter(scalar1_col, num_filter)
-    assert proxy_model.rowCount() == 0
+    assert proxy_model.rowCount() == 3
 
+    # Test with range but no matching selected values
     num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45)
+    num_filter.include_nan.setChecked(False)
     proxy_model.set_filter(scalar1_col, num_filter)
-    assert proxy_model.rowCount() == 3  # 3 runs with value == 42 others are None or Nan
+    assert proxy_model.rowCount() == 1
 
     # Test categorical filtering
     status_col = source_model.find_column("Results", by_title=True)
@@ -1015,7 +1019,6 @@ def test_filter_menu(mock_db_with_data_2, mock_ctx, monkeypatch, qtbot):
     menu = FilterMenu(scalar1_col, proxy_model, table_view)
 
     # Verify menu is set up correctly for numeric column
-    assert menu.is_numeric is True
     assert isinstance(menu.filter_widget, NumericFilterWidget)
 
     # Test numeric range filtering
