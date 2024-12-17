@@ -415,7 +415,11 @@ def generate_thumbnail(image):
     fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
     vmin = np.nanquantile(image, 0.01)
     vmax = np.nanquantile(image, 0.99)
-    ax.imshow(image, vmin=vmin, vmax=vmax, extent=(0, 1, 1, 0))
+    if isinstance(image, np.ndarray):
+        ax.imshow(image, vmin=vmin, vmax=vmax)
+    else:
+        # Use DataArray's own plotting method
+        image.plot(ax=ax, vmin=vmin, vmax=vmax, add_colorbar=False)
     ax.axis('tight')
     ax.axis('off')
     ax.margins(0, 0)
@@ -519,7 +523,12 @@ class Results:
             if data.ndim == 0:
                 return data
             elif data.ndim == 2:
-                return generate_thumbnail(np.nan_to_num(data))
+                if isinstance(data, np.ndarray):
+                    data = np.nan_to_num(data)
+                else:
+                    data = data.fillna(0)
+
+                return generate_thumbnail(data)
             else:
                 return f"{data.dtype}: {data.shape}"
 
