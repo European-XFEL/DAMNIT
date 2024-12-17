@@ -1,31 +1,31 @@
-import re
 import os
+import re
 import textwrap
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import h5py
-import pytest
-import numpy as np
 import pandas as pd
+import pytest
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QMessageBox, QFileDialog, QDialog, QInputDialog, \
-    QStyledItemDelegate, QLineEdit
+from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
+                             QMessageBox, QStyledItemDelegate)
 
 import damnit
-from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.backend.db import DamnitDB, ReducedData
 from damnit.backend.extract_data import add_to_db
+from damnit.ctxsupport.ctxrunner import ContextFile
 from damnit.gui.editor import ContextTestResult
-from damnit.gui.main_window import MainWindow, AddUserVariableDialog
+from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
-from damnit.gui.plot import ScatterPlotWindow, HistogramPlotWindow
+from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.zulip_messenger import ZulipConfig
 
-from .helpers import reduced_data_from_dict, mkcontext, extract_mock_run
+from .helpers import extract_mock_run, mkcontext, reduced_data_from_dict
+
 
 # Check if a PID exists by using `kill -0`
 def pid_dead(pid):
@@ -980,6 +980,11 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
             if not table_view.isColumnHidden(col):
                 count += 1
         return count
+    
+    # Hepler function to apply tag filter
+    def apply_tag_filter(tags):
+        table_view.apply_tag_filter(tags)
+        table_view.apply_tag_filter.flush()
 
     # Test initial state - all columns should be visible
     initial_var_count = count_visible_vars()
@@ -988,31 +993,33 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     assert initial_static_count == table_view.get_static_columns_count()
 
     # Test filtering with single tag
-    table_view.apply_tag_filter({"scalar"})
+    apply_tag_filter({"scalar"})
     assert count_visible_vars() == 2  # scalar1 and scalar2
     assert table_view._tag_filter_button.text() == "Variables: scalar"
 
     # Test filtering with multiple tags
-    table_view.apply_tag_filter({"scalar", "text"})
+    apply_tag_filter({"scalar", "text"})
     assert count_visible_vars() == 3  # scalar1, scalar2, and empty_string
     assert table_view._tag_filter_button.text() == "Variables: 2 tags"
 
     # Test filtering with non-existent tag
-    table_view.apply_tag_filter({"nonexistent_tag"})
+    apply_tag_filter({"nonexistent_tag"})
     assert count_visible_vars() == 0
     assert table_view._tag_filter_button.text() == "Variables: nonexistent_tag"
 
     # Test clearing filters
-    table_view.apply_tag_filter(set())
+    apply_tag_filter(set())
     assert count_visible_vars() == initial_var_count
     assert table_view._tag_filter_button.text() == "Variables by Tag"
 
     # Test internal state of tag filter set
     table_view._toggle_tag_filter("scalar")
+    table_view.apply_tag_filter.flush()
     assert "scalar" in table_view._current_tag_filter
     assert count_visible_vars() == 2
 
     table_view._toggle_tag_filter("scalar")  # toggle off
+    table_view.apply_tag_filter.flush()
     assert "scalar" not in table_view._current_tag_filter
     assert count_visible_vars() == initial_var_count
 
@@ -1028,13 +1035,13 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     assert count_visible_vars() == initial_var_count - 1
 
     # Apply tag filter - should respect column visibility preferences
-    table_view.apply_tag_filter({"scalar"})
+    apply_tag_filter({"scalar"})
     assert count_visible_static() == initial_static_count - 1  # Static column still hidden
     visible_vars = count_visible_vars()
 
     assert visible_vars < 2  # Should be less than 2 because we hid one variable
 
     # Show all columns again - should still respect visibility preferences
-    table_view.apply_tag_filter(set())
+    apply_tag_filter(set())
     assert count_visible_static() == initial_static_count - 1
     assert count_visible_vars() == initial_var_count - 1
