@@ -82,7 +82,7 @@ You can add a user-editable variable from the menu in the top left:
 ## Tag Filtering
 Variables can be tagged in the context file to organize them into logical groups
 (e.g., by detector, data type, or processing stage). The GUI provides an easy
-way to filter variables based on these tags by using the "Filter by Tag" button.
+way to filter variables based on these tags by using the "Variables by Tag" button.
 
 Tags are preserved in the database and are automatically updated when you modify
 them in the context file. For information on how to define tags for variables,

@@ -68,7 +68,7 @@ class Variable:
         if self.tags is not None:
             if not isinstance(self.tags, Sequence) or not all(isinstance(tag, str) for tag in self.tags):
                 problems.append(
-                    f"tags={self.tags!r} for variable {self.name} (can be a string or an iterable of strings)"
+                    f"tags={self.tags!r} for variable {self.name} (must be a string or an iterable of strings)"
                 )
 
         return problems
