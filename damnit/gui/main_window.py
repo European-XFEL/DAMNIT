@@ -533,6 +533,10 @@ da-dev@xfel.eu"""
             )
         elif msg_kind == MsgKind.variable_set:
             self.table.handle_variable_set(data)
+            # update tag filtering
+            self.table_view.apply_tag_filter(
+                self.table_view._current_tag_filter
+            )
 
     def handle_run_values_updated(self, proposal, run, values: dict):
         self.table.handle_run_values_changed(proposal, run, values)

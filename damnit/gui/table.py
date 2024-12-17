@@ -7,6 +7,7 @@ from itertools import groupby
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox
+from superqt.utils import qthrottled
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
@@ -322,6 +323,7 @@ class TableView(QtWidgets.QTableView):
             self._current_tag_filter.add(tag_name)
         self.apply_tag_filter(self._current_tag_filter)
 
+    @qthrottled(timeout=50, leading=False)
     def apply_tag_filter(self, tag_names: set):
         """Filter columns to show only variables with selected tags."""
         self._current_tag_filter = tag_names
