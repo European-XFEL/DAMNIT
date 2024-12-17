@@ -190,7 +190,7 @@ class RunExtractor(Extractor):
             'hostname': socket.gethostname(),
             'username': getuser(),
             'slurm_cluster': self._slurm_cluster(),
-            'slurm_job_id': os.environ.get('SLURM_JOB_ID', ''),
+            'slurm_job_id': self._slurm_job_id(),
         })
 
     @staticmethod
@@ -200,6 +200,18 @@ class RunExtractor(Extractor):
             return None
         partition = os.environ.get('SLURM_JOB_PARTITION', '')
         return 'solaris' if (partition == 'solcpu') else 'maxwell'
+
+    @staticmethod
+    def _slurm_job_id():
+        # Get Slurm job ID in the same format that squeue uses
+        array_job_id = os.environ.get('SLURM_ARRAY_JOB_ID', '')
+        array_task_id = os.environ.get('SLURM_ARRAY_TASK_ID', '')
+        if array_job_id and array_task_id:
+            # In an array job, e.g. '12380337_308'
+            return f"{array_job_id}_{array_task_id}"
+        else:
+            # Not an array job - just use the regular job ID
+            slurm_job_id = os.environ.get('SLURM_JOB_ID', '')
 
     @property
     def out_path(self):
