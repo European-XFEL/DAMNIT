@@ -184,6 +184,19 @@ def test_context_file(mock_ctx, tmp_path):
     with pytest.raises(ContextFileErrors):
         ctx.check()
 
+    # test tag validity
+    empty_string_tag = """
+    from damnit.context import Variable
+
+    @Variable(title="Foo", tags=['bar', ''])
+    def foo(run):
+        return 42
+    """
+    ctx = mkcontext(empty_string_tag)
+    with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
+        ctx.check()
+
+
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
