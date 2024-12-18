@@ -338,12 +338,17 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     figure_code = """
     import numpy as np
+    import xarray as xr
     from damnit_ctx import Variable
     from matplotlib import pyplot as plt
 
-    @Variable("2D array")
+    @Variable("2D ndarray")
     def twodarray(run):
         return np.random.rand(1000, 1000)
+
+    @Variable("2D xarray")
+    def twodxarray(run):
+        return xr.DataArray(np.random.rand(100, 100))
 
     @Variable(title="Axes")
     def axes(run):
@@ -372,8 +377,9 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert f["axes/data"].ndim == 3
 
         # Test that the summaries are the right size
-        twodarray_png = Image.open(io.BytesIO(f[".reduced/twodarray"][()]))
-        assert np.asarray(twodarray_png).shape == (THUMBNAIL_SIZE, THUMBNAIL_SIZE, 4)
+        for var in ["twodarray", "twodxarray"]:
+            png = Image.open(io.BytesIO(f[f".reduced/{var}"][()]))
+            assert np.asarray(png).shape == (THUMBNAIL_SIZE, THUMBNAIL_SIZE, 4)
 
         figure_png = Image.open(io.BytesIO(f[".reduced/figure"][()]))
         assert max(np.asarray(figure_png).shape) == THUMBNAIL_SIZE
