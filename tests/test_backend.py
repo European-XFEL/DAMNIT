@@ -9,6 +9,7 @@ import stat
 import subprocess
 import textwrap
 from time import sleep, time
+from uuid import uuid4
 from unittest.mock import MagicMock, patch
 
 import extra_data as ed
@@ -24,7 +25,8 @@ from testpath import MockCommand
 
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
-from damnit.backend.extract_data import Extractor, add_to_db
+from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db
+from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
@@ -633,14 +635,13 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Create Extractor with a mocked KafkaProducer
     with patch(f"{pkg}.KafkaProducer") as _:
-        extractor = Extractor()
+        extractor = RunExtractor(1234, 42, cluster=False, run_data=RunData.ALL)
 
     # Test regular variables and slurm variables are executed
     reduced_data = reduced_data_from_dict({ "n": 53 })
-    with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
+    with patch(f"{pkg}.RunExtractor.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
          MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
-        extractor.extract_and_ingest(1234, 42, cluster=False,
-                                     run_data=RunData.ALL)
+        extractor.extract_and_ingest()
         extract_in_subprocess.assert_called_once()
         extractor.kafka_prd.send.assert_called()
         sbatch.assert_called()
@@ -735,7 +736,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db.metameta["context_python"] = str(venv.python)
 
     with patch(f"{pkg}.KafkaProducer"):
-        Extractor().extract_and_ingest(1234, 42, mock=True)
+        RunExtractor(1234, 42, mock=True).extract_and_ingest()
 
     with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
         assert f["foo/data"][()] == 42
@@ -910,3 +911,32 @@ def test_event_processor(mock_db, caplog):
 
         assert len(local_extraction_threads) == MAX_CONCURRENT_THREADS
         assert 'Too many events processing' in caplog.text
+
+
+def test_job_tracker():
+    tracker = ExtractionJobTracker()
+
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': '', 'slurm_job_id': ''}
+
+    prid1, prid2 = str(uuid4()), str(uuid4())
+
+    # Add two running jobs
+    tracker.on_processing_running(d | {'run': 1, 'processing_id': prid1})
+    tracker.on_processing_running(d | {
+        'run': 2, 'processing_id': prid2,
+        'slurm_cluster': 'maxwell', 'slurm_job_id': '321'
+    })
+    assert set(tracker.jobs) == {prid1, prid2}
+
+    # One job finishes normally
+    tracker.on_processing_finished({'processing_id': prid1})
+    assert set(tracker.jobs) == {prid2}
+
+    # The other one fails to send a finished message, so checking Slurm reveals
+    # that it failed.
+    with MockCommand.fixed_output('squeue', '') as fake_squeue:
+        tracker.check_slurm_jobs()
+
+    fake_squeue.assert_called()
+    assert set(tracker.jobs) == set()
