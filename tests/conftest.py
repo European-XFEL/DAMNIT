@@ -19,15 +19,15 @@ def mock_ctx():
     import xarray as xr
     from damnit.context import Variable
 
-    @Variable(title="Scalar1")
+    @Variable(title="Scalar1", tags=['scalar', 'integer'])
     def scalar1(run):
         return 42
 
-    @Variable(title="Scalar2")
+    @Variable(title="Scalar2", tags=['scalar', 'float'])
     def scalar2(run, foo: "var#scalar1"):
         return 3.14
 
-    @Variable(title="Empty text")
+    @Variable(title="Empty text", tags='text')
     def empty_string(run):
         return ""
 

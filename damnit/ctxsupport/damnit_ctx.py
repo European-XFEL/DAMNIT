@@ -38,9 +38,10 @@ class Variable:
     _name = None
 
     def __init__(
-            self, title=None, description=None, summary=None, data=None, cluster=False,
+            self, title=None, description=None, summary=None, data=None, cluster=False, tags=None,
     ):
         self.title = title
+        self.tags = (tags,) if isinstance(tags, str) else tags
         self.description = description
         self.summary = summary
         self.cluster = cluster
@@ -56,7 +57,7 @@ class Variable:
 
     def check(self):
         problems = []
-        if not re.fullmatch(r'[a-zA-Z_]\w+', self.name, flags=re.A):
+        if not re.fullmatch(r"[a-zA-Z_]\w+", self.name, flags=re.A):
             problems.append(
                 f"The variable name {self.name!r} is not of the form '[a-zA-Z_]\\w+'"
             )
@@ -64,6 +65,15 @@ class Variable:
             problems.append(
                 f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
             )
+        if self.tags is not None:
+            if not isinstance(self.tags, Sequence) or not all(
+                isinstance(tag, str) and tag != "" for tag in self.tags
+            ):
+                problems.append(
+                    f"tags={self.tags!r} for variable {self.name} "
+                    "(must be a non-empty string or an iterable of strings)"
+                )
+
         return problems
 
     @property
