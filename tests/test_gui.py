@@ -1055,3 +1055,62 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     apply_tag_filter(set())
     assert count_visible_static() == initial_static_count - 1
     assert count_visible_vars() == initial_var_count - 1
+
+
+def test_lazy_loading_thumbnails(mock_db_with_data, qtbot):
+    """Test the lazy loading of thumbnails in the table view."""
+    db_dir, db = mock_db_with_data
+    window = MainWindow(db_dir, False)
+    qtbot.addWidget(window)
+    table_view = window.table_view
+
+    # Create test PNG data
+    test_png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100  # Minimal valid PNG header
+
+    # Add an image item to the model
+    model = table_view.damnit_model
+    item = model.image_item(test_png)
+    model.setItem(0, 0, item)
+
+    # Initially, there should be no thumbnail (decoration role)
+    assert not item.data(Qt.DecorationRole)
+    # But the raw PNG data should be stored
+    assert item.data(Qt.UserRole) == test_png
+
+    # Simulate viewport event to trigger lazy loading
+    visible_range = ((0, 0), (1, 1))
+    table_view._last_visible_range = visible_range
+    table_view.load_visible_thumbnails()
+
+    # After loading, the thumbnail should be present
+    assert item.data(Qt.DecorationRole) is not None
+    assert isinstance(item.data(Qt.DecorationRole), QPixmap)
+
+    # Test that thumbnail is not loaded for out-of-view items
+    out_of_view_item = model.image_item(test_png)
+    model.setItem(10, 10, out_of_view_item)
+    table_view.load_visible_thumbnails()
+    assert not out_of_view_item.data(Qt.DecorationRole)
+
+
+def test_thumbnail_request_signal(mock_db_with_data, qtbot):
+    """Test that the thumbnail_requested signal is emitted correctly."""
+    db_dir, db = mock_db_with_data
+    window = MainWindow(db_dir, False)
+    qtbot.addWidget(window)
+    table_view = window.table_view
+
+    # Create test PNG data and add to model
+    test_png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
+    model = table_view.damnit_model
+    item = model.image_item(test_png)
+    model.setItem(0, 0, item)
+
+    # Set up signal spy
+    with qtbot.waitSignal(table_view.thumbnail_requested) as blocker:
+        # Trigger thumbnail loading
+        table_view._last_visible_range = ((0, 0), (1, 1))
+        table_view.load_visible_thumbnails()
+
+    # Verify signal was emitted with correct parameters
+    assert blocker.args == [0, 0]

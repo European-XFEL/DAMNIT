@@ -22,6 +22,7 @@ COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
+    thumbnail_requested = QtCore.pyqtSignal(int, int)  # New signal for thumbnail loading
 
     def __init__(self) -> None:
         super().__init__()
@@ -69,6 +70,10 @@ class TableView(QtWidgets.QTableView):
         self._tag_filter_button = QtWidgets.QPushButton("Variables by Tag")
         self._tag_filter_button.clicked.connect(self._show_tag_filter_menu)
 
+        # Add viewport watching for lazy loading
+        self.viewport().installEventFilter(self)
+        self._last_visible_range = None
+
     def setModel(self, model: 'DamnitTableModel'):
         """
         Overload of setModel() to make sure that we restyle the comment rows
@@ -96,6 +101,7 @@ class TableView(QtWidgets.QTableView):
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
+            self.thumbnail_requested.connect(model.load_thumbnail)
             self.resizeRowsToContents()
 
     def selected_rows(self):
@@ -364,6 +370,42 @@ class TableView(QtWidgets.QTableView):
         """Return widgets to be added to the toolbar."""
         return [self._tag_filter_button]
 
+    def eventFilter(self, obj, event):
+        """Handle viewport events to implement lazy loading of thumbnails"""
+        if obj is self.viewport() and event.type() == QtCore.QEvent.Paint:
+            visible_range = self.get_visible_range()
+            if visible_range != self._last_visible_range:
+                self._last_visible_range = visible_range
+                self.load_visible_thumbnails()
+        return super().eventFilter(obj, event)
+
+    def get_visible_range(self):
+        """Get the range of visible rows and columns"""
+        visible_region = self.viewport().visibleRegion()
+        top_left = self.indexAt(visible_region.boundingRect().topLeft())
+        bottom_right = self.indexAt(visible_region.boundingRect().bottomRight())
+        
+        if not top_left.isValid() or not bottom_right.isValid():
+            return None
+            
+        return ((top_left.row(), top_left.column()),
+                (bottom_right.row(), bottom_right.column()))
+
+    def load_visible_thumbnails(self):
+        """Request loading of thumbnails for visible cells"""
+        if not self._last_visible_range:
+            return
+            
+        (top_row, left_col), (bottom_row, right_col) = self._last_visible_range
+            
+        for row in range(top_row, bottom_row + 1):
+            for col in range(left_col, right_col + 1):
+                item = self.damnit_model.item(row, col)
+                if item and not item.data(Qt.DecorationRole):
+                    raw_data = item.data(Qt.UserRole)
+                    if is_png_bytes(raw_data):
+                        self.thumbnail_requested.emit(row, col)
+
 
 class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
@@ -469,11 +511,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         return item
 
     def image_item(self, png_data: bytes):
+        """Create an item for image data with lazy loading support"""
         item = self.itemPrototype().clone()
-        item.setData(self.generateThumbnail(png_data), role=Qt.DecorationRole)
-        item.setToolTip(
-            f'<img src="data:image/png;base64,{b64encode(png_data).decode()}">'
-        )
+        # Store the raw PNG data but don't generate thumbnail yet
+        item.setData(png_data, Qt.UserRole)
         return item
 
     def comment_item(self, text, comment_id=None):
@@ -883,6 +924,23 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         df.index = row_labels
 
         return df
+
+    def load_thumbnail(self, row: int, col: int):
+        """Generate and set thumbnail for a specific cell"""
+        item = self.item(row, col)
+        if not item:
+            return
+            
+        png_data = item.data(Qt.UserRole)
+        if not is_png_bytes(png_data):
+            return
+            
+        if not item.data(Qt.DecorationRole):
+            thumbnail = self.generateThumbnail(png_data)
+            item.setData(thumbnail, Qt.DecorationRole)
+            item.setToolTip(
+                f'<img src="data:image/png;base64,{b64encode(png_data).decode()}">'
+            )
 
 
 def prettify_notation(value):
