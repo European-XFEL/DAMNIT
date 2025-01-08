@@ -14,12 +14,12 @@ import h5py
 import numpy as np
 import xarray as xr
 from kafka.errors import NoBrokersAvailable
-from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
-from PyQt5.Qsci import QsciLexerPython, QsciScintilla
-from PyQt5.QtCore import Qt
-from PyQt5.QtWebEngineWidgets import QWebEngineProfile
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
-from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
+from PyQt6 import QtCore, QtGui, QtSvg, QtWidgets
+from PyQt6.Qsci import QsciLexerPython, QsciScintilla
+from PyQt6.QtCore import Qt
+from PyQt6.QtWebEngineWidgets import QWebEngineProfile
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
@@ -77,7 +77,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_widget = QtWidgets.QWidget(self)
         self._editor = Editor()
         self._error_widget = QsciScintilla()
-        self._editor_parent_widget = QtWidgets.QSplitter(Qt.Vertical)
+        self._editor_parent_widget = QtWidgets.QSplitter(Qt.Orientation.Vertical)
 
         self._tab_widget = QTabWidget()
         self._tabbar_style = TabBarStyle()
@@ -113,13 +113,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         if not self._context_is_saved:
-            dialog = QMessageBox(QMessageBox.Warning,
+            dialog = QMessageBox(QMessageBox.Icon.Warning,
                                  "Warning - unsaved changes",
                                  "There are unsaved changes to the context, do you want to go back and save?",
-                                 QMessageBox.Discard | QMessageBox.Cancel)
+                                 QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
             result = dialog.exec()
 
-            if result == QMessageBox.Cancel:
+            if result == QMessageBox.StandardButton.Cancel:
                 event.ignore()
                 return
 
@@ -252,7 +252,7 @@ da-dev@xfel.eu"""
         header = self.table_view.horizontalHeader()
         for column in ["Status", "Proposal", "Run", "Timestamp"]:
             column_index = self.table.find_column(column, by_title=True)
-            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setVisible(True)
 
         # Update the column widget and plotting controls with the new columns
@@ -429,7 +429,7 @@ da-dev@xfel.eu"""
         menu_bar_right = QtWidgets.QMenuBar(self)
         searchMenu = menu_bar_right.addMenu(
             QtGui.QIcon(icon_path("search_icon.png")), "&Search Run")
-        searchMenu.setLayoutDirection(QtCore.Qt.RightToLeft)
+        searchMenu.setLayoutDirection(QtCore.Qt.LayoutDirection.RightToLeft)
         self.jump_search_run = QtWidgets.QLineEdit(self)
         self.jump_search_run.setPlaceholderText("Jump to run:")
         self.jump_search_run.setStyleSheet("width: 120px")
@@ -438,7 +438,7 @@ da-dev@xfel.eu"""
         actionWidget = QtWidgets.QWidgetAction(menu_bar)
         actionWidget.setDefaultWidget(self.jump_search_run)
         searchMenu.addAction(actionWidget)
-        menu_bar.setCornerWidget(menu_bar_right, Qt.TopRightCorner)
+        menu_bar.setCornerWidget(menu_bar_right, Qt.Corner.TopRightCorner)
 
         
     def scroll_to_run(self, run):
@@ -617,7 +617,7 @@ da-dev@xfel.eu"""
         )
 
         cell_data = self.table.get_value_at(index)
-        is_image = self.table.itemFromIndex(index).data(Qt.DecorationRole) is not None
+        is_image = self.table.itemFromIndex(index).data(Qt.ItemDataRole.DecorationRole) is not None
 
         try:
             variable = RunVariables(self._context_path.parent, run)[quantity]
@@ -808,7 +808,7 @@ da-dev@xfel.eu"""
         self._save_btn = QtWidgets.QPushButton("Save")
         self._save_btn.clicked.connect(self.save_context)
         self._save_btn.setToolTip("Ctrl + S")
-        self._save_btn.setShortcut(QtGui.QKeySequence(Qt.ControlModifier | Qt.Key_S))
+        self._save_btn.setShortcut(QtGui.QKeySequence(Qt.Modifier.ControlModifier | Qt.Key.Key_S))
 
         self._check_btn = QtWidgets.QPushButton("Validate")
         self._check_btn.clicked.connect(self.test_context)
@@ -913,7 +913,7 @@ da-dev@xfel.eu"""
 
     def set_error_icon(self, icon):
         self._context_status_icon.load(icon_path(f"{icon}_circle.svg"))
-        self._context_status_icon.renderer().setAspectRatioMode(Qt.KeepAspectRatio)
+        self._context_status_icon.renderer().setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
 
     def set_error_widget_text(self, text):
         # Clear the widget and wait for a bit to visually indicate to the
@@ -997,7 +997,7 @@ da-dev@xfel.eu"""
                              self.table.computed_columns(by_title=True))
 
         dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
-        if dlg.exec() == QtWidgets.QDialog.Accepted:
+        if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
             try:
@@ -1075,7 +1075,7 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             f"{context_dir} does not contain a DAMNIT database, "
             "would you like to create one and start the backend?"
         )
-        if button != QMessageBox.Yes:
+        if button != QMessageBox.StandardButton.Yes:
             return False
 
         if not (context_dir / 'context.py').is_file():
@@ -1106,14 +1106,14 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             "The DAMNIT backend is not running, would you like to start it? "
             "This is only necessary if new runs are expected."
         )
-        if button == QMessageBox.Yes:
+        if button == QMessageBox.StandardButton.Yes:
             initialize_and_start_backend(context_dir, prop_no)
 
     return True
 
 
 def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
-    QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QtWidgets.QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
@@ -1124,7 +1124,7 @@ def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
     if software_opengl or re.match(r'^max-exfl\d{3}.desy.de$', gethostname()):
         log.info('Use software OpenGL.')
         QtWidgets.QApplication.setAttribute(
-            Qt.AA_UseSoftwareOpenGL
+            Qt.ApplicationAttribute.AA_UseSoftwareOpenGL
         )
         QQuickWindow.setSceneGraphBackend(QSGRendererInterface.Software)
 

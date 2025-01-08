@@ -4,9 +4,9 @@ import pandas as pd
 import tempfile
 import xarray as xr
 
-from PyQt5.QtCore import Qt
-from PyQt5 import QtCore, QtWidgets, QtGui
-from PyQt5.QtWidgets import QMessageBox
+from PyQt6.QtCore import Qt
+from PyQt6 import QtCore, QtWidgets, QtGui
+from PyQt6.QtWidgets import QMessageBox
 
 import mplcursors
 import matplotlib
@@ -43,10 +43,10 @@ class PlotWindow(QtWidgets.QDialog):
     ):
         super().__init__()
         self.setWindowFlags(
-            Qt.Window |
-            Qt.WindowMinimizeButtonHint |
-            Qt.WindowMaximizeButtonHint |
-            Qt.WindowCloseButtonHint
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowMinimizeButtonHint |
+            Qt.WindowType.WindowMaximizeButtonHint |
+            Qt.WindowType.WindowCloseButtonHint
         )
         self.setStyleSheet("QDialog {background-color: white}")
 
@@ -131,7 +131,7 @@ class PlotWindow(QtWidgets.QDialog):
         self._scroll_zoom = zoom_factory(self._axis, base_scale=1.07)
 
     def toggle_annotations(self, state):
-        if state == QtCore.Qt.Checked:
+        if state == QtCore.Qt.CheckState.Checked:
             self._cursors.extend(self._make_cursors())
         else:
             for cursor in self._cursors:
@@ -411,8 +411,8 @@ class ScatterPlotWindow(PlotWindow):
             # the data, we first disable annotations to clear existing cursors
             # and then reenable annotations to create new cursors for the
             # current data.
-            self._display_annotations_checkbox.setCheckState(QtCore.Qt.Unchecked)
-            self._display_annotations_checkbox.setCheckState(QtCore.Qt.Checked)
+            self._display_annotations_checkbox.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            self._display_annotations_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
 
 class Xarray1DPlotWindow(PlotWindow):
     def __init__(self, parent, data, **kwargs):
@@ -435,10 +435,10 @@ class ImagePlotWindow(PlotWindow):
         super().__init__(parent, **kwargs)
 
         self._dynamic_aspect_checkbox = QtWidgets.QCheckBox("Dynamic aspect ratio")
-        self._dynamic_aspect_checkbox.setCheckState(Qt.Unchecked)
-        self._dynamic_aspect_checkbox.setLayoutDirection(Qt.RightToLeft)
+        self._dynamic_aspect_checkbox.setCheckState(Qt.CheckState.Unchecked)
+        self._dynamic_aspect_checkbox.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self._dynamic_aspect_checkbox.stateChanged.connect(
-            lambda state: self.set_dynamic_aspect(state == Qt.Checked)
+            lambda state: self.set_dynamic_aspect(state == Qt.CheckState.Checked)
         )
 
         before_mpl_nav = self.layout.indexOf(self._navigation_toolbar)
@@ -446,7 +446,7 @@ class ImagePlotWindow(PlotWindow):
 
         aspect_ratio = max(image.shape[:2]) / min(image.shape[:2])
         if aspect_ratio > 4:
-            self._dynamic_aspect_checkbox.setCheckState(Qt.Checked)
+            self._dynamic_aspect_checkbox.setCheckState(Qt.CheckState.Checked)
 
         self.update_canvas(image)
 
@@ -508,12 +508,12 @@ class SearchableComboBox(QtWidgets.QComboBox):
         super().__init__(parent)
 
         self.setEditable(True)
-        self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        self.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
         self.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
 
-        self.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
-        self.completer().setFilterMode(QtCore.Qt.MatchContains)
+        self.completer().setCompletionMode(QtWidgets.QCompleter.CompletionMode.PopupCompletion)
+        self.completer().setFilterMode(Qt.MatchFlag.MatchContains)
 
         self.currentTextChanged.connect(self.on_filter_text_changed)
         self.lineEdit().editingFinished.connect(self.on_filter_editing_finished)
@@ -536,9 +536,9 @@ class SearchableComboBox(QtWidgets.QComboBox):
 
     def focusInEvent(self, event):
         r = event.reason()
-        if r == QtCore.Qt.MouseFocusReason or \
-           r == QtCore.Qt.TabFocusReason or \
-           r == QtCore.Qt.BacktabFocusReason:
+        if r == QtCore.Qt.FocusReason.MouseFocusReason or \
+           r == QtCore.Qt.FocusReason.TabFocusReason or \
+           r == QtCore.Qt.FocusReason.BacktabFocusReason:
             QtCore.QTimer.singleShot(0, self.lineEdit().selectAll)
         else:
             super().focusInEvent(event)

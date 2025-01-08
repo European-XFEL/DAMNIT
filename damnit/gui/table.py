@@ -4,9 +4,9 @@ import time
 from base64 import b64encode
 from itertools import groupby
 
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QMessageBox
 from superqt.utils import qthrottled
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
@@ -107,7 +107,7 @@ class TableView(QtWidgets.QTableView):
 
     def item_changed(self, item):
         state = item.checkState()
-        self.set_column_visibility(item.text(), state == Qt.Checked)
+        self.set_column_visibility(item.text(), state == Qt.CheckState.Checked)
 
     def set_column_visibility(self, name, visible, for_restore=False, save_settings=True):
         """
@@ -131,15 +131,15 @@ class TableView(QtWidgets.QTableView):
 
         if for_restore:
             widget = self._columns_widget if \
-                len(self._columns_widget.findItems(name, Qt.MatchExactly)) == 1 else \
+                len(self._columns_widget.findItems(name, Qt.MatchFlag.MatchExactly)) == 1 else \
                 self._static_columns_widget
 
             # Try to find the column. Some, like 'comment_id' will not be in the
             # list shown to the user.
-            matching_items = widget.findItems(name, Qt.MatchExactly)
+            matching_items = widget.findItems(name, Qt.MatchFlag.MatchExactly)
             if len(matching_items) == 1:
                 item = matching_items[0]
-                item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked)
         elif save_settings:
             self.settings_changed.emit()
 
@@ -173,9 +173,9 @@ class TableView(QtWidgets.QTableView):
                                      f"You are about to permanently delete the variable <b>'{name}'</b> "
                                      "from the database and HDF5 files. This cannot be undone. "
                                      "Are you sure you want to continue?",
-                                     QMessageBox.Yes | QMessageBox.No,
-                                     defaultButton=QMessageBox.No)
-        if button == QMessageBox.Yes:
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     defaultButton=QMessageBox.StandardButton.No)
+        if button == QMessageBox.StandardButton.Yes:
             model = self.damnit_model
             delete_variable(model.db, name)
             model.removeColumn(model.find_column(name, by_title=False))
@@ -191,7 +191,7 @@ class TableView(QtWidgets.QTableView):
 
             item = QtWidgets.QListWidgetItem(column)
             self._columns_widget.insertItem(position, item)
-            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if status else Qt.CheckState.Unchecked)
 
     def on_columns_inserted(self, _parent, first, last):
         titles = [self.damnit_model.column_title(i) for i in range(first, last + 1)]
@@ -219,7 +219,7 @@ class TableView(QtWidgets.QTableView):
             if column in static_columns:
                 item = QtWidgets.QListWidgetItem(column)
                 self._static_columns_widget.addItem(item)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Checked if status else Qt.CheckState.Unchecked)
         self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
                                                   QtWidgets.QSizePolicy.Minimum)
 
@@ -240,7 +240,7 @@ class TableView(QtWidgets.QTableView):
         def add_column_states(widget):
             for row in range(widget.count()):
                 item = widget.item(row)
-                column_states[item.text()] = item.checkState() == Qt.Checked
+                column_states[item.text()] = item.checkState() == Qt.CheckState.Checked
 
         add_column_states(self._static_columns_widget)
         add_column_states(self._columns_widget)
@@ -407,7 +407,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         # Set up status column with checkboxes for runs
         checkbox_proto = self.itemPrototype().clone()
         checkbox_proto.setCheckable(True)
-        checkbox_proto.setCheckState(Qt.Checked)
+        checkbox_proto.setCheckState(Qt.CheckState.Checked)
         for r in range(n_run_rows):
             self.setItem(r, 0, checkbox_proto.clone())
 
@@ -470,7 +470,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def image_item(self, png_data: bytes):
         item = self.itemPrototype().clone()
-        item.setData(self.generateThumbnail(png_data), role=Qt.DecorationRole)
+        item.setData(self.generateThumbnail(png_data), role=Qt.ItemDataRole.DecorationRole)
         item.setToolTip(
             f'<img src="data:image/png;base64,{b64encode(png_data).decode()}">'
         )
@@ -528,6 +528,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 if name in self.user_variables:
                     value = self.user_variables[name].get_type_class().from_db_value(value)
                 attrs = json.loads(attr_json) if attr_json else {}
+
                 self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
 
         comments_start = row_ix + 1
@@ -586,7 +587,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         prop_it, run_it = self.item(row_ix, prop_col), self.item(row_ix, run_col)
         if prop_it is None:
             return None, None
-        return prop_it.data(Qt.UserRole), run_it.data(Qt.UserRole)
+        return prop_it.data(Qt.ItemDataRole.UserRole), run_it.data(Qt.ItemDataRole.UserRole)
 
     def row_to_comment_id(self, row):
         comment_col = 4
@@ -634,7 +635,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
-        status_item.setCheckState(Qt.Checked)
+        status_item.setCheckState(Qt.CheckState.Checked)
         row = [status_item, self.text_item(proposal), self.text_item(run)]
 
         for column_id in self.column_ids[3:]:
@@ -736,7 +737,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         pixmap.loadFromData(data, "PNG")
         if max(pixmap.height(), pixmap.width()) > THUMBNAIL_SIZE:
             pixmap = pixmap.scaled(
-                THUMBNAIL_SIZE, THUMBNAIL_SIZE, Qt.KeepAspectRatio
+                THUMBNAIL_SIZE, THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio
             )
         return pixmap
 
@@ -745,7 +746,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         res = [[]  for _ in cols]
         for r in range(self.rowCount()):
             status_item = self.item(r, 0)
-            if status_item is None or status_item.checkState() != Qt.Checked:
+            if status_item is None or status_item.checkState() != Qt.CheckState.Checked:
                 continue
 
             vals = [self.get_value_at_rc(r, ci) for ci in col_ixs]
@@ -757,11 +758,11 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def get_value_at(self, index):
         """Get the value for programmatic use, not for display"""
-        return self.itemFromIndex(index).data(Qt.UserRole)
+        return self.itemFromIndex(index).data(Qt.ItemDataRole.UserRole)
 
     def get_value_at_rc(self, row, col):
         item = self.item(row, col)
-        return item.data(Qt.UserRole) if item is not None else None
+        return item.data(Qt.ItemDataRole.UserRole) if item is not None else None
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
@@ -834,7 +835,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             for col_ix in column_ixs:
                 for row_ix in range(self.rowCount()):
                     item = self.item(row_ix, col_ix)
-                    if item and is_png_bytes(item.data(Qt.UserRole)):
+                    if item and is_png_bytes(item.data(Qt.ItemDataRole.UserRole)):
                         break
                 else:
                     filtered_ixs.append(col_ix)
@@ -859,10 +860,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 item = self.item(row_ix, col_ix)
                 if self.column_ids[col_ix] == 'start_time':
                     # Include timestamp as string
-                    val = item and item.data(Qt.DisplayRole)
+                    val = item and item.data(Qt.ItemDataRole.DisplayRole)
                 else:
-                    val = item and item.data(Qt.UserRole)
-                    if val is None and item and item.data(Qt.DecorationRole):
+                    val = item and item.data(Qt.ItemDataRole.UserRole)
+                    if val is None and item and item.data(Qt.ItemDataRole.DecorationRole):
                         val = "<image>"
 
                 values.append(val)
@@ -879,7 +880,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
         df = pd.DataFrame(cols_dict)
 
-        row_labels = [self.headerData(r, Qt.Vertical) for r in rows]
+        row_labels = [self.headerData(r, Qt.Orientation.Vertical) for r in rows]
         df.index = row_labels
 
         return df

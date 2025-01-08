@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Optional
 
 from extra_data.read_machinery import find_proposal
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QFileDialog, QListWidgetItem, QMessageBox
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QFileDialog, QListWidgetItem, QMessageBox
 
 from .new_context_dialog_ui import Ui_Dialog
 

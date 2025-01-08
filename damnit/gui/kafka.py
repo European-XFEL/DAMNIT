@@ -2,7 +2,7 @@ import pickle
 import logging
 
 from kafka import KafkaConsumer, KafkaProducer
-from PyQt5 import QtCore
+from PyQt6 import QtCore
 
 from ..backend.db import MsgKind, msg_dict
 from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC

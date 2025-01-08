@@ -1,9 +1,9 @@
 import math
 from pathlib import Path
 
-from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter, QPixmap
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPixmap
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from ..util import icon_path
 
@@ -16,7 +16,7 @@ class Arrow(QLabel):
         super().__init__()
 
         self.setMaximumHeight(20)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.open = True
         self.update()
@@ -44,7 +44,7 @@ class Arrow(QLabel):
 
         pixmap = QPixmap(img_path)
         self.setPixmap(
-            pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         )
 
 

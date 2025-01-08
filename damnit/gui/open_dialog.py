@@ -3,8 +3,8 @@ from socket import gethostname
 from typing import Optional, Tuple
 
 from extra_data.read_machinery import find_proposal
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 from .open_dialog_ui import Ui_Dialog
 
@@ -47,7 +47,7 @@ class OpenDBDialog(QDialog):
 
     def run_get_result(self) -> Tuple[Optional[Path], Optional[int]]:
         self.proposal_finder_thread.start()
-        if self.exec() == QDialog.Rejected:
+        if self.exec() == QDialog.DialogCode.Rejected:
             return None, None
         context_dir = self.get_chosen_dir()
         prop_no = self.get_proposal_num()

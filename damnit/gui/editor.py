@@ -5,9 +5,9 @@ from io import StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
-from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 
 from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
