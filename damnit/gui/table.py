@@ -18,7 +18,7 @@ from superqt.utils import qthrottled
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
-from .table_filter import FilterMenu, FilterProxy
+from .table_filter import FilterMenu, FilterProxy, FilterStatus
 
 log = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ class TableView(QtWidgets.QTableView):
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
     model_updated = QtCore.pyqtSignal()
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
         self.setAlternatingRowColors(False)
 
         self.setSelectionBehavior(
@@ -81,6 +81,8 @@ class TableView(QtWidgets.QTableView):
         self._current_tag_filter = set()  # Change to set for multiple tags
         self._tag_filter_button = QtWidgets.QPushButton("Variables by Tag")
         self._tag_filter_button.clicked.connect(self._show_tag_filter_menu)
+        # add column values filter support
+        self._filter_status = FilterStatus(self, parent)
 
     def setModel(self, model: 'DamnitTableModel'):
         """
@@ -369,7 +371,7 @@ class TableView(QtWidgets.QTableView):
 
     def get_toolbar_widgets(self):
         """Return widgets to be added to the toolbar."""
-        return [self._tag_filter_button]
+        return [self._tag_filter_button, self._filter_status]
 
     def show_horizontal_header_menu(self, position):
         pos = QCursor.pos()

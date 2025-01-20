@@ -707,7 +707,7 @@ da-dev@xfel.eu"""
         vertical_layout.addWidget(toolbar)
 
         # the table
-        self.table_view = TableView()
+        self.table_view = TableView(self)
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
@@ -719,18 +719,15 @@ da-dev@xfel.eu"""
 
         self.plot_dialog_button = QtWidgets.QPushButton("Plot")
         self.plot_dialog_button.clicked.connect(self.plot.show_dialog)
-        self.filter_status_button = FilterStatus(self.table_view, self)
         self.comment_button = QtWidgets.QPushButton("Time comment")
         self.comment_button.clicked.connect(lambda: TimeComment(self).show())
 
         toolbar.addWidget(self.plot_dialog_button)
         toolbar.addWidget(self.comment_button)
-        toolbar.addWidget(self.filter_status_button)
         for widget in self.table_view.get_toolbar_widgets():
             toolbar.addWidget(widget)
 
         vertical_layout.addWidget(self.table_view)
-
         vertical_layout.setContentsMargins(0, 7, 0, 0)
 
         self._view_widget.setLayout(vertical_layout)
