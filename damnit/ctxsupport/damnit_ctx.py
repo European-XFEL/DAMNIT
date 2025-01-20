@@ -4,6 +4,7 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import logging
 import re
 import sys
 from collections.abc import Sequence
@@ -14,6 +15,8 @@ import numpy as np
 import xarray as xr
 
 __all__ = ["RunData", "Variable", "Cell"]
+
+log = logging.getLogger(__name__)
 
 
 THUMBNAIL_SIZE = 300 # px
@@ -169,7 +172,10 @@ class Cell:
         if self.summary_value is not None:
             return self.summary_value
         elif self.summary is not None:
-            return np.asarray(getattr(np, self.summary)(self.data))
+            try:
+                return np.asarray(getattr(np, self.summary)(self.data))
+            except Exception:
+                log.error("Failed to produce summary data", exc_info=True)
 
         return None
 
