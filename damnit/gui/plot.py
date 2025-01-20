@@ -4,7 +4,7 @@ import pandas as pd
 import tempfile
 import xarray as xr
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QObject
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QMessageBox
 
@@ -548,36 +548,63 @@ class PlottingControls:
     def __init__(self, main_window) -> None:
         self._main_window = main_window
 
-        self._button_plot = QtWidgets.QPushButton(main_window)
+        self.dialog = QtWidgets.QDialog(main_window)
+        self.dialog.setWindowTitle("Plot Controls")
+        
+        plot_vertical_layout = QtWidgets.QVBoxLayout()
+        plot_horizontal_layout = QtWidgets.QHBoxLayout()
+        plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
+
+        self._button_plot = QtWidgets.QPushButton(self.dialog)
         self._button_plot.setEnabled(True)
         self._button_plot.setText("Plot summary for all runs")
         self._button_plot.clicked.connect(self._plot_summaries_clicked)
 
-        self._button_plot_runs = QtWidgets.QPushButton(
-            "Plot for selected runs", main_window
-        )
+        self._button_plot_runs = QtWidgets.QPushButton("Plot for selected runs", self.dialog)
         self._button_plot_runs.clicked.connect(self._plot_run_data_clicked)
 
-        self._combo_box_x_axis = SearchableComboBox(self._main_window)
-        self._combo_box_y_axis = SearchableComboBox(self._main_window)
+        plot_horizontal_layout.addWidget(self._button_plot)
+        self._button_plot_runs.setMinimumWidth(200)
+        plot_horizontal_layout.addStretch()
 
-        self._toggle_probability_density = QtWidgets.QPushButton(
-            "Histogram", main_window
-        )
-        self._toggle_probability_density.setCheckable(True)
-        self._toggle_probability_density.setChecked(False)
-        self._toggle_probability_density.toggled.connect(
-            self._combo_box_y_axis.setDisabled
-        )
+        self._combo_box_x_axis = SearchableComboBox(self.dialog)
+        self._combo_box_y_axis = SearchableComboBox(self.dialog)
 
         self.vs_button = QtWidgets.QToolButton()
         self.vs_button.setText("vs.")
         self.vs_button.setToolTip("Click to swap axes")
         self.vs_button.clicked.connect(self.swap_plot_axes)
 
+        plot_horizontal_layout.addWidget(QtWidgets.QLabel("Y:"))
+        plot_horizontal_layout.addWidget(self._combo_box_y_axis)
+        plot_horizontal_layout.addWidget(self.vs_button)
+        plot_horizontal_layout.addWidget(QtWidgets.QLabel("X:"))
+        plot_horizontal_layout.addWidget(self._combo_box_x_axis)
+
         self._combo_box_x_axis.setCurrentText("Run")
 
+        plot_vertical_layout.addLayout(plot_horizontal_layout)
+
+        plot_parameters_horizontal_layout.addWidget(self._button_plot_runs)
+        self._button_plot.setMinimumWidth(200)
+        plot_parameters_horizontal_layout.addStretch()
+
+        self._toggle_probability_density = QtWidgets.QPushButton("Histogram", self.dialog)
+        self._toggle_probability_density.setCheckable(True)
+        self._toggle_probability_density.setChecked(False)
+        self._toggle_probability_density.toggled.connect(self._combo_box_y_axis.setDisabled)
+
+        plot_parameters_horizontal_layout.addWidget(self._toggle_probability_density)
+
+        plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
+        
+        self.dialog.setLayout(plot_vertical_layout)
+        self.dialog.setVisible(False)
+
         self._plot_windows = []
+
+    def show_dialog(self):
+        self.dialog.setVisible(True)
 
     def update_columns(self):
         keys = self.table.column_titles

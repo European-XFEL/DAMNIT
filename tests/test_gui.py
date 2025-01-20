@@ -10,19 +10,24 @@ from unittest.mock import patch
 import h5py
 import pandas as pd
 import pytest
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
-                             QMessageBox, QStyledItemDelegate)
+                             QMenu, QMessageBox, QStyledItemDelegate)
 
 import damnit
 from damnit.backend.db import DamnitDB, ReducedData
 from damnit.backend.extract_data import add_to_db
-from damnit.ctxsupport.ctxrunner import ContextFile
+from damnit.ctxsupport.ctxrunner import ContextFile, Results
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
+from damnit.gui.standalone_comments import TimeComment
+from damnit.gui.table_filter import (CategoricalFilter,
+                                     CategoricalFilterWidget, FilterMenu,
+                                     FilterProxy, FilterStatus, FilterType,
+                                     NumericFilter, NumericFilterWidget)
 from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import extract_mock_run, mkcontext, reduced_data_from_dict
@@ -755,16 +760,6 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     comment_index = get_index("Comment")
     win.table.setData(comment_index, "Foo", Qt.EditRole)
 
-    # Add a standalone comment
-    row_count = win.table.rowCount()
-    win.comment.setText("Bar")
-    win._comment_button_clicked()
-    assert win.table.rowCount() == row_count + 1
-
-    # Edit a standalone comment
-    comment_index = get_index("Comment", row=1)
-    win.table.setData(comment_index, "Foo", Qt.EditRole)
-
     # Check that 2D arrays are treated as images
     image_index = get_index("Image")
     assert isinstance(win.table.data(image_index, role=Qt.DecorationRole), QPixmap)
@@ -1055,3 +1050,165 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     apply_tag_filter(set())
     assert count_visible_static() == initial_static_count - 1
     assert count_visible_vars() == initial_var_count - 1
+
+
+def test_filter_proxy(mock_db_with_data_2, qtbot):
+    db_dir, db = mock_db_with_data_2
+
+    proxy_model = table_view.model()
+    source_model = win.table
+    initial_rows = proxy_model.rowCount()
+
+    # Test numeric filtering
+    scalar1_col = source_model.find_column("Scalar1", by_title=True)
+    
+    # Test with range and selected values
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42})
+    proxy_model.set_filter(scalar1_col, num_filter)
+    assert proxy_model.rowCount() == 5
+
+    # Test with range but no matching selected values
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, include_nan=False)
+    proxy_model.clear_filters()
+    proxy_model.set_filter(scalar1_col, num_filter)
+    assert proxy_model.rowCount() == 0
+
+    # Test categorical filtering
+    status_col = source_model.find_column("Results", by_title=True)
+
+    # Filter to show only rows with the first status value
+    cat_filter = CategoricalFilter(status_col, {"Failed"})
+    proxy_model.clear_filters()
+    proxy_model.set_filter(status_col, cat_filter)
+    assert proxy_model.rowCount() == 4
+
+    # Test multiple filters
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42}, include_nan=False)
+    proxy_model.set_filter(scalar1_col, num_filter)
+    assert proxy_model.rowCount() == 2
+
+    # Clear filters
+    proxy_model.clear_filters()
+    assert proxy_model.rowCount() == initial_rows
+
+
+def test_filters():
+    # Test numeric filter with selected values
+    num_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15})
+    assert num_filter.accepts(15)
+    assert not num_filter.accepts(18)
+    assert not num_filter.accepts(5)
+    assert not num_filter.accepts(25)
+    assert num_filter.accepts(None)
+    assert num_filter.accepts(np.nan)
+    assert not num_filter.accepts("not a number")
+
+    # Test numeric filter with nan handling
+    nan_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15}, include_nan=False)
+    assert nan_filter.accepts(15)
+    assert not nan_filter.accepts(None)
+    assert not nan_filter.accepts(np.nan)
+    assert not nan_filter.accepts(5)
+    assert not nan_filter.accepts(25)
+    assert not nan_filter.accepts(18)
+
+    # Test categorical filter with selected values
+    cat_filter = CategoricalFilter(column=1, selected_values={"A", "B"})
+    assert cat_filter.accepts("A")
+    assert cat_filter.accepts("B")
+    assert not cat_filter.accepts("C")
+    assert cat_filter.accepts(None)
+    assert cat_filter.accepts(np.nan)
+
+    # Test categorical filter with nan handling
+    nan_cat_filter = CategoricalFilter(column=1, selected_values={"A"}, include_nan=False)
+    assert nan_cat_filter.accepts("A")
+    assert not nan_cat_filter.accepts(None)
+    assert not nan_cat_filter.accepts(np.nan)
+    assert not nan_cat_filter.accepts("B")
+
+    # Test empty filters
+    empty_filter = CategoricalFilter(column=1)
+    assert not empty_filter.accepts("nothing")
+    assert empty_filter.accepts(None)
+    assert not empty_filter.accepts(42)
+
+
+def test_standalone_comments(mock_db, qtbot):
+    db_dir, db = mock_db
+    
+    win = MainWindow(db_dir, False)
+    win.show()
+    qtbot.waitExposed(win)
+    qtbot.addWidget(win)
+    
+    # Create and show the TimeComment dialog
+    dialog = TimeComment(win)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    
+    model = dialog.model
+    
+    # Test adding a comment
+    test_timestamp = 1640995200  # 2022-01-01 00:00:00
+    test_comment = "Test comment 1"
+    model.addComment(test_timestamp, test_comment)
+    
+    # Verify comment was added
+    assert model.rowCount() > 0
+    index = model.index(0, 2)  # Comment column
+    assert model.data(index, Qt.DisplayRole) == test_comment
+    
+    # Add another comment
+    test_timestamp2 = 1641081600  # 2022-01-02 00:00:00
+    test_comment2 = "Test comment 2"
+    model.addComment(test_timestamp2, test_comment2)
+    
+    # Test sorting
+    # Sort by timestamp ascending
+    model.sort(1, Qt.AscendingOrder)
+    index = model.index(0, 2)
+    assert model.data(index, Qt.DisplayRole) == test_comment
+    
+    # Sort by timestamp descending
+    model.sort(1, Qt.DescendingOrder)
+    index = model.index(0, 2)
+    assert model.data(index, Qt.DisplayRole) == test_comment2
+    
+    # Test comment persistence
+    model.load_comments()
+    assert model.rowCount() == 2
+
+
+def test_filter_menu(mock_db_with_data, qtbot):
+    """Test FilterMenu initialization and functionality."""
+    win = MainWindow(mock_db_with_data[0], False)
+    win.show()
+    qtbot.waitExposed(win)
+    qtbot.addWidget(win)
+    model = win.table_view.model()
+
+    # Test numeric column
+    scalar1_col = win.table.find_column("Scalar1", by_title=True)
+    numeric_menu = FilterMenu(scalar1_col, model)
+    qtbot.addWidget(numeric_menu)
+    assert isinstance(numeric_menu.filter_widget, NumericFilterWidget)
+
+    # Test categorical column
+    results_col = win.table.find_column("Results", by_title=True)
+    categorical_menu = FilterMenu(results_col, model)
+    qtbot.addWidget(categorical_menu)
+    assert isinstance(categorical_menu.filter_widget, CategoricalFilterWidget)
+
+    # Test filter application
+    # numeric_filter = NumericFilterWidget(scalar1_col, min_val=0, max_val=100)
+    with qtbot.waitSignal(numeric_menu.filter_widget.filterChanged):
+        numeric_menu.filter_widget._on_selection_changed()
+
+    # Test menu with existing filter
+    existing_filter = CategoricalFilter(results_col, selected_values={"OK"})
+    model.set_filter(results_col, existing_filter)
+    menu_with_filter = FilterMenu(results_col, model)
+    qtbot.addWidget(menu_with_filter)
+    assert menu_with_filter.model.filters[results_col] == existing_filter

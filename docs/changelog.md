@@ -7,6 +7,7 @@ Added:
 - Watch context file for changes saved outside the editor (!304).
 - Reads techniques annotation from MyMDC (!338).
 - Add a `tags` attribute allowing cathegorizing `Variable`s (!354).
+- GUI: Add row filtering (!362).
 
 Changed:
 
@@ -14,6 +15,7 @@ Changed:
 - Status column can be hidden (!324).
 - Activate software OpenGL by default on maxwell nodes (!332).
 - Use Slurm array jobs to limit concurrent extraction jobs (!335).
+- GUI: Add row filtering (!362).
 
 Fixed:
 
@@ -23,6 +25,9 @@ Fixed:
 - Fixed thumbnails of 2D `DataArray`'s to match what is displayed when the
   variable is plotted (!355).
 - Fixed crashes when the context file environment is missing dependencies (!356).
+
+Deprecated:
+- GUI: Standalone comments are no longer supported in the run table(!362).
 
 ## [0.1.4]
 
