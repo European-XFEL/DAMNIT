@@ -69,6 +69,11 @@ Features:
   with the `Histogram` button (click to enable/disable it):
   ![](static/histogramming.gif)
 
+- The table's `Cells` can be highlighted with custom background colors and text
+  formatting for emphasis, see [Cell configuration](backend.md#cell) for more
+  information.
+
+
 ## Adding user-editable variables
 Ideally it would be possible to define all variables as code, but sometimes
 that's just not possible. Hence, DAMNIT allows you to create user-editable
