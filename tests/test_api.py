@@ -99,7 +99,7 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     def dataset(run):
         return xr.Dataset(data_vars={
             "foo": xr.DataArray([1, 2, 3]),
-            "bar/baz": xr.DataArray([1+2j, 3-4j]),
+            "bar/baz": xr.DataArray([1+2j, 3-4j, 5+6j]),
         })
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))

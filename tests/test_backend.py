@@ -409,6 +409,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     # Test returning complex results
     complex_code = """
     from damnit_ctx import Variable
+    import numpy as np
     import xarray as xr
 
     data = np.array([1+1j, 2+2j, 3+3j])
