@@ -97,7 +97,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
 
     @Variable(title="Dataset")
     def dataset(run):
-        return xr.Dataset(data_vars={ "foo": xr.DataArray([1, 2, 3]) })
+        return xr.Dataset(data_vars={
+            "foo": xr.DataArray([1, 2, 3]),
+            "bar/baz": xr.DataArray([1+2j, 3-4j]),
+        })
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -122,6 +125,8 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     dataset = rv["dataset"].read()
     assert isinstance(dataset, xr.Dataset)
     assert isinstance(dataset.foo, xr.DataArray)
+    assert isinstance(dataset.bar_baz, xr.DataArray)
+    assert dataset.bar_baz.dtype == np.complex128
 
     # Datasets have a internal _damnit attribute that should be removed
     assert len(dataset.attrs) == 0

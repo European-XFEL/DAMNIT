@@ -406,6 +406,32 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
+    # Test returning complex results
+    complex_code = """
+    from damnit_ctx import Variable
+    import xarray as xr
+
+    data = np.array([1+1j, 2+2j, 3+3j])
+
+    @Variable(title="Complex Dataset")
+    def complex_dataset(run):
+        return xr.Dataset(data_vars={"foo": xr.DataArray(data),})
+
+    @Variable(title='Complex Array')
+    def complex_array(run):
+        return data
+    """
+    complex_ctx = mkcontext(complex_code)
+    results = results_create(complex_ctx)
+    results.save_hdf5(results_hdf5_path)
+
+    dataset = xr.load_dataset(results_hdf5_path, group="complex_dataset", engine="h5netcdf", invalid_netcdf=True)
+    assert "foo" in dataset
+    assert dataset['foo'].dtype == np.complex128
+    with h5py.File(results_hdf5_path) as f:
+        assert f[".reduced/complex_dataset"].asstr()[()].startswith("Dataset")
+        assert np.allclose(f['complex_array/data'][()], np.array([1+1j, 2+2j, 3+3j]))
+
     # Test getting mymdc fields
     mymdc_code = """
     from damnit_ctx import Variable

@@ -621,12 +621,18 @@ class Results:
                     dataarray = _set_encoding(dataarray)
                 obj = obj.rename_vars(vars_names)
 
+            # HDF5 implements some features that are not yet supported by netcdf,
+            # e.g. data types support (bool, complex, etc.). We don't really care
+            # about netcdf compatibility since we offer an API to access the
+            # data, so we use the `invalid_netcdf` option to be able to use these
+            # features.
             obj.to_netcdf(
                 hdf5_path,
                 mode="a",
                 format="NETCDF4",
                 group=name,
                 engine="h5netcdf",
+                invalid_netcdf=True,
             )
 
         if os.stat(hdf5_path).st_uid == os.getuid():
