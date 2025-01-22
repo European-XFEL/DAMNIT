@@ -930,13 +930,13 @@ def test_job_tracker():
     tracker = ExtractionJobTracker()
 
     d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
-         'slurm_cluster': '', 'slurm_job_id': ''}
+         'slurm_cluster': '', 'slurm_job_id': '', 'status': 'RUNNING'}
 
     prid1, prid2 = str(uuid4()), str(uuid4())
 
     # Add two running jobs
-    tracker.on_processing_running(d | {'run': 1, 'processing_id': prid1})
-    tracker.on_processing_running(d | {
+    tracker.on_processing_state_set(d | {'run': 1, 'processing_id': prid1})
+    tracker.on_processing_state_set(d | {
         'run': 2, 'processing_id': prid2,
         'slurm_cluster': 'maxwell', 'slurm_job_id': '321'
     })

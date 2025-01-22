@@ -172,7 +172,7 @@ class Extractor:
 
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
-                 match=(), variables=(), mock=False):
+                 match=(), variables=(), mock=False, uuid=None):
         super().__init__()
         self.proposal = proposal
         self.run = run
@@ -181,12 +181,13 @@ class RunExtractor(Extractor):
         self.match = match
         self.variables = variables
         self.mock = mock
-        self.uuid = str(uuid4())
-        self.running_msg = msg_dict(MsgKind.processing_running, {
+        self.uuid = uuid or str(uuid4())
+        self.running_msg = msg_dict(MsgKind.processing_state_set, {
             'processing_id': self.uuid,
             'proposal': proposal,
             'run': run,
             'data': run_data.value,
+            'status': 'RUNNING',
             'hostname': socket.gethostname(),
             'username': getuser(),
             'slurm_cluster': self._slurm_cluster(),
@@ -290,8 +291,6 @@ class RunExtractor(Extractor):
 
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 
-        self._notify_finished()
-
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         if not self.cluster:
             ctx_slurm = self.ctx_whole.filter(
@@ -304,7 +303,15 @@ class RunExtractor(Extractor):
                     self.run, self.proposal, mock=self.mock, run_data=self.run_data,
                     cluster=True, match=self.match, variables=self.variables
                 )
-                submitter.submit(cluster_req)
+                job_id, cluster = submitter.submit(cluster_req)
+
+                # Announce the newly submitted follow up job
+                self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+                    MsgKind.processing_state_set,
+                    cluster_req.submitted_info(cluster, job_id)
+                ))
+
+        self._notify_finished()
 
 
 def main(argv=None):
@@ -320,6 +327,7 @@ def main(argv=None):
     ap.add_argument('--var',  action="append", default=[])
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
+    ap.add_argument('--processing-id', type=str)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -341,7 +349,8 @@ def main(argv=None):
                         run_data=RunData(args.run_data),
                         match=args.match,
                         variables=args.var,
-                        mock=args.mock)
+                        mock=args.mock,
+                        uuid=args.processing_id)
     if args.update_vars:
         extr.update_db_vars()
 

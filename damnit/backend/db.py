@@ -522,7 +522,7 @@ class MsgKind(Enum):
     #run_deleted = 'run_deleted'
     #standalone_comment_set = 'standalone_comment_set'
     #standalone_comment_deleted = 'standalone_comment_deleted'
-    processing_running = 'processing_running'   # Supports status indicators
+    processing_state_set = 'processing_state_set'   # Supports status indicators
     processing_finished = 'processing_finished'
     # Commented out options are not implemented yet
 

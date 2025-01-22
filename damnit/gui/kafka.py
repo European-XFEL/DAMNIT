@@ -67,6 +67,11 @@ class UpdateAgent(QtCore.QObject):
                            })
         self.kafka_prd.send(self.update_topic, message)
 
+    def processing_submitted(self, info):
+        self.kafka_prd.send(self.update_topic, msg_dict(
+            MsgKind.processing_state_set, info,
+        ))
+
     def stop(self):
         self.running = False
         self.kafka_prd.flush(timeout=10)
