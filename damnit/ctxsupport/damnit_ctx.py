@@ -106,7 +106,25 @@ class Variable:
 
 
 class Cell:
-    """Variable functions can return this"""
+    """A container for data with customizable table display options.
+
+    Validates and converts input data to HDF5-compatible formats.
+    Provides flexible summary generation through direct values or numpy functions.
+    Supports visual customization with bold text and background colors.
+
+    Parameters
+    ----------
+    data : array-like, Figure, Dataset, str, or None
+        The main data to store
+    summary : str, optional
+        Name of numpy function to compute summary from data
+    summary_value : str or number, optional
+        Direct value to use as summary
+    bold : bool, optional
+        Whether to display cell in bold
+    background : str or sequence, optional
+        Cell background color as hex string ('#ffcc00') or RGB sequence (0-255)
+    """
     def __init__(self, data, summary=None, summary_value=None, bold=None, background=None):
         # If the user returns an Axes, save the whole Figure
         if isinstance_no_import(data, 'matplotlib.axes', 'Axes'):
