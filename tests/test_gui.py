@@ -1056,6 +1056,12 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
 def test_filter_proxy(mock_db_with_data_2, qtbot):
     db_dir, db = mock_db_with_data_2
 
+    # Create main window
+    win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
+
+    table_view = win.table_view
+
     proxy_model = table_view.model()
     source_model = win.table
     initial_rows = proxy_model.rowCount()
