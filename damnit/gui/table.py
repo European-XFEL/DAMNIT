@@ -721,8 +721,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 self.column_titles[col_ix] = title
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
 
-    def handle_processing_running(self, info):
-        self.processing_jobs.on_processing_running(info)
+    def handle_processing_state_set(self, info):
+        self.processing_jobs.on_processing_state_set(info)
 
     def handle_processing_finished(self, info):
         self.processing_jobs.on_processing_finished(info)
@@ -737,20 +737,26 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             else:
                 return
 
-        runnr_item = self.item(row_ix, 2)
-        if jobs_for_run:
-            runnr_item.setData(f"{run} ⚙️", Qt.ItemDataRole.DisplayRole)
-            if len(jobs_for_run) == 1:
-                info = jobs_for_run[0]
+        running = [j for j in jobs_for_run if j['status'] == 'RUNNING']
+
+        row_header_item = self.verticalHeaderItem(row_ix)
+        if running:
+            row_header_item.setData(f"{run} ⚙️", Qt.ItemDataRole.DisplayRole)
+            if len(running) == 1:
+                info = running[0]
                 msg = f"Processing on {info['username']}@{info['hostname']}"
                 if job_id := info['slurm_job_id']:
                     msg += f" (Slurm job {job_id})"
-                runnr_item.setToolTip(msg)
+                row_header_item.setToolTip(msg)
             else:
-                runnr_item.setToolTip(f"Processing in {len(jobs_for_run)} jobs")
+                row_header_item.setToolTip(f"Processing in {len(running)} jobs")
+        elif jobs_for_run:
+            # Jobs in the list but not running must be pending
+            row_header_item.setData(f"{run} ⋮", Qt.ItemDataRole.DisplayRole)
+            row_header_item.setToolTip("Processing is queued")
         else:
-            runnr_item.setData(f"{run}", Qt.ItemDataRole.DisplayRole)
-            runnr_item.setToolTip("")
+            row_header_item.setData(f"{run}", Qt.ItemDataRole.DisplayRole)
+            row_header_item.setToolTip("")
 
     def add_editable_column(self, name):
         if name == "Status":

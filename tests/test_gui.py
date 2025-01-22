@@ -1070,13 +1070,13 @@ def test_processing_status(mock_db_with_data, qtbot):
         return "⚙️" in runnr_s
 
     d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
-         'slurm_cluster': '', 'slurm_job_id': ''}
+         'slurm_cluster': '', 'slurm_job_id': '', 'status': 'RUNNING'}
 
     # Test with an existing run
     prid1, prid2 = str(uuid4()), str(uuid4())
-    tbl.handle_processing_running(d | {'run': 1, 'processing_id': prid1})
+    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid1})
     assert shows_as_processing(1)
-    tbl.handle_processing_running(d | {'run': 1, 'processing_id': prid2})
+    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid2})
     tbl.handle_processing_finished({'processing_id': prid1})
     assert shows_as_processing(1)
     tbl.handle_processing_finished({'processing_id': prid2})
@@ -1084,6 +1084,6 @@ def test_processing_status(mock_db_with_data, qtbot):
 
     # Processing starting for a new run should add a row
     assert tbl.rowCount() == 1
-    tbl.handle_processing_running(d | {'run': 2, 'processing_id': str(uuid4())})
+    tbl.handle_processing_state_set(d | {'run': 2, 'processing_id': str(uuid4())})
     assert tbl.rowCount() == 2
     assert shows_as_processing(2)

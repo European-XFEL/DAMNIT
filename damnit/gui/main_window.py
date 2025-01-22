@@ -537,8 +537,8 @@ da-dev@xfel.eu"""
             self.table_view.apply_tag_filter(
                 self.table_view._current_tag_filter
             )
-        elif msg_kind == MsgKind.processing_running:
-            self.table.handle_processing_running(data)
+        elif msg_kind == MsgKind.processing_state_set:
+            self.table.handle_processing_state_set(data)
         elif msg_kind == MsgKind.processing_finished:
             self.table.handle_processing_finished(data)
 
@@ -1006,7 +1006,7 @@ da-dev@xfel.eu"""
 
             try:
                 reqs = dlg.extraction_requests()
-                submitter.submit_multi(reqs)
+                submitted = submitter.submit_multi(reqs)
             except Exception as e:
                 log.error("Error launching processing", exc_info=True)
                 self.show_status_message(f"Error launching processing: {e}",
@@ -1015,6 +1015,11 @@ da-dev@xfel.eu"""
                 self.show_status_message(
                     f"Launched processing for {len(reqs)} runs", 10_000
                 )
+                if self._connect_to_kafka:
+                    for req, (job_id, cluster) in zip(reqs, submitted):
+                        self.update_agent.processing_submitted(
+                            req.submitted_info(cluster, job_id)
+                        )
 
     adeqt_window = None
 
