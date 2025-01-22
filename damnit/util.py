@@ -14,21 +14,6 @@ class StatusbarStylesheet(Enum):
     ERROR = "QStatusBar {background: red; color: white; font-weight: bold;}"
 
 
-def complex2blob(data: complex) -> bytes:
-    # convert complex to bytes
-    real = data.real.hex()
-    imag = data.imag.hex()
-    return f"_DAMNIT_COMPLEX_{real}_{imag}".encode()
-
-
-def blob2complex(data: bytes) -> complex:
-    # convert bytes to complex
-    real, _, imag = data[16:].decode().partition("_")
-    real = float.fromhex(real)
-    imag = float.fromhex(imag)
-    return complex(real, imag)
-
-
 def timestamp2str(timestamp):
     if timestamp is None or pd.isna(timestamp):
         return None

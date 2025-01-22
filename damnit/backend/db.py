@@ -1,9 +1,9 @@
 import json
-import os
 import logging
+import os
 import sqlite3
-from collections.abc import MutableMapping, ValuesView, ItemsView
-from dataclasses import dataclass, asdict
+from collections.abc import ItemsView, MutableMapping, ValuesView
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
 from .user_variables import UserEditableVariable
-from ..util import complex2blob
 
 DB_NAME = Path('runs.sqlite')
 
@@ -85,6 +84,21 @@ class BlobTypes(Enum):
             return cls.complex
 
         return cls.unknown
+
+
+def complex2blob(data: complex) -> bytes:
+    # convert complex to bytes
+    real = data.real.hex()
+    imag = data.imag.hex()
+    return f"_DAMNIT_COMPLEX_{real}_{imag}".encode()
+
+
+def blob2complex(data: bytes) -> complex:
+    # convert bytes to complex
+    real, _, imag = data[16:].decode().partition("_")
+    real = float.fromhex(real)
+    imag = float.fromhex(imag)
+    return complex(real, imag)
 
 
 def db_path(root_path: Path):

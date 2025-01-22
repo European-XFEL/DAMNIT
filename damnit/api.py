@@ -7,8 +7,7 @@ from pathlib import Path
 
 import h5py
 
-from .backend.db import BlobTypes, DamnitDB
-from .util import blob2complex
+from .backend.db import BlobTypes, DamnitDB, blob2complex
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
