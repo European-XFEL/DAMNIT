@@ -538,6 +538,28 @@ def test_results_cell(mock_run, tmp_path):
 
         assert f['.reduced/var3'][()] == 4
 
+
+def test_results_empty_array(mock_run, tmp_path, caplog):
+    # test failing summary
+    empty_array = """
+    from damnit_ctx import Variable
+
+    @Variable(title='Foo', summary='max')
+    def foo(run):
+        import numpy as np
+        return np.array([])
+    """
+    ctx = mkcontext(empty_array)
+    with caplog.at_level(logging.ERROR):
+        results = ctx.execute(mock_run, 1000, 123, {})
+        results.save_hdf5(tmp_path / 'results.h5', reduced_only=True)
+
+        # One warning about foo should have been logged
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "ERROR"
+        assert caplog.records[0].msg == "Failed to produce summary data"
+
+
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
 
