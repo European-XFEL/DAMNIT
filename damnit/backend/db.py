@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
 from .user_variables import UserEditableVariable
+from ..util import complex2blob
 
 DB_NAME = Path('runs.sqlite')
 
@@ -71,6 +72,7 @@ class ReducedData:
 class BlobTypes(Enum):
     png = 'png'
     numpy = 'numpy'
+    complex = 'complex'
     unknown = 'unknown'
 
     @classmethod
@@ -79,6 +81,8 @@ class BlobTypes(Enum):
             return cls.png
         elif blob.startswith(b'\x93NUMPY'):
             return cls.numpy
+        elif blob.startswith(b'_DAMNIT_COMPLEX_'):
+            return cls.complex
 
         return cls.unknown
 
@@ -324,6 +328,8 @@ class DamnitDB:
         if variable["value"] is None:
             for key in variable:
                 variable[key] = None
+        elif isinstance(variable["value"], complex):
+            variable["value"] = complex2blob(variable["value"])
 
         variable["proposal"] = proposal
         variable["run"] = run

@@ -8,6 +8,7 @@ from pathlib import Path
 import h5py
 
 from .backend.db import BlobTypes, DamnitDB
+from .util import blob2complex
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
@@ -166,6 +167,8 @@ class VariableData:
             # after creating the VariableData object.
             raise RuntimeError(f"Could not find value for '{self.name}' in p{self.proposal}, r{self.name}")
         else:
+            if isinstance(result[0], bytes) and BlobTypes.identify(result[0]) is BlobTypes.complex:
+                return blob2complex(result[0])
             return result[0]
 
     def __repr__(self):
@@ -385,13 +388,19 @@ class Damnit:
         if "comment" not in df:
             df.insert(3, "comment", None)
 
-        # Convert PNG blobs into a string
-        def image2str(value):
-            if isinstance(value, bytes) and BlobTypes.identify(value) is BlobTypes.png:
-                return "<image>"
+        # interpret blobs
+        def blob2type(value):
+            if isinstance(value, bytes):
+                match BlobTypes.identify(value):
+                    case BlobTypes.png | BlobTypes.numpy:
+                        return "<image>"
+                    case BlobTypes.complex:
+                        return blob2complex(value)
+                    case BlobTypes.unknown | _:
+                        return "<unknown>"
             else:
                 return value
-        df = df.applymap(image2str)
+        df = df.applymap(blob2type)
 
         # Use the full variable titles
         if with_titles:
