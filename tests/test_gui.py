@@ -1066,7 +1066,7 @@ def test_processing_status(mock_db_with_data, qtbot):
 
     def shows_as_processing(run):
         row = tbl.find_row(1234, run)
-        runnr_s = tbl.item(row, 2).data(Qt.ItemDataRole.DisplayRole)
+        runnr_s = tbl.verticalHeaderItem(row).data(Qt.ItemDataRole.DisplayRole)
         return "⚙️" in runnr_s
 
     d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
