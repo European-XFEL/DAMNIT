@@ -212,7 +212,7 @@ class RunExtractor(Extractor):
             return f"{array_job_id}_{array_task_id}"
         else:
             # Not an array job - just use the regular job ID
-            slurm_job_id = os.environ.get('SLURM_JOB_ID', '')
+            return os.environ.get('SLURM_JOB_ID', '')
 
     @property
     def out_path(self):
