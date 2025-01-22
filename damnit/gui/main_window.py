@@ -535,6 +535,10 @@ da-dev@xfel.eu"""
             )
         elif msg_kind == MsgKind.variable_set:
             self.table.handle_variable_set(data)
+            # update tag filtering
+            self.table_view.apply_tag_filter(
+                self.table_view._current_tag_filter
+            )
 
     def handle_run_values_updated(self, proposal, run, values: dict):
         self.table.handle_run_values_changed(proposal, run, values)
@@ -698,36 +702,34 @@ da-dev@xfel.eu"""
     def _create_view(self) -> None:
         vertical_layout = QtWidgets.QVBoxLayout()
 
-        # the table
-        self.table_view = TableView()
+        # Create toolbar for table controls
+        toolbar = QtWidgets.QToolBar()
+        vertical_layout.addWidget(toolbar)
 
+        # the table
+        self.table_view = TableView(self)
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
 
-        # actions
-        actions_horizontal_layout = QtWidgets.QHBoxLayout()
-
         # Initialize plot controls
         self.plot = PlottingControls(self)
 
         self.plot_dialog_button = QtWidgets.QPushButton("Plot")
         self.plot_dialog_button.clicked.connect(self.plot.show_dialog)
-        self.filter_status_button = FilterStatus(self.table_view, self)
         self.comment_button = QtWidgets.QPushButton("Time comment")
         self.comment_button.clicked.connect(lambda: TimeComment(self).show())
 
-        actions_horizontal_layout.addWidget(self.plot_dialog_button)
-        actions_horizontal_layout.addWidget(self.filter_status_button)
-        actions_horizontal_layout.addWidget(self.comment_button)
-        actions_horizontal_layout.addStretch()
+        toolbar.addWidget(self.plot_dialog_button)
+        toolbar.addWidget(self.comment_button)
+        for widget in self.table_view.get_toolbar_widgets():
+            toolbar.addWidget(widget)
 
-        vertical_layout.addLayout(actions_horizontal_layout)
         vertical_layout.addWidget(self.table_view)
-
         vertical_layout.setContentsMargins(0, 7, 0, 0)
+
         self._view_widget.setLayout(vertical_layout)
 
     def configure_editor(self):

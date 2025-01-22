@@ -19,7 +19,7 @@ def mock_ctx():
     import xarray as xr
     from damnit.context import Variable
 
-    @Variable(title="Scalar1")
+    @Variable(title="Scalar1", tags=['scalar', 'integer'])
     def scalar1(run, run_nr: 'meta#run_number'):
         if run_nr == 2:
             return None
@@ -27,11 +27,11 @@ def mock_ctx():
             return np.nan
         return 42
 
-    @Variable(title="Scalar2")
+    @Variable(title="Scalar2", tags=['scalar', 'float'])
     def scalar2(run, foo: "var#scalar1"):
         return 3.14 if foo is not None else None
 
-    @Variable(title="Empty text")
+    @Variable(title="Empty text", tags='text')
     def empty_string(run):
         return ""
 

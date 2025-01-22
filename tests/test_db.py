@@ -1,4 +1,3 @@
-
 def test_metameta(mock_db):
     _, db = mock_db
 
@@ -38,3 +37,49 @@ def test_standalone_comment(mock_db):
     db.change_standalone_comment(cid, 'Revised comment')
     res = [tuple(r) for r in db.conn.execute("SELECT * FROM time_comments")]
     assert res == [(ts, 'Revised comment')]
+
+
+def test_tags(mock_db_with_data):
+    _, db = mock_db_with_data
+
+    # Test adding tags and getting tag IDs
+    tag_id1 = db.add_tag("SPB")
+    tag_id2 = db.add_tag("SFX")
+    assert tag_id1 != tag_id2
+    assert db.get_tag_id("SPB") == tag_id1
+    assert db.get_tag_id("SFX") == tag_id2
+    assert db.get_tag_id("nonexistent") is None
+
+    # Test adding duplicate tag (should return same ID)
+    assert db.add_tag("SPB") == tag_id1
+
+    # Test getting tags for a variable
+    var1_tags = db.get_variable_tags("scalar1")
+    assert set(var1_tags) == {"scalar", "integer"}
+    var2_tags = db.get_variable_tags("scalar2")
+    assert set(var2_tags) == {"scalar", "float"}
+    empty_tags = db.get_variable_tags("nonexistent_var")
+    assert empty_tags == []
+
+    # Test getting variables by tag
+    scalar_vars = db.get_variables_by_tag("scalar")
+    assert set(scalar_vars) == {"scalar1", "scalar2"}
+    text_vars = db.get_variables_by_tag("text")
+    assert set(text_vars) == {"empty_string"}
+    nonexistent_vars = db.get_variables_by_tag("nonexistent")
+    assert nonexistent_vars == []
+
+    # Test getting all tags
+    all_tags = db.get_all_tags()
+    assert set(all_tags) == {"scalar", "integer", "float", "text", "SPB", "SFX"}
+
+    # Test untagging variables
+    db.untag_variable("scalar1", "scalar")
+    assert set(db.get_variable_tags("scalar1")) == {"integer"}
+
+    # Test untagging with nonexistent tag (should not raise error)
+    db.untag_variable("scalar1", "nonexistent")
+    assert set(db.get_variable_tags("scalar1")) == {"integer"}
+
+    # Test untagging with nonexistent variable (should not raise error)
+    db.untag_variable("nonexistent_var", "important")

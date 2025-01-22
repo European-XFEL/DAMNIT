@@ -7,16 +7,18 @@ from itertools import groupby
 import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt, QRect
-from PyQt5.QtGui import QColor, QPen, QCursor
-from PyQt5.QtWidgets import QAction, QHeaderView, QMenu, QMessageBox, QWidgetAction, QListWidgetItem
+from PyQt5.QtCore import QRect, Qt
+from PyQt5.QtGui import QColor, QCursor, QPen
+from PyQt5.QtWidgets import (QAction, QHeaderView, QListWidgetItem, QMenu,
+                             QMessageBox, QWidgetAction)
 from superqt import QSearchableListWidget
 from superqt.fonticon import icon
+from superqt.utils import qthrottled
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
-from .table_filter import FilterProxy, FilterMenu
+from .table_filter import FilterMenu, FilterProxy, FilterStatus
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +37,8 @@ class TableView(QtWidgets.QTableView):
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
     model_updated = QtCore.pyqtSignal()
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
         self.setAlternatingRowColors(False)
 
         self.setSelectionBehavior(
@@ -74,6 +76,13 @@ class TableView(QtWidgets.QTableView):
         self.context_menu.addAction(self.show_logs_action)
         self.process_action = QtWidgets.QAction('Reprocess runs')
         self.context_menu.addAction(self.process_action)
+
+        # Add tag filtering support
+        self._current_tag_filter = set()  # Change to set for multiple tags
+        self._tag_filter_button = QtWidgets.QPushButton("Variables by Tag")
+        self._tag_filter_button.clicked.connect(self._show_tag_filter_menu)
+        # add column values filter support
+        self._filter_status = FilterStatus(self, parent)
 
     def setModel(self, model: 'DamnitTableModel'):
         """
@@ -121,7 +130,7 @@ class TableView(QtWidgets.QTableView):
         state = item.checkState()
         self.set_column_visibility(item.text(), state == Qt.Checked)
 
-    def set_column_visibility(self, name, visible, for_restore=False):
+    def set_column_visibility(self, name, visible, for_restore=False, save_settings=True):
         """
         Make a column visible or not. This function should be used instead of the lower-level
         setColumnHidden().
@@ -152,7 +161,7 @@ class TableView(QtWidgets.QTableView):
             if len(matching_items) == 1:
                 item = matching_items[0]
                 item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
-        else:
+        elif save_settings:
             self.settings_changed.emit()
 
     def item_moved(self, parent, start, end, destination, row):
@@ -291,6 +300,79 @@ class TableView(QtWidgets.QTableView):
         prop, run = self.damnit_model.row_to_proposal_run(row)
         self.log_view_requested.emit(prop, run)
 
+    def _show_tag_filter_menu(self):
+        """Show a menu to select tag filtering."""
+        if not hasattr(self, 'damnit_model') or not self.damnit_model:
+            return
+
+        menu = QtWidgets.QMenu(self)
+
+        # Add "Show All" option
+        show_all_action = menu.addAction("Show All Variables")
+        show_all_action.triggered.connect(lambda: self.apply_tag_filter(set()))
+        if not self._current_tag_filter:
+            show_all_action.setEnabled(False)
+
+        menu.addSeparator()
+
+        # Add checkable actions for each tag
+        for tag in sorted(self.damnit_model.db.get_all_tags()):
+            action = menu.addAction(tag)
+            action.setCheckable(True)
+            action.setChecked(tag in self._current_tag_filter)
+            action.triggered.connect(lambda checked, t=tag: self._toggle_tag_filter(t))
+
+        menu.exec_(QtGui.QCursor.pos())
+
+    def _toggle_tag_filter(self, tag_name: str):
+        """Toggle a tag in the filter set and apply the filter."""
+        if tag_name in self._current_tag_filter:
+            self._current_tag_filter.remove(tag_name)
+        else:
+            self._current_tag_filter.add(tag_name)
+        self.apply_tag_filter(self._current_tag_filter)
+
+    @qthrottled(timeout=50, leading=False)
+    def apply_tag_filter(self, tag_names: set):
+        """Filter columns to show only variables with selected tags."""
+        self._current_tag_filter = tag_names
+
+        # Get user's column visibility preferences
+        column_states = self.get_column_states()
+
+        if not tag_names:
+            # Show all columns that were checked in the column widgets
+            for col, state in column_states.items():
+                self.set_column_visibility(col, state, save_settings=False)
+
+            self._tag_filter_button.setText("Variables by Tag")
+        else:
+            # Get all variables that have any of the selected tags
+            tagged_vars = set()
+            for tag in tag_names:
+                tagged_vars.update(self.damnit_model.db.get_variables_by_tag(tag))
+
+            # Hide/show columns based on whether they're tagged AND checked in column widgets
+            for idx, (col, state) in enumerate(column_states.items()):
+                is_static = idx < self.get_static_columns_count()
+                is_tagged = self.damnit_model.column_title_to_id(col) in tagged_vars
+
+                # Column should be visible if:
+                # 1. It's a static column that's checked in column widgets, or
+                # 2. It's a non-static column that's both tagged and checked in column widgets
+                show = state and (is_static or is_tagged)
+                self.set_column_visibility(col, show, save_settings=False)
+
+            # Update button text
+            if len(tag_names) == 1:
+                self._tag_filter_button.setText(f"Variables: {next(iter(tag_names))}")
+            else:
+                self._tag_filter_button.setText(f"Variables: {len(tag_names)} tags")
+
+    def get_toolbar_widgets(self):
+        """Return widgets to be added to the toolbar."""
+        return [self._tag_filter_button, self._filter_status]
+
     def show_horizontal_header_menu(self, position):
         pos = QCursor.pos()
         index = self.horizontalHeader().logicalIndexAt(position)
@@ -313,10 +395,6 @@ class TableView(QtWidgets.QTableView):
         hide_action.triggered.connect(lambda: print("TODO"))
 
         menu.exec_(pos)
-
-    # def rowMoved(self, row, oldIndex, newIndex):
-    #     print('moved', row, oldIndex, newIndex)
-    #     super().rowMoved(row, oldIndex, newIndex)
 
 
 class DamnitTableModel(QtGui.QStandardItemModel):
