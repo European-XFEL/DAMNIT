@@ -426,7 +426,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     results = results_create(complex_ctx)
     results.save_hdf5(results_hdf5_path)
 
-    dataset = xr.load_dataset(results_hdf5_path, group="complex_dataset", engine="h5netcdf", invalid_netcdf=True)
+    dataset = xr.load_dataset(results_hdf5_path, group="complex_dataset", engine="h5netcdf")
     assert "foo" in dataset
     assert dataset['foo'].dtype == np.complex128
     with h5py.File(results_hdf5_path) as f:
