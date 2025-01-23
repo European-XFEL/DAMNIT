@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sqlite3
+import struct
 from collections.abc import ItemsView, MutableMapping, ValuesView
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -88,16 +89,15 @@ class BlobTypes(Enum):
 
 def complex2blob(data: complex) -> bytes:
     # convert complex to bytes
-    real = data.real.hex()
-    imag = data.imag.hex()
-    return f"_DAMNIT_COMPLEX_{real}_{imag}".encode()
+    header = b'_DAMNIT_COMPLEX_'
+    packed = struct.pack('<dd', data.real, data.imag)
+    return header + packed
 
 
 def blob2complex(data: bytes) -> complex:
     # convert bytes to complex
-    real, _, imag = data[16:].decode().partition("_")
-    real = float.fromhex(real)
-    imag = float.fromhex(imag)
+    header_size = len(b'_DAMNIT_COMPLEX_')
+    real, imag = struct.unpack('<dd', data[header_size:])
     return complex(real, imag)
 
 
