@@ -107,7 +107,7 @@ class VariableData:
     def _read_netcdf(self, one_array=False):
         import xarray as xr
         load = xr.load_dataarray if one_array else xr.load_dataset
-        obj = load(self._h5_path, group=self.name, engine="h5netcdf", invalid_netcdf=True)
+        obj = load(self._h5_path, group=self.name, engine="h5netcdf")
         # Remove internal attributes from loaded object
         obj.attrs = {k: v for (k, v) in obj.attrs.items()
                      if not k.startswith('_damnit_')}
