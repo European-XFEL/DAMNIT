@@ -157,7 +157,7 @@ class VariableData:
         [VariableData.read()][damnit.api.VariableData.read].
         """
         result = self._db.conn.execute("""
-            SELECT value, max(version) FROM run_variables
+            SELECT value, summary_type, max(version) FROM run_variables
             WHERE proposal=? AND run=? AND name=?
         """, (self.proposal, self.run, self.name)).fetchone()
 
@@ -166,9 +166,10 @@ class VariableData:
             # after creating the VariableData object.
             raise RuntimeError(f"Could not find value for '{self.name}' in p{self.proposal}, r{self.name}")
         else:
-            if isinstance(result[0], bytes) and BlobTypes.identify(result[0]) is BlobTypes.complex:
-                return blob2complex(result[0])
-            return result[0]
+            value, summary_type, version = result
+            if isinstance(value, bytes) and summary_type == "complex":
+                return blob2complex(value)
+            return value
 
     def __repr__(self):
         return f"<VariableData for '{self.name}' in p{self.proposal}, r{self.run}>"
@@ -388,18 +389,27 @@ class Damnit:
             df.insert(3, "comment", None)
 
         # interpret blobs
-        def blob2type(value):
+        def blob2type(value, summary_type=None):
             if isinstance(value, bytes):
+                if summary_type == "complex":
+                    return blob2complex(value)
                 match BlobTypes.identify(value):
                     case BlobTypes.png | BlobTypes.numpy:
                         return "<image>"
-                    case BlobTypes.complex:
-                        return blob2complex(value)
                     case BlobTypes.unknown | _:
                         return "<unknown>"
             else:
                 return value
-        df = df.applymap(blob2type)
+
+        summary_types = self._db.conn.execute("SELECT name, summary_type FROM run_variables").fetchall()
+        summary_types = { row[0]: row[1] for row in summary_types }
+
+        def interpret_blobs(row):
+            for col in row.keys():
+                row[col] = blob2type(row[col], summary_types.get(col))
+            return row
+
+        df = df.apply(interpret_blobs, axis=1)
 
         # Use the full variable titles
         if with_titles:

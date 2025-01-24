@@ -66,13 +66,13 @@ class ReducedData:
     value: Any
     max_diff: float = None
     summary_method: str = ''
+    summary_type: Optional[str] = None
     attributes: Optional[dict] = None
 
 
 class BlobTypes(Enum):
     png = 'png'
     numpy = 'numpy'
-    complex = 'complex'
     unknown = 'unknown'
 
     @classmethod
@@ -81,23 +81,18 @@ class BlobTypes(Enum):
             return cls.png
         elif blob.startswith(b'\x93NUMPY'):
             return cls.numpy
-        elif blob.startswith(b'_DAMNIT_COMPLEX_'):
-            return cls.complex
 
         return cls.unknown
 
 
 def complex2blob(data: complex) -> bytes:
     # convert complex to bytes
-    header = b'_DAMNIT_COMPLEX_'
-    packed = struct.pack('<dd', data.real, data.imag)
-    return header + packed
+    return struct.pack('<dd', data.real, data.imag)
 
 
 def blob2complex(data: bytes) -> complex:
     # convert bytes to complex
-    header_size = len(b'_DAMNIT_COMPLEX_')
-    real, imag = struct.unpack('<dd', data[header_size:])
+    real, imag = struct.unpack('<dd', data)
     return complex(real, imag)
 
 
@@ -344,6 +339,7 @@ class DamnitDB:
                 variable[key] = None
         elif isinstance(variable["value"], complex):
             variable["value"] = complex2blob(variable["value"])
+            variable["summary_type"] = "complex"
 
         variable["proposal"] = proposal
         variable["run"] = run
@@ -362,7 +358,7 @@ class DamnitDB:
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "attributes"]
+        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "summary_type", "attributes"]
         col_list = ", ".join(cols)
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])
