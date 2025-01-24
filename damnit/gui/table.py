@@ -36,10 +36,6 @@ class TableView(QtWidgets.QTableView):
         )
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
-        self.verticalHeader().setStyleSheet("QHeaderView"
-                                            "{"
-                                            "background:white;"
-                                            "}")
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
