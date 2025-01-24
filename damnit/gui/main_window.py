@@ -1070,6 +1070,12 @@ da-dev@xfel.eu"""
         
         # Update status bar style
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
+        
+        # Update plot windows
+        if hasattr(self, '_canvas_inspect'):
+            for window in self._canvas_inspect:
+                if window.isVisible():
+                    window.update_theme(theme)
 
     def _load_theme(self):
         """Load theme setting from shelve file."""
