@@ -401,10 +401,12 @@ class Damnit:
             else:
                 return value
 
-        summary_types = self._db.conn.execute("SELECT name, summary_type FROM run_variables").fetchall()
-        summary_types = { row[0]: row[1] for row in summary_types }
-
         def interpret_blobs(row):
+            summary_types = self._db.conn.execute(
+                "SELECT name, summary_type FROM run_variables WHERE proposal=? AND run=? AND summary_type IS NOT NULL",
+                (row["proposal"], row["run"])).fetchall()
+            summary_types = { row[0]: row[1] for row in summary_types }
+
             for col in row.keys():
                 row[col] = blob2type(row[col], summary_types.get(col))
             return row
