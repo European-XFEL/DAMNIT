@@ -11,6 +11,7 @@ from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
 
 from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
+from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file
 from ..ctxsupport.ctxrunner import extract_error_info
@@ -98,11 +99,9 @@ class Editor(QsciScintilla):
     def __init__(self):
         super().__init__()
 
-        font = QFont("Monospace", pointSize=12)
-        self._lexer = QsciLexerPython()
-        self._lexer.setDefaultFont(font)
-        self._lexer.setFont(font, QsciLexerPython.Comment)
-        self.setLexer(self._lexer)
+        # Set initial theme
+        self.current_theme = Theme.LIGHT
+        self._apply_theme()
 
         self.setAutoCompletionSource(QsciScintilla.AutoCompletionSource.AcsAll)
         self.setAutoCompletionThreshold(3)
@@ -111,7 +110,6 @@ class Editor(QsciScintilla):
         self.setAutoIndent(True)
         self.setBraceMatching(QsciScintilla.BraceMatch.SloppyBraceMatch)
         self.setCaretLineVisible(True)
-        self.setCaretLineBackgroundColor(QColor('lightgray'))
         self.setMarginWidth(0, "0000")
         self.setMarginLineNumbers(0, True)
 
@@ -122,10 +120,6 @@ class Editor(QsciScintilla):
 
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
-
-        # Set initial theme
-        self.current_theme = Theme.LIGHT
-        self._apply_theme()
 
     def _apply_theme(self):
         """Apply the current theme to the editor."""
@@ -205,7 +199,8 @@ class Editor(QsciScintilla):
         self.setLexer(self._lexer)  # Set the new lexer
         
         # Restore text and position
-        self.setText(current_text)
+        with signals_blocked(self):
+            self.setText(current_text)
         self.SendScintilla(QsciScintilla.SCI_SETCURRENTPOS, current_position)
         self.SendScintilla(QsciScintilla.SCI_SETSEL, current_position, current_position)
 

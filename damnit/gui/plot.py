@@ -55,7 +55,6 @@ class PlotWindow(QtWidgets.QDialog):
 
         # Get current theme from main window
         self.current_theme = self.main_window.current_theme if self.main_window else Theme.LIGHT
-        self._apply_theme()
 
         self.xlabel = xlabel
         self.ylabel = ylabel
@@ -64,10 +63,7 @@ class PlotWindow(QtWidgets.QDialog):
         self.figure = Figure(figsize=(8, 5))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
-        
-        # Apply theme to matplotlib figure
-        self._update_plot_theme()
-        
+
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel)
         if title is not None:
@@ -121,6 +117,9 @@ class PlotWindow(QtWidgets.QDialog):
         self._panmanager = PanManager(self.figure, MouseButton.LEFT)
 
         self.figure.tight_layout()
+
+        # Apply theme to matplotlib figure
+        self._update_plot_theme()
 
     _autoscale_checkbox = None
 
@@ -189,12 +188,6 @@ class PlotWindow(QtWidgets.QDialog):
     def update(self):
         pass  # Overridden in subclasses
 
-    def _apply_theme(self):
-        """Apply the current theme to the dialog."""
-        # Apply palette and stylesheet from theme manager
-        self.setPalette(ThemeManager.get_theme_palette(self.current_theme))
-        self.setStyleSheet(ThemeManager.get_theme_stylesheet(self.current_theme))
-
     def _update_plot_theme(self):
         """Update matplotlib figure colors based on current theme."""
         if self.current_theme == Theme.DARK:
@@ -207,7 +200,7 @@ class PlotWindow(QtWidgets.QDialog):
             self._axis.title.set_color('white')
             for spine in self._axis.spines.values():
                 spine.set_color('white')
-            self._axis.grid(True, color='#454545')
+            # self._axis.grid(True, color='#454545')
         else:
             # Reset to light theme
             self.figure.patch.set_facecolor('white')
@@ -218,14 +211,13 @@ class PlotWindow(QtWidgets.QDialog):
             self._axis.title.set_color('black')
             for spine in self._axis.spines.values():
                 spine.set_color('black')
-            self._axis.grid(True, color='#cccccc')
+            # self._axis.grid(True, color='#cccccc')
         
         self._canvas.draw()
 
     def update_theme(self, theme: Theme):
         """Update the window theme."""
         self.current_theme = theme
-        self._apply_theme()
         self._update_plot_theme()
 
 
