@@ -112,6 +112,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._canvas_inspect = []
 
+        self.apply_theme(self.current_theme)
+
     def on_tab_changed(self, index):
         if index == 0:
             self._status_bar.showMessage("Double-click on a cell to inspect results.")
@@ -1070,6 +1072,10 @@ da-dev@xfel.eu"""
         
         # Update status bar style
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
+        
+        # Update editor theme
+        if hasattr(self, '_editor'):
+            self._editor.update_theme(theme)
         
         # Update plot windows
         if hasattr(self, '_canvas_inspect'):

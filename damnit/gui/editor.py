@@ -15,7 +15,7 @@ from pyflakes.api import check as pyflakes_check
 from ..backend.extract_data import get_context_file
 from ..ctxsupport.ctxrunner import extract_error_info
 from ..context import ContextFile
-
+from .theme import Theme
 
 class ContextTestResult(Enum):
     OK = 0
@@ -122,6 +122,97 @@ class Editor(QsciScintilla):
 
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
+
+        # Set initial theme
+        self.current_theme = Theme.LIGHT
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply the current theme to the editor."""
+        # Store current text and position
+        current_text = self.text()
+        current_position = self.SendScintilla(QsciScintilla.SCI_GETCURRENTPOS)
+        
+        # Create a new lexer with the theme colors
+        font = QFont("Monospace", pointSize=12)
+        self._lexer = QsciLexerPython()
+        self._lexer.setDefaultFont(font)
+        self._lexer.setFont(font, QsciLexerPython.Comment)
+
+        if self.current_theme == Theme.DARK:
+            # Dark theme colors
+            self.setPaper(QColor('#232323'))  # Background
+            self.setColor(QColor('white'))    # Default text
+            self.setCaretForegroundColor(QColor('white'))
+            self.setCaretLineBackgroundColor(QColor('#2a2a2a'))
+            self.setMarginsForegroundColor(QColor('#cccccc'))  # Line numbers
+            self.setMarginsBackgroundColor(QColor('#2a2a2a'))
+            self.setSelectionBackgroundColor(QColor('#404040'))
+            self.setSelectionForegroundColor(QColor('white'))
+            self.setMatchedBraceBackgroundColor(QColor('#404040'))
+            self.setMatchedBraceForegroundColor(QColor('white'))
+            self.setUnmatchedBraceBackgroundColor(QColor('#802020'))
+            self.setUnmatchedBraceForegroundColor(QColor('white'))
+            
+            # Python syntax highlighting colors for dark theme
+            self._lexer.setDefaultPaper(QColor('#232323'))
+            self._lexer.setDefaultColor(QColor('white'))
+            self._lexer.setColor(QColor('#66d9ef'), QsciLexerPython.Keyword)
+            self._lexer.setColor(QColor('#a6e22e'), QsciLexerPython.ClassName)
+            self._lexer.setColor(QColor('#f92672'), QsciLexerPython.Operator)
+            self._lexer.setColor(QColor('#fd971f'), QsciLexerPython.FunctionMethodName)
+            self._lexer.setColor(QColor('#75715e'), QsciLexerPython.Comment)
+            self._lexer.setColor(QColor('#e6db74'), QsciLexerPython.DoubleQuotedString)
+            self._lexer.setColor(QColor('#e6db74'), QsciLexerPython.SingleQuotedString)
+            self._lexer.setColor(QColor('#ae81ff'), QsciLexerPython.Number)
+            
+            # Set paper (background) for all styles
+            for style in range(128):  # QScintilla uses style numbers 0-127
+                self._lexer.setPaper(QColor('#232323'), style)
+        else:
+            # Light theme colors (default)
+            self.setPaper(QColor('white'))
+            self.setColor(QColor('black'))
+            self.setCaretForegroundColor(QColor('black'))
+            self.setCaretLineBackgroundColor(QColor('lightgray'))
+            self.setMarginsForegroundColor(QColor('black'))
+            self.setMarginsBackgroundColor(QColor('white'))
+            self.setSelectionBackgroundColor(QColor('#c0c0c0'))
+            self.setSelectionForegroundColor(QColor('black'))
+            self.setMatchedBraceBackgroundColor(QColor('#c0c0c0'))
+            self.setMatchedBraceForegroundColor(QColor('black'))
+            self.setUnmatchedBraceBackgroundColor(QColor('#ff8080'))
+            self.setUnmatchedBraceForegroundColor(QColor('black'))
+            
+            # Python syntax highlighting colors for light theme
+            self._lexer.setDefaultPaper(QColor('white'))
+            self._lexer.setDefaultColor(QColor('black'))
+            self._lexer.setColor(QColor('#0000ff'), QsciLexerPython.Keyword)
+            self._lexer.setColor(QColor('#007f7f'), QsciLexerPython.ClassName)
+            self._lexer.setColor(QColor('#7f0000'), QsciLexerPython.Operator)
+            self._lexer.setColor(QColor('#007f00'), QsciLexerPython.FunctionMethodName)
+            self._lexer.setColor(QColor('#7f7f7f'), QsciLexerPython.Comment)
+            self._lexer.setColor(QColor('#7f007f'), QsciLexerPython.DoubleQuotedString)
+            self._lexer.setColor(QColor('#7f007f'), QsciLexerPython.SingleQuotedString)
+            self._lexer.setColor(QColor('#007f7f'), QsciLexerPython.Number)
+            
+            # Set paper (background) for all styles
+            for style in range(128):  # QScintilla uses style numbers 0-127
+                self._lexer.setPaper(QColor('white'), style)
+
+        # Apply the new lexer
+        self.setLexer(None)  # Clear the old lexer
+        self.setLexer(self._lexer)  # Set the new lexer
+        
+        # Restore text and position
+        self.setText(current_text)
+        self.SendScintilla(QsciScintilla.SCI_SETCURRENTPOS, current_position)
+        self.SendScintilla(QsciScintilla.SCI_SETSEL, current_position, current_position)
+
+    def update_theme(self, theme: Theme):
+        """Update the editor theme."""
+        self.current_theme = theme
+        self._apply_theme()
 
     def launch_test_context(self, db):
         context_python = db.metameta.get("context_python")
