@@ -92,12 +92,16 @@ def test_variable_data(mock_db_with_data, monkeypatch):
 
     # Insert a DataSet variable
     dataset_code = """
-    from damnit_ctx import Variable
+    from damnit_ctx import Cell, Variable
     import xarray as xr
 
     @Variable(title="Dataset")
     def dataset(run):
-        return xr.Dataset(data_vars={ "foo": xr.DataArray([1, 2, 3]) })
+        data = xr.Dataset(data_vars={
+            "foo": xr.DataArray([1, 2, 3]),
+            "bar/baz": xr.DataArray([1+2j, 3-4j, 5+6j]),
+        })
+        return Cell(data, summary_value=data['bar/baz'][2])
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -122,9 +126,15 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     dataset = rv["dataset"].read()
     assert isinstance(dataset, xr.Dataset)
     assert isinstance(dataset.foo, xr.DataArray)
+    assert isinstance(dataset.bar_baz, xr.DataArray)
+    assert dataset.bar_baz.dtype == np.complex128
 
     # Datasets have a internal _damnit attribute that should be removed
     assert len(dataset.attrs) == 0
+
+    summary = rv["dataset"].summary()
+    assert isinstance(summary, complex)
+    assert summary == complex(5, 6)
 
     fig = rv['plotly_mc_plotface'].read()
     assert isinstance(fig, PlotlyFigure)

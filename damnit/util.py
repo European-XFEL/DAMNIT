@@ -45,6 +45,7 @@ def bool_to_numeric(data):
 def fix_data_for_plotting(data):
     return bool_to_numeric(make_finite(data))
 
+
 def delete_variable(db, name):
     # Remove from the database
     db.delete_variable(name)

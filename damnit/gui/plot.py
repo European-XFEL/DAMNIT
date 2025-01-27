@@ -19,6 +19,7 @@ from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
 
 from ..api import RunVariables
 from ..util import fix_data_for_plotting
+from .theme import Theme, ThemeManager
 
 log = logging.getLogger(__name__)
 
@@ -48,11 +49,12 @@ class PlotWindow(QtWidgets.QDialog):
             Qt.WindowMaximizeButtonHint |
             Qt.WindowCloseButtonHint
         )
-        self.setStyleSheet("QDialog {background-color: white}")
-
+        
         self.main_window = parent
-
         self.layout = QtWidgets.QVBoxLayout(self)
+
+        # Get current theme from main window
+        self.current_theme = self.main_window.current_theme if self.main_window else Theme.LIGHT
 
         self.xlabel = xlabel
         self.ylabel = ylabel
@@ -61,6 +63,7 @@ class PlotWindow(QtWidgets.QDialog):
         self.figure = Figure(figsize=(8, 5))
         self._canvas = FigureCanvas(self.figure)
         self._axis = self._canvas.figure.subplots()
+
         self._axis.set_xlabel(xlabel)
         self._axis.set_ylabel(ylabel)
         if title is not None:
@@ -114,6 +117,9 @@ class PlotWindow(QtWidgets.QDialog):
         self._panmanager = PanManager(self.figure, MouseButton.LEFT)
 
         self.figure.tight_layout()
+
+        # Apply theme to matplotlib figure
+        self._update_plot_theme()
 
     _autoscale_checkbox = None
 
@@ -181,6 +187,39 @@ class PlotWindow(QtWidgets.QDialog):
 
     def update(self):
         pass  # Overridden in subclasses
+
+    def _update_plot_theme(self):
+        """Update matplotlib figure colors based on current theme."""
+        if self.current_theme == Theme.DARK:
+            # Set dark theme for matplotlib
+            self.figure.patch.set_facecolor('#232323')
+            self._axis.set_facecolor('#232323')
+            self._axis.tick_params(colors='white')
+            self._axis.xaxis.label.set_color('white')
+            self._axis.yaxis.label.set_color('white')
+            self._axis.title.set_color('white')
+            for spine in self._axis.spines.values():
+                spine.set_color('white')
+            # self._axis.grid(True, color='#454545')
+        else:
+            # Reset to light theme
+            self.figure.patch.set_facecolor('white')
+            self._axis.set_facecolor('white')
+            self._axis.tick_params(colors='black')
+            self._axis.xaxis.label.set_color('black')
+            self._axis.yaxis.label.set_color('black')
+            self._axis.title.set_color('black')
+            for spine in self._axis.spines.values():
+                spine.set_color('black')
+            # self._axis.grid(True, color='#cccccc')
+        
+        self._canvas.draw()
+
+    def update_theme(self, theme: Theme):
+        """Update the window theme."""
+        self.current_theme = theme
+        self._update_plot_theme()
+
 
 class HistogramPlotWindow(PlotWindow):
     show_autoscale = True

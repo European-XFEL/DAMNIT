@@ -78,6 +78,7 @@ Variable functions can return any of:
 - Lists of scalars
 - Multi-dimensional `numpy.ndarray`'s or `xarray.DataArray`'s (2D arrays will be
   treated as images)
+- Matplotlib and Plotly `Figure`'s
 - Strings
 - `None`
 
@@ -139,6 +140,37 @@ $ amore-proto db-config noncluster_cpus 8
 
 # Allow 50 GB memory
 $ amore-proto db-config noncluster_mem 50G
+```
+
+## Cell
+
+The `Cell` object is a versatile container that allows customizing how data is
+stored and displayed in the table. When writing [Variables](#variables), you can
+return a `Cell` object to control both the full data storage and its summary
+representation. A `Cell` takes theses arguments:
+
+- `data`: The main data to store
+- `summary`: Function name (as string) from the `numpy` module to compute
+  summary from data (e.g., 'mean', 'std')
+- `summary_value`: Direct value to use as summary (number or string)
+- `bold`: A boolean indicating whether the text should be rendered in a bold
+  font in the table's cell
+- `background`: Cell background color as:
+  - Hex string (e.g., '#ffcc00')
+  - RGB sequence (0-255 values)
+
+Example Usage:
+
+```python
+@Variable(title="Peaks")
+def peaks(run):
+    success, counts, data = computation(run)
+    return Cell(
+        data=data,
+        summary_value=f"{counts} peaks detected" if success else "No peak",
+        bold=True,
+        background="#7cfc00" if success else "#ff0000"
+    )
 ```
 
 ## Using Slurm

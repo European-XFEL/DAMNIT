@@ -4,6 +4,7 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import logging
 import re
 import sys
 from collections.abc import Sequence
@@ -14,6 +15,8 @@ import numpy as np
 import xarray as xr
 
 __all__ = ["RunData", "Variable", "Cell"]
+
+log = logging.getLogger(__name__)
 
 
 THUMBNAIL_SIZE = 300 # px
@@ -103,7 +106,25 @@ class Variable:
 
 
 class Cell:
-    """Variable functions can return this"""
+    """A container for data with customizable table display options.
+
+    Validates and converts input data to HDF5-compatible formats.
+    Provides flexible summary generation through direct values or numpy functions.
+    Supports visual customization with bold text and background colors.
+
+    Parameters
+    ----------
+    data : array-like, Figure, Dataset, str, or None
+        The main data to store
+    summary : str, optional
+        Name of numpy function to compute summary from data
+    summary_value : str or number, optional
+        Direct value to use as summary
+    bold : bool, optional
+        Whether to display cell in bold
+    background : str or sequence, optional
+        Cell background color as hex string ('#ffcc00') or RGB sequence (0-255)
+    """
     def __init__(self, data, summary=None, summary_value=None, bold=None, background=None):
         # If the user returns an Axes, save the whole Figure
         if isinstance_no_import(data, 'matplotlib.axes', 'Axes'):
@@ -169,14 +190,19 @@ class Cell:
         if self.summary_value is not None:
             return self.summary_value
         elif self.summary is not None:
-            return np.asarray(getattr(np, self.summary)(self.data))
+            try:
+                return np.asarray(getattr(np, self.summary)(self.data))
+            except Exception:
+                log.error("Failed to produce summary data", exc_info=True)
 
         return None
 
     def _max_diff(self):
         a = self.data
         if isinstance(a, (np.ndarray, xr.DataArray)) and a.size > 1:
-            return abs(np.subtract(np.nanmax(a), np.nanmin(a), dtype=np.float64))
+            if np.issubdtype(a.dtype, np.bool_):
+                return 1. if (True in a) and (False in a) else 0.
+            return np.abs(np.subtract(np.nanmax(a), np.nanmin(a)), dtype=np.float64)
 
     def summary_attrs(self):
         d = {}

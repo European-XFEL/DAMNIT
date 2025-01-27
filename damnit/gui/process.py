@@ -197,7 +197,7 @@ class ProcessingDialog(QtWidgets.QDialog):
         return [itm.data(Qt.UserRole) for itm in self._var_list_items()
                 if itm.checkState() == Qt.Checked]
 
-    def extraction_requests(self):
+    def extraction_requests(self) -> list[ExtractionRequest]:
         prop = int(self.proposal_num())
         # If all variables are selected, don't specify them explicitly, so that
         # newly added functions will also be executed.

@@ -1,9 +1,10 @@
 import json
-import os
 import logging
+import os
 import sqlite3
-from collections.abc import MutableMapping, ValuesView, ItemsView
-from dataclasses import dataclass, asdict
+import struct
+from collections.abc import ItemsView, MutableMapping, ValuesView
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -65,6 +66,7 @@ class ReducedData:
     value: Any
     max_diff: float = None
     summary_method: str = ''
+    summary_type: Optional[str] = None
     attributes: Optional[dict] = None
 
 
@@ -81,6 +83,17 @@ class BlobTypes(Enum):
             return cls.numpy
 
         return cls.unknown
+
+
+def complex2blob(data: complex) -> bytes:
+    # convert complex to bytes
+    return struct.pack('<dd', data.real, data.imag)
+
+
+def blob2complex(data: bytes) -> complex:
+    # convert bytes to complex
+    real, imag = struct.unpack('<dd', data)
+    return complex(real, imag)
 
 
 def db_path(root_path: Path):
@@ -324,6 +337,9 @@ class DamnitDB:
         if variable["value"] is None:
             for key in variable:
                 variable[key] = None
+        elif isinstance(variable["value"], complex):
+            variable["value"] = complex2blob(variable["value"])
+            variable["summary_type"] = "complex"
 
         variable["proposal"] = proposal
         variable["run"] = run
@@ -342,7 +358,7 @@ class DamnitDB:
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "attributes"]
+        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "summary_type", "attributes"]
         col_list = ", ".join(cols)
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])
@@ -522,6 +538,8 @@ class MsgKind(Enum):
     #run_deleted = 'run_deleted'
     #standalone_comment_set = 'standalone_comment_set'
     #standalone_comment_deleted = 'standalone_comment_deleted'
+    processing_state_set = 'processing_state_set'   # Supports status indicators
+    processing_finished = 'processing_finished'
     # Commented out options are not implemented yet
 
 def msg_dict(kind: MsgKind, data: dict):

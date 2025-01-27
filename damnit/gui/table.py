@@ -7,7 +7,7 @@ from itertools import groupby
 import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import QRect, Qt
+from PyQt5.QtCore import QRect, Qt, QProcess
 from PyQt5.QtGui import QColor, QCursor, QPen
 from PyQt5.QtWidgets import (QAction, QHeaderView, QListWidgetItem, QMenu,
                              QMessageBox, QWidgetAction)
@@ -16,6 +16,7 @@ from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData
+from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
@@ -48,10 +49,6 @@ class TableView(QtWidgets.QTableView):
         # self.sortByColumn(0, Qt.AscendingOrder)
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
-        self.verticalHeader().setStyleSheet("QHeaderView"
-                                            "{"
-                                            "background:white;"
-                                            "}")
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
@@ -416,6 +413,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
 
+        self.processing_jobs = QtExtractionJobTracker(self)
+        self.processing_jobs.run_jobs_changed.connect(self.update_processing_status)
+
         self._bold_font = QtGui.QFont()
         self._bold_font.setBold(True)
 
@@ -659,6 +659,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.run_index[(proposal, run)] = row_ix = self.rowCount()
         self.appendRow(row)
         self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(str(run)))
+        return row_ix
 
     def handle_run_values_changed(self, proposal, run, values: dict):
         known_col_ids = set(self.column_ids)
@@ -715,6 +716,43 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             if title != old_title:
                 self.column_titles[col_ix] = title
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
+
+    def handle_processing_state_set(self, info):
+        self.processing_jobs.on_processing_state_set(info)
+
+    def handle_processing_finished(self, info):
+        self.processing_jobs.on_processing_finished(info)
+
+    def update_processing_status(self, proposal, run, jobs_for_run):
+        """Show/hide the processing indicator for the given run"""
+        try:
+            row_ix = self.find_row(proposal, run)
+        except KeyError:
+            if jobs_for_run:
+                row_ix = self.insert_run_row(proposal, run, {}, {}, {})
+            else:
+                return
+
+        running = [j for j in jobs_for_run if j['status'] == 'RUNNING']
+
+        row_header_item = self.verticalHeaderItem(row_ix)
+        if running:
+            row_header_item.setData(f"{run} ⚙️", Qt.ItemDataRole.DisplayRole)
+            if len(running) == 1:
+                info = running[0]
+                msg = f"Processing on {info['username']}@{info['hostname']}"
+                if job_id := info['slurm_job_id']:
+                    msg += f" (Slurm job {job_id})"
+                row_header_item.setToolTip(msg)
+            else:
+                row_header_item.setToolTip(f"Processing in {len(running)} jobs")
+        elif jobs_for_run:
+            # Jobs in the list but not running must be pending
+            row_header_item.setData(f"{run} ⋮", Qt.ItemDataRole.DisplayRole)
+            row_header_item.setToolTip("Processing is queued")
+        else:
+            row_header_item.setData(f"{run}", Qt.ItemDataRole.DisplayRole)
+            row_header_item.setToolTip("")
 
     def add_editable_column(self, name):
         if name == "Status":
@@ -877,6 +915,39 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         df.index = row_labels
 
         return df
+
+
+class QtExtractionJobTracker(ExtractionJobTracker, QtCore.QObject):
+    run_jobs_changed = QtCore.pyqtSignal(int, int, object) # prop, run, jobs
+
+    def __init__(self, parent):
+        super().__init__()
+        QtCore.QObject.__init__(self, parent)
+
+        # Check for crashed Slurm jobs every 2 minutes
+        self.slurm_check_timer = QtCore.QTimer(self)
+        self.slurm_check_timer.timeout.connect(self.check_slurm_jobs)
+        self.slurm_check_timer.start(120_000)
+
+    def squeue_check_jobs(self, cmd, jobs_to_check):
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.ForwardedErrorChannel)
+
+        def done():
+            proc.deleteLater()
+            if proc.exitStatus() != QProcess.NormalExit or proc.exitCode() != 0:
+                log.warning("Error calling squeue")
+                return
+            stdout = bytes(proc.readAllStandardOutput()).decode()
+            self.process_squeue_output(stdout, jobs_to_check)
+
+        proc.finished.connect(done)
+        proc.start(cmd[0], cmd[1:])
+
+    def on_run_jobs_changed(self, proposal, run):
+        jobs = [i for i in self.jobs.values()
+                if i['proposal'] == proposal and i['run'] == run]
+        self.run_jobs_changed.emit(proposal, run, jobs)
 
 
 def prettify_notation(value):

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 import h5py
 import numpy as np
@@ -29,6 +30,7 @@ from damnit.gui.table_filter import (CategoricalFilter,
                                      CategoricalFilterWidget, FilterMenu,
                                      FilterProxy, FilterStatus, FilterType,
                                      NumericFilter, NumericFilterWidget)
+from damnit.gui.theme import Theme
 from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import extract_mock_run, mkcontext, reduced_data_from_dict
@@ -1219,3 +1221,71 @@ def test_filter_menu(mock_db_with_data, qtbot):
     menu_with_filter = FilterMenu(results_col, model)
     qtbot.addWidget(menu_with_filter)
     assert menu_with_filter.model.filters[results_col] == existing_filter
+
+
+def test_processing_status(mock_db_with_data, qtbot):
+    db_dir, db = mock_db_with_data
+    win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
+    tbl = win.table
+
+    def shows_as_processing(run):
+        row = tbl.find_row(1234, run)
+        runnr_s = tbl.verticalHeaderItem(row).data(Qt.ItemDataRole.DisplayRole)
+        return "⚙️" in runnr_s
+
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': '', 'slurm_job_id': '', 'status': 'RUNNING'}
+
+    # Test with an existing run
+    prid1, prid2 = str(uuid4()), str(uuid4())
+    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid1})
+    assert shows_as_processing(1)
+    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid2})
+    tbl.handle_processing_finished({'processing_id': prid1})
+    assert shows_as_processing(1)
+    tbl.handle_processing_finished({'processing_id': prid2})
+    assert not shows_as_processing(1)
+
+    # Processing starting for a new run should add a row
+    assert tbl.rowCount() == 1
+    tbl.handle_processing_state_set(d | {'run': 2, 'processing_id': str(uuid4())})
+    assert tbl.rowCount() == 2
+    assert shows_as_processing(2)
+
+
+def test_theme(mock_db, qtbot, tmp_path):
+    """Test theme loading, saving, and application."""
+    db_dir, db = mock_db
+    settings_path = tmp_path / ".local/state/damnit/settings.db"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        # Test default theme
+        win = MainWindow(db_dir, False)
+        qtbot.addWidget(win)
+        assert win.current_theme == Theme.LIGHT
+
+        # Test theme saving and loading
+        win._toggle_theme(True)
+        assert win.current_theme == Theme.DARK
+        win.close()
+        
+        # Create new window to test theme persistence
+        win2 = MainWindow(db_dir, False)
+        qtbot.addWidget(win2)
+        assert win2.current_theme == Theme.DARK  # Should load saved dark theme
+        assert win2.dark_mode_action.isChecked()  # Action should be checked
+
+        # Test theme application to components
+        dark_palette = win2.palette()
+        assert dark_palette.color(QPalette.Window).name() == "#353535"  # Dark theme color
+        assert dark_palette.color(QPalette.WindowText).name() == "#ffffff"  # White text
+
+        # Test theme application to editor
+        assert win2._editor._lexer.defaultPaper(0).name() == "#232323"  # Dark theme editor background
+
+        # Test theme toggle back to light
+        win2._toggle_theme(False)
+        assert win2.current_theme == Theme.LIGHT
+        assert win2.palette() != dark_palette  # Light theme should have different colors

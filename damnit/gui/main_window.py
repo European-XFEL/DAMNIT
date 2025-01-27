@@ -18,7 +18,7 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget, QAction
 from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 
 from ..api import DataType, RunVariables
@@ -41,11 +41,13 @@ from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
+from .theme import Theme, ThemeManager
 
 log = logging.getLogger(__name__)
 
 class Settings(Enum):
     COLUMNS = "columns"
+    THEME = "theme"
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -54,6 +56,7 @@ class MainWindow(QtWidgets.QMainWindow):
     check_context_file_timer = None
     vars_ctx_size_mtime = None
     editor_ctx_size_mtime = None
+    current_theme = Theme.LIGHT
 
     db = None
     db_id = None
@@ -74,6 +77,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(icon_path("AMORE.png")))
         self._create_status_bar()
+
+        # Load theme from settings
+        self.current_theme = self._load_theme()
+        self.apply_theme(self.current_theme)
+
         self._create_menu_bar()
 
         self._view_widget = QtWidgets.QWidget(self)
@@ -106,6 +114,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
+
+        self.apply_theme(self.current_theme)
 
     def on_tab_changed(self, index):
         if index == 0:
@@ -211,7 +221,10 @@ da-dev@xfel.eu"""
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with shelve.open(str(self._settings_db_path)) as db:
-            settings = { Settings.COLUMNS.value: self.table_view.get_column_states() }
+            settings = { 
+                Settings.COLUMNS.value: self.table_view.get_column_states(),
+                Settings.THEME.value: self.current_theme.value
+            }
             db[str(self._context_path)] = settings
 
     def autoconfigure(self, path: Path):
@@ -442,7 +455,17 @@ da-dev@xfel.eu"""
         searchMenu.addAction(actionWidget)
         menu_bar.setCornerWidget(menu_bar_right, Qt.TopRightCorner)
 
+        # Add View menu
+        view_menu = self.menuBar().addMenu("View")
         
+        # Add theme toggle action
+        self.dark_mode_action = QAction("Dark Mode", self)
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.setChecked(self.current_theme == Theme.DARK)
+        self.dark_mode_action.setShortcut("Ctrl+Shift+D")
+        self.dark_mode_action.triggered.connect(self._toggle_theme)
+        view_menu.addAction(self.dark_mode_action)
+
     def scroll_to_run(self, run):
         try:
             run = int(run)
@@ -539,6 +562,10 @@ da-dev@xfel.eu"""
             self.table_view.apply_tag_filter(
                 self.table_view._current_tag_filter
             )
+        elif msg_kind == MsgKind.processing_state_set:
+            self.table.handle_processing_state_set(data)
+        elif msg_kind == MsgKind.processing_finished:
+            self.table.handle_processing_finished(data)
 
     def handle_run_values_updated(self, proposal, run, values: dict):
         self.table.handle_run_values_changed(proposal, run, values)
@@ -930,7 +957,7 @@ da-dev@xfel.eu"""
 
             try:
                 reqs = dlg.extraction_requests()
-                submitter.submit_multi(reqs)
+                submitted = submitter.submit_multi(reqs)
             except Exception as e:
                 log.error("Error launching processing", exc_info=True)
                 self.show_status_message(f"Error launching processing: {e}",
@@ -939,6 +966,11 @@ da-dev@xfel.eu"""
                 self.show_status_message(
                     f"Launched processing for {len(reqs)} runs", 10_000
                 )
+                if self._connect_to_kafka:
+                    for req, (job_id, cluster) in zip(reqs, submitted):
+                        self.update_agent.processing_submitted(
+                            req.submitted_info(cluster, job_id)
+                        )
 
     adeqt_window = None
 
@@ -949,6 +981,54 @@ da-dev@xfel.eu"""
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
+    def _toggle_theme(self, checked):
+        """Toggle between light and dark themes."""
+        new_theme = Theme.DARK if checked else Theme.LIGHT
+        self.apply_theme(new_theme)
+
+    def apply_theme(self, theme: Theme):
+        """Apply the selected theme to the application."""
+        self.current_theme = theme
+        self._save_theme(theme)
+        
+        app = QtWidgets.QApplication.instance()
+        
+        # Apply palette
+        app.setPalette(ThemeManager.get_theme_palette(theme))
+        
+        # Apply stylesheet
+        app.setStyleSheet(ThemeManager.get_theme_stylesheet(theme))
+        
+        # Update status bar style
+        self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
+        
+        # Update editor theme
+        if hasattr(self, '_editor'):
+            self._editor.update_theme(theme)
+        
+        # Update plot windows
+        if hasattr(self, '_canvas_inspect'):
+            for window in self._canvas_inspect:
+                if window.isVisible():
+                    window.update_theme(theme)
+
+    def _load_theme(self):
+        """Load theme setting from shelve file."""
+        if self._settings_db_path.parent.is_dir():
+            with shelve.open(str(self._settings_db_path)) as settings:
+                try:
+                    theme_name = settings.get(Settings.THEME.value)
+                    if theme_name is not None:
+                        return Theme(theme_name)
+                except (ValueError, KeyError):
+                    pass
+        return Theme.LIGHT
+
+    def _save_theme(self, theme: Theme):
+        """Save theme setting to shelve file."""
+        if self._settings_db_path.parent.is_dir():
+            with shelve.open(str(self._settings_db_path)) as settings:
+                settings[Settings.THEME.value] = theme.value
 
 class TableViewStyle(QtWidgets.QProxyStyle):
     """

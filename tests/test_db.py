@@ -1,3 +1,8 @@
+import pytest
+
+from damnit.backend.db import complex2blob, blob2complex
+
+
 def test_metameta(mock_db):
     _, db = mock_db
 
@@ -83,3 +88,19 @@ def test_tags(mock_db_with_data):
 
     # Test untagging with nonexistent variable (should not raise error)
     db.untag_variable("nonexistent_var", "important")
+
+
+@pytest.mark.parametrize("value", [
+    1+2j,
+    0+0j,
+    -1.5-3.7j,
+    2.5+0j,
+    0+3.1j,
+    float('inf')+0j,
+    complex(float('inf'), -float('inf')),
+])
+def test_complex_blob_conversion(value):
+    # Test that converting complex -> blob -> complex preserves the value
+    blob = complex2blob(value)
+    result = blob2complex(blob)
+    assert result == value

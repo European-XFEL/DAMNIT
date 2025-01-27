@@ -10,10 +10,11 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from ctypes import CDLL
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from secrets import token_hex
 from threading import Thread
+from uuid import uuid4
 
 from extra_data.read_machinery import find_proposal
 
@@ -97,12 +98,14 @@ class ExtractionRequest:
     variables: tuple = ()   # Overrides match if present
     mock: bool = False
     update_vars: bool = True
+    processing_id: str = field(default_factory=lambda : str(uuid4()))
 
     def python_cmd(self):
         """Creates the command for a process to do this extraction"""
         cmd = [
             sys.executable, '-m', 'damnit.backend.extract_data',
-            str(self.proposal), str(self.run), self.run_data.value
+            str(self.proposal), str(self.run), self.run_data.value,
+            '--processing-id', self.processing_id,
         ]
         if self.cluster:
             cmd.append('--cluster-job')
@@ -117,6 +120,19 @@ class ExtractionRequest:
         if self.update_vars:
             cmd.append('--update-vars')
         return cmd
+
+    def submitted_info(self, cluster, job_id):
+        return {
+            'processing_id': self.processing_id,
+            'proposal': self.proposal,
+            'run': self.run,
+            'data': self.run_data.value,
+            'status': 'PENDING',
+            'hostname': '',
+            'username': '',
+            'slurm_cluster': cluster,
+            'slurm_job_id': job_id,
+        }
 
 
 class ExtractionSubmitter:
@@ -133,6 +149,14 @@ class ExtractionSubmitter:
             self._proposal = self.db.metameta['proposal']
         return self._proposal
 
+    def _filter_env(self):
+        env = os.environ.copy()
+        # A non-array job submitted from an array job will inherit these
+        # variables if they're not cleared.
+        for v in ['SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID']:
+            env.pop(v, None)
+        return env
+
     def submit(self, req: ExtractionRequest):
         """Submit a Slurm job to extract data from a run
 
@@ -140,7 +164,7 @@ class ExtractionSubmitter:
         """
         res = subprocess.run(
             self.sbatch_cmd(req), stdout=subprocess.PIPE, text=True, check=True,
-            cwd=self.context_dir,
+            cwd=self.context_dir, env=self._filter_env()
         )
         job_id, _, cluster = res.stdout.partition(';')
         job_id = job_id.strip()
@@ -201,14 +225,15 @@ class ExtractionSubmitter:
                 prev_job = out[-1][0]
                 cmd.append(f"--dependency=afterany:{prev_job}")
             res = subprocess.run(
-                cmd, stdout=subprocess.PIPE, text=True, check=True, cwd=self.context_dir,
+                cmd, stdout=subprocess.PIPE, text=True, check=True,
+                cwd=self.context_dir, env=self._filter_env(),
             )
             job_id, _, cluster = res.stdout.partition(';')
             job_id = job_id.strip()
             cluster = cluster.strip() or 'maxwell'
             log.info("Launched Slurm (%s) job array %s (%d runs) to run context file",
                      cluster, job_id, len(req_group))
-            out.append((job_id, cluster))
+            out.extend([(f"{job_id}_{i}", cluster) for i in range(len(req_group))])
 
         return out
 
@@ -236,7 +261,7 @@ class ExtractionSubmitter:
         with tee(log_path) as pipe:
             subprocess.run(
                 self.srun_cmd(req), stdout=pipe, stderr=subprocess.STDOUT, check=True,
-                cwd=self.context_dir,
+                cwd=self.context_dir, env=self._filter_env(),
             )
 
     def execute_direct(self, req: ExtractionRequest):
@@ -355,3 +380,73 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
             submitter.execute_in_slurm(req)
     else:
         submitter.submit_multi(reqs, limit_running=limit_running)
+
+
+class ExtractionJobTracker:
+    """Track running extraction jobs using their running/finished messages"""
+    def __init__(self):
+        self.jobs = {}  # keyed by processing_id
+
+    def on_processing_state_set(self, info):
+        proc_id = info['processing_id']
+        if info != self.jobs.get(proc_id, None):
+            self.jobs[proc_id] = info
+            self.on_run_jobs_changed(info['proposal'], info['run'])
+            log.debug("Processing %s for p%s r%s on %s (%s)",
+                      info['status'], info['proposal'], info['run'], info['hostname'], proc_id)
+
+    def on_processing_finished(self, info):
+        proc_id = info['processing_id']
+        info = self.jobs.pop(proc_id, None)
+        if info is not None:
+            self.on_run_jobs_changed(info['proposal'], info['run'])
+            log.debug("Processing finished for p%s r%s (%s)",
+                      info['proposal'], info['run'], proc_id)
+
+    def on_run_jobs_changed(self, proposal, run):
+        pass   # Implement in subclass
+
+    def check_slurm_jobs(self):
+        """Check for any Slurm jobs that exited without a 'finished' message"""
+        jobs_by_cluster = {}
+        for info in self.jobs.values():
+            if cluster := info['slurm_cluster']:
+                jobs_by_cluster.setdefault(cluster, []).append(info)
+
+        for cluster, infos in jobs_by_cluster.items():
+            jids = [i['slurm_job_id'] for i in infos]
+            # Passing 1 Job ID can give an 'Invalid job id' error if it has
+            # already left the queue. With multiple, we always get a list back.
+            if len(jids) == 1:
+                jids.append("1")
+
+            cmd = ["squeue", "--clusters", cluster, "--jobs=" + ",".join(jids),
+                   "--format=%i %T", "--noheader"]
+            self.squeue_check_jobs(cmd, infos)
+
+    # Running the squeue subprocess is separated here so GUI code can override
+    # it, to avoid blocking the event loop if squeue is slow for any reason.
+    def squeue_check_jobs(self, cmd, jobs_to_check):
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            log.warning("Error calling squeue")
+            return
+
+        self.process_squeue_output(res.stdout, jobs_to_check)
+
+    def process_squeue_output(self, stdout: str, jobs_to_check):
+        """Inspect squeue output to clean up crashed jobs"""
+        still_running = set()
+        for line in stdout.splitlines():
+            job_id, status = line.strip().split()
+            if status == 'RUNNING':
+                still_running.add(job_id)
+
+        for info in jobs_to_check:
+            proc_id = info['processing_id']
+            job_id = info['slurm_job_id']
+            if (proc_id in self.jobs) and (job_id not in still_running):
+                del self.jobs[proc_id]
+                self.on_run_jobs_changed(info['proposal'], info['run'])
+                log.info("Slurm job %s on %s (%s) crashed or was cancelled",
+                         info['slurm_job_id'], info['slurm_cluster'], proc_id)

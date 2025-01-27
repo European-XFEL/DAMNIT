@@ -9,6 +9,7 @@ import stat
 import subprocess
 import textwrap
 from time import sleep, time
+from uuid import uuid4
 from unittest.mock import MagicMock, patch
 
 import extra_data as ed
@@ -24,7 +25,8 @@ from testpath import MockCommand
 
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
-from damnit.backend.extract_data import Extractor, add_to_db
+from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db
+from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
@@ -406,6 +408,33 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     with h5py.File(results_hdf5_path) as f:
         assert f[".reduced/dataset"].asstr()[()].startswith("Dataset")
 
+    # Test returning complex results
+    complex_code = """
+    from damnit_ctx import Variable
+    import numpy as np
+    import xarray as xr
+
+    data = np.array([1+1j, 2+2j, 3+3j])
+
+    @Variable(title="Complex Dataset")
+    def complex_dataset(run):
+        return xr.Dataset(data_vars={"foo": xr.DataArray(data),})
+
+    @Variable(title='Complex Array')
+    def complex_array(run):
+        return data
+    """
+    complex_ctx = mkcontext(complex_code)
+    results = results_create(complex_ctx)
+    results.save_hdf5(results_hdf5_path)
+
+    dataset = xr.load_dataset(results_hdf5_path, group="complex_dataset", engine="h5netcdf")
+    assert "foo" in dataset
+    assert dataset['foo'].dtype == np.complex128
+    with h5py.File(results_hdf5_path) as f:
+        assert f[".reduced/complex_dataset"].asstr()[()].startswith("Dataset")
+        assert np.allclose(f['complex_array/data'][()], np.array([1+1j, 2+2j, 3+3j]))
+
     # Test getting mymdc fields
     mymdc_code = """
     from damnit_ctx import Variable
@@ -538,6 +567,28 @@ def test_results_cell(mock_run, tmp_path):
 
         assert f['.reduced/var3'][()] == 4
 
+
+def test_results_empty_array(mock_run, tmp_path, caplog):
+    # test failing summary
+    empty_array = """
+    from damnit_ctx import Variable
+
+    @Variable(title='Foo', summary='max')
+    def foo(run):
+        import numpy as np
+        return np.array([])
+    """
+    ctx = mkcontext(empty_array)
+    with caplog.at_level(logging.ERROR):
+        results = ctx.execute(mock_run, 1000, 123, {})
+        results.save_hdf5(tmp_path / 'results.h5', reduced_only=True)
+
+        # One warning about foo should have been logged
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "ERROR"
+        assert caplog.records[0].msg == "Failed to produce summary data"
+
+
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
 def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
 
@@ -646,14 +697,13 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Create Extractor with a mocked KafkaProducer
     with patch(f"{pkg}.KafkaProducer") as _:
-        extractor = Extractor()
+        extractor = RunExtractor(1234, 42, cluster=False, run_data=RunData.ALL)
 
     # Test regular variables and slurm variables are executed
     reduced_data = reduced_data_from_dict({ "n": 53 })
-    with patch(f"{pkg}.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
+    with patch(f"{pkg}.RunExtractor.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
          MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
-        extractor.extract_and_ingest(1234, 42, cluster=False,
-                                     run_data=RunData.ALL)
+        extractor.extract_and_ingest()
         extract_in_subprocess.assert_called_once()
         extractor.kafka_prd.send.assert_called()
         sbatch.assert_called()
@@ -748,7 +798,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db.metameta["context_python"] = str(venv.python)
 
     with patch(f"{pkg}.KafkaProducer"):
-        Extractor().extract_and_ingest(1234, 42, mock=True)
+        RunExtractor(1234, 42, mock=True).extract_and_ingest()
 
     with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
         assert f["foo/data"][()] == 42
@@ -923,3 +973,32 @@ def test_event_processor(mock_db, caplog):
 
         assert len(local_extraction_threads) == MAX_CONCURRENT_THREADS
         assert 'Too many events processing' in caplog.text
+
+
+def test_job_tracker():
+    tracker = ExtractionJobTracker()
+
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': '', 'slurm_job_id': '', 'status': 'RUNNING'}
+
+    prid1, prid2 = str(uuid4()), str(uuid4())
+
+    # Add two running jobs
+    tracker.on_processing_state_set(d | {'run': 1, 'processing_id': prid1})
+    tracker.on_processing_state_set(d | {
+        'run': 2, 'processing_id': prid2,
+        'slurm_cluster': 'maxwell', 'slurm_job_id': '321'
+    })
+    assert set(tracker.jobs) == {prid1, prid2}
+
+    # One job finishes normally
+    tracker.on_processing_finished({'processing_id': prid1})
+    assert set(tracker.jobs) == {prid2}
+
+    # The other one fails to send a finished message, so checking Slurm reveals
+    # that it failed.
+    with MockCommand.fixed_output('squeue', '') as fake_squeue:
+        tracker.check_slurm_jobs()
+
+    fake_squeue.assert_called()
+    assert set(tracker.jobs) == set()
