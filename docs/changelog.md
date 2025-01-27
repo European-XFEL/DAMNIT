@@ -4,9 +4,12 @@
 
 Added:
 
-- Watch context file for changes saved outside the editor (!304).
+- GUI: Watch context file for changes saved outside the editor (!304).
+- GUI: show when runs are being processed (!322)
 - Reads techniques annotation from MyMDC (!338).
 - Add a `tags` attribute allowing cathegorizing `Variable`s (!354).
+- Add support for `complex` numbers (!374)
+- GUI: Add a Dark theme (!376)
 
 Changed:
 
@@ -19,10 +22,12 @@ Fixed:
 
 - Fixed loading data with WebViewer (!310).
 - Added back grid lines for plots of `DataArray`'s (!334).
+- Failed to setup new database from the GUI (!337)
 - Fixed adding new variable without explicit title as column in GUI (!347).
 - Fixed thumbnails of 2D `DataArray`'s to match what is displayed when the
   variable is plotted (!355).
 - Fixed crashes when the context file environment is missing dependencies (!356).
+- handle failure generating summary while writing results to file (!370)
 
 ## [0.1.4]
 
