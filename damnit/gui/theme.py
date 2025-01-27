@@ -123,3 +123,52 @@ class ThemeManager:
             """
         else:
             return ""  # Use default system style for light theme
+
+    @staticmethod
+    def get_syntax_highlighting_colors(theme: Theme):
+        """Get the Editor's syntax highlighting colors for the given theme
+        """
+        if theme == Theme.DARK:
+            return {
+                'background': QColor('#232323'),
+                'text': QColor('white'),
+                'caret': QColor('white'),
+                'caret_line': QColor('#2a2a2a'),
+                'margin_fore': QColor('#cccccc'),
+                'margin_back': QColor('#2a2a2a'),
+                'selection_back': QColor('#404040'),
+                'selection_fore': QColor('white'),
+                'brace_back': QColor('#404040'),
+                'brace_fore': QColor('white'),
+                'unbrace_back': QColor('#802020'),
+                'unbrace_fore': QColor('white'),
+                'keyword': QColor('#66d9ef'),
+                'class_name': QColor('#a6e22e'),
+                'operator': QColor('#f92672'),
+                'function': QColor('#fd971f'),
+                'comment': QColor('#75715e'),
+                'string': QColor('#e6db74'),
+                'number': QColor('#ae81ff'),
+            }
+        else:
+            return {
+                'background': QColor('white'),
+                'text': QColor('black'),
+                'caret': QColor('black'),
+                'caret_line': QColor('lightgray'),
+                'margin_fore': QColor('black'),
+                'margin_back': QColor('white'),
+                'selection_back': QColor('#c0c0c0'),
+                'selection_fore': QColor('black'),
+                'brace_back': QColor('#c0c0c0'),
+                'brace_fore': QColor('black'),
+                'unbrace_back': QColor('#ff8080'),
+                'unbrace_fore': QColor('black'),
+                'keyword': QColor('#0000ff'),
+                'class_name': QColor('#007f7f'),
+                'operator': QColor('#7f0000'),
+                'function': QColor('#007f00'),
+                'comment': QColor('#7f7f7f'),
+                'string': QColor('#7f007f'),
+                'number': QColor('#007f7f'),
+            }
