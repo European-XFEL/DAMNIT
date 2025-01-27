@@ -12,7 +12,7 @@ import h5py
 import pandas as pd
 import pytest
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPalette, QPixmap
 from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
                              QMessageBox, QStyledItemDelegate)
 
@@ -24,6 +24,7 @@ from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
+from damnit.gui.theme import Theme
 from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import extract_mock_run, mkcontext, reduced_data_from_dict
@@ -1087,3 +1088,40 @@ def test_processing_status(mock_db_with_data, qtbot):
     tbl.handle_processing_state_set(d | {'run': 2, 'processing_id': str(uuid4())})
     assert tbl.rowCount() == 2
     assert shows_as_processing(2)
+
+
+def test_theme(mock_db, qtbot, tmp_path):
+    """Test theme loading, saving, and application."""
+    db_dir, db = mock_db
+    settings_path = tmp_path / ".local/state/damnit/settings.db"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        # Test default theme
+        win = MainWindow(db_dir, False)
+        qtbot.addWidget(win)
+        assert win.current_theme == Theme.LIGHT
+
+        # Test theme saving and loading
+        win._toggle_theme(True)
+        assert win.current_theme == Theme.DARK
+        win.close()
+        
+        # Create new window to test theme persistence
+        win2 = MainWindow(db_dir, False)
+        qtbot.addWidget(win2)
+        assert win2.current_theme == Theme.DARK  # Should load saved dark theme
+        assert win2.dark_mode_action.isChecked()  # Action should be checked
+
+        # Test theme application to components
+        dark_palette = win2.palette()
+        assert dark_palette.color(QPalette.Window).name() == "#353535"  # Dark theme color
+        assert dark_palette.color(QPalette.WindowText).name() == "#ffffff"  # White text
+
+        # Test theme application to editor
+        assert win2._editor._lexer.defaultPaper(0).name() == "#232323"  # Dark theme editor background
+
+        # Test theme toggle back to light
+        win2._toggle_theme(False)
+        assert win2.current_theme == Theme.LIGHT
+        assert win2.palette() != dark_palette  # Light theme should have different colors
