@@ -162,10 +162,6 @@ class Editor(QsciScintilla):
         self._lexer.setColor(colors['string'], QsciLexerPython.SingleQuotedString)
         self._lexer.setColor(colors['number'], QsciLexerPython.Number)
 
-        # Set paper (background) for all styles
-        for style in range(128):  # QScintilla uses style numbers 0-127
-            self._lexer.setPaper(colors['background'], style)
-
         # Apply the new lexer
         self.setLexer(None)  # Clear the old lexer
         self.setLexer(self._lexer)  # Set the new lexer

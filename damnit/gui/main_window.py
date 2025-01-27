@@ -75,11 +75,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Data And Metadata iNspection Interactive Thing")
         self.setWindowIcon(QtGui.QIcon(icon_path("AMORE.png")))
         self._create_status_bar()
-        self._create_menu_bar()
 
         # Load theme from settings
         self.current_theme = self._load_theme()
         self.apply_theme(self.current_theme)
+
+        self._create_menu_bar()
 
         self._view_widget = QtWidgets.QWidget(self)
         self._editor = Editor()
@@ -1052,9 +1053,9 @@ da-dev@xfel.eu"""
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
-    def _toggle_theme(self):
+    def _toggle_theme(self, checked):
         """Toggle between light and dark themes."""
-        new_theme = Theme.DARK if self.dark_mode_action.isChecked() else Theme.LIGHT
+        new_theme = Theme.DARK if checked else Theme.LIGHT
         self.apply_theme(new_theme)
 
     def apply_theme(self, theme: Theme):
