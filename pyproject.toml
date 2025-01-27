@@ -15,7 +15,7 @@ classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version"]
 readme = "README.md"
 dependencies = [
-    "h5netcdf",
+    "h5netcdf>=1.4.1",
     "h5py",
     "orjson",  # used in plotly for faster json serialization
     "pandas",

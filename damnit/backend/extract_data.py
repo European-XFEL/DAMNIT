@@ -142,7 +142,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         db.ensure_run(proposal, run, start_time=start_time.value)
 
     for name, reduced in reduced_data.items():
-        if not isinstance(reduced.value, (int, float, str, bytes)):
+        if not isinstance(reduced.value, (int, float, str, bytes, complex)):
             raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
 
         db.set_variable(proposal, run, name, reduced)
