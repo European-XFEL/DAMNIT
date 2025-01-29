@@ -8,6 +8,7 @@ Added:
 - GUI: show when runs are being processed (!322)
 - Reads techniques annotation from MyMDC (!338).
 - Add a `tags` attribute allowing cathegorizing `Variable`s (!354).
+- GUI: Add row filtering (!362).
 - Add support for `complex` numbers (!374)
 - GUI: Add a Dark theme (!376)
 
@@ -17,6 +18,7 @@ Changed:
 - Status column can be hidden (!324).
 - Activate software OpenGL by default on maxwell nodes (!332).
 - Use Slurm array jobs to limit concurrent extraction jobs (!335).
+- GUI: Add row filtering (!362).
 
 Fixed:
 
@@ -28,6 +30,9 @@ Fixed:
   variable is plotted (!355).
 - Fixed crashes when the context file environment is missing dependencies (!356).
 - handle failure generating summary while writing results to file (!370)
+
+Deprecated:
+- GUI: Standalone comments are no longer supported in the run table(!362).
 
 ## [0.1.4]
 
