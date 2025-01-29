@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from PyQt5.QtCore import QPoint, Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPalette, QPixmap
 from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
                              QMenu, QMessageBox, QStyledItemDelegate)
 
@@ -1194,8 +1194,8 @@ def test_filter_menu(mock_db_with_data, qtbot):
     """Test FilterMenu initialization and functionality."""
     win = MainWindow(mock_db_with_data[0], False)
     win.show()
-    qtbot.waitExposed(win)
     qtbot.addWidget(win)
+    qtbot.waitExposed(win)
     model = win.table_view.model()
 
     # Test numeric column
