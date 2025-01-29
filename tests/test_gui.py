@@ -12,15 +12,15 @@ import h5py
 import numpy as np
 import pandas as pd
 import pytest
-from PyQt5.QtCore import QPoint, Qt
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette, QPixmap
 from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
-                             QMenu, QMessageBox, QStyledItemDelegate)
+                             QMessageBox, QStyledItemDelegate)
 
 import damnit
 from damnit.backend.db import DamnitDB, ReducedData
 from damnit.backend.extract_data import add_to_db
-from damnit.ctxsupport.ctxrunner import ContextFile, Results
+from damnit.ctxsupport.ctxrunner import ContextFile
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
@@ -28,7 +28,6 @@ from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.table_filter import (CategoricalFilter,
                                      CategoricalFilterWidget, FilterMenu,
-                                     FilterProxy, FilterStatus, FilterType,
                                      NumericFilter, NumericFilterWidget)
 from damnit.gui.theme import Theme
 from damnit.gui.zulip_messenger import ZulipConfig
@@ -988,7 +987,7 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
             if not table_view.isColumnHidden(col):
                 count += 1
         return count
-    
+
     # Hepler function to apply tag filter
     def apply_tag_filter(tags):
         table_view.apply_tag_filter(tags)
@@ -1070,7 +1069,7 @@ def test_filter_proxy(mock_db_with_data_2, qtbot):
 
     # Test numeric filtering
     scalar1_col = source_model.find_column("Scalar1", by_title=True)
-    
+
     # Test with range and selected values
     num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42})
     proxy_model.set_filter(scalar1_col, num_filter)
@@ -1145,46 +1144,46 @@ def test_filters():
 
 def test_standalone_comments(mock_db, qtbot):
     db_dir, db = mock_db
-    
+
     win = MainWindow(db_dir, False)
     win.show()
     qtbot.waitExposed(win)
     qtbot.addWidget(win)
-    
+
     # Create and show the TimeComment dialog
     dialog = TimeComment(win)
     qtbot.addWidget(dialog)
     dialog.show()
     qtbot.waitExposed(dialog)
-    
+
     model = dialog.model
-    
+
     # Test adding a comment
     test_timestamp = 1640995200  # 2022-01-01 00:00:00
     test_comment = "Test comment 1"
     model.addComment(test_timestamp, test_comment)
-    
+
     # Verify comment was added
     assert model.rowCount() > 0
     index = model.index(0, 2)  # Comment column
     assert model.data(index, Qt.DisplayRole) == test_comment
-    
+
     # Add another comment
     test_timestamp2 = 1641081600  # 2022-01-02 00:00:00
     test_comment2 = "Test comment 2"
     model.addComment(test_timestamp2, test_comment2)
-    
+
     # Test sorting
     # Sort by timestamp ascending
     model.sort(1, Qt.AscendingOrder)
     index = model.index(0, 2)
     assert model.data(index, Qt.DisplayRole) == test_comment
-    
+
     # Sort by timestamp descending
     model.sort(1, Qt.DescendingOrder)
     index = model.index(0, 2)
     assert model.data(index, Qt.DisplayRole) == test_comment2
-    
+
     # Test comment persistence
     model.load_comments()
     assert model.rowCount() == 2
@@ -1270,7 +1269,7 @@ def test_theme(mock_db, qtbot, tmp_path):
         win._toggle_theme(True)
         assert win.current_theme == Theme.DARK
         win.close()
-        
+
         # Create new window to test theme persistence
         win2 = MainWindow(db_dir, False)
         qtbot.addWidget(win2)
