@@ -15,7 +15,7 @@ from superqt import QSearchableListWidget
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
-from ..backend.db import BlobTypes, DamnitDB, ReducedData
+from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
@@ -546,14 +546,16 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
 
         for (prop, run), grp in groupby(self.db.conn.execute("""
-            SELECT proposal, run, name, value, max_diff, attributes FROM run_variables
+            SELECT proposal, run, name, value, max_diff, summary_type, attributes FROM run_variables
             ORDER BY proposal, run
         """).fetchall(), key=lambda r: r[:2]):  # Group by proposal & run
             row_ix = self.run_index[(prop, run)]
-            for *_, name, value, max_diff, attr_json in grp:
+            for *_, name, value, max_diff, summary_type, attr_json in grp:
                 col_ix = self.column_index[name]
                 if name in self.user_variables:
                     value = self.user_variables[name].get_type_class().from_db_value(value)
+                if summary_type == "complex":
+                    value = blob2complex(value)
                 attrs = json.loads(attr_json) if attr_json else {}
                 self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
 
