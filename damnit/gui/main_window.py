@@ -17,29 +17,30 @@ from kafka.errors import NoBrokersAvailable
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
-from PyQt5.QtWebEngineWidgets import QWebEngineProfile
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QTabWidget, QAction
 from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
+from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
 
 from ..api import DataType, RunVariables
 from ..backend import backend_is_running, initialize_and_start_backend
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
-from ..backend.extraction_control import process_log_path, ExtractionSubmitter
+from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
 from .editor import ContextTestResult, Editor
 from .kafka import UpdateAgent
-from .open_dialog import OpenDBDialog
 from .new_context_dialog import NewContextFileDialog
-from .plot import ImagePlotWindow, ScatterPlotWindow, Xarray1DPlotWindow, PlottingControls
+from .open_dialog import OpenDBDialog
+from .plot import (ImagePlotWindow, PlottingControls, ScatterPlotWindow,
+                   Xarray1DPlotWindow)
 from .process import ProcessingDialog
 from .table import DamnitTableModel, TableView, prettify_notation
+from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
-from .theme import Theme, ThemeManager
 
 log = logging.getLogger(__name__)
 
@@ -1077,6 +1078,10 @@ da-dev@xfel.eu"""
         # Update editor theme
         if hasattr(self, '_editor'):
             self._editor.update_theme(theme)
+
+        # Update error widget lexer theme
+        if hasattr(self, '_error_widget_lexer'):
+            set_lexer_theme(self._error_widget_lexer, self.current_theme)
         
         # Update plot windows
         if hasattr(self, '_canvas_inspect'):
