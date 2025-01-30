@@ -72,9 +72,6 @@ class ThemeManager:
             QScrollBar::handle {
                 background-color: #454545;
             }
-            # QScrollBar::add-line, QScrollBar::sub-line {
-            #     background: none;
-            # }
             QPlainTextEdit, QTextEdit {
                 background-color: #232323;
                 color: #ffffff;
@@ -105,9 +102,6 @@ class ThemeManager:
                 border: 1px solid #454545;
                 border-radius: 2px;
             }
-            # QComboBox::drop-down {
-            #     border: none;
-            # }
             QComboBox::down-arrow {
                 width: 12px;
                 height: 12px;
