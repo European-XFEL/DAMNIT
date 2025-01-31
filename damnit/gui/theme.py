@@ -1,6 +1,9 @@
 from enum import Enum
+
+from PyQt5.Qsci import QsciLexerPython
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPalette, QColor
+from PyQt5.QtGui import QColor, QPalette
+
 
 class Theme(Enum):
     LIGHT = "light"
@@ -51,7 +54,6 @@ class ThemeManager:
                 background-color: #353535;
                 color: #ffffff;
                 padding: 5px;
-                border: none;
             }
             QTabWidget::pane {
                 border: 1px solid #353535;
@@ -60,7 +62,6 @@ class ThemeManager:
                 background-color: #353535;
                 color: #ffffff;
                 padding: 8px 20px;
-                border: none;
             }
             QTabBar::tab:selected {
                 background-color: #454545;
@@ -70,9 +71,6 @@ class ThemeManager:
             }
             QScrollBar::handle {
                 background-color: #454545;
-            }
-            QScrollBar::add-line, QScrollBar::sub-line {
-                background: none;
             }
             QPlainTextEdit, QTextEdit {
                 background-color: #232323;
@@ -89,7 +87,6 @@ class ThemeManager:
                 background-color: #353535;
                 color: #ffffff;
                 padding: 6px 12px;
-                border: none;
                 border-radius: 2px;
             }
             QPushButton:hover {
@@ -105,9 +102,6 @@ class ThemeManager:
                 border: 1px solid #454545;
                 border-radius: 2px;
             }
-            QComboBox::drop-down {
-                border: none;
-            }
             QComboBox::down-arrow {
                 width: 12px;
                 height: 12px;
@@ -118,6 +112,17 @@ class ThemeManager:
                 border: 1px solid #353535;
             }
             QMenu::item:selected {
+                background-color: #454545;
+            }
+            QToolBar {
+                background-color: #353535;
+                color: #ffffff;
+            }
+            QToolButton {
+                background-color: #353535;
+                color: #ffffff;
+            }
+            QToolButton:hover {
                 background-color: #454545;
             }
             """
@@ -172,3 +177,19 @@ class ThemeManager:
                 'string': QColor('#7f007f'),
                 'number': QColor('#007f7f'),
             }
+
+
+def set_lexer_theme(lexer, theme: Theme):
+    colors = ThemeManager.get_syntax_highlighting_colors(theme)
+    lexer.setPaper(colors['background'])
+    lexer.setColor(colors['text'])
+    lexer.setDefaultPaper(colors['background'])
+    lexer.setDefaultColor(colors['text'])
+    lexer.setColor(colors['keyword'], QsciLexerPython.Keyword)
+    lexer.setColor(colors['class_name'], QsciLexerPython.ClassName)
+    lexer.setColor(colors['operator'], QsciLexerPython.Operator)
+    lexer.setColor(colors['function'], QsciLexerPython.FunctionMethodName)
+    lexer.setColor(colors['comment'], QsciLexerPython.Comment)
+    lexer.setColor(colors['string'], QsciLexerPython.DoubleQuotedString)
+    lexer.setColor(colors['string'], QsciLexerPython.SingleQuotedString)
+    lexer.setColor(colors['number'], QsciLexerPython.Number)
