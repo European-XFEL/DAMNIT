@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
 
 from extra_data.read_machinery import find_proposal
+from superqt import QSearchableListWidget
 
 from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
@@ -106,7 +107,9 @@ class ProcessingDialog(QtWidgets.QDialog):
         grid1.addWidget(self.edit_runs, 1, 1)
         grid1.addWidget(self.runs_hint, 2, 0, 1, 2)
 
-        self.vars_list = QtWidgets.QListWidget()
+        self.vars_list = QSearchableListWidget()
+        self.vars_list.filter_widget.setPlaceholderText("Search variable")
+        self.vars_list.layout().setContentsMargins(0, 0, 0, 0)
         vbox2.addWidget(self.vars_list)
 
         self.btn_select_all = QtWidgets.QPushButton("Select all")
