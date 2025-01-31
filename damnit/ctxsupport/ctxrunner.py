@@ -233,8 +233,12 @@ class ContextFile:
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
 
-    def vars_to_dict(self):
-        """Get a plain dict of variable metadata to store in the database"""
+    def vars_to_dict(self, inc_transient=False):
+        """Get a plain dict of variable metadata to store in the database
+        
+        args:
+            inc_transient (bool): include transient Variables in the dict
+        """
         return {
             name: {
                 'title': v.title,
@@ -244,6 +248,7 @@ class ContextFile:
                 'type': None,
             }
             for (name, v) in self.vars.items()
+            if not v.transient or inc_transient
         }
 
     def filter(self, run_data=RunData.ALL, cluster=True, name_matches=(), variables=()):
@@ -349,6 +354,12 @@ class ContextFile:
                 t1 = time.perf_counter()
                 log.info("Computed %s in %.03f s", name, t1 - t0)
                 res[name] = data
+
+        # remove transient results
+        for name, var in self.vars.items():
+            if var.transient and (name in res):
+                res.pop(name)
+
         return Results(res, self)
 
 
