@@ -71,6 +71,9 @@ these arguments:
   ```
 - `cluster` (bool): whether or not to execute this variable in a Slurm job. This
   should always be used if the variable does any heavy processing.
+- `transient` (bool): whether or not to save the variable's result to the
+  database. This is useful for e.g. intermediate results. By default variables
+  save their results (transient=False).
 
 Variable functions can return any of:
 
