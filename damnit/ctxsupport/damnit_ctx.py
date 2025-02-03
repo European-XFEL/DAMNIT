@@ -60,9 +60,9 @@ class Variable:
 
     def check(self):
         problems = []
-        if not re.fullmatch(r"[a-zA-Z_]\w+", self.name, flags=re.A):
+        if not self.name.isidentifier():
             problems.append(
-                f"The variable name {self.name!r} is not of the form '[a-zA-Z_]\\w+'"
+                f"The variable name {self.name!r} is not a valid Python identifier"
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(

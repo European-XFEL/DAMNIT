@@ -168,6 +168,10 @@ def test_context_file(mock_ctx, tmp_path):
     @Variable(title="foo")
     def foo(run, sample: "mymdc#sample_name", run_type: "mymdc#run_type"):
         return 42
+
+    @Variable(title='X')
+    def X(run, foo: "var#foo"):
+        return foo
     """
     # This should not raise an exception
     mkcontext(good_mymdc_code).check()
@@ -197,7 +201,6 @@ def test_context_file(mock_ctx, tmp_path):
     ctx = mkcontext(empty_string_tag)
     with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
         ctx.check()
-
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a
