@@ -11,6 +11,7 @@ Added:
 - GUI: Add row filtering (!362).
 - Add support for `complex` numbers (!374)
 - GUI: Add a Dark theme (!376)
+- add a`transient` attribute for variables we don't want to save data (!xxx)
 
 Changed:
 

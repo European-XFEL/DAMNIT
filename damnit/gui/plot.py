@@ -1,25 +1,25 @@
 import logging
+import tempfile
+
+import matplotlib
+import mplcursors
 import numpy as np
 import pandas as pd
-import tempfile
 import xarray as xr
 
+from matplotlib.backends.backend_qtagg import FigureCanvas
+from matplotlib.backends.backend_qtagg import \
+    NavigationToolbar2QT as NavigationToolbar
+from matplotlib.colorbar import Colorbar
+from matplotlib.figure import Figure
+from mpl_pan_zoom import MouseButton, PanManager, zoom_factory
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, QObject
-from PyQt5 import QtCore, QtWidgets, QtGui
+from PyQt5.QtGui import QColor, QIcon, QPainter
 from PyQt5.QtWidgets import QMessageBox
 
-import mplcursors
-import matplotlib
-from matplotlib.backends.backend_qtagg import (
-    FigureCanvas,
-    NavigationToolbar2QT as NavigationToolbar,
-)
-from matplotlib.figure import Figure
-from mpl_pan_zoom import zoom_factory, PanManager, MouseButton
-
 from ..api import RunVariables
-from ..util import fix_data_for_plotting
-from .theme import Theme, ThemeManager
+from .theme import Theme
 
 log = logging.getLogger(__name__)
 
@@ -188,37 +188,43 @@ class PlotWindow(QtWidgets.QDialog):
     def update(self):
         pass  # Overridden in subclasses
 
+    def _update_plot_toolbar_theme(self):
+        if self.current_theme == Theme.DARK:
+            enabled_color = QColor('white')
+            disabled_color = QColor('grey')
+        else:
+            enabled_color = QColor('black')
+            disabled_color = QColor('grey')
+
+        for action in self._navigation_toolbar.actions():
+            if action.icon() and not action.icon().isNull():
+                pixmap = action.icon().pixmap(24, 24)
+                painter = QPainter(pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                painter.fillRect(pixmap.rect(), enabled_color if action.isEnabled() else disabled_color)
+                painter.end()
+                action.setIcon(QIcon(pixmap))
+
     def _update_plot_theme(self):
         """Update matplotlib figure colors based on current theme."""
-        if self.current_theme == Theme.DARK:
-            # Set dark theme for matplotlib
-            self.figure.patch.set_facecolor('#232323')
-            self._axis.set_facecolor('#232323')
-            self._axis.tick_params(colors='white')
-            self._axis.xaxis.label.set_color('white')
-            self._axis.yaxis.label.set_color('white')
-            self._axis.title.set_color('white')
-            for spine in self._axis.spines.values():
-                spine.set_color('white')
-            # self._axis.grid(True, color='#454545')
-        else:
-            # Reset to light theme
-            self.figure.patch.set_facecolor('white')
-            self._axis.set_facecolor('white')
-            self._axis.tick_params(colors='black')
-            self._axis.xaxis.label.set_color('black')
-            self._axis.yaxis.label.set_color('black')
-            self._axis.title.set_color('black')
-            for spine in self._axis.spines.values():
-                spine.set_color('black')
-            # self._axis.grid(True, color='#cccccc')
-        
+        dark = self.current_theme == Theme.DARK
+
+        self.figure.patch.set_facecolor('#232323' if dark else 'white')
+        self._axis.set_facecolor('#232323' if dark else 'white')
+        self._axis.tick_params(colors='white' if dark else 'black')
+        self._axis.xaxis.label.set_color('white' if dark else 'black')
+        self._axis.yaxis.label.set_color('white' if dark else 'black')
+        self._axis.title.set_color('white' if dark else 'black')
+        for spine in self._axis.spines.values():
+            spine.set_color('white' if dark else 'black')
+
         self._canvas.draw()
 
     def update_theme(self, theme: Theme):
         """Update the window theme."""
         self.current_theme = theme
         self._update_plot_theme()
+        self._update_plot_toolbar_theme()
 
 
 class HistogramPlotWindow(PlotWindow):

@@ -41,13 +41,15 @@ class Variable:
     _name = None
 
     def __init__(
-            self, title=None, description=None, summary=None, data=None, cluster=False, tags=None,
+            self, title=None, description=None, summary=None, data=None,
+            cluster=False, tags=None, transient=False
     ):
         self.title = title
         self.tags = (tags,) if isinstance(tags, str) else tags
         self.description = description
         self.summary = summary
         self.cluster = cluster
+        self.transient = transient
         self._data = data
 
     # @Variable() is used as a decorator on a function that computes a value
@@ -60,9 +62,9 @@ class Variable:
 
     def check(self):
         problems = []
-        if not re.fullmatch(r"[a-zA-Z_]\w+", self.name, flags=re.A):
+        if not self.name.isidentifier():
             problems.append(
-                f"The variable name {self.name!r} is not of the form '[a-zA-Z_]\\w+'"
+                f"The variable name {self.name!r} is not a valid Python identifier"
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(

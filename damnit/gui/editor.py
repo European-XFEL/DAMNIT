@@ -5,18 +5,18 @@ from io import StringIO
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
-from PyQt5.Qsci import QsciScintilla, QsciLexerPython, QsciCommand
-
-from pyflakes.reporter import Reporter
 from pyflakes.api import check as pyflakes_check
+from pyflakes.reporter import Reporter
+from PyQt5.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QFont
 from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file
-from ..ctxsupport.ctxrunner import extract_error_info
 from ..context import ContextFile
-from .theme import Theme, ThemeManager
+from ..ctxsupport.ctxrunner import extract_error_info
+from .theme import Theme, ThemeManager, set_lexer_theme
+
 
 class ContextTestResult(Enum):
     OK = 0
@@ -151,16 +151,7 @@ class Editor(QsciScintilla):
         self.setUnmatchedBraceForegroundColor(colors['unbrace_fore'])
 
         # Python syntax highlighting colors
-        self._lexer.setDefaultPaper(colors['background'])
-        self._lexer.setDefaultColor(colors['text'])
-        self._lexer.setColor(colors['keyword'], QsciLexerPython.Keyword)
-        self._lexer.setColor(colors['class_name'], QsciLexerPython.ClassName)
-        self._lexer.setColor(colors['operator'], QsciLexerPython.Operator)
-        self._lexer.setColor(colors['function'], QsciLexerPython.FunctionMethodName)
-        self._lexer.setColor(colors['comment'], QsciLexerPython.Comment)
-        self._lexer.setColor(colors['string'], QsciLexerPython.DoubleQuotedString)
-        self._lexer.setColor(colors['string'], QsciLexerPython.SingleQuotedString)
-        self._lexer.setColor(colors['number'], QsciLexerPython.Number)
+        set_lexer_theme(self._lexer, self.current_theme)
 
         # Apply the new lexer
         self.setLexer(None)  # Clear the old lexer
