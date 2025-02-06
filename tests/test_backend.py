@@ -25,7 +25,7 @@ from testpath import MockCommand
 
 from damnit.backend import backend_is_running, initialize_and_start_backend
 from damnit.backend.db import DamnitDB
-from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db
+from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data
 from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
@@ -1005,3 +1005,47 @@ def test_job_tracker():
 
     fake_squeue.assert_called()
     assert set(tracker.jobs) == set()
+
+def test_transient_variables(mock_run, mock_db, tmp_path):
+    db_dir, db = mock_db
+
+    ctx_code = """
+    from damnit_ctx import Variable, Cell
+    import numpy as np
+
+    @Variable()
+    def var1(run):
+        return 7
+
+    @Variable(transient=True)
+    def var2(run, data: 'var#var1'):
+        return np.arange(data)
+
+    @Variable(summary='max')
+    def var3(run, data: 'var#var2'):
+        return data.size * data
+    """
+    ctx = mkcontext(ctx_code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+
+    with h5py.File(results_hdf5_path) as f:
+        assert '.reduced/var1' in f
+        assert 'var1' in f
+        # transient variables are not saved
+        assert '.reduced/var2' not in f
+        assert 'var2' not in f
+        assert '.reduced/var3' in f
+        assert 'var3' in f
+
+        assert f['.reduced/var3'][()] == 42
+        assert np.allclose(f['var3/data'][()], np.arange(7) * 7)
+
+    reduced_data = load_reduced_data(results_hdf5_path)
+    add_to_db(reduced_data, db, 1000, 123)
+    vars = db.conn.execute('SELECT value FROM run_variables WHERE name="var3"').fetchall()
+    assert vars[0]['value'] == 42
+    # also not saved in the db
+    vars = db.conn.execute('SELECT * FROM run_variables WHERE name="var2"').fetchall()
+    assert vars == []
