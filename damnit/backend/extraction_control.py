@@ -314,7 +314,7 @@ class ExtractionSubmitter:
 
 
 def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=30):
-    """Called by the 'amore-proto reprocess' subcommand"""
+    """Called by the 'damnit reprocess' subcommand"""
     submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
         proposal = submitter.proposal

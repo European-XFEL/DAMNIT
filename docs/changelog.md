@@ -18,6 +18,7 @@ Changed:
 - Status column can be hidden (!324).
 - Activate software OpenGL by default on maxwell nodes (!332).
 - Use Slurm array jobs to limit concurrent extraction jobs (!335).
+- Renamed the 'amore-proto' command to 'damnit' (!386).
 
 Fixed:
 

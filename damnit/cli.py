@@ -44,6 +44,10 @@ def excepthook(exc_type, value, tb):
 
 
 def main(argv=None):
+    # Check if script was called as amore-proto and show deprecation warning
+    if Path(sys.argv[0]).name == 'amore-proto':
+        print(colored("Warning: 'amore-proto' has been renamed to 'damnit'. Please update your scripts.", 'yellow'), file=sys.stderr)
+
     ap = ArgumentParser()
     ap.add_argument('--debug', action='store_true',
                     help="Show debug logs.")
@@ -212,7 +216,7 @@ def main(argv=None):
 
         if args.daemonize:
             if not db_path(args.context_dir).is_file():
-                sys.exit("You must create a database with `amore-proto proposal` before starting the listener.")
+                sys.exit("You must create a database with `damnit proposal` before starting the listener.")
 
             return initialize_and_start_backend(args.context_dir)
         else:

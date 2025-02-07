@@ -71,6 +71,7 @@ Home = "https://github.com/European-XFEL/DAMNIT"
 
 [project.scripts]
 amore-proto = "damnit.cli:main"
+damnit = "damnit.cli:main"
 
 [tool.pytest.ini_options]
 timeout = 120

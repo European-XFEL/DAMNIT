@@ -147,3 +147,23 @@ def test_reprocess(mock_db_with_data, monkeypatch):
         main(["reprocess", "10"])
 
     assert sbatch.get_calls() == []
+
+
+def test_cli_command_name(capsys, monkeypatch):
+    """Test that the CLI works with both 'damnit' and 'amore-proto' names,
+    and shows deprecation warning for 'amore-proto'."""
+    with patch('sys.argv', ['damnit', '--help']):
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert 'Warning:' not in captured.err  # No warning for 'damnit'
+        assert 'usage:' in captured.out  # Help text is shown
+
+    with patch('sys.argv', ['amore-proto', '--help']):
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert "Warning: 'amore-proto' has been renamed to 'damnit'" in captured.err  # Shows deprecation
+        assert 'usage:' in captured.out  # Help text is shown
