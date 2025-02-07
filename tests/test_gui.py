@@ -708,6 +708,18 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     @Variable(title='2D data with summary', summary='mean')
     def mean_2d(run):
         return np.random.rand(512, 512)
+
+    @Variable(title="2D Complex", summary='max')
+    def complex_2d(run):
+        return np.array([
+            [1+1j, 2+2j, 3+3j, 4+4j],
+            [1+1j, 2+2j, 3+3j, 4+4j],
+            [1+1j, 2+2j, 3+3j, 4+4j]])
+
+    @Variable(title="1D Xarray Complex", summary='max')
+    def complex_xr_1d(run):
+        import xarray as xr
+        return xr.DataArray(np.array([1+1j, 2+2j, 3+3j, 4+4j]))
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
@@ -788,6 +800,17 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(mean_2d_index)
         warning.assert_not_called()
+
+    # xarray of complex data is not inspectable
+    complex_2d = get_index('2D Complex')
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(complex_2d)
+        warning.assert_called_once()
+
+    complex_xr_1d = get_index('1D Xarray Complex')
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(complex_xr_1d)
+        warning.assert_called_once()
 
 
 def test_open_dialog(mock_db, qtbot):

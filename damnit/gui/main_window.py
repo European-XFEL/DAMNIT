@@ -691,7 +691,12 @@ da-dev@xfel.eu"""
 
         if data.ndim == 1:
             if isinstance(data, xr.DataArray):
-                canvas = Xarray1DPlotWindow(self, data, title=title)
+                try:
+                    canvas = Xarray1DPlotWindow(self, data, title=title)
+                except Exception as exc:
+                    QMessageBox.warning(
+                        self, f"Can't inspect variable {quantity}", str(exc))
+                    return
             else:
                 canvas = ScatterPlotWindow(self,
                     x=[np.arange(len(data))],
@@ -701,11 +706,16 @@ da-dev@xfel.eu"""
                     title=title,
             )
         elif data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
-            canvas = ImagePlotWindow(
-                self,
-                image=data,
-                title=f"{variable.title} (run {run})",
-            )
+            try:
+                canvas = ImagePlotWindow(
+                    self,
+                    image=data,
+                    title=f"{variable.title} (run {run})",
+                )
+            except Exception as exc:
+                QMessageBox.warning(
+                    self, f"Can't inspect variable {quantity}", str(exc))
+                return
         elif data.ndim == 0:
             # If this is a scalar value, then we can't plot it
             QMessageBox.warning(self, "Can't inspect variable",
