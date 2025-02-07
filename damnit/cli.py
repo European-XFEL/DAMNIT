@@ -44,6 +44,10 @@ def excepthook(exc_type, value, tb):
 
 
 def main(argv=None):
+    # Check if script was called as amore-proto and show deprecation warning
+    if Path(sys.argv[0]).name == 'amore-proto':
+        print(colored("Warning: 'amore-proto' has been renamed to 'damnit'. Please update your scripts.", 'yellow'), file=sys.stderr)
+
     ap = ArgumentParser()
     ap.add_argument('--debug', action='store_true',
                     help="Show debug logs.")
