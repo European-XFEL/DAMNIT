@@ -708,6 +708,11 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     @Variable(title='2D data with summary', summary='mean')
     def mean_2d(run):
         return np.random.rand(512, 512)
+
+    @Variable(title="1D Complex", summary='max')
+    def complex_1d(run):
+        import xarray as xr
+        return xr.DataArray(np.array([1+1j, 2+2j, 3+3j, 4+4j]))
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
@@ -788,6 +793,12 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(mean_2d_index)
         warning.assert_not_called()
+
+    # xarray of complex data is not inspectable
+    complex_1d = get_index('1D Complex')
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(complex_1d)
+        warning.assert_called_once()
 
 
 def test_open_dialog(mock_db, qtbot):
