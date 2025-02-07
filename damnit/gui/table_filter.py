@@ -233,7 +233,7 @@ class FilterMenu(QMenu):
             self.filter_widget.set_filter(existing_filter)
 
     def _create_filter_widget(self, column: int, model: FilterProxy):
-         # Determine if column is numeric
+        # Determine if column is numeric
         is_numeric = True
         values = set()
         decos = set()
@@ -447,9 +447,9 @@ class ThumbnailFilterWidget(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
 
         # Checkboxes for filtering
-        self.with_thumbnail = QCheckBox("Runs with thumbnail")
-        self.without_thumbnail = QCheckBox("Runs without thumbnail")
-        
+        self.with_thumbnail = QCheckBox("Show thumbnails")
+        self.without_thumbnail = QCheckBox("Show empty")
+
         # Set initial state
         self.with_thumbnail.setChecked(True)
         self.without_thumbnail.setChecked(True)

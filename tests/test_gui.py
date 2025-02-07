@@ -27,8 +27,8 @@ from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.table_filter import (CategoricalFilter,
-                                     CategoricalFilterWidget, FilterMenu,
-                                     NumericFilter, NumericFilterWidget)
+                                     CategoricalFilterWidget, ThumbnailFilterWidget, FilterMenu,
+                                     NumericFilter, NumericFilterWidget, ThumbnailFilter)
 from damnit.gui.theme import Theme
 from damnit.gui.zulip_messenger import ZulipConfig
 
@@ -1099,6 +1099,16 @@ def test_filter_proxy(mock_db_with_data_2, qtbot):
     proxy_model.clear_filters()
     assert proxy_model.rowCount() == initial_rows
 
+    # Test thumbnail filter
+    thumb_col = source_model.find_column("Image", by_title=True)
+    thumb_filter = ThumbnailFilter(thumb_col, show_with_thumbnail=True, show_without_thumbnail=False)
+    proxy_model.set_filter(thumb_col, thumb_filter)
+    assert proxy_model.rowCount() == 1
+
+    # Test clear all filters
+    proxy_model.clear_filters()
+    assert proxy_model.rowCount() == initial_rows
+
 
 def test_filters():
     # Test numeric filter with selected values
@@ -1140,6 +1150,30 @@ def test_filters():
     assert not empty_filter.accepts("nothing")
     assert empty_filter.accepts(None)
     assert not empty_filter.accepts(42)
+
+    # Test thumbnail filter with both options enabled
+    thumb_filter = ThumbnailFilter(column=2)
+    assert thumb_filter.accepts(QPixmap)
+    assert thumb_filter.accepts(None)
+    assert thumb_filter.accepts("not a thumbnail")
+
+    # Test thumbnail filter showing only thumbnails
+    thumb_only_filter = ThumbnailFilter(column=2, show_with_thumbnail=True, show_without_thumbnail=False)
+    assert thumb_only_filter.accepts(QPixmap)
+    assert not thumb_only_filter.accepts(None)
+    assert not thumb_only_filter.accepts("not a thumbnail")
+
+    # Test thumbnail filter showing only non-thumbnails
+    no_thumb_filter = ThumbnailFilter(column=2, show_with_thumbnail=False, show_without_thumbnail=True)
+    assert not no_thumb_filter.accepts(QPixmap)
+    assert no_thumb_filter.accepts(None)
+    assert no_thumb_filter.accepts("not a thumbnail")
+
+    # Test thumbnail filter with both options disabled
+    hidden_thumb_filter = ThumbnailFilter(column=2, show_with_thumbnail=False, show_without_thumbnail=False)
+    assert not hidden_thumb_filter.accepts(QPixmap)
+    assert not hidden_thumb_filter.accepts(None)
+    assert not hidden_thumb_filter.accepts("not a thumbnail")
 
 
 def test_standalone_comments(mock_db, qtbot):
@@ -1209,8 +1243,13 @@ def test_filter_menu(mock_db_with_data, qtbot):
     qtbot.addWidget(categorical_menu)
     assert isinstance(categorical_menu.filter_widget, CategoricalFilterWidget)
 
+    # Test thumbnail column
+    thumb_col = win.table.find_column("Image", by_title=True)
+    thumbnail_menu = FilterMenu(thumb_col, model)
+    qtbot.addWidget(thumbnail_menu)
+    assert isinstance(thumbnail_menu.filter_widget, ThumbnailFilterWidget)
+
     # Test filter application
-    # numeric_filter = NumericFilterWidget(scalar1_col, min_val=0, max_val=100)
     with qtbot.waitSignal(numeric_menu.filter_widget.filterChanged):
         numeric_menu.filter_widget._on_selection_changed()
 
@@ -1220,6 +1259,20 @@ def test_filter_menu(mock_db_with_data, qtbot):
     menu_with_filter = FilterMenu(results_col, model)
     qtbot.addWidget(menu_with_filter)
     assert menu_with_filter.model.filters[results_col] == existing_filter
+
+    # Test menu with existing thumbnail filter
+    existing_thumb_filter = ThumbnailFilter(thumb_col, show_with_thumbnail=True, show_without_thumbnail=False)
+    model.set_filter(thumb_col, existing_thumb_filter)
+    menu_with_thumb_filter = FilterMenu(thumb_col, model)
+    qtbot.addWidget(menu_with_thumb_filter)
+    assert menu_with_thumb_filter.model.filters[thumb_col] == existing_thumb_filter
+
+    # Test thumbnail filter
+    thumb_filter = ThumbnailFilter(thumb_col, show_with_thumbnail=True, show_without_thumbnail=False)
+    model.set_filter(thumb_col, thumb_filter)
+    assert len(model.filters) == 2
+    assert thumb_col in model.filters
+    assert model.filters[thumb_col] == thumb_filter
 
 
 def test_processing_status(mock_db_with_data, qtbot):

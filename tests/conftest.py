@@ -70,6 +70,11 @@ def mock_ctx():
             return "OK"
         else:
             return "Failed"
+
+    @Variable(title='Image')
+    def image(run, run_nr: 'meta#run_number'):
+        if run_nr == 1:
+            return np.random.rand(10, 10)
     """
 
     return mkcontext(code)
