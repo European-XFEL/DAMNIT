@@ -709,8 +709,15 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     def mean_2d(run):
         return np.random.rand(512, 512)
 
-    @Variable(title="1D Complex", summary='max')
-    def complex_1d(run):
+    @Variable(title="2D Complex", summary='max')
+    def complex_2d(run):
+        return np.array([
+            [1+1j, 2+2j, 3+3j, 4+4j],
+            [1+1j, 2+2j, 3+3j, 4+4j],
+            [1+1j, 2+2j, 3+3j, 4+4j]])
+
+    @Variable(title="1D Xarray Complex", summary='max')
+    def complex_xr_1d(run):
         import xarray as xr
         return xr.DataArray(np.array([1+1j, 2+2j, 3+3j, 4+4j]))
     """
@@ -795,9 +802,14 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
         warning.assert_not_called()
 
     # xarray of complex data is not inspectable
-    complex_1d = get_index('1D Complex')
+    complex_2d = get_index('2D Complex')
     with patch.object(QMessageBox, "warning") as warning:
-        win.inspect_data(complex_1d)
+        win.inspect_data(complex_2d)
+        warning.assert_called_once()
+
+    complex_xr_1d = get_index('1D Xarray Complex')
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(complex_xr_1d)
         warning.assert_called_once()
 
 
