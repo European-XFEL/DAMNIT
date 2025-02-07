@@ -148,6 +148,7 @@ def test_reprocess(mock_db_with_data, monkeypatch):
 
     assert sbatch.get_calls() == []
 
+
 def test_cli_command_name(capsys, monkeypatch):
     """Test that the CLI works with both 'damnit' and 'amore-proto' names,
     and shows deprecation warning for 'amore-proto'."""
