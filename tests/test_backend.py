@@ -93,7 +93,7 @@ def test_context_file(mock_ctx, tmp_path):
     assert { "array", "timestamp" } == var_deps("meta_array")
 
     # Check that the ordering is correct for execution
-    assert mock_ctx.ordered_vars() == ("scalar1", "empty_string", "timestamp", "string", "plotly_mc_plotface", "results", "scalar2", "array", "meta_array")
+    assert mock_ctx.ordered_vars() == ("scalar1", "empty_string", "timestamp", "string", "plotly_mc_plotface", "results", "image", "scalar2", "array", "meta_array")
 
     # Check that we can retrieve direct and indirect dependencies
     assert set() == all_var_deps("scalar1")

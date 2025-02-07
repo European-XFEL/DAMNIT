@@ -73,7 +73,7 @@ def mock_ctx():
 
     @Variable(title='Image')
     def image(run, run_nr: 'meta#run_number'):
-        if run_nr == 1:
+        if run_nr in (1, 1000):
             return np.random.rand(10, 10)
     """
 
