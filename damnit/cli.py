@@ -212,7 +212,7 @@ def main(argv=None):
 
         if args.daemonize:
             if not db_path(args.context_dir).is_file():
-                sys.exit("You must create a database with `amore-proto proposal` before starting the listener.")
+                sys.exit("You must create a database with `damnit proposal` before starting the listener.")
 
             return initialize_and_start_backend(args.context_dir)
         else:

@@ -139,10 +139,10 @@ change the limits for non-cluster variables:
 
 ```bash
 # Allow 8 CPU cores
-$ amore-proto db-config noncluster_cpus 8
+$ damnit db-config noncluster_cpus 8
 
 # Allow 50 GB memory
-$ amore-proto db-config noncluster_mem 50G
+$ damnit db-config noncluster_mem 50G
 ```
 
 ## Cell
@@ -191,10 +191,10 @@ DAMNIT will figure out an appropriate partition that user has access to, but
 that can be overridden by explicitly setting a partition or reservation:
 ```bash
 # Set a reservation
-$ amore-proto db-config slurm_reservation upex_001234
+$ damnit db-config slurm_reservation upex_001234
 
 # Set a partition
-$ amore-proto db-config slurm_partition allgpu
+$ damnit db-config slurm_partition allgpu
 ```
 
 If both `slurm_reservation` and `slurm_partition` are set, the reservation will
@@ -208,7 +208,7 @@ stderr) in the `slurm_logs/` directory.
     expired, otherwise Slurm jobs will fail to launch.
 
     ```bash
-    $ amore-proto db-config slurm_reservation --delete
+    $ damnit db-config slurm_reservation --delete
     ```
 
 ## Reprocessing
@@ -217,8 +217,8 @@ context file the changes will only take effect for the runs coming later. But,
 it is possible to reprocess runs using a command line tool:
 ```bash
 $ module load exfel amore
-$ amore-proto reprocess -h
-usage: amore-proto reprocess [-h] [--mock] [--proposal PROPOSAL] [--match MATCH] run [run ...]
+$ damnit reprocess -h
+usage: damnit reprocess [-h] [--mock] [--proposal PROPOSAL] [--match MATCH] run [run ...]
 
 positional arguments:
   run                  Run number, e.g. 96. Multiple runs can be specified at once, or pass 'all' to reprocess all runs in the database.
@@ -234,19 +234,19 @@ Note that you *must* run the tool from a database directory
 (`usr/Shared/amore`). Here are some examples of using it:
 ```bash
 # Reprocess all variables for a single run
-$ amore-proto reprocess 100
+$ damnit reprocess 100
 
 # Reprocess all variables with a title matching 'agipd' for a single run
-$ amore-proto reprocess 100 --match agipd
+$ damnit reprocess 100 --match agipd
 
 # Reprocess variables for multiple runs
-$ amore-proto reprocess 1 10 100 --match agipd
+$ damnit reprocess 1 10 100 --match agipd
 
 # Reprocess variables for a sequence of runs
-$ amore-proto reprocess $(seq 1 100) --match agipd
+$ damnit reprocess $(seq 1 100) --match agipd
 
 # Reprocess all variables for all runs
-$ amore-proto reprocess all
+$ damnit reprocess all
 ```
 
 ## Using custom environments
@@ -256,7 +256,7 @@ a certain environment. At some point the setting for this will be exposed
 in the GUI, but right now you'll have to change it on the command line by
 passing the path to the `python` executable of the required environment:
 ```bash
-$ amore-proto db-config context_python /path/to/your/python
+$ damnit db-config context_python /path/to/your/python
 ```
 
 The environment *must* have these dependencies installed for DAMNIT to work:
@@ -314,8 +314,8 @@ The steps to delete all existing data are:
 
 1. `rm runs.sqlite` to delete the database used by the GUI.
 1. `rm -rf extracted_data/` to delete the HDF5 files created by the backend.
-1. `amore-proto proposal 1234` to create a blank database for the given
+1. `damnit proposal 1234` to create a blank database for the given
    proposal.
 
-And then you can reprocess runs with `amore-proto reprocess` to restore
+And then you can reprocess runs with `damnit reprocess` to restore
 their data.

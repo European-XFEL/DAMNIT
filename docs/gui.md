@@ -7,7 +7,7 @@
 2. Open a terminal and run:
    ```bash
    $ module load exfel amore
-   $ amore-proto gui
+   $ damnit gui
    ```
 3. If you want to work with the shared database for a proposal you can enter the
    proposal number directly (it will prompt you to create one if it doesn't
@@ -23,12 +23,12 @@ $ mkdir mydb
 $ cd mydb
 
 # Initialize the database for a certain proposal
-$ amore-proto proposal 1234
+$ damnit proposal 1234
 # Start the backend and create a default context file
-$ amore-proto listen . --daemonize
+$ damnit listen . --daemonize
 
 # Start the GUI
-$ amore-proto gui .
+$ damnit gui .
 ```
 
 ## Exploring variables

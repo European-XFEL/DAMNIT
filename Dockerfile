@@ -68,5 +68,4 @@ RUN set -eux; \
     python3 -m pip check; \
     python3 -c "import damnit; print(damnit.__version__)"
 
-CMD ["/app/bin/amore-proto", "gui"]
-
+CMD ["/app/bin/damnit", "gui"]
