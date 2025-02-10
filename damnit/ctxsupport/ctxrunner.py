@@ -303,7 +303,10 @@ class ContextFile:
                     if annotation.startswith("var#"):
                         dep_name = annotation.removeprefix("var#")
                         if dep_name in res:
-                            kwargs[arg_name] = res[dep_name].data
+                            dep_data = res[dep_name]
+                            if isinstance(dep_data, Cell):
+                                dep_data = dep_data.data
+                            kwargs[arg_name] = dep_data
                         elif param.default is inspect.Parameter.empty:
                             missing_deps.append(dep_name)
 
@@ -343,11 +346,12 @@ class ContextFile:
                 if (data := func(run_data)) is None:
                     continue
 
-                if not isinstance(data, Cell):
-                    data = Cell(data)
+                if not var.transient:
+                    if not isinstance(data, Cell):
+                        data = Cell(data)
 
-                if data.summary is None:
-                    data.summary = var.summary
+                    if data.summary is None:
+                        data.summary = var.summary
             except Exception:
                 log.error("Could not get data for %s", name, exc_info=True)
             else:
