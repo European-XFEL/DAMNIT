@@ -1019,10 +1019,12 @@ def test_transient_variables(mock_run, mock_db, tmp_path):
 
     @Variable(transient=True)
     def var2(run, data: 'var#var1'):
-        return np.arange(data)
+        # transient vars can return any data type
+        return [np.arange(data), run]
 
     @Variable(summary='max')
     def var3(run, data: 'var#var2'):
+        data, run = data
         return data.size * data
     """
     ctx = mkcontext(ctx_code)
