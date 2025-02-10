@@ -200,7 +200,10 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
                 continue
 
             item = self.sourceModel().index(source_row, col, source_parent)
-            data = item.data(Qt.UserRole)
+            if isinstance(filter, ThumbnailFilter):
+                data = type(item.data(Qt.DecorationRole))
+            else:
+                data = item.data(Qt.UserRole)
             if not filter.accepts(data):
                 return False
         return True
