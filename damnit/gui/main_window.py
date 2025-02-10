@@ -35,11 +35,11 @@ from .open_dialog import OpenDBDialog
 from .plot import (ImagePlotWindow, PlottingControls, ScatterPlotWindow,
                    Xarray1DPlotWindow)
 from .process import ProcessingDialog
+from .standalone_comments import TimeComment
 from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
-from .widgets import CollapsibleWidget
 from .zulip_messenger import ZulipMessenger
 
 log = logging.getLogger(__name__)
@@ -743,58 +743,29 @@ da-dev@xfel.eu"""
         vertical_layout.addWidget(toolbar)
 
         # the table
-        self.table_view = TableView()
+        self.table_view = TableView(self)
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
 
-        # Add table view's toolbar widgets
+        # Initialize plot controls
+        self.plot = PlottingControls(self)
+
+        self.plot_dialog_button = QtWidgets.QPushButton("Plot")
+        self.plot_dialog_button.clicked.connect(self.plot.show_dialog)
+        self.comment_button = QtWidgets.QPushButton("Time comment")
+        self.comment_button.clicked.connect(lambda: TimeComment(self).show())
+
+        toolbar.addWidget(self.plot_dialog_button)
+        toolbar.addWidget(self.comment_button)
         for widget in self.table_view.get_toolbar_widgets():
             toolbar.addWidget(widget)
 
         vertical_layout.addWidget(self.table_view)
+        vertical_layout.setContentsMargins(0, 7, 0, 0)
 
-        # add all other widgets on a collapsible layout
-        collapsible = CollapsibleWidget()
-        vertical_layout.addWidget(collapsible)
-
-        # plotting control
-        self.plot = PlottingControls(self)
-        plotting_group = QtWidgets.QGroupBox("Plotting controls")
-        plot_vertical_layout = QtWidgets.QVBoxLayout()
-        plot_horizontal_layout = QtWidgets.QHBoxLayout()
-        plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
-
-        plot_horizontal_layout.addWidget(self.plot._button_plot)
-        self.plot._button_plot_runs.setMinimumWidth(200)
-        plot_horizontal_layout.addStretch()
-
-        plot_horizontal_layout.addWidget(QtWidgets.QLabel("Y:"))
-        plot_horizontal_layout.addWidget(self.plot._combo_box_y_axis)
-        plot_horizontal_layout.addWidget(self.plot.vs_button)
-        plot_horizontal_layout.addWidget(QtWidgets.QLabel("X:"))
-        plot_horizontal_layout.addWidget(self.plot._combo_box_x_axis)
-
-        plot_vertical_layout.addLayout(plot_horizontal_layout)
-
-        plot_parameters_horizontal_layout.addWidget(self.plot._button_plot_runs)
-        self.plot._button_plot.setMinimumWidth(200)
-        plot_parameters_horizontal_layout.addStretch()
-
-        plot_parameters_horizontal_layout.addWidget(
-            self.plot._toggle_probability_density
-        )
-
-        plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
-
-        plotting_group.setLayout(plot_vertical_layout)
-
-        collapsible.add_widget(plotting_group)
-
-        vertical_layout.setSpacing(0)
-        vertical_layout.setContentsMargins(0, 0, 0, 0)
         self._view_widget.setLayout(vertical_layout)
 
     def configure_editor(self):
@@ -946,14 +917,6 @@ da-dev@xfel.eu"""
         if self._connect_to_kafka:
             self.update_agent.run_values_updated(prop, run, name, value)
 
-    def save_time_comment(self, comment_id, value):
-        if self.db is None:
-            log.warning("No SQLite database in use, comment not saved")
-            return
-
-        log.debug("Saving time-based comment ID %d", comment_id)
-        self.db.change_standalone_comment(comment_id, value)
-        
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
             self.zulip_messenger = ZulipMessenger(self)       
@@ -1090,6 +1053,7 @@ class TableViewStyle(QtWidgets.QProxyStyle):
             return 0
         else:
             return super().styleHint(hint, option, widget, returnData)
+
 
 class TabBarStyle(QtWidgets.QProxyStyle):
     """
