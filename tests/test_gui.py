@@ -9,6 +9,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import h5py
+import numpy as np
 import pandas as pd
 import pytest
 from PyQt5.QtCore import Qt
@@ -25,6 +26,9 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
+from damnit.gui.table_filter import (CategoricalFilter,
+                                     CategoricalFilterWidget, ThumbnailFilterWidget, FilterMenu,
+                                     NumericFilter, NumericFilterWidget, ThumbnailFilter)
 from damnit.gui.theme import Theme
 from damnit.gui.zulip_messenger import ZulipConfig
 
@@ -1006,7 +1010,7 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
             if not table_view.isColumnHidden(col):
                 count += 1
         return count
-    
+
     # Hepler function to apply tag filter
     def apply_tag_filter(tags):
         table_view.apply_tag_filter(tags)
@@ -1073,72 +1077,126 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     assert count_visible_vars() == initial_var_count - 1
 
 
-def test_processing_status(mock_db_with_data, qtbot):
-    db_dir, db = mock_db_with_data
-    win = MainWindow(db_dir, connect_to_kafka=False)
+def test_filter_proxy(mock_db_with_data_2, qtbot):
+    db_dir, db = mock_db_with_data_2
+
+    # Create main window
+    win = MainWindow(db_dir, False)
     qtbot.addWidget(win)
-    tbl = win.table
 
-    def shows_as_processing(run):
-        row = tbl.find_row(1234, run)
-        runnr_s = tbl.verticalHeaderItem(row).data(Qt.ItemDataRole.DisplayRole)
-        return "⚙️" in runnr_s
+    table_view = win.table_view
 
-    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
-         'slurm_cluster': '', 'slurm_job_id': '', 'status': 'RUNNING'}
+    proxy_model = table_view.model()
+    source_model = win.table
+    initial_rows = proxy_model.rowCount()
 
-    # Test with an existing run
-    prid1, prid2 = str(uuid4()), str(uuid4())
-    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid1})
-    assert shows_as_processing(1)
-    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid2})
-    tbl.handle_processing_finished({'processing_id': prid1})
-    assert shows_as_processing(1)
-    tbl.handle_processing_finished({'processing_id': prid2})
-    assert not shows_as_processing(1)
+    # Test numeric filtering
+    scalar1_col = source_model.find_column("Scalar1", by_title=True)
 
-    # Processing starting for a new run should add a row
-    assert tbl.rowCount() == 1
-    tbl.handle_processing_state_set(d | {'run': 2, 'processing_id': str(uuid4())})
-    assert tbl.rowCount() == 2
-    assert shows_as_processing(2)
+    # Test with range and selected values
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42})
+    proxy_model.set_filter(scalar1_col, num_filter)
+    assert proxy_model.rowCount() == 5
+
+    # Test with range but no matching selected values
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, include_nan=False)
+    proxy_model.clear_filters()
+    proxy_model.set_filter(scalar1_col, num_filter)
+    assert proxy_model.rowCount() == 0
+
+    # Test categorical filtering
+    status_col = source_model.find_column("Results", by_title=True)
+
+    # Filter to show only rows with the first status value
+    cat_filter = CategoricalFilter(status_col, {"Failed"})
+    proxy_model.clear_filters()
+    proxy_model.set_filter(status_col, cat_filter)
+    assert proxy_model.rowCount() == 4
+
+    # Test multiple filters
+    num_filter = NumericFilter(scalar1_col, min_val=40, max_val=45, selected_values={42}, include_nan=False)
+    proxy_model.set_filter(scalar1_col, num_filter)
+    assert proxy_model.rowCount() == 2
+
+    # Clear filters
+    proxy_model.clear_filters()
+    assert proxy_model.rowCount() == initial_rows
+
+    # Test thumbnail filter
+    thumb_col = source_model.find_column("Image", by_title=True)
+    thumb_filter = ThumbnailFilter(thumb_col, show_with_thumbnail=True, show_without_thumbnail=False)
+    proxy_model.set_filter(thumb_col, thumb_filter)
+    assert proxy_model.rowCount() == 1
+
+    # Test clear all filters
+    proxy_model.clear_filters()
+    assert proxy_model.rowCount() == initial_rows
 
 
-def test_theme(mock_db, qtbot, tmp_path):
-    """Test theme loading, saving, and application."""
-    db_dir, db = mock_db
-    settings_path = tmp_path / ".local/state/damnit/settings.db"
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
+def test_filters():
+    # Test numeric filter with selected values
+    num_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15})
+    assert num_filter.accepts(15)
+    assert not num_filter.accepts(18)
+    assert not num_filter.accepts(5)
+    assert not num_filter.accepts(25)
+    assert num_filter.accepts(None)
+    assert num_filter.accepts(np.nan)
+    assert not num_filter.accepts("not a number")
 
-    with patch("pathlib.Path.home", return_value=tmp_path):
-        # Test default theme
-        win = MainWindow(db_dir, False)
-        qtbot.addWidget(win)
-        assert win.current_theme == Theme.LIGHT
+    # Test numeric filter with nan handling
+    nan_filter = NumericFilter(column=0, min_val=10, max_val=20, selected_values={15}, include_nan=False)
+    assert nan_filter.accepts(15)
+    assert not nan_filter.accepts(None)
+    assert not nan_filter.accepts(np.nan)
+    assert not nan_filter.accepts(5)
+    assert not nan_filter.accepts(25)
+    assert not nan_filter.accepts(18)
 
-        # Test theme saving and loading
-        win._toggle_theme(True)
-        assert win.current_theme == Theme.DARK
-        win.close()
-        
-        # Create new window to test theme persistence
-        win2 = MainWindow(db_dir, False)
-        qtbot.addWidget(win2)
-        assert win2.current_theme == Theme.DARK  # Should load saved dark theme
-        assert win2.dark_mode_action.isChecked()  # Action should be checked
+    # Test categorical filter with selected values
+    cat_filter = CategoricalFilter(column=1, selected_values={"A", "B"})
+    assert cat_filter.accepts("A")
+    assert cat_filter.accepts("B")
+    assert not cat_filter.accepts("C")
+    assert cat_filter.accepts(None)
+    assert cat_filter.accepts(np.nan)
 
-        # Test theme application to components
-        dark_palette = win2.palette()
-        assert dark_palette.color(QPalette.Window).name() == "#353535"  # Dark theme color
-        assert dark_palette.color(QPalette.WindowText).name() == "#ffffff"  # White text
+    # Test categorical filter with nan handling
+    nan_cat_filter = CategoricalFilter(column=1, selected_values={"A"}, include_nan=False)
+    assert nan_cat_filter.accepts("A")
+    assert not nan_cat_filter.accepts(None)
+    assert not nan_cat_filter.accepts(np.nan)
+    assert not nan_cat_filter.accepts("B")
 
-        # Test theme application to editor
-        assert win2._editor._lexer.defaultPaper(0).name() == "#232323"  # Dark theme editor background
+    # Test empty filters
+    empty_filter = CategoricalFilter(column=1)
+    assert not empty_filter.accepts("nothing")
+    assert empty_filter.accepts(None)
+    assert not empty_filter.accepts(42)
 
-        # Test theme toggle back to light
-        win2._toggle_theme(False)
-        assert win2.current_theme == Theme.LIGHT
-        assert win2.palette() != dark_palette  # Light theme should have different colors
+    # Test thumbnail filter with both options enabled
+    thumb_filter = ThumbnailFilter(column=2)
+    assert thumb_filter.accepts(QPixmap)
+    assert thumb_filter.accepts(None)
+    assert thumb_filter.accepts("not a thumbnail")
+
+    # Test thumbnail filter showing only thumbnails
+    thumb_only_filter = ThumbnailFilter(column=2, show_with_thumbnail=True, show_without_thumbnail=False)
+    assert thumb_only_filter.accepts(QPixmap)
+    assert not thumb_only_filter.accepts(None)
+    assert not thumb_only_filter.accepts("not a thumbnail")
+
+    # Test thumbnail filter showing only non-thumbnails
+    no_thumb_filter = ThumbnailFilter(column=2, show_with_thumbnail=False, show_without_thumbnail=True)
+    assert not no_thumb_filter.accepts(QPixmap)
+    assert no_thumb_filter.accepts(None)
+    assert no_thumb_filter.accepts("not a thumbnail")
+
+    # Test thumbnail filter with both options disabled
+    hidden_thumb_filter = ThumbnailFilter(column=2, show_with_thumbnail=False, show_without_thumbnail=False)
+    assert not hidden_thumb_filter.accepts(QPixmap)
+    assert not hidden_thumb_filter.accepts(None)
+    assert not hidden_thumb_filter.accepts("not a thumbnail")
 
 
 def test_standalone_comments(mock_db, qtbot):
@@ -1186,3 +1244,123 @@ def test_standalone_comments(mock_db, qtbot):
     # Test comment persistence
     model.load_comments()
     assert model.rowCount() == 2
+
+
+def test_filter_menu(mock_db_with_data, qtbot):
+    """Test FilterMenu initialization and functionality."""
+    win = MainWindow(mock_db_with_data[0], False)
+    win.show()
+    qtbot.addWidget(win)
+    qtbot.waitExposed(win)
+    model = win.table_view.model()
+
+    # Test numeric column
+    scalar1_col = win.table.find_column("Scalar1", by_title=True)
+    numeric_menu = FilterMenu(scalar1_col, model)
+    qtbot.addWidget(numeric_menu)
+    assert isinstance(numeric_menu.filter_widget, NumericFilterWidget)
+
+    # Test categorical column
+    results_col = win.table.find_column("Results", by_title=True)
+    categorical_menu = FilterMenu(results_col, model)
+    qtbot.addWidget(categorical_menu)
+    assert isinstance(categorical_menu.filter_widget, CategoricalFilterWidget)
+
+    # Test thumbnail column
+    thumb_col = win.table.find_column("Image", by_title=True)
+    thumbnail_menu = FilterMenu(thumb_col, model)
+    qtbot.addWidget(thumbnail_menu)
+    assert isinstance(thumbnail_menu.filter_widget, ThumbnailFilterWidget)
+
+    # Test filter application
+    with qtbot.waitSignal(numeric_menu.filter_widget.filterChanged):
+        numeric_menu.filter_widget._on_selection_changed()
+
+    # Test menu with existing filter
+    existing_filter = CategoricalFilter(results_col, selected_values={"OK"})
+    model.set_filter(results_col, existing_filter)
+    menu_with_filter = FilterMenu(results_col, model)
+    qtbot.addWidget(menu_with_filter)
+    assert menu_with_filter.model.filters[results_col] == existing_filter
+
+    # Test menu with existing thumbnail filter
+    existing_thumb_filter = ThumbnailFilter(thumb_col, show_with_thumbnail=True, show_without_thumbnail=False)
+    model.set_filter(thumb_col, existing_thumb_filter)
+    menu_with_thumb_filter = FilterMenu(thumb_col, model)
+    qtbot.addWidget(menu_with_thumb_filter)
+    assert menu_with_thumb_filter.model.filters[thumb_col] == existing_thumb_filter
+
+    # Test thumbnail filter
+    thumb_filter = ThumbnailFilter(thumb_col, show_with_thumbnail=True, show_without_thumbnail=False)
+    model.set_filter(thumb_col, thumb_filter)
+    assert len(model.filters) == 2
+    assert thumb_col in model.filters
+    assert model.filters[thumb_col] == thumb_filter
+
+
+def test_processing_status(mock_db_with_data, qtbot):
+    db_dir, db = mock_db_with_data
+    win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
+    tbl = win.table
+
+    def shows_as_processing(run):
+        row = tbl.find_row(1234, run)
+        runnr_s = tbl.verticalHeaderItem(row).data(Qt.ItemDataRole.DisplayRole)
+        return "⚙️" in runnr_s
+
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': '', 'slurm_job_id': '', 'status': 'RUNNING'}
+
+    # Test with an existing run
+    prid1, prid2 = str(uuid4()), str(uuid4())
+    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid1})
+    assert shows_as_processing(1)
+    tbl.handle_processing_state_set(d | {'run': 1, 'processing_id': prid2})
+    tbl.handle_processing_finished({'processing_id': prid1})
+    assert shows_as_processing(1)
+    tbl.handle_processing_finished({'processing_id': prid2})
+    assert not shows_as_processing(1)
+
+    # Processing starting for a new run should add a row
+    assert tbl.rowCount() == 1
+    tbl.handle_processing_state_set(d | {'run': 2, 'processing_id': str(uuid4())})
+    assert tbl.rowCount() == 2
+    assert shows_as_processing(2)
+
+
+def test_theme(mock_db, qtbot, tmp_path):
+    """Test theme loading, saving, and application."""
+    db_dir, db = mock_db
+    settings_path = tmp_path / ".local/state/damnit/settings.db"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        # Test default theme
+        win = MainWindow(db_dir, False)
+        qtbot.addWidget(win)
+        assert win.current_theme == Theme.LIGHT
+
+        # Test theme saving and loading
+        win._toggle_theme(True)
+        assert win.current_theme == Theme.DARK
+        win.close()
+
+        # Create new window to test theme persistence
+        win2 = MainWindow(db_dir, False)
+        qtbot.addWidget(win2)
+        assert win2.current_theme == Theme.DARK  # Should load saved dark theme
+        assert win2.dark_mode_action.isChecked()  # Action should be checked
+
+        # Test theme application to components
+        dark_palette = win2.palette()
+        assert dark_palette.color(QPalette.Window).name() == "#353535"  # Dark theme color
+        assert dark_palette.color(QPalette.WindowText).name() == "#ffffff"  # White text
+
+        # Test theme application to editor
+        assert win2._editor._lexer.defaultPaper(0).name() == "#232323"  # Dark theme editor background
+
+        # Test theme toggle back to light
+        win2._toggle_theme(False)
+        assert win2.current_theme == Theme.LIGHT
+        assert win2.palette() != dark_palette  # Light theme should have different colors
