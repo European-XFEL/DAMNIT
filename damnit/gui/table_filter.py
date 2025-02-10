@@ -521,7 +521,7 @@ class CategoricalFilterWidget(QWidget):
         self.setLayout(layout)
 
         # Add values to list (excluding nan/empty values)
-        for value in natsorted(values):
+        for value in natsorted(values, key=str):
             if value is not None and not (isinstance(value, float) and isnan(value)):
                 item = QListWidgetItem()
                 item.setData(Qt.UserRole, value)
