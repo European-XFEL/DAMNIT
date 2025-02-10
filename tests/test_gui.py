@@ -24,6 +24,7 @@ from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
+from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.theme import Theme
 from damnit.gui.zulip_messenger import ZulipConfig
 
@@ -1138,3 +1139,50 @@ def test_theme(mock_db, qtbot, tmp_path):
         win2._toggle_theme(False)
         assert win2.current_theme == Theme.LIGHT
         assert win2.palette() != dark_palette  # Light theme should have different colors
+
+
+def test_standalone_comments(mock_db, qtbot):
+    db_dir, db = mock_db
+
+    win = MainWindow(db_dir, False)
+    win.show()
+    qtbot.waitExposed(win)
+    qtbot.addWidget(win)
+
+    # Create and show the TimeComment dialog
+    dialog = TimeComment(win)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+
+    model = dialog.model
+
+    # Test adding a comment
+    test_timestamp = 1640995200  # 2022-01-01 00:00:00
+    test_comment = "Test comment 1"
+    model.addComment(test_timestamp, test_comment)
+
+    # Verify comment was added
+    assert model.rowCount() > 0
+    index = model.index(0, 2)  # Comment column
+    assert model.data(index, Qt.DisplayRole) == test_comment
+
+    # Add another comment
+    test_timestamp2 = 1641081600  # 2022-01-02 00:00:00
+    test_comment2 = "Test comment 2"
+    model.addComment(test_timestamp2, test_comment2)
+
+    # Test sorting
+    # Sort by timestamp ascending
+    model.sort(1, Qt.AscendingOrder)
+    index = model.index(0, 2)
+    assert model.data(index, Qt.DisplayRole) == test_comment
+
+    # Sort by timestamp descending
+    model.sort(1, Qt.DescendingOrder)
+    index = model.index(0, 2)
+    assert model.data(index, Qt.DisplayRole) == test_comment2
+
+    # Test comment persistence
+    model.load_comments()
+    assert model.rowCount() == 2
