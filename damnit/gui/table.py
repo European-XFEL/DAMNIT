@@ -4,15 +4,19 @@ import time
 from base64 import b64encode
 from itertools import groupby
 
+from fonticon_fa6 import FA6S
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt, QProcess
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtCore import QProcess, Qt
+from PyQt5.QtGui import QCursor
+from PyQt5.QtWidgets import QAction, QMenu, QMessageBox
+from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import StatusbarStylesheet, delete_variable, timestamp2str
+from .table_filter import FilterMenu, FilterProxy, FilterStatus
 
 log = logging.getLogger(__name__)
 
@@ -23,13 +27,11 @@ THUMBNAIL_SIZE = 35
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
+    model_updated = QtCore.pyqtSignal()
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
         self.setAlternatingRowColors(False)
-
-        self.setSortingEnabled(True)
-        self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
@@ -65,11 +67,12 @@ class TableView(QtWidgets.QTableView):
         self._current_tag_filter = set()  # Change to set for multiple tags
         self._tag_filter_button = QtWidgets.QPushButton("Variables by Tag")
         self._tag_filter_button.clicked.connect(self._show_tag_filter_menu)
+        # add column values filter support
+        self._filter_status = FilterStatus(self, parent)
 
     def setModel(self, model: 'DamnitTableModel'):
         """
-        Overload of setModel() to make sure that we restyle the comment rows
-        when the model is updated.
+        Overload
         """
         if (old_sel_model := self.selectionModel()) is not None:
             old_sel_model.deleteLater()
@@ -77,21 +80,29 @@ class TableView(QtWidgets.QTableView):
             old_model.deleteLater()
 
         self.damnit_model = model
-        sfpm = QtCore.QSortFilterProxyModel(self)
+
+        sfpm = FilterProxy(self)
         sfpm.setSourceModel(model)
         sfpm.setSortRole(Qt.ItemDataRole.UserRole)  # Numeric sort where relevant
         super().setModel(sfpm)
+
         # When loading a new model, the saved column order is applied at the
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
         self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
-        self.horizontalHeader().setSectionsClickable(True)
+        header = self.horizontalHeader()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self.show_horizontal_header_menu)
+        # header.setSectionsMovable(True)  # TODO need to update variable order in the table / emit settings_changed
+
         if model is not None:
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
             self.resizeRowsToContents()
+
+        self.model_updated.emit()
 
     def selected_rows(self):
         """Get indices of selected rows in the DamnitTableModel"""
@@ -345,11 +356,31 @@ class TableView(QtWidgets.QTableView):
 
     def get_toolbar_widgets(self):
         """Return widgets to be added to the toolbar."""
-        return [self._tag_filter_button]
+        return [self._tag_filter_button, self._filter_status]
+
+    def show_horizontal_header_menu(self, position):
+        pos = QCursor.pos()
+        index = self.horizontalHeader().logicalIndexAt(position)
+        menu = QMenu(self)
+        sort_asc_action = QAction(icon(FA6S.arrow_up_short_wide), "Sort Ascending", self)
+        sort_desc_action = QAction(icon(FA6S.arrow_down_wide_short), "Sort Descending", self)
+        filter_action = QAction(icon(FA6S.filter), "Filter", self)
+
+        menu.addAction(sort_asc_action)
+        menu.addAction(sort_desc_action)
+        menu.addSeparator()
+        menu.addAction(filter_action)
+
+        sort_asc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.AscendingOrder))
+        sort_desc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.DescendingOrder))
+        filter_action.triggered.connect(lambda: FilterMenu(index, self.model(), self).popup(pos))
+
+        menu.exec_(pos)
 
 
 class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
+    time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
     def __init__(self, db: DamnitDB, column_settings: dict, parent):
@@ -365,6 +396,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.db = db
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
+
         self.processing_jobs = QtExtractionJobTracker(self)
         self.processing_jobs.run_jobs_changed.connect(self.update_processing_status)
 
