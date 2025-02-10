@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
-COMMENT_ID_ROLE = Qt.ItemDataRole.UserRole + 1
+
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -86,10 +86,8 @@ class TableView(QtWidgets.QTableView):
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
         self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
-        self.horizontalHeader().sortIndicatorChanged.connect(self.style_comment_rows)
         self.horizontalHeader().setSectionsClickable(True)
         if model is not None:
-            self.model().rowsInserted.connect(self.style_comment_rows)
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
@@ -244,18 +242,6 @@ class TableView(QtWidgets.QTableView):
 
         return column_states
 
-    def style_comment_rows(self, *_):
-        self.clearSpans()
-        model : DamnitTableModel = self.damnit_model
-        comment_col = model.find_column("Comment", by_title=True)
-        timestamp_col = model.find_column("Timestamp", by_title=True)
-
-        proxy_mdl = self.model()
-        for row_ix in model.standalone_comment_rows():
-            ix = proxy_mdl.mapFromSource(self.damnit_model.createIndex(row_ix, 0))
-            self.setSpan(ix.row(), 0, 1, timestamp_col)
-            self.setSpan(ix.row(), comment_col, 1, 1000)
-
     def resize_new_rows(self, parent, first, last):
         for row in range(first, last + 1):
             self.resizeRowToContents(row)
@@ -364,16 +350,14 @@ class TableView(QtWidgets.QTableView):
 
 class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
-    time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
     def __init__(self, db: DamnitDB, column_settings: dict, parent):
         self.column_ids, self.column_titles = self._load_columns(db, column_settings)
         n_run_rows = db.conn.execute("SELECT count(*) FROM run_info").fetchone()[0]
-        n_cmnt_rows = db.conn.execute("SELECT count(*) FROM time_comments").fetchone()[0]
-        log.info(f"Table will have {n_run_rows} runs & {n_cmnt_rows} standalone comments")
+        log.info(f"Table will have {n_run_rows} runs")
 
-        super().__init__(n_run_rows + n_cmnt_rows, len(self.column_ids), parent)
+        super().__init__(n_run_rows, len(self.column_ids), parent)
         self.setHorizontalHeaderLabels(self.column_titles)
         self._main_window = parent
         self.is_sorted_by = ""
@@ -381,7 +365,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.db = db
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
-        self.standalone_comment_index = {}
         self.processing_jobs = QtExtractionJobTracker(self)
         self.processing_jobs.run_jobs_changed.connect(self.update_processing_status)
 
@@ -475,12 +458,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         )
         return item
 
-    def comment_item(self, text, comment_id=None):
+    def comment_item(self, text):
         item = QtGui.QStandardItem(text)  # Editable by default
         item.setToolTip(text)
-        if comment_id is not None:
-            # For standalone comments, integer ID
-            item.setData(comment_id, COMMENT_ID_ROLE)
         return item
 
     def new_item(self, value, column_id, max_diff, attrs):
@@ -531,18 +511,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 attrs = json.loads(attr_json) if attr_json else {}
                 self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
 
-        comments_start = row_ix + 1
-        comment_rows = self.db.conn.execute("""
-            SELECT rowid, timestamp, comment FROM time_comments
-        """).fetchall()
-        for row_ix, (cid, ts, comment) in enumerate(comment_rows, start=comments_start):
-            self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
-            self.setItem(
-                row_ix, self.column_index["comment"], self.comment_item(comment, cid)
-            )
-            row_headers.append('')
-            self.standalone_comment_index[cid] = row_ix
-
         self.setVerticalHeaderLabels(row_headers)
         t1 = time.perf_counter()
         log.info(f"Filled rows in {t1 - t0:.3f} s")
@@ -588,14 +556,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         if prop_it is None:
             return None, None
         return prop_it.data(Qt.UserRole), run_it.data(Qt.UserRole)
-
-    def row_to_comment_id(self, row):
-        comment_col = 4
-        item = self.item(row, comment_col)
-        return item and item.data(COMMENT_ID_ROLE)
-
-    def standalone_comment_rows(self):
-        return sorted(self.standalone_comment_index.values())
 
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
@@ -654,14 +614,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.appendRow(row)
         self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(str(run)))
         return row_ix
-
-    def insert_comment_row(self, comment_id: int, comment: str, timestamp: float):
-        blank = self.itemPrototype().clone()
-        ts_item = self.text_item(timestamp, display=timestamp2str(timestamp))
-        row = [blank, blank, blank, ts_item, self.comment_item(comment, comment_id)]
-        self.standalone_comment_index[comment_id] = row_ix = self.rowCount()
-        self.appendRow(row)
-        self.setVerticalHeaderItem(row_ix, QtGui.QStandardItem(''))
 
     def handle_run_values_changed(self, proposal, run, values: dict):
         known_col_ids = set(self.column_ids)
@@ -838,13 +790,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                     if not super().setData(index, display, role):
                         return False
 
-            # Send appropriate signals if we edited a standalone comment or an
-            # editable column.
-            if comment_id := self.row_to_comment_id(index.row()):
-                self.time_comment_changed.emit(comment_id, value)
-            else:
-                prop, run = self.row_to_proposal_run(index.row())
-                self.value_changed.emit(int(prop), int(run), changed_column, parsed)
+            prop, run = self.row_to_proposal_run(index.row())
+            self.value_changed.emit(int(prop), int(run), changed_column, parsed)
 
             return True
 

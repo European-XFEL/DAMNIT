@@ -769,16 +769,6 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     comment_index = get_index("Comment")
     win.table.setData(comment_index, "Foo", Qt.EditRole)
 
-    # Add a standalone comment
-    row_count = win.table.rowCount()
-    win.comment.setText("Bar")
-    win._comment_button_clicked()
-    assert win.table.rowCount() == row_count + 1
-
-    # Edit a standalone comment
-    comment_index = get_index("Comment", row=1)
-    win.table.setData(comment_index, "Foo", Qt.EditRole)
-
     # Check that 2D arrays are treated as images
     image_index = get_index("Image")
     assert isinstance(win.table.data(image_index, role=Qt.DecorationRole), QPixmap)

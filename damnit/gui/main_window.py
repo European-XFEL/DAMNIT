@@ -595,18 +595,6 @@ da-dev@xfel.eu"""
         self.update_agent.message.connect(self.handle_update)
         QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
-    def _set_comment_date(self):
-        self.comment_time.setText(
-            time.strftime("%H:%M %d/%m/%Y", time.localtime(time.time()))
-        )
-
-    def _comment_button_clicked(self):
-        ts = datetime.strptime(self.comment_time.text(), "%H:%M %d/%m/%Y").timestamp()
-        text = self.comment.text()
-        comment_id = self.db.add_standalone_comment(ts, text)
-        self.table.insert_comment_row(comment_id, text, ts)
-        self.comment.clear()
-
     def get_run_file(self, proposal, run, log=True):
         file_name = self.extracted_data_template.format(proposal, run)
 
@@ -743,7 +731,6 @@ da-dev@xfel.eu"""
     def _create_table_model(self, db, col_settings):
         table = DamnitTableModel(db, col_settings, self)
         table.value_changed.connect(self.save_value)
-        table.time_comment_changed.connect(self.save_time_comment)
         table.run_visibility_changed.connect(lambda row, state: self.plot.update())
         table.rowsInserted.connect(self.on_rows_inserted)
         return table
@@ -772,30 +759,6 @@ da-dev@xfel.eu"""
         # add all other widgets on a collapsible layout
         collapsible = CollapsibleWidget()
         vertical_layout.addWidget(collapsible)
-
-        comment_horizontal_layout = QtWidgets.QHBoxLayout()
-        self.comment = QtWidgets.QLineEdit(self)
-        self.comment.setText("Time can be edited in the field on the right.")
-
-        self.comment_time = QtWidgets.QLineEdit(self)
-        self.comment_time.setStyleSheet("width: 25px;")
-
-        comment_button = QtWidgets.QPushButton("Additional comment")
-        comment_button.setEnabled(True)
-        comment_button.clicked.connect(self._comment_button_clicked)
-
-        comment_horizontal_layout.addWidget(comment_button)
-        comment_horizontal_layout.addWidget(self.comment, stretch=3)
-        comment_horizontal_layout.addWidget(QtWidgets.QLabel("at"))
-        comment_horizontal_layout.addWidget(self.comment_time, stretch=1)
-
-        collapsible.add_layout(comment_horizontal_layout)
-
-        comment_timer = QtCore.QTimer()
-        self._set_comment_date()
-        comment_timer.setInterval(30000)
-        comment_timer.timeout.connect(self._set_comment_date)
-        comment_timer.start()
 
         # plotting control
         self.plot = PlottingControls(self)
