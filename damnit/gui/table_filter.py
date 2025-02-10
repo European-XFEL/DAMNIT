@@ -104,6 +104,66 @@ class ThumbnailFilter(Filter):
         return (has_thumbnail and self.show_with_thumbnail) or (not has_thumbnail and self.show_without_thumbnail)
 
 
+class FilterStatus(QPushButton):
+    def __init__(self, table_view, parent=None):
+        super().__init__(parent)
+        self._actions = []
+        self.table_view = table_view
+        self._update_model()
+        self.menu = QMenu(self)
+        self.setMenu(self.menu)
+        self._update_text()
+
+        if self.model is not None:
+            self.model.filterChanged.connect(self._update_text)
+        self.menu.aboutToShow.connect(self._populate_menu)
+        self.table_view.model_updated.connect(self._update_model)
+
+    def _update_model(self):
+        self.model = None
+        model = self.table_view.model()
+        if isinstance(model, FilterProxy):
+            self.model = model
+            self.model.filterChanged.connect(self._update_text)
+
+        self._update_text()
+
+    def _populate_menu(self):
+        self.menu.clear()
+        self._actions.clear()
+
+        if self.model is None or len(self.model.filters) == 0:
+            action = QAction("No active filter")
+            self._actions.append(action)
+            self.menu.addAction(action)
+            return
+
+        clear_all = QAction("Clear All Filters", self)
+        clear_all.triggered.connect(lambda x: self.model.clear_filters())
+        self._actions.append(clear_all)
+        self.menu.addAction(clear_all)
+        self.menu.addSeparator()
+
+        for column in self.model.filters:
+            title = self.model.sourceModel().column_title(column)
+            action = QAction(icon(FA6S.trash), f"Clear filter on {title}")
+            action.triggered.connect(
+                lambda x, column=column: self.model.set_filter(column, None)
+            )
+            self._actions.append(action)
+            self.menu.addAction(action)
+
+    def _clear_menu(self):
+        self.menu.clear()
+        self._actions.clear()
+
+    def _update_text(self):
+        if self.model is None:
+            self.setText("Filters (0)")
+        else:
+            self.setText(f"Filters ({len(self.model.filters)})")
+
+
 class FilterProxy(QtCore.QSortFilterProxyModel):
     """Proxy model that applies filters to rows."""
 
