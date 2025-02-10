@@ -28,6 +28,7 @@ from superqt.utils import qthrottled
 class FilterType(Enum):
     NUMERIC = "numeric"
     CATEGORICAL = "categorical"
+    THUMBNAIL = "thumbnail"
 
 
 class Filter:
@@ -88,6 +89,19 @@ class CategoricalFilter(Filter):
         if not self.selected_values:
             return False
         return value in self.selected_values
+
+
+class ThumbnailFilter(Filter):
+    """Filter for columns containing thumbnails, filtering based on presence/absence of thumbnails."""
+
+    def __init__(self, column: int, show_with_thumbnail: bool = True, show_without_thumbnail: bool = True):
+        super().__init__(column, FilterType.THUMBNAIL)
+        self.show_with_thumbnail = show_with_thumbnail
+        self.show_without_thumbnail = show_without_thumbnail
+
+    def accepts(self, value: Any) -> bool:
+        has_thumbnail = value is QPixmap
+        return (has_thumbnail and self.show_with_thumbnail) or (not has_thumbnail and self.show_without_thumbnail)
 
 
 class FilterProxy(QtCore.QSortFilterProxyModel):
@@ -159,6 +173,8 @@ class FilterMenu(QMenu):
         # Determine if column is numeric
         is_numeric = True
         values = set()
+        decos = set()
+
         for row in range(model.sourceModel().rowCount()):
             item = model.sourceModel().index(row, column)
             value = item.data(Qt.UserRole)
@@ -167,9 +183,15 @@ class FilterMenu(QMenu):
             if value is not None and not (isinstance(value, float) and isnan(value)):
                 if not isinstance(value, (int, float)):
                     is_numeric = False
+                    # break
+
+            if thumb := item.data(Qt.DecorationRole):
+                decos.add(type(thumb))
 
         # Create appropriate filter widget
-        if is_numeric:
+        if values == {None} and len(decos) == 1 and decos.pop() is QPixmap:
+            filter_widget = ThumbnailFilterWidget(column)
+        elif is_numeric:
             filter_widget = NumericFilterWidget(column, values)
         else:
             filter_widget = CategoricalFilterWidget(column, values)
@@ -347,6 +369,52 @@ class NumericFilterWidget(QWidget):
                     if item.data(Qt.UserRole) in filter.selected_values
                     else Qt.Unchecked
                 )
+
+
+class ThumbnailFilterWidget(QWidget):
+    """Widget for configuring thumbnail filters."""
+
+    filterChanged = QtCore.pyqtSignal(ThumbnailFilter)
+
+    def __init__(self, column: int, parent=None):
+        super().__init__(parent)
+        self.column = column
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Checkboxes for filtering
+        self.with_thumbnail = QCheckBox("Show thumbnails")
+        self.without_thumbnail = QCheckBox("Show empty")
+
+        # Set initial state
+        self.with_thumbnail.setChecked(True)
+        self.without_thumbnail.setChecked(True)
+
+        # Connect signals
+        self.with_thumbnail.toggled.connect(self._emit_filter)
+        self.without_thumbnail.toggled.connect(self._emit_filter)
+
+        # Layout
+        layout.addWidget(self.with_thumbnail)
+        layout.addWidget(self.without_thumbnail)
+        self.setLayout(layout)
+
+    def _emit_filter(self):
+        filter = ThumbnailFilter(
+            self.column,
+            show_with_thumbnail=self.with_thumbnail.isChecked(),
+            show_without_thumbnail=self.without_thumbnail.isChecked(),
+        )
+        self.filterChanged.emit(filter)
+
+    def set_filter(self, filter: Optional[ThumbnailFilter]):
+        if filter is None:
+            self.with_thumbnail.setChecked(True)
+            self.without_thumbnail.setChecked(True)
+        else:
+            self.with_thumbnail.setChecked(filter.show_with_thumbnail)
+            self.without_thumbnail.setChecked(filter.show_without_thumbnail)
 
 
 class CategoricalFilterWidget(QWidget):
