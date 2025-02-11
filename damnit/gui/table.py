@@ -24,6 +24,42 @@ ROW_HEIGHT = 30
 THUMBNAIL_SIZE = 35
 
 
+class FilterHeaderView(QtWidgets.QHeaderView):
+    def __init__(self, parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self.filtered_columns = set()
+        self.filter_icon = icon(FA6S.filter)
+
+    def paintSection(self, painter, rect, logicalIndex):
+        painter.save()
+        
+        # Draw the default header section
+        super().paintSection(painter, rect, logicalIndex)
+        
+        # If column is filtered, draw the icon
+        if logicalIndex in self.filtered_columns:
+            # Calculate icon position
+            icon_size = 16
+            padding = 4
+            icon_rect = QtCore.QRect(
+                rect.right() - icon_size - padding,
+                rect.center().y() - icon_size//2,
+                icon_size,
+                icon_size
+            )
+            # Draw the icon using QPainter's drawIcon
+            painter.setClipRect(rect)
+            painter.drawPixmap(icon_rect, self.filter_icon.pixmap(icon_size))
+            painter.setClipRect(rect)
+
+        painter.restore()
+
+    def update_filtered_columns(self, filtered_cols):
+        """Update the set of filtered columns and trigger repaint"""
+        self.filtered_columns = set(filtered_cols)
+        self.viewport().update()
+
+
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
@@ -90,7 +126,7 @@ class TableView(QtWidgets.QTableView):
         # model level (changing column logical indices). So we need to reset
         # any reordering from the view level, which maps logical indices to
         # different visual indices, to show the columns as in the model.
-        self.setHorizontalHeader(QtWidgets.QHeaderView(Qt.Horizontal, self))
+        self.setHorizontalHeader(FilterHeaderView(self))
         header = self.horizontalHeader()
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.show_horizontal_header_menu)
@@ -100,6 +136,8 @@ class TableView(QtWidgets.QTableView):
             self.model().rowsInserted.connect(self.resize_new_rows)
             self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
+            self.model().filterChanged.connect(
+                lambda: header.update_filtered_columns(self.model().filters))
             self.resizeRowsToContents()
 
         self.model_updated.emit()
