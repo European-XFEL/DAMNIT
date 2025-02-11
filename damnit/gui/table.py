@@ -491,8 +491,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         return item
 
     def comment_item(self, text):
-        item = QtGui.QStandardItem(text)  # Editable by default
+        item = self.text_item(text)
         item.setToolTip(text)
+        item.setEditable(True)
         return item
 
     def new_item(self, value, column_id, max_diff, attrs):
