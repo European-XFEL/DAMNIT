@@ -155,6 +155,8 @@ class ExtractionSubmitter:
         # variables if they're not cleared.
         for v in ['SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID']:
             env.pop(v, None)
+        # Slurm jobs shouldn't attempt to use your X session
+        env.pop('DISPLAY', None)
         return env
 
     def submit(self, req: ExtractionRequest):
