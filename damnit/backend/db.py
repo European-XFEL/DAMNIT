@@ -132,7 +132,7 @@ class DamnitDB:
         self.conn.execute("PRAGMA foreign_keys = ON;") 
 
         self.conn.row_factory = sqlite3.Row
-        self.metameta = MetametaMapping(self.conn)
+        self.metameta = KeyValueMapping(self.conn, "metameta")
 
         # Only execute the schema if we wouldn't overwrite a previous version
         can_apply_schema = True
@@ -507,13 +507,14 @@ class DamnitDB:
             return [row[0] for row in cursor.fetchall()]
 
 
-class MetametaMapping(MutableMapping):
-    def __init__(self, conn):
+class KeyValueMapping(MutableMapping):
+    def __init__(self, conn, table, allowed_keys=[]):
         self.conn = conn
+        self.table = table
 
     def __getitem__(self, key):
         row = self.conn.execute(
-            "SELECT value FROM metameta WHERE key=?", (key,)
+            f"SELECT value FROM {self.table} WHERE key=?", (key,)
         ).fetchone()
         if row is not None:
             return row[0]
@@ -522,7 +523,7 @@ class MetametaMapping(MutableMapping):
     def __setitem__(self, key, value):
         with self.conn:
             self.conn.execute(
-                "INSERT INTO metameta VALUES (:key, :value)"
+                f"INSERT INTO {self.table} VALUES (:key, :value)"
                 "ON CONFLICT (key) DO UPDATE SET value=:value",
                 {'key': key, 'value': value}
             )
@@ -534,28 +535,28 @@ class MetametaMapping(MutableMapping):
 
         with self.conn:
             self.conn.executemany(
-                "INSERT INTO metameta VALUES (:key, :value)"
+                f"INSERT INTO {self.table} VALUES (:key, :value)"
                 "ON CONFLICT (key) DO UPDATE SET value=:value",
                 [{'key': k, 'value': v} for (k, v) in d.items()]
             )
 
     def __delitem__(self, key):
         with self.conn:
-            c = self.conn.execute("DELETE FROM metameta WHERE key=?", (key,))
+            c = self.conn.execute(f"DELETE FROM {self.table} WHERE key=?", (key,))
             if c.rowcount == 0:
                 raise KeyError(key)
 
     def __iter__(self):
-        return (r[0] for r in self.conn.execute("SELECT key FROM metameta"))
+        return (r[0] for r in self.conn.execute(f"SELECT key FROM {self.table}"))
 
     def __len__(self):
-        return self.conn.execute("SELECT count(*) FROM metameta").fetchone()[0]
+        return self.conn.execute(f"SELECT count(*) FROM {self.table}").fetchone()[0]
 
     def setdefault(self, key, default=None):
         with self.conn:
             try:
                 self.conn.execute(
-                    "INSERT INTO metameta VALUES (:key, :value)",
+                    f"INSERT INTO {self.table} VALUES (:key, :value)",
                     {'key': key, 'value': default}
                 )
                 value = default
@@ -566,7 +567,7 @@ class MetametaMapping(MutableMapping):
         return value
 
     def to_dict(self):
-        return dict(self.conn.execute("SELECT * FROM metameta"))
+        return dict(self.conn.execute(f"SELECT * FROM {self.table}"))
 
     # Reimplement .values() and .items() to use just one query.
     def values(self):
