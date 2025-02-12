@@ -2,9 +2,10 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from glob import glob
+from pathlib import Path
 
-from .listener import EventProcessor
-from .extract_data import RunData
+from damnit.backend.listener import EventProcessor
+from damnit.backend.extract_data import RunData
 
 log = logging.getLogger(__name__)
 
@@ -21,23 +22,27 @@ class TestEventProcessor(EventProcessor):
 
         while True:
             try:
-                run_and_data = input(f'Run for proposal {self.proposal}: ')
+                run_and_data = input("Enter a '<proposal> <run> [raw|proc|all] run_path' string: ")
                 # If the user presses 'Enter' without typing the input will be empty
                 if len(run_and_data) == 0:
                     continue
 
-                # Extract the run number, and optionally the run data source
+                # Extract the proposal and run number, and optionally the run data source
                 input_split = run_and_data.split()
-                run = input_split[0]
-                if len(input_split) == 2:
-                    run_data = RunData(input_split[1])
+                proposal = input_split[0]
+                run = input_split[1]
+                if len(input_split) == 3:
+                    run_data = RunData(input_split[2])
                 else:
                     run_data = RunData.ALL
+                if len(input_split) == 4:
+                    path = input_split[3]
+                else:
+                    path = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
 
                 # Create the fake Kafka message
-                path = glob(f'/gpfs/exfel/exp/*/*/p{self.proposal:>06}/raw/r{run:>04}')[0]
                 inst, cycle = path.split('/')[4:6]
-                msg = {'proposal': self.proposal, 'run': run, 'path': path,
+                msg = {'proposal': proposal, 'run': run, 'path': path,
                        'instrument': inst, 'cycle': cycle}
                 record = DummyRecord(timestamp=int(datetime.utcnow().timestamp() * 1000))
 
@@ -55,9 +60,9 @@ class TestEventProcessor(EventProcessor):
                 log.error("Error processing event", exc_info=True)
 
 
-def listen():
+def listen(db_path):
     try:
-        with TestEventProcessor() as processor:
+        with TestEventProcessor(db_path) as processor:
             processor.run()
     except KeyboardInterrupt:
         print("Stopping on Ctrl-C")
@@ -65,4 +70,4 @@ def listen():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    listen(["correction_complete"])
+    listen(Path.cwd())

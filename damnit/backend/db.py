@@ -121,7 +121,7 @@ MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 class DamnitDB:
     def __init__(self, path=DB_NAME, allow_old=False):
-        self.path = path.absolute()
+        self._path = path.absolute()
 
         db_existed = path.exists()
         log.debug("Opening database at %s", path)
@@ -181,6 +181,10 @@ class DamnitDB:
     @property
     def kafka_topic(self):
         return UPDATE_TOPIC.format(self.metameta['db_id'])
+
+    @property
+    def path(self):
+        return self._path
 
     def upgrade_schema(self, from_version):
         log.info("Upgrading database format from v%d to v%d",
@@ -600,6 +604,40 @@ class MsgKind(Enum):
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
 
+def initialize_proposal(root_path, proposal=None, context_file_src=None, user_vars_src=None):
+    # Ensure the directory exists
+    root_path.mkdir(parents=True, exist_ok=True)
+    if root_path.stat().st_uid == os.getuid():
+        os.chmod(root_path, 0o777)
+
+    # If the database doesn't exist, create it
+    if not db_path(root_path).is_file():
+        if proposal is None:
+            raise ValueError("Must pass a proposal number to `initialize_proposal()` if the database doesn't exist yet.")
+
+        # Initialize database
+        db = DamnitDB.from_dir(root_path)
+        db.metameta["proposal"] = proposal
+        db.metameta["context_python"] = "/gpfs/exfel/sw/software/euxfel-environment-management/environments/202502/.pixi/envs/default/bin/python"
+    else:
+        # Otherwise, load the proposal number
+        db = DamnitDB.from_dir(root_path)
+        proposal = db.metameta["proposal"]
+
+    context_path = root_path / "context.py"
+    # Copy initial context file if necessary
+    if not context_path.is_file():
+        if context_file_src is not None:
+            shutil.copyfile(context_file_src, context_path)
+        else:
+            context_path.touch()
+        os.chmod(context_path, 0o666)
+
+    # Copy user editable variables if requested
+    if new_db and (user_vars_src is not None):
+        prev_db = DamnitDB(user_vars_src)
+        for var in prev_db.get_user_variables().values():
+            db.add_user_variable(var)
 
 # Old schemas for reference and migration
 

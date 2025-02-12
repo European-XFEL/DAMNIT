@@ -21,7 +21,7 @@ from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
 
 from ..api import DataType, RunVariables
-from ..backend import backend_is_running, initialize_and_start_backend
+from ..backend import initialize_proposal
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
@@ -214,7 +214,7 @@ da-dev@xfel.eu"""
         context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
             return
-        if not prompt_setup_db_and_backend(context_dir, prop_no, parent=self):
+        if not prompt_setup_db(context_dir, prop_no, parent=self):
             # User said no to setting up a new database
             return
 
@@ -1169,13 +1169,13 @@ class LogViewWindow(QtWidgets.QMainWindow):
         super().closeEvent(event)
 
 
-def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
+def prompt_setup_db(context_dir: Path, prop_no=None, parent=None):
     if not db_path(context_dir).is_file():
 
         button = QMessageBox.question(
             parent, "Database not found",
             f"{context_dir} does not contain a DAMNIT database, "
-            "would you like to create one and start the backend?"
+            "would you like to create one?"
         )
         if button != QMessageBox.Yes:
             return False
@@ -1194,24 +1194,8 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             )
             if not ok:
                 return False
-        initialize_and_start_backend(
-            context_dir, prop_no, context_file_src, user_vars_src
-        )
+        initialize_proposal(context_dir, prop_no, context_file_src, user_vars_src)
         return True
-
-    # The folder already contains a database
-    db = DamnitDB.from_dir(context_dir)
-
-    # Check if the backend is running
-    expect_listener = not db.metameta.get('no_listener', 0)
-    if expect_listener and not backend_is_running(context_dir):
-        button = QMessageBox.question(
-            parent, "Backend not running",
-            "The DAMNIT backend is not running, would you like to start it? "
-            "This is only necessary if new runs are expected."
-        )
-        if button == QMessageBox.Yes:
-            initialize_and_start_backend(context_dir, prop_no)
 
     return True
 
@@ -1240,7 +1224,7 @@ def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
         context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
             return 0
-        if not prompt_setup_db_and_backend(context_dir, prop_no):
+        if not prompt_setup_db(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
 
