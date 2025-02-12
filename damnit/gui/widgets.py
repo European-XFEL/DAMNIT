@@ -268,7 +268,7 @@ class PlotLineWidget(QWidget):
         super().__init__()
         self.x_data = x_data
         self.y_data = y_data
-        self.slider_position = (0, 1)  # (left, right) Normalized position (0 to 1)
+        self.slider_position = (x_data[0], x_data[-1])  # (left, right) Normalized position (0 to 1)
         self.setMinimumSize(100, 100)
 
     def set_slider_position(self, position: tuple[float, float]):
@@ -282,46 +282,46 @@ class PlotLineWidget(QWidget):
         # Get widget dimensions
         w = self.width()
         h = self.height()
-        
+
         # Calculate scaling factors
-        x_scale = w / self.x_data[-1]  # Scale x based on max x value
+        x_min = self.x_data[0]  # Get minimum x value
+        x_scale = w / (self.x_data[-1] - x_min)  # Scale x based on data range
         y_min, y_max = np.min(self.y_data), np.max(self.y_data)
         padding = (y_max - y_min) * 0.1
         y_scale = (h - 20) / ((y_max - y_min) + 2 * padding)
-
-        # Convert data points to screen coordinates
-        points = []
-        for i in range(len(self.x_data)):
-            x = self.x_data[i] * x_scale
-            y = h - ((self.y_data[i] - y_min + padding) * y_scale)
-            points.append((x, y))
 
         # Draw the main curve
         pen = QPen(QColor(0, 120, 255))
         pen.setWidth(2)
         painter.setPen(pen)
-        
-        for i in range(len(points) - 1):
-            x1, y1 = points[i]
-            x2, y2 = points[i + 1]
-            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
 
-        # Draw vertical lines at slider position
-        slider_left, slider_right = int(self.slider_position[0] * w), int(self.slider_position[1] * w)
+        # Convert data points to screen coordinates
+        def _scale_x(value):
+            return int((value - x_min) * x_scale)
+
+        def _scale_y(value):
+            return int(h - ((value - y_min + padding) * y_scale))
+
+        for (x0, x1), (y0, y1) in zip(zip(self.x_data, self.x_data[1:]),
+                                      zip(self.y_data, self.y_data[1:])):
+            painter.drawLine(_scale_x(x0), _scale_y(y0), _scale_x(x1), _scale_y(y1))
+
         pen = QPen(QColor(255, 0, 0, 150))  # Semi-transparent red
         pen.setWidth(2)
         painter.setPen(pen)
-        painter.drawLine(slider_left, 0, slider_left, h)
-        painter.drawLine(slider_right, 0, slider_right, h)
+        left_x = _scale_x(self.slider_position[0])
+        right_x = _scale_x(self.slider_position[1])
+        painter.drawLine(left_x, 0, left_x, h)
+        painter.drawLine(right_x, 0, right_x, h)
 
         # Gray out outer areas
         painter.fillRect(
-            slider_right, 0, 
-            w - slider_right, h,
+            int(right_x), 0, 
+            w - int(right_x), h,
             QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
         )
         painter.fillRect(
             0, 0, 
-            slider_left, h,
+            int(left_x), h,
             QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
         )

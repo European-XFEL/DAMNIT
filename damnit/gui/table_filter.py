@@ -2,6 +2,7 @@ from enum import Enum
 from math import inf, isnan
 from typing import Any, Dict, Optional, Set
 
+import numpy as np
 from fonticon_fa6 import FA6S
 from natsort import natsorted
 from PyQt5 import QtCore
@@ -237,29 +238,33 @@ class FilterMenu(QMenu):
     def _create_filter_widget(self, column: int, model: FilterProxy):
         # Determine if column is numeric
         is_numeric = True
-        values = set()
+        values = []
         decos = set()
 
         for row in range(model.sourceModel().rowCount()):
             item = model.sourceModel().index(row, column)
-            value = item.data(Qt.UserRole)
-            values.add(value)
-            # Only check type for non-None, non-NaN values
-            if value is not None and not (isinstance(value, float) and isnan(value)):
-                if not isinstance(value, (int, float)):
-                    is_numeric = False
-                    # break
 
             if thumb := item.data(Qt.DecorationRole):
                 decos.add(type(thumb))
 
+            if (value := item.data(Qt.UserRole)) is None:
+                continue
+            if isinstance(value, float) and isnan(value):
+                continue
+
+            if not isinstance(value, (int, float)):
+                is_numeric = False
+
+            values.append(value)
+
+        unique_values = set(values)
         # Create appropriate filter widget
-        if values == {None} and len(decos) == 1 and decos.pop() is QPixmap:
+        if unique_values == {} and len(decos) == 1 and decos.pop() is QPixmap:
             filter_widget = ThumbnailFilterWidget(column)
         elif is_numeric:
             filter_widget = NumericFilterWidget(column, values)
         else:
-            filter_widget = CategoricalFilterWidget(column, values)
+            filter_widget = CategoricalFilterWidget(column, unique_values)
         return filter_widget
 
     @qthrottled(timeout=20, leading=False)
@@ -273,52 +278,45 @@ class NumericFilterWidget(QWidget):
 
     filterChanged = QtCore.pyqtSignal(NumericFilter)
 
-    def __init__(self, column: int, values: Set[Any], parent=None):
+    def __init__(self, column: int, values: list[Any], parent=None):
         super().__init__(parent)
         self.column = column
         import numpy as np
         from sklearn.neighbors import KernelDensity
 
-        self.all_values = np.asarray(list(values))
-        self.all_values[self.all_values == None] = np.nan
-        print(values)
-        print(self.all_values)
+        self.all_values = np.asarray(values, dtype=np.float64)
         self.all_values.sort()
+        self.unique_values = np.unique(self.all_values)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
-
-        # plot
-        plot_group = QGroupBox("Value plot")
-        plot_layout = QVBoxLayout()
-
-        x = np.asarray([e for e in values if e])
-        x.sort()
-        xplot=np.linspace(np.nanmin(x), np.nanmax(x), max(20, int(.2*x.size)))[:, np.newaxis]
-        kde = KernelDensity().fit(x[:, None])
-        log_dens = kde.score_samples(xplot)
-        y = np.exp(log_dens)
-        # y = y/y.max() * len(x)
-        self.plot = PlotLineWidget(xplot[:, 0], y)
-
-        # Slider
-        self.slider = QDoubleRangeSlider(Qt.Horizontal)
-        self.slider.setRange(np.nanmin(self.all_values), np.nanmax(self.all_values))
-        self.slider.setValue((np.nanmin(self.all_values), np.nanmax(self.all_values)))
-        self.slider.valueChanged.connect(self.plot.set_slider_position)
-
-        plot_layout.addWidget(self.plot)
-        plot_layout.addWidget(self.slider)
-        plot_group.setLayout(plot_layout)
 
         # Range inputs
         range_group = QGroupBox("Value Range")
         range_layout = QVBoxLayout()
 
+        x = self.all_values
+        xplot=np.linspace(x.min(), x.max(), max(20, int(.2*x.size)))[:, np.newaxis]
+        kde = KernelDensity().fit(x[:, None])
+        log_dens = kde.score_samples(xplot)
+        y = np.exp(log_dens)
+        self.plot = PlotLineWidget(xplot[:, 0], y)
+
+        # Slider
+        self.slider = QDoubleRangeSlider(Qt.Horizontal)
+        print('slider range:', self.unique_values.min(), self.unique_values.max())
+        self.slider.setRange(self.unique_values.min(), self.unique_values.max())
+        self.slider.setValue((self.unique_values.min(), self.unique_values.max()))
+        self.slider.valueChanged.connect(self._on_slider_changed)
+
         self.min_input = QLineEdit()
         self.max_input = QLineEdit()
         self.min_input.setPlaceholderText("Min")
         self.max_input.setPlaceholderText("Max")
+
+        min_max_layout = QHBoxLayout()
+        min_max_layout.addWidget(self.min_input)
+        min_max_layout.addWidget(self.max_input)
 
         # Create and set validator for numerical input
         validator = QDoubleValidator()
@@ -326,8 +324,9 @@ class NumericFilterWidget(QWidget):
         self.min_input.setValidator(validator)
         self.max_input.setValidator(validator)
 
-        range_layout.addWidget(self.min_input)
-        range_layout.addWidget(self.max_input)
+        range_layout.addWidget(self.plot)
+        range_layout.addWidget(self.slider)
+        range_layout.addLayout(min_max_layout)
         range_group.setLayout(range_layout)
 
         # Value selection list
@@ -355,7 +354,7 @@ class NumericFilterWidget(QWidget):
         list_group.setLayout(list_layout)
 
         # Main layout
-        layout.addWidget(plot_group)
+        # layout.addWidget(plot_group)
         layout.addWidget(range_group)
         layout.addWidget(list_group)
         layout.addWidget(self.include_nan)
@@ -380,21 +379,32 @@ class NumericFilterWidget(QWidget):
         max_val = float(self.max_input.text()) if self.max_input.text() else inf
 
         # Add all values to list, but only check those in range
-        for value in natsorted(self.all_values):
-            if value is not None and not (isinstance(value, float) and isnan(value)):
-                item = QListWidgetItem()
-                item.setData(Qt.UserRole, value)
-                item.setData(Qt.DisplayRole, str(value))
-                # Check if value is in range
-                try:
-                    float_val = float(value)
-                    item.setCheckState(Qt.Checked if min_val <= float_val <= max_val else Qt.Unchecked)
-                except (TypeError, ValueError):
-                    item.setCheckState(Qt.Unchecked)
-                self.list_widget.addItem(item)
+        for value in natsorted(self.unique_values):
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, value)
+            item.setData(Qt.DisplayRole, str(value))
+            # Check if value is in range
+            try:
+                float_val = float(value)
+                item.setCheckState(Qt.Checked if min_val <= float_val <= max_val else Qt.Unchecked)
+            except (TypeError, ValueError):
+                item.setCheckState(Qt.Unchecked)
+            self.list_widget.addItem(item)
+
+    def _on_slider_changed(self, value):
+        """Handle changes in slider position."""
+        print('slider value:', value)
+        self.plot.set_slider_position(value)
+        value_range = self.unique_values[-1] - self.unique_values[0]
+        self.min_input.setText(_format_number(value[0], value_range))
+        self.max_input.setText(_format_number(value[1], value_range))
+        self._populate_list()
+        self._emit_filter()
 
     def _on_range_changed(self):
         """Handle changes in the range inputs."""
+        self.plot.set_slider_position([float(self.min_input.text()), float(self.max_input.text())])
+        self.slider.setValue([float(self.min_input.text()), float(self.max_input.text())])
         self._populate_list()  # Update list to match range
         self._emit_filter()
 
@@ -412,6 +422,7 @@ class NumericFilterWidget(QWidget):
         """Handle changes in value selection."""
         self._emit_filter()
 
+    @qthrottled(timeout=100, leading=False)
     def _emit_filter(self):
         """Create and emit a new NumericFilter based on current widget state."""
         min_val = self.min_input.text()
@@ -465,6 +476,9 @@ class NumericFilterWidget(QWidget):
                     if item.data(Qt.UserRole) in filter.selected_values
                     else Qt.Unchecked
                 )
+
+        self.slider.setRange(self.unique_values[0], self.unique_values[-1])
+        self.slider.setValue([filter.min_val, filter.max_val])
 
 
 class ThumbnailFilterWidget(QWidget):
@@ -613,3 +627,27 @@ class CategoricalFilterWidget(QWidget):
             item.setCheckState(
                 Qt.Checked if value in filter.selected_values else Qt.Unchecked
             )
+
+
+def _format_number(value: float, value_range: float) -> str:
+    """Format a number with appropriate precision based on the data range."""
+
+    def _formatter(_value, _range):
+        # Calculate appropriate precision based on range
+        magnitude = abs(_range)
+        if magnitude >= 1000:
+            return f"{_value:.0f}"
+        elif magnitude >= 100:
+            return f"{_value:.1f}"
+        elif magnitude >= 1:
+            return f"{_value:.2f}"
+        else:
+            # For small ranges, use more decimal places
+            # precision = max(2, int(-np.log10(magnitude)) + 1)
+            # return f"{_value:.{precision}f}"
+            return str(_value)
+
+    if value_range == 0:
+        return _formatter(value, value)
+    else:
+        return _formatter(value, value_range)
