@@ -55,6 +55,8 @@ class PlotWindow(QtWidgets.QDialog):
 
         # Get current theme from main window
         self.current_theme = self.main_window.current_theme if self.main_window else Theme.LIGHT
+        import matplotlib.pyplot as plt
+        plt.style.use('dark_background' if self.current_theme == Theme.DARK else 'default')
 
         self.xlabel = xlabel
         self.ylabel = ylabel
@@ -223,7 +225,7 @@ class PlotWindow(QtWidgets.QDialog):
     def update_theme(self, theme: Theme):
         """Update the window theme."""
         self.current_theme = theme
-        self._update_plot_theme()
+        # self._update_plot_theme()
         self._update_plot_toolbar_theme()
 
 

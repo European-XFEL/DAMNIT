@@ -1,8 +1,9 @@
 import math
 from pathlib import Path
 
+import numpy as np
 from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter, QPixmap
+from PyQt5.QtGui import QColor, QPainter, QPixmap, QPen, QBrush
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from ..util import icon_path
@@ -260,3 +261,67 @@ class QtWaitingSpinner(QWidget):
             resultAlpha = min(1.0, max(0.0, resultAlpha))
             color.setAlphaF(resultAlpha)
         return color
+
+
+class PlotLineWidget(QWidget):
+    def __init__(self, x_data, y_data):
+        super().__init__()
+        self.x_data = x_data
+        self.y_data = y_data
+        self.slider_position = (0, 1)  # (left, right) Normalized position (0 to 1)
+        self.setMinimumSize(100, 100)
+
+    def set_slider_position(self, position: tuple[float, float]):
+        self.slider_position = position
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Get widget dimensions
+        w = self.width()
+        h = self.height()
+        
+        # Calculate scaling factors
+        x_scale = w / self.x_data[-1]  # Scale x based on max x value
+        y_min, y_max = np.min(self.y_data), np.max(self.y_data)
+        padding = (y_max - y_min) * 0.1
+        y_scale = (h - 20) / ((y_max - y_min) + 2 * padding)
+
+        # Convert data points to screen coordinates
+        points = []
+        for i in range(len(self.x_data)):
+            x = self.x_data[i] * x_scale
+            y = h - ((self.y_data[i] - y_min + padding) * y_scale)
+            points.append((x, y))
+
+        # Draw the main curve
+        pen = QPen(QColor(0, 120, 255))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        
+        for i in range(len(points) - 1):
+            x1, y1 = points[i]
+            x2, y2 = points[i + 1]
+            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        # Draw vertical lines at slider position
+        slider_left, slider_right = int(self.slider_position[0] * w), int(self.slider_position[1] * w)
+        pen = QPen(QColor(255, 0, 0, 150))  # Semi-transparent red
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawLine(slider_left, 0, slider_left, h)
+        painter.drawLine(slider_right, 0, slider_right, h)
+
+        # Gray out outer areas
+        painter.fillRect(
+            slider_right, 0, 
+            w - slider_right, h,
+            QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
+        )
+        painter.fillRect(
+            0, 0, 
+            slider_left, h,
+            QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
+        )

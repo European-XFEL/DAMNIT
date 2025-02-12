@@ -20,9 +20,11 @@ from PyQt5.QtWidgets import (
     QWidgetAction,
     QGroupBox,
 )
-from superqt import QSearchableListWidget
+from superqt import QDoubleRangeSlider, QSearchableListWidget
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
+
+from .widgets import PlotLineWidget
 
 
 class FilterType(Enum):
@@ -274,10 +276,40 @@ class NumericFilterWidget(QWidget):
     def __init__(self, column: int, values: Set[Any], parent=None):
         super().__init__(parent)
         self.column = column
-        self.all_values = values
+        import numpy as np
+        from sklearn.neighbors import KernelDensity
+
+        self.all_values = np.asarray(list(values))
+        self.all_values[self.all_values == None] = np.nan
+        print(values)
+        print(self.all_values)
+        self.all_values.sort()
 
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
+
+        # plot
+        plot_group = QGroupBox("Value plot")
+        plot_layout = QVBoxLayout()
+
+        x = np.asarray([e for e in values if e])
+        x.sort()
+        xplot=np.linspace(np.nanmin(x), np.nanmax(x), max(20, int(.2*x.size)))[:, np.newaxis]
+        kde = KernelDensity().fit(x[:, None])
+        log_dens = kde.score_samples(xplot)
+        y = np.exp(log_dens)
+        # y = y/y.max() * len(x)
+        self.plot = PlotLineWidget(xplot[:, 0], y)
+
+        # Slider
+        self.slider = QDoubleRangeSlider(Qt.Horizontal)
+        self.slider.setRange(np.nanmin(self.all_values), np.nanmax(self.all_values))
+        self.slider.setValue((np.nanmin(self.all_values), np.nanmax(self.all_values)))
+        self.slider.valueChanged.connect(self.plot.set_slider_position)
+
+        plot_layout.addWidget(self.plot)
+        plot_layout.addWidget(self.slider)
+        plot_group.setLayout(plot_layout)
 
         # Range inputs
         range_group = QGroupBox("Value Range")
@@ -323,6 +355,7 @@ class NumericFilterWidget(QWidget):
         list_group.setLayout(list_layout)
 
         # Main layout
+        layout.addWidget(plot_group)
         layout.addWidget(range_group)
         layout.addWidget(list_group)
         layout.addWidget(self.include_nan)
