@@ -93,6 +93,7 @@ class ExtractionRequest:
     run: int
     proposal: int
     run_data: RunData
+    sandbox_args: str = ""
     damnit_python: str = sys.executable
     cluster: bool = False
     match: tuple = ()
@@ -120,6 +121,9 @@ class ExtractionRequest:
             cmd.append('--mock')
         if self.update_vars:
             cmd.append('--update-vars')
+        if len(self.sandbox_args) > 0:
+            cmd.extend(["--sandbox-args", self.sandbox_args])
+
         return cmd
 
     def submitted_info(self, cluster, job_id):
