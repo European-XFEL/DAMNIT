@@ -285,10 +285,13 @@ class PlotLineWidget(QWidget):
 
         # Calculate scaling factors
         x_min = self.x_data[0]  # Get minimum x value
-        x_scale = w / (self.x_data[-1] - x_min)  # Scale x based on data range
+        x_range = self.x_data[-1] - x_min
+        x_scale = w / x_range if x_range != 0 else 1.0  # Handle case where all x values are the same
+
         y_min, y_max = np.min(self.y_data), np.max(self.y_data)
-        padding = (y_max - y_min) * 0.1
-        y_scale = (h - 20) / ((y_max - y_min) + 2 * padding)
+        y_range = y_max - y_min
+        padding = y_range * 0.1 if y_range != 0 else 1.0  # Use 1.0 as default padding when all y values are same
+        y_scale = (h - 20) / ((y_range) + 2 * padding)  # This will now always have non-zero denominator
 
         # Draw the main curve
         pen = QPen(QColor(0, 120, 255))
