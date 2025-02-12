@@ -1364,3 +1364,32 @@ def test_theme(mock_db, qtbot, tmp_path):
         win2._toggle_theme(False)
         assert win2.current_theme == Theme.LIGHT
         assert win2.palette() != dark_palette  # Light theme should have different colors
+
+
+def test_filter_header(mock_db_with_data, qtbot):
+    """Test that the filter header shows icons when filters are active."""
+    window = MainWindow(mock_db_with_data[0], connect_to_kafka=False)
+    qtbot.addWidget(window)
+    window.show()
+
+    table = window.table_view
+    header = table.horizontalHeader()
+
+    # Initially no filters should be active
+    for col in range(table.model().columnCount()):
+        assert col not in header.filtered_columns
+
+    # Apply a filter to the first column
+    col_index = 0
+    # filter_menu = FilterMenu(col_index, table.model(), table)
+    filter = CategoricalFilter(col_index, {"test_value"})
+    table.model().set_filter(col_index, filter)
+
+    # Check that the filter icon appears in the header
+    assert col_index in header.filtered_columns
+
+    # Clear the filter
+    table.model().set_filter(col_index, None)
+
+    # Check that the filter icon is removed
+    assert col_index not in header.filtered_columns
