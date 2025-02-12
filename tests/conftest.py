@@ -1,4 +1,5 @@
 import socket
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -78,6 +79,14 @@ def mock_ctx():
     """
 
     return mkcontext(code)
+
+
+@pytest.fixture
+def mock_sandbox_out_file():
+    path = Path(__file__).parent / "1234"
+
+    yield path
+    path.unlink(missing_ok=True)
 
 
 @pytest.fixture
