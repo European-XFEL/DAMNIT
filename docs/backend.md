@@ -94,7 +94,7 @@ arguments if they have the right _annotations_, currently.
 
 - `meta#run_number`: The number of the current run being processed.
 - `meta#proposal`: The number of the current proposal.
-- `meta#proposal_dir`: The root
+- `meta#proposal_path`: The root
   [Path](https://docs.python.org/3/library/pathlib.html) to the current
   proposal.
 
