@@ -891,7 +891,12 @@ da-dev@xfel.eu"""
         # Clear the widget and wait for a bit to visually indicate to the
         # user that something happened.
         self._error_widget.setText("")
-        QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
+
+        # We use sleep() instead of a QTimer because otherwise during the tests
+        # the error widget may be free'd before the timer fires, leading to a
+        # segfault when the timer function attempts to use it.
+        time.sleep(0.1)
+        self._error_widget.setText(text)
 
     def save_context(self):
         self._context_code_to_save = self._editor.text()
