@@ -543,7 +543,11 @@ class Results:
                 else:
                     data = data.fillna(0)
 
-                return generate_thumbnail(data)
+                try:
+                    return generate_thumbnail(data)
+                except:
+                    logging.error("Error generating thumbnail for %s", name, exc_info=True)
+                    return "<thumbnail error>"
             else:
                 return f"{data.dtype}: {data.shape}"
 
