@@ -5,8 +5,9 @@ import numpy as np
 from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from superqt import QDoubleRangeSlider
 
-from ..util import icon_path
+from ..util import icon_path, kde
 
 
 class Arrow(QLabel):
@@ -331,3 +332,92 @@ class PlotLineWidget(QWidget):
             left_x, h,
             QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
         )
+
+from ..util import _format_number
+from PyQt5.QtWidgets import QLineEdit, QHBoxLayout
+from PyQt5.QtGui import QDoubleValidator
+from PyQt5.QtCore import pyqtSignal
+
+class ValueRangeWidget(QWidget):
+
+    rangeChanged = pyqtSignal(float, float)
+
+    def __init__(self, values: list[float], vmin: float, vmax: float, parent=None):
+        super().__init__(parent)
+
+        self.values = values
+        self.vmin = vmin
+        self.vmax = vmax
+
+        # line plot widget
+        if vmin != vmax:
+            x, y = kde(self.values)
+            self.plot = PlotLineWidget(x, y)
+
+            # Slider
+            self.slider = QDoubleRangeSlider(Qt.Horizontal)
+            self.slider.setRange(vmin, vmax)
+            self.slider.setValue((vmin, vmax))
+        else:
+            self.plot = None
+            self.slider = None
+
+        # Min and max inputs
+        self.min_input = QLineEdit()
+        self.max_input = QLineEdit()
+        self.min_input.setText(_format_number(vmin, vmax - vmin))
+        self.max_input.setText(_format_number(vmax, vmax - vmin))
+
+        # Create and set validator for numerical input
+        validator = QDoubleValidator()
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        self.min_input.setValidator(validator)
+        self.max_input.setValidator(validator)
+
+        min_max_layout = QHBoxLayout()
+        min_max_layout.addWidget(self.min_input)
+        min_max_layout.addWidget(self.max_input)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.plot)
+        layout.addWidget(self.slider)
+        layout.addLayout(min_max_layout)
+
+        # connect signals
+        self.min_input.editingFinished.connect(self._on_input_changed)
+        self.max_input.editingFinished.connect(self._on_input_changed)
+        if self.slider is not None:
+            self.slider.valueChanged.connect(self._on_range_changed)
+
+    def set_values(self, vmin, vmax):
+        self.set_inputs(vmin, vmax)
+        self.set_slider(vmin, vmax)
+
+    def set_inputs(self, vmin, vmax):
+        self.min_input.setText(_format_number(vmin, vmax-vmin))
+        self.max_input.setText(_format_number(vmax, vmax-vmin))
+
+    def set_slider(self, vmin, vmax):
+        if self.plot is not None:
+            self.plot.set_slider_position((vmin, vmax))
+            self.slider.setValue((vmin, vmax))
+
+    def _on_input_changed(self):
+        vmin = float(self.min_input.text())
+        vmax = float(self.max_input.text())
+        self.set_slider(vmin, vmax)
+        self.rangeChanged.emit(vmin, vmax)
+
+    def _on_range_changed(self, value):
+        self.set_inputs(*value)
+        self.plot.set_slider_position(value)
+        self.rangeChanged.emit(*value)
+
+    @property
+    def min(self):
+        return float(self.min_input.text())
+
+    @property
+    def max(self):
+        return float(self.max_input.text())
