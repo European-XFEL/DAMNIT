@@ -58,7 +58,7 @@ def test_connect_to_kafka(mock_db, qtbot):
     with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
          patch(f"{pkg}.KafkaProducer") as kafka_prd:
         win = MainWindow(db_dir, True)
-        qtbot.addWidget(win)
+        qtbot.addWidget(win, before_close_func=lambda _: win.stop_update_listener_thread())
         kafka_cns.assert_called_once()
         kafka_prd.assert_called_once()
 
@@ -373,45 +373,33 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     @contextmanager
     def helper_patch():
         # Patch things such that the GUI thinks we're on GPFS trying to open
-        # p1234, and the user always wants to create a database and start the
-        # backend.
+        # p1234, and the user always wants to create a database.
         with (patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
               patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=template_path),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
-              patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
+              patch(f"{pkg}.initialize_proposal") as initialize_proposal,
               patch.object(win, "autoconfigure")):
-            yield initialize_and_start_backend
+            yield initialize_proposal
 
     # Autoconfigure from scratch
-    with (helper_patch() as initialize_and_start_backend,
-          patch(f"{pkg}.backend_is_running", return_value=True)):
+    with helper_patch() as initialize_proposal:
         win._menu_bar_autoconfigure()
 
-        # We expect the database to be initialized and the backend started
+        # We expect the database to be initialized
         win.autoconfigure.assert_called_once_with(db_dir)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234, template_path)
+        initialize_proposal.assert_called_once_with(db_dir, 1234, template_path)
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
     DamnitDB.from_dir(db_dir)
 
-    # Autoconfigure with database present & backend 'running':
-    with (helper_patch() as initialize_and_start_backend,
-          patch(f"{pkg}.backend_is_running", return_value=True)):
+    # Autoconfigure with database present
+    with helper_patch() as initialize_proposal:
         win._menu_bar_autoconfigure()
 
-        # We expect the database to be initialized and the backend started
+        # We expect the database to be initialized
         win.autoconfigure.assert_called_once_with(db_dir)
-        initialize_and_start_backend.assert_not_called()
-
-    # Autoconfigure again, the GUI should start the backend again
-    with (helper_patch() as initialize_and_start_backend,
-          patch(f"{pkg}.backend_is_running", return_value=False)):
-        win._menu_bar_autoconfigure()
-
-        # This time the database is already initialized
-        win.autoconfigure.assert_called_once_with(db_dir)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234)
+        initialize_proposal.assert_not_called()
 
 def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
 

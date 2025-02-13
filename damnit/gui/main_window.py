@@ -22,7 +22,7 @@ from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
 
 from ..api import DataType, RunVariables
-from ..backend import backend_is_running, initialize_and_start_backend
+from ..backend import initialize_proposal
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
@@ -136,6 +136,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.stop_update_listener_thread()
         self.stop_watching_context_file()
+
         super().closeEvent(event)
 
     def stop_update_listener_thread(self):
@@ -164,7 +165,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
 
-        self._status_bar.messageChanged.connect(lambda m: self.show_default_status_message() if m == "" else m)
+        self._status_bar.messageChanged.connect(self.on_status_message_changed)
 
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage("Autoconfigure AMORE.")
@@ -172,6 +173,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+    def on_status_message_changed(self, msg):
+        if msg == "":
+            self.show_default_status_message()
 
     def show_status_message(self, message, timeout = 0, stylesheet = ''):
         if isinstance(stylesheet, StatusbarStylesheet):
@@ -210,7 +215,7 @@ da-dev@xfel.eu"""
         context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
             return
-        if not prompt_setup_db_and_backend(context_dir, prop_no, parent=self):
+        if not prompt_setup_db(context_dir, prop_no, parent=self):
             # User said no to setting up a new database
             return
 
@@ -891,7 +896,12 @@ da-dev@xfel.eu"""
         # Clear the widget and wait for a bit to visually indicate to the
         # user that something happened.
         self._error_widget.setText("")
-        QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
+
+        # We use sleep() instead of a QTimer because otherwise during the tests
+        # the error widget may be free'd before the timer fires, leading to a
+        # segfault when the timer function attempts to use it.
+        time.sleep(0.1)
+        self._error_widget.setText(text)
 
     def save_context(self):
         self._context_code_to_save = self._editor.text()
@@ -1090,13 +1100,13 @@ class LogViewWindow(QtWidgets.QMainWindow):
         self.resize(1000, 800)
 
 
-def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
+def prompt_setup_db(context_dir: Path, prop_no=None, parent=None):
     if not db_path(context_dir).is_file():
 
         button = QMessageBox.question(
             parent, "Database not found",
             f"{context_dir} does not contain a DAMNIT database, "
-            "would you like to create one and start the backend?"
+            "would you like to create one?"
         )
         if button != QMessageBox.Yes:
             return False
@@ -1115,22 +1125,8 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             )
             if not ok:
                 return False
-        initialize_and_start_backend(context_dir, prop_no, context_file_src)
+        initialize_proposal(context_dir, prop_no, context_file_src)
         return True
-
-    # The folder already contains a database
-    db = DamnitDB.from_dir(context_dir)
-
-    # Check if the backend is running
-    expect_listener = not db.metameta.get('no_listener', 0)
-    if expect_listener and not backend_is_running(context_dir):
-        button = QMessageBox.question(
-            parent, "Backend not running",
-            "The DAMNIT backend is not running, would you like to start it? "
-            "This is only necessary if new runs are expected."
-        )
-        if button == QMessageBox.Yes:
-            initialize_and_start_backend(context_dir, prop_no)
 
     return True
 
@@ -1159,7 +1155,7 @@ def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
         context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
             return 0
-        if not prompt_setup_db_and_backend(context_dir, prop_no):
+        if not prompt_setup_db(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
 

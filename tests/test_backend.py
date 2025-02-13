@@ -23,7 +23,7 @@ import yaml
 from PIL import Image
 from testpath import MockCommand
 
-from damnit.backend import backend_is_running, initialize_and_start_backend
+from damnit.backend import listener_is_running, initialize_proposal, start_listener
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data
 from damnit.backend.extraction_control import ExtractionJobTracker
@@ -811,9 +811,33 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     win = MainWindow(db_dir, False)
     qtbot.addWidget(win)
 
-def test_initialize_and_start_backend(tmp_path, bound_port, request):
+def test_initialize_proposal(tmp_path):
     db_dir = tmp_path / "foo"
-    supervisord_config_path = db_dir / "supervisord.conf"
+    good_file_mode = "-rw-rw-rw-"
+    path_filemode = lambda p: stat.filemode(p.stat().st_mode)
+
+    initialize_proposal(db_dir, 1234)
+
+    # The directory should be created if it doesn't exist
+    assert db_dir.is_dir()
+    # And be writable by everyone
+    assert path_filemode(db_dir) == "drwxrwxrwx"
+
+    # Check that the database was initialized correctly
+    db_path = db_dir / "runs.sqlite"
+    assert db_path.is_file()
+    assert path_filemode(db_path) == good_file_mode
+    db = DamnitDB(db_path)
+    assert db.metameta["proposal"] == 1234
+
+    # Check the context file
+    context_path = db_dir / "context.py"
+    assert context_path.is_file()
+    assert path_filemode(context_path) == good_file_mode
+
+
+def test_start_listener(tmp_path, bound_port, request):
+    supervisord_config_path = tmp_path / "supervisord.conf"
     good_file_mode = "-rw-rw-rw-"
     path_filemode = lambda p: stat.filemode(p.stat().st_mode)
 
@@ -862,24 +886,7 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     pkg = "damnit.backend.supervisord"
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
-        assert initialize_and_start_backend(db_dir, 1234)
-
-    # The directory should be created if it doesn't exist
-    assert db_dir.is_dir()
-    # And be writable by everyone
-    assert path_filemode(db_dir) == "drwxrwxrwx"
-
-    # Check that the database was initialized correctly
-    db_path = db_dir / "runs.sqlite"
-    assert db_path.is_file()
-    assert path_filemode(db_path) == good_file_mode
-    db = DamnitDB(db_path)
-    assert db.metameta["proposal"] == 1234
-
-    # Check the context file
-    context_path = db_dir / "context.py"
-    assert context_path.is_file()
-    assert path_filemode(context_path) == good_file_mode
+        assert start_listener(tmp_path)
 
     # Check the config file
     assert supervisord_config_path.is_file()
@@ -887,8 +894,8 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
 
     # We should have a log file and PID file. They aren't created immediately so
     # we wait a bit for it.
-    pid_path = db_dir / "supervisord.pid"
-    log_path = db_dir / "supervisord.log"
+    pid_path = tmp_path / "supervisord.pid"
+    log_path = tmp_path / "supervisord.log"
     wait_until(lambda: pid_path.is_file() and log_path.is_file())
     pid = int(pid_path.read_text())
 
@@ -899,72 +906,91 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     assert path_filemode(log_path) == good_file_mode
 
     # Check that it's running
-    assert backend_is_running(db_dir)
+    assert listener_is_running(tmp_path)
 
-    wait_until(lambda: (db_dir / "started").is_file(), timeout=1)
+    wait_until(lambda: (tmp_path / "started").is_file(), timeout=1)
 
     # Stop the program
     supervisorctl = ["supervisorctl", "-c", str(supervisord_config_path)]
     subprocess.run([*supervisorctl, "stop", "damnit"]).check_returncode()
 
     # Check that the subprocess was also killed
-    wait_until(lambda: (db_dir / "stopped").is_file())
-    assert not backend_is_running(db_dir)
+    wait_until(lambda: (tmp_path / "stopped").is_file())
+    assert not listener_is_running(tmp_path)
 
     # Try starting it again. This time we don't pass the proposal number, it
     # should be picked up from the existing database.
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
-        assert initialize_and_start_backend(db_dir)
+        assert start_listener(tmp_path)
 
-    assert backend_is_running(db_dir)
+    assert listener_is_running(tmp_path)
 
     # Now kill supervisord
     kill_pid(pid)
-    assert not backend_is_running(db_dir)
+    assert not listener_is_running(tmp_path)
 
     # Change the config to use the bound port
-    mock_write_supervisord_conf(db_dir, port=bound_port)
+    mock_write_supervisord_conf(tmp_path, port=bound_port)
 
     # And try starting it again
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
-        assert initialize_and_start_backend(db_dir)
+        assert start_listener(tmp_path)
 
     wait_until(lambda: pid_path.is_file() and log_path.is_file())
     pid = int(pid_path.read_text())
     request.addfinalizer(lambda: kill_pid(pid))
 
     # Check that the backend is running
-    assert backend_is_running(db_dir)
+    assert listener_is_running(tmp_path)
 
     # Trying to start it again should do nothing
     with patch(f"{pkg}.write_supervisord_conf",
                side_effect=mock_write_supervisord_conf):
-        assert initialize_and_start_backend(db_dir)
+        assert start_listener(tmp_path)
 
-    assert backend_is_running(db_dir)
+    assert listener_is_running(tmp_path)
 
 
-def test_event_processor(mock_db, caplog):
-    db_dir, db = mock_db
-    db.metameta["proposal"] = 1234
+def test_event_processor(tmp_path, caplog, monkeypatch):
+    monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
 
     with patch('damnit.backend.listener.KafkaConsumer') as kcon:
-        processor = EventProcessor(db_dir)
+        processor = EventProcessor(tmp_path)
+        processor.db.settings["proposal"] = "all"
 
     kcon.assert_called_once()
     assert len(local_extraction_threads) == 0
 
+    # Test proposal_db_paths(), first without an existing database
+    proposal_dir = tmp_path / "MID" / "202501" / "p001234"
+    proposal_dir.mkdir(parents=True)
+    assert len(processor.db.proposal_db_dirs(1234)) == 0
+
+    # Now with an official database
+    db_dir = proposal_dir / "usr/Shared/amore"
+    initialize_proposal(db_dir, 1234)
+    assert processor.db.proposal_db_dirs(1234) == [db_dir]
+
+    # And an unofficial database
+    fake_db_dir = tmp_path / "fakedb"
+    processor.db.add_proposal_db(1234, fake_db_dir, False)
+    assert processor.db.proposal_db_dirs(1234) == [db_dir, fake_db_dir]
+
     # slurm not available
+    event = MagicMock(timestamp=time())
     with (
         patch('subprocess.run', side_effect=FileNotFoundError),
         patch('damnit.backend.extraction_control.ExtractionSubmitter.execute_direct', lambda *_: sleep(1))
     ):
         with caplog.at_level(logging.WARNING):
-            event = MagicMock(timestamp=time())
             processor.handle_event(event, {'proposal': 1234, 'run': 1}, RunData.RAW)
 
+        # We should have got an error about the fake database not existing
+        assert "unable to open database file"
+
+        # And about slurm not being available
         assert 'Slurm not available' in caplog.text
         assert len(local_extraction_threads) == 1
         local_extraction_threads[0].join()
@@ -976,6 +1002,14 @@ def test_event_processor(mock_db, caplog):
 
         assert len(local_extraction_threads) == MAX_CONCURRENT_THREADS
         assert 'Too many events processing' in caplog.text
+
+    # With a different proposal specified handle_event() should do nothing
+    processor.db.settings["proposal"] = 1000
+    processor.handle_event(event, {'proposal': 1234, 'run': 1}, RunData.RAW)
+
+    # Test removing a database
+    processor.db.remove_proposal_db(fake_db_dir)
+    assert processor.db.proposal_db_dirs(1234) == [db_dir]
 
 
 def test_job_tracker():

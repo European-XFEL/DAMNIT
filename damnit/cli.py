@@ -42,6 +42,32 @@ def excepthook(exc_type, value, tb):
     IPython.start_ipython(argv=[], display_banner=False,
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
 
+def handle_config_args(args, kv):
+    key = args.key
+    if key:
+        key = key.replace('-', '_')
+
+    if args.delete:
+        if not key:
+            sys.exit("Error: no key specified to delete")
+        del kv[key]
+    elif key and (args.value is not None):
+        if args.num:
+            try:
+                value = int(args.value)
+            except ValueError:
+                value = float(args.value)
+        else:
+            value = args.value
+        kv[key] = value
+    elif key:
+        try:
+            print(repr(kv[key]))
+        except KeyError:
+            sys.exit(f"Error: key {key} not found")
+    else:
+        for k, v in kv.items():
+            print(f"{k}={v!r}")
 
 def main(argv=None):
     # Check if script was called as amore-proto and show deprecation warning
@@ -83,8 +109,28 @@ def main(argv=None):
         help="Start the listener under a separate process managed by supervisord."
     )
     listen_ap.add_argument(
-        'context_dir', type=Path, nargs='?', default='.',
-        help="Directory to store summarised results"
+        '--listener-db', type=Path, default='listener.db',
+        help="Path to the listener database"
+    )
+
+    listener_config_ap = subparsers.add_parser(
+        "listener-config", help="See or change the config for the DAMNIT listener"
+    )
+    listener_config_ap.add_argument(
+        '-d', '--delete', action='store_true',
+        help="Delete the specified key",
+    )
+    listener_config_ap.add_argument(
+        '--num', action='store_true',
+        help="Set the given value as a number instead of a string"
+    )
+    listener_config_ap.add_argument(
+        'key', nargs='?',
+        help="The config key to see/change. If not given, list the whole configuration"
+    )
+    listener_config_ap.add_argument(
+        'value', nargs='?',
+        help="A new value for the given key"
     )
 
     reprocess_ap = subparsers.add_parser(
@@ -211,22 +257,27 @@ def main(argv=None):
                        connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
-        from .backend.db import db_path
-        from .backend import initialize_and_start_backend
+        from .backend import start_listener
 
         if args.daemonize:
-            if not db_path(args.context_dir).is_file():
-                sys.exit("You must create a database with `damnit proposal` before starting the listener.")
-
-            return initialize_and_start_backend(args.context_dir)
+            return start_listener(Path.cwd())
         else:
             if args.test:
                 from .backend.test_listener import listen
             else:
                 from .backend.listener import listen
 
-            os.chdir(args.context_dir)
-            return listen()
+            return listen(args.listener_db)
+
+    elif args.subcmd == "listener-config":
+        from .backend.listener import ListenerDB
+
+        # Convert the `proposal` to an integer if necessary
+        if args.key and args.key == "proposal" and args.value and args.value != "all":
+            args.value = int(args.value)
+
+        db = ListenerDB(Path.cwd())
+        handle_config_args(args, db.settings)
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
@@ -264,31 +315,8 @@ def main(argv=None):
     elif args.subcmd == 'db-config':
         from .backend.db import DamnitDB
 
-        if args.key:
-            args.key = args.key.replace('-', '_')
-
         db = DamnitDB()
-        if args.delete:
-            if not args.key:
-                sys.exit("Error: no key specified to delete")
-            del db.metameta[args.key]
-        elif args.key and (args.value is not None):
-            if args.num:
-                try:
-                    value = int(args.value)
-                except ValueError:
-                    value = float(args.value)
-            else:
-                value = args.value
-            db.metameta[args.key] = value
-        elif args.key:
-            try:
-                print(repr(db.metameta[args.key]))
-            except KeyError:
-                sys.exit(f"Error: key {args.key} not found")
-        else:
-            for k, v in db.metameta.items():
-                print(f"{k}={v!r}")
+        handle_config_args(args, db.metameta)
 
     elif args.subcmd == "migrate":
         from .backend.db import DamnitDB
