@@ -3,11 +3,11 @@ from itertools import pairwise
 
 import numpy as np
 from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt5.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QDoubleValidator
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget, QLineEdit, QHBoxLayout
 from superqt import QDoubleRangeSlider
 
-from ..util import icon_path, kde
+from ..util import icon_path, kde, _format_number
 
 
 class Arrow(QLabel):
@@ -333,10 +333,6 @@ class PlotLineWidget(QWidget):
             QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
         )
 
-from ..util import _format_number
-from PyQt5.QtWidgets import QLineEdit, QHBoxLayout
-from PyQt5.QtGui import QDoubleValidator
-from PyQt5.QtCore import pyqtSignal
 
 class ValueRangeWidget(QWidget):
 
