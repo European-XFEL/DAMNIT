@@ -7,12 +7,11 @@ from fonticon_fa6 import FA6S
 from natsort import natsorted
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QDoubleValidator, QPixmap
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QCheckBox,
     QHBoxLayout,
-    QLineEdit,
     QListWidgetItem,
     QMenu,
     QPushButton,
@@ -21,11 +20,11 @@ from PyQt5.QtWidgets import (
     QWidgetAction,
     QGroupBox,
 )
-from superqt import QDoubleRangeSlider, QSearchableListWidget as SuperQListWidget
+from superqt import QSearchableListWidget as SuperQListWidget
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
-from .widgets import PlotLineWidget
+from .widgets import ValueRangeWidget
 
 
 class FilterType(Enum):
@@ -126,8 +125,6 @@ class FilterStatus(QPushButton):
         self.setMenu(self.menu)
         self._update_text()
 
-        if self.model is not None:
-            self.model.filterChanged.connect(self._update_text)
         self.menu.aboutToShow.connect(self._populate_menu)
         self.table_view.model_updated.connect(self._update_model)
 
@@ -303,7 +300,6 @@ class NumericFilterWidget(QWidget):
         range_group = QGroupBox("Value Range")
         range_layout = QVBoxLayout()
 
-        from .widgets import ValueRangeWidget
         self.range_widget = ValueRangeWidget(self.all_values, vmin, vmax)
 
         range_layout.addWidget(self.range_widget)
@@ -337,6 +333,7 @@ class NumericFilterWidget(QWidget):
 
         # main layout
         layout.addWidget(self.include_nan)
+
         self.setLayout(layout)
 
         # Populate the list initially
@@ -415,9 +412,6 @@ class NumericFilterWidget(QWidget):
     def set_filter(self, filter: Optional[NumericFilter]):
         """Update widget state from an existing filter."""
         if filter is None:
-            # self.range_widget.set_values(self.unique_values[0], self.unique_values[-1])
-            # self.include_nan.setChecked(True)
-            # self._populate_list()
             return
 
         self.include_nan.setChecked(filter.include_nan)
@@ -433,7 +427,7 @@ class NumericFilterWidget(QWidget):
                     else Qt.Unchecked
                 )
 
-        self.range_widget.set_values([filter.min_val, filter.max_val])
+        self.range_widget.set_values(filter.min_val, filter.max_val)
 
 
 class ThumbnailFilterWidget(QWidget):
