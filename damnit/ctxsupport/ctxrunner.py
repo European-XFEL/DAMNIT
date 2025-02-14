@@ -530,7 +530,11 @@ class Results:
             # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-            return figure2png(data, dpi=(data.dpi * zoom_ratio))
+            try:
+                return figure2png(data, dpi=(data.dpi * zoom_ratio))
+            except:
+                logging.error("Error generating thumbnail for %s", name, exc_info=True)
+                return "<thumbnail error>"
         elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
             return plotly2png(data)
 
