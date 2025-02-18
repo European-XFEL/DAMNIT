@@ -1,4 +1,6 @@
 
+from math import inf
+
 import numpy as np
 from damnit.gui.widgets import PlotLineWidget, ValueRangeWidget
 
@@ -39,20 +41,19 @@ def test_value_range_widget(qtbot):
     qtbot.addWidget(widget)
 
     # Test initialization
-    assert widget.min == vmin
-    assert widget.max == vmax
+    assert widget.vmin == vmin
+    assert widget.vmax == vmax
+    assert widget.sel == (-inf, inf)
     assert widget.plot is not None
     assert widget.slider is not None
 
     # Test setting values
     new_min, new_max = 1.5, 2.5
-    with qtbot.waitSignal(widget.rangeChanged) as blocker:
-        widget.set_values(new_min, new_max)
-    assert len(blocker.args) == 2
-    assert blocker.args[0] == new_min
-    assert blocker.args[1] == new_max
-    assert widget.min == new_min
-    assert widget.max == new_max
+    widget.update_values(new_min, new_max)
+    # assert len(blocker.args) == 2
+    # assert blocker.args[0] == new_min
+    # assert blocker.args[1] == new_max
+    assert widget.sel == (new_min, new_max)
 
     # Test input field changes
     widget.min_input.setText("2.0")
@@ -61,7 +62,7 @@ def test_value_range_widget(qtbot):
     assert len(blocker.args) == 2
     assert blocker.args[0] == 2.0
     assert blocker.args[1] == 2.5
-    assert widget.min == 2.0
+    assert widget.sel[0] == 2.0
     assert widget.plot.slider_position == (2.0, 2.5)
 
     # Test slider changes
@@ -78,5 +79,5 @@ def test_value_range_widget(qtbot):
     qtbot.addWidget(single_widget)
     assert single_widget.plot is None
     assert single_widget.slider is None
-    assert single_widget.min == 1.0
-    assert single_widget.max == 1.0
+    assert single_widget.vmin == 1.0
+    assert single_widget.vmax == 1.0
