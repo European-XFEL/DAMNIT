@@ -31,6 +31,8 @@ Fixed:
   variable is plotted (!355).
 - Fixed crashes when the context file environment is missing dependencies (!356).
 - handle failure generating summary while writing results to file (!370).
+- Fixed getting the run timestamps from very old proposals where only proc files
+  are used (!399).
 
 Deprecated:
 - GUI: Standalone comments are no longer supported in the run table(!362).
