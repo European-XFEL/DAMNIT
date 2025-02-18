@@ -2,16 +2,16 @@ from enum import Enum
 from math import inf, isnan
 from typing import Any, Dict, Optional, Set
 
+import numpy as np
 from fonticon_fa6 import FA6S
 from natsort import natsorted
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QDoubleValidator, QPixmap
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QCheckBox,
     QHBoxLayout,
-    QLineEdit,
     QListWidgetItem,
     QMenu,
     QPushButton,
@@ -23,6 +23,8 @@ from PyQt5.QtWidgets import (
 from superqt import QSearchableListWidget
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
+
+from .widgets import ValueRangeWidget
 
 
 class FilterType(Enum):
@@ -114,8 +116,6 @@ class FilterStatus(QPushButton):
         self.setMenu(self.menu)
         self._update_text()
 
-        if self.model is not None:
-            self.model.filterChanged.connect(self._update_text)
         self.menu.aboutToShow.connect(self._populate_menu)
         self.table_view.model_updated.connect(self._update_model)
 
@@ -235,29 +235,34 @@ class FilterMenu(QMenu):
     def _create_filter_widget(self, column: int, model: FilterProxy):
         # Determine if column is numeric
         is_numeric = True
-        values = set()
+        values = []
         decos = set()
 
         for row in range(model.sourceModel().rowCount()):
             item = model.sourceModel().index(row, column)
-            value = item.data(Qt.UserRole)
-            values.add(value)
-            # Only check type for non-None, non-NaN values
-            if value is not None and not (isinstance(value, float) and isnan(value)):
-                if not isinstance(value, (int, float)):
-                    is_numeric = False
-                    # break
 
             if thumb := item.data(Qt.DecorationRole):
                 decos.add(type(thumb))
 
+            if (value := item.data(Qt.UserRole)) is None:
+                continue
+            if isinstance(value, float) and isnan(value):
+                continue
+
+            if not isinstance(value, (int, float)):
+                is_numeric = False
+
+            values.append(value)
+
+        unique_values = set(values)
+
         # Create appropriate filter widget
-        if values == {None} and len(decos) == 1 and decos.pop() is QPixmap:
+        if len(unique_values) == 0 and (len(decos) == 1) and (decos.pop() is QPixmap):
             filter_widget = ThumbnailFilterWidget(column)
         elif is_numeric:
             filter_widget = NumericFilterWidget(column, values)
         else:
-            filter_widget = CategoricalFilterWidget(column, values)
+            filter_widget = CategoricalFilterWidget(column, unique_values)
         return filter_widget
 
     @qthrottled(timeout=20, leading=False)
@@ -271,10 +276,14 @@ class NumericFilterWidget(QWidget):
 
     filterChanged = QtCore.pyqtSignal(NumericFilter)
 
-    def __init__(self, column: int, values: Set[Any], parent=None):
+    def __init__(self, column: int, values: list[Any], parent=None):
         super().__init__(parent)
         self.column = column
-        self.all_values = values
+
+        self.all_values = np.asarray(values, dtype=np.float64)
+        self.all_values.sort()
+        self.unique_values = np.unique(self.all_values)
+        vmin, vmax = self.unique_values[[0, -1]]
 
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
@@ -283,20 +292,11 @@ class NumericFilterWidget(QWidget):
         range_group = QGroupBox("Value Range")
         range_layout = QVBoxLayout()
 
-        self.min_input = QLineEdit()
-        self.max_input = QLineEdit()
-        self.min_input.setPlaceholderText("Min")
-        self.max_input.setPlaceholderText("Max")
+        self.range_widget = ValueRangeWidget(self.all_values, vmin, vmax)
 
-        # Create and set validator for numerical input
-        validator = QDoubleValidator()
-        validator.setNotation(QDoubleValidator.StandardNotation)
-        self.min_input.setValidator(validator)
-        self.max_input.setValidator(validator)
-
-        range_layout.addWidget(self.min_input)
-        range_layout.addWidget(self.max_input)
+        range_layout.addWidget(self.range_widget)
         range_group.setLayout(range_layout)
+        layout.addWidget(range_group)
 
         # Value selection list
         list_group = QGroupBox("Select Values")
@@ -322,8 +322,6 @@ class NumericFilterWidget(QWidget):
         list_layout.addWidget(self.list_widget)
         list_group.setLayout(list_layout)
 
-        # Main layout
-        layout.addWidget(range_group)
         layout.addWidget(list_group)
         layout.addWidget(self.include_nan)
         self.setLayout(layout)
@@ -332,8 +330,7 @@ class NumericFilterWidget(QWidget):
         self._populate_list()
 
         # Connect signals
-        self.min_input.editingFinished.connect(self._on_range_changed)
-        self.max_input.editingFinished.connect(self._on_range_changed)
+        self.range_widget.rangeChanged.connect(self._on_range_changed)
         self.list_widget.itemChanged.connect(self._on_selection_changed)
         self.all_button.clicked.connect(lambda: self._set_all_checked(True))
         self.none_button.clicked.connect(lambda: self._set_all_checked(False))
@@ -343,22 +340,20 @@ class NumericFilterWidget(QWidget):
         """Populate the list widget with values that match the current range."""
         self.list_widget.clear()
 
-        min_val = float(self.min_input.text()) if self.min_input.text() else -inf
-        max_val = float(self.max_input.text()) if self.max_input.text() else inf
+        min_val, max_val = self.range_widget.sel
 
         # Add all values to list, but only check those in range
-        for value in natsorted(self.all_values):
-            if value is not None and not (isinstance(value, float) and isnan(value)):
-                item = QListWidgetItem()
-                item.setData(Qt.UserRole, value)
-                item.setData(Qt.DisplayRole, str(value))
-                # Check if value is in range
-                try:
-                    float_val = float(value)
-                    item.setCheckState(Qt.Checked if min_val <= float_val <= max_val else Qt.Unchecked)
-                except (TypeError, ValueError):
-                    item.setCheckState(Qt.Unchecked)
-                self.list_widget.addItem(item)
+        for value in self.unique_values:
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, value)
+            item.setData(Qt.DisplayRole, str(value))
+            # Check if value is in range
+            try:
+                float_val = float(value)
+                item.setCheckState(Qt.Checked if min_val <= float_val <= max_val else Qt.Unchecked)
+            except (TypeError, ValueError):
+                item.setCheckState(Qt.Unchecked)
+            self.list_widget.addItem(item)
 
     def _on_range_changed(self):
         """Handle changes in the range inputs."""
@@ -367,8 +362,8 @@ class NumericFilterWidget(QWidget):
 
     def _set_all_checked(self, checked: bool):
         """Set all items to checked or unchecked state."""
-        self.min_input.clear()
-        self.max_input.clear()
+        self.range_widget.update_values(-inf, inf)
+
         for idx in range(self.list_widget.count()):
             self.list_widget.item(idx).setCheckState(
                 Qt.Checked if checked else Qt.Unchecked
@@ -379,15 +374,11 @@ class NumericFilterWidget(QWidget):
         """Handle changes in value selection."""
         self._emit_filter()
 
+    @qthrottled(timeout=100, leading=False)
     def _emit_filter(self):
         """Create and emit a new NumericFilter based on current widget state."""
-        min_val = self.min_input.text()
-        max_val = self.max_input.text()
+        min_val, max_val = self.range_widget.sel
         include_nan = self.include_nan.isChecked()
-
-        # Get range values
-        min_val = float(min_val) if min_val else -inf
-        max_val = float(max_val) if max_val else inf
 
         # Get selected values
         selected_values = {
@@ -396,29 +387,28 @@ class NumericFilterWidget(QWidget):
             if self.list_widget.item(idx).checkState() == Qt.Checked
         }
 
-        self.filterChanged.emit(
-            NumericFilter(
-                self.column,
-                min_val=min_val,
-                max_val=max_val,
-                selected_values=selected_values,
-                include_nan=include_nan
+        if (
+            min_val == -inf
+            and max_val == inf
+            and include_nan
+            and len(selected_values) == self.list_widget.count()
+        ):
+            self.parent().model.set_filter(self.column, None)
+        else:
+            self.filterChanged.emit(
+                NumericFilter(
+                    self.column,
+                    min_val=min_val,
+                    max_val=max_val,
+                    selected_values=selected_values,
+                    include_nan=include_nan
+                )
             )
-        )
 
     def set_filter(self, filter: Optional[NumericFilter]):
         """Update widget state from an existing filter."""
         if filter is None:
-            self.min_input.clear()
-            self.max_input.clear()
-            self.include_nan.setChecked(True)
-            self._populate_list()
             return
-
-        if filter.min_val != -inf:
-            self.min_input.setText(str(filter.min_val))
-        if filter.max_val != inf:
-            self.max_input.setText(str(filter.max_val))
 
         self.include_nan.setChecked(filter.include_nan)
 
@@ -432,6 +422,11 @@ class NumericFilterWidget(QWidget):
                     if item.data(Qt.UserRole) in filter.selected_values
                     else Qt.Unchecked
                 )
+
+        self.range_widget.update_values(filter.min_val, filter.max_val)
+
+    def hideEvent(self, event):
+        self._emit_filter()
 
 
 class ThumbnailFilterWidget(QWidget):
