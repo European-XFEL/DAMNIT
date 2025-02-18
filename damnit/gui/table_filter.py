@@ -232,6 +232,7 @@ class FilterMenu(QMenu):
 
         # Connect filter widget to model
         self.filter_widget.filterChanged.connect(self._on_filter_changed)
+        self.filter_widget.filterCleared.connect(self._on_filter_cleared)
 
         # Add widget to menu
         action = QWidgetAction(self)
@@ -281,23 +282,52 @@ class FilterMenu(QMenu):
         """Apply the new filter to the model."""
         self.model.set_filter(self.column, filter)
 
+    @qthrottled(timeout=20, leading=False)
+    def _on_filter_cleared(self):
+        """Clear filter from the model."""
+        self.model.set_filter(self.column, None)
 
-class NumericFilterWidget(QWidget):
+
+class BaseFilterWidget(QWidget):
+    """Base class for all filter widgets with common functionality."""
+
+    filterCleared = QtCore.pyqtSignal()
+
+    def __init__(self, column: int, parent=None):
+        super().__init__(parent)
+        self.column = column
+
+        # Create main layout with consistent margins
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(5, 5, 5, 5)
+        self.setLayout(self.main_layout)
+
+    def hideEvent(self, event):
+        """Emit current filter state when widget is hidden."""
+        self._emit_filter()
+        super().hideEvent(event)
+
+    def _emit_filter(self):
+        """Create and emit a new filter based on current widget state."""
+        raise NotImplementedError
+
+    def set_filter(self, filter: Optional[Filter]):
+        """Update widget state from an existing filter."""
+        raise NotImplementedError
+
+
+class NumericFilterWidget(BaseFilterWidget):
     """Widget for configuring numeric filters with both range and value selection."""
 
     filterChanged = QtCore.pyqtSignal(NumericFilter)
 
     def __init__(self, column: int, values: list[Any], parent=None):
-        super().__init__(parent)
-        self.column = column
+        super().__init__(column, parent)
 
         self.all_values = np.asarray(values, dtype=np.float64)
         self.all_values.sort()
         self.unique_values = np.unique(self.all_values)
         vmin, vmax = self.unique_values[[0, -1]]
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
 
         # Range inputs
         range_group = QGroupBox("Value Range")
@@ -307,7 +337,7 @@ class NumericFilterWidget(QWidget):
 
         range_layout.addWidget(self.range_widget)
         range_group.setLayout(range_layout)
-        layout.addWidget(range_group)
+        self.main_layout.addWidget(range_group)
 
         # Value selection list
         list_group = QGroupBox("Select Values")
@@ -333,9 +363,8 @@ class NumericFilterWidget(QWidget):
         list_layout.addWidget(self.list_widget)
         list_group.setLayout(list_layout)
 
-        layout.addWidget(list_group)
-        layout.addWidget(self.include_nan)
-        self.setLayout(layout)
+        self.main_layout.addWidget(list_group)
+        self.main_layout.addWidget(self.include_nan)
 
         # Populate the list initially
         self._populate_list()
@@ -392,26 +421,27 @@ class NumericFilterWidget(QWidget):
         include_nan = self.include_nan.isChecked()
 
         # Get selected values
-        selected_values = {
-            self.list_widget.item(idx).data(Qt.UserRole)
-            for idx in range(self.list_widget.count())
-            if self.list_widget.item(idx).checkState() == Qt.Checked
-        }
+        selected, count = set(), 0
+        for idx in range(self.list_widget.count()):
+            item = self.list_widget.item(idx)
+            if item.checkState() == Qt.Checked:
+                selected.add(item.data(Qt.UserRole))
+                count += 1
 
         if (
             min_val == -inf
             and max_val == inf
             and include_nan
-            and len(selected_values) == self.list_widget.count()
+            and count == self.list_widget.count()
         ):
-            self.parent().model.set_filter(self.column, None)
+            self.filterCleared.emit()
         else:
             self.filterChanged.emit(
                 NumericFilter(
                     self.column,
                     min_val=min_val,
                     max_val=max_val,
-                    selected_values=selected_values,
+                    selected_values=selected,
                     include_nan=include_nan
                 )
             )
@@ -436,21 +466,14 @@ class NumericFilterWidget(QWidget):
 
         self.range_widget.update_values(filter.min_val, filter.max_val)
 
-    def hideEvent(self, event):
-        self._emit_filter()
 
-
-class ThumbnailFilterWidget(QWidget):
+class ThumbnailFilterWidget(BaseFilterWidget):
     """Widget for configuring thumbnail filters."""
 
     filterChanged = QtCore.pyqtSignal(ThumbnailFilter)
 
     def __init__(self, column: int, parent=None):
-        super().__init__(parent)
-        self.column = column
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
+        super().__init__(column, parent)
 
         # Checkboxes for filtering
         self.with_thumbnail = QCheckBox("Show thumbnails")
@@ -465,24 +488,23 @@ class ThumbnailFilterWidget(QWidget):
         self.without_thumbnail.toggled.connect(self._emit_filter)
 
         # Layout
-        layout.addWidget(self.with_thumbnail)
-        layout.addWidget(self.without_thumbnail)
-        self.setLayout(layout)
+        self.main_layout.addWidget(self.with_thumbnail)
+        self.main_layout.addWidget(self.without_thumbnail)
 
     def _emit_filter(self):
         show_thumb = self.with_thumbnail.isChecked()
         show_no_thumb = self.without_thumbnail.isChecked()
 
         if show_thumb and show_no_thumb:
-            self.parent().model.set_filter(self.column, None)
-            return
-
-        filter = ThumbnailFilter(
-            self.column,
-            show_with_thumbnail=show_thumb,
-            show_without_thumbnail=show_no_thumb,
-        )
-        self.filterChanged.emit(filter)
+            self.filterCleared.emit()
+        else:
+            self.filterChanged.emit(
+                ThumbnailFilter(
+                    self.column,
+                    show_with_thumbnail=show_thumb,
+                    show_without_thumbnail=show_no_thumb,
+                )
+            )
 
     def set_filter(self, filter: Optional[ThumbnailFilter]):
         if filter is None:
@@ -492,21 +514,14 @@ class ThumbnailFilterWidget(QWidget):
             self.with_thumbnail.setChecked(filter.show_with_thumbnail)
             self.without_thumbnail.setChecked(filter.show_without_thumbnail)
 
-    def hideEvent(self, event):
-        self._emit_filter()
 
-
-class CategoricalFilterWidget(QWidget):
+class CategoricalFilterWidget(BaseFilterWidget):
     """Widget for configuring categorical filters with a searchable list of values."""
 
     filterChanged = QtCore.pyqtSignal(CategoricalFilter)
 
     def __init__(self, column: int, values: Set[Any], parent=None):
-        super().__init__(parent)
-        self.column = column
-
-        layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
+        super().__init__(column, parent)
 
         # Searchable list of values
         self.list_widget = QSearchableListWidget()
@@ -531,10 +546,9 @@ class CategoricalFilterWidget(QWidget):
         self.include_nan.toggled.connect(self._on_selection_changed)
 
         # Layout
-        layout.addLayout(button_layout)
-        layout.addWidget(self.list_widget)
-        layout.addWidget(self.include_nan)
-        self.setLayout(layout)
+        self.main_layout.addLayout(button_layout)
+        self.main_layout.addWidget(self.list_widget)
+        self.main_layout.addWidget(self.include_nan)
 
         # Add values to list (excluding nan/empty values)
         for value in natsorted(values, key=str):
@@ -551,15 +565,25 @@ class CategoricalFilterWidget(QWidget):
             self.list_widget.item(i).setCheckState(
                 Qt.Checked if checked else Qt.Unchecked
             )
-        # Emit signal after setting all items
-        selected = set()
-        if checked:
-            for i in range(self.list_widget.count()):
-                selected.add(self.list_widget.item(i).data(Qt.UserRole))
 
-        if checked and self.include_nan.isChecked():
+        self._emit_filter()
+
+    def _on_selection_changed(self, item: QListWidgetItem = None):
+        self._emit_filter()
+
+    @qthrottled(timeout=100)
+    def _emit_filter(self):
+        # Get selected values
+        selected, count = set(), 0
+        for idx in range(self.list_widget.count()):
+            item = self.list_widget.item(idx)
+            if item.checkState() == Qt.Checked:
+                selected.add(item.data(Qt.UserRole))
+                count += 1
+
+        if count == self.list_widget.count() and self.include_nan.isChecked():
             # no filter
-            self.parent().model.set_filter(self.column, None)
+            self.filterCleared.emit()
         else:
             self.filterChanged.emit(
                 CategoricalFilter(
@@ -568,28 +592,6 @@ class CategoricalFilterWidget(QWidget):
                     include_nan=self.include_nan.isChecked()
                 )
             )
-
-    def _on_selection_changed(self, item: QListWidgetItem = None):
-        selected = set()
-        n_selected = 0
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if item.checkState() == Qt.Checked:
-                selected.add(item.data(Qt.UserRole))
-                n_selected += 1
-
-        if n_selected == self.list_widget.count() and self.include_nan.isChecked():
-            # no filter
-            self.parent().model.set_filter(self.column, None)
-            return
-
-        self.filterChanged.emit(
-            CategoricalFilter(
-                self.column,
-                selected_values=selected,
-                include_nan=self.include_nan.isChecked()
-            )
-        )
 
     def set_filter(self, filter: Optional[CategoricalFilter]):
         if filter is None:
@@ -607,12 +609,3 @@ class CategoricalFilterWidget(QWidget):
             item.setCheckState(
                 Qt.Checked if value in filter.selected_values else Qt.Unchecked
             )
-
-    def hideEvent(self, event):
-        sel_count = sum(1
-            for idx in range(self.list_widget.count())
-            if self.list_widget.item(idx).checkState() == Qt.Checked
-        )
-
-        if self.include_nan.isChecked() and sel_count == self.list_widget.count():
-            self.parent().model.set_filter(self.column, None)
