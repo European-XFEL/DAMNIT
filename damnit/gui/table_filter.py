@@ -350,8 +350,7 @@ class NumericFilterWidget(QWidget):
         """Populate the list widget with values that match the current range."""
         self.list_widget.clear()
 
-        min_val = self.range_widget.min
-        max_val = self.range_widget.max
+        min_val, max_val = self.range_widget.sel
 
         # Add all values to list, but only check those in range
         for value in self.unique_values:
@@ -373,7 +372,7 @@ class NumericFilterWidget(QWidget):
 
     def _set_all_checked(self, checked: bool):
         """Set all items to checked or unchecked state."""
-        self.range_widget.set_values(self.unique_values[0], self.unique_values[-1])
+        self.range_widget.update_values(-inf, inf)
 
         for idx in range(self.list_widget.count()):
             self.list_widget.item(idx).setCheckState(
@@ -388,8 +387,7 @@ class NumericFilterWidget(QWidget):
     @qthrottled(timeout=100, leading=False)
     def _emit_filter(self):
         """Create and emit a new NumericFilter based on current widget state."""
-        min_val = self.range_widget.min
-        max_val = self.range_widget.max
+        min_val, max_val = self.range_widget.sel
         include_nan = self.include_nan.isChecked()
 
         # Get selected values
@@ -399,15 +397,23 @@ class NumericFilterWidget(QWidget):
             if self.list_widget.item(idx).checkState() == Qt.Checked
         }
 
-        self.filterChanged.emit(
-            NumericFilter(
-                self.column,
-                min_val=min_val,
-                max_val=max_val,
-                selected_values=selected_values,
-                include_nan=include_nan
+        if (
+            min_val == -inf
+            and max_val == inf
+            and include_nan
+            and len(selected_values) == self.list_widget.count()
+        ):
+            self.parent().model.set_filter(self.column, None)
+        else:
+            self.filterChanged.emit(
+                NumericFilter(
+                    self.column,
+                    min_val=min_val,
+                    max_val=max_val,
+                    selected_values=selected_values,
+                    include_nan=include_nan
+                )
             )
-        )
 
     def set_filter(self, filter: Optional[NumericFilter]):
         """Update widget state from an existing filter."""
@@ -427,7 +433,10 @@ class NumericFilterWidget(QWidget):
                     else Qt.Unchecked
                 )
 
-        self.range_widget.set_values(filter.min_val, filter.max_val)
+        self.range_widget.update_values(filter.min_val, filter.max_val)
+
+    def hideEvent(self, event):
+        self._emit_filter()
 
 
 class ThumbnailFilterWidget(QWidget):

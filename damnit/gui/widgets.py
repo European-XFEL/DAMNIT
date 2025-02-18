@@ -6,8 +6,9 @@ from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QDoubleValidator
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget, QLineEdit, QHBoxLayout
 from superqt import QDoubleRangeSlider
+from superqt.utils import signals_blocked
 
-from ..util import icon_path, kde, _format_number
+from ..util import icon_path, kde
 
 
 class Arrow(QLabel):
@@ -344,6 +345,7 @@ class ValueRangeWidget(QWidget):
         self.values = values
         self.vmin = vmin
         self.vmax = vmax
+        self.sel = (float('-inf'), float('inf'))
 
         # line plot widget
         if vmin != vmax:
@@ -361,8 +363,8 @@ class ValueRangeWidget(QWidget):
         # Min and max inputs
         self.min_input = QLineEdit()
         self.max_input = QLineEdit()
-        self.min_input.setText(_format_number(vmin, vmax - vmin))
-        self.max_input.setText(_format_number(vmax, vmax - vmin))
+        self.min_input.setPlaceholderText("-inf")
+        self.max_input.setPlaceholderText("inf")
 
         # Create and set validator for numerical input
         validator = QDoubleValidator()
@@ -386,34 +388,50 @@ class ValueRangeWidget(QWidget):
         if self.slider is not None:
             self.slider.valueChanged.connect(self._on_range_changed)
 
-    def set_values(self, vmin, vmax):
-        self.set_inputs(vmin, vmax)
-        self.set_slider(vmin, vmax)
+    def update_values(self, vmin, vmax):
+        self.sel = (vmin, vmax)
+        
+        # set inputs
+        txt_min = "" if vmin == -math.inf else str(vmin)
+        txt_max = "" if vmax == math.inf else str(vmax)
 
-    def set_inputs(self, vmin, vmax):
-        self.min_input.setText(_format_number(vmin, vmax-vmin))
-        self.max_input.setText(_format_number(vmax, vmax-vmin))
+        with signals_blocked(self.min_input):
+            self.min_input.setText(txt_min)
+            self.min_input.setCursorPosition(0)
+        with signals_blocked(self.max_input):
+            self.max_input.setText(txt_max)
+            self.max_input.setCursorPosition(0)
 
-    def set_slider(self, vmin, vmax):
+        # set plot/slider
         if self.plot is not None:
-            self.plot.set_slider_position((vmin, vmax))
-            self.slider.setValue((vmin, vmax))
+            slider_min = self.vmin if vmin == -math.inf else max(self.vmin, vmin)
+            slider_max = self.vmax if vmax == math.inf else min(self.vmax, vmax)
+
+            with signals_blocked(self.plot):
+                self.plot.set_slider_position((slider_min, slider_max))
+            with signals_blocked(self.slider):
+                self.slider.setValue((slider_min, slider_max))
 
     def _on_input_changed(self):
-        vmin = float(self.min_input.text())
-        vmax = float(self.max_input.text())
-        self.set_slider(vmin, vmax)
-        self.rangeChanged.emit(vmin, vmax)
+        vmin = float(self.min_input.text() or '-inf')
+        vmax = float(self.max_input.text() or 'inf')
+        self.update_values(vmin, vmax)
+        self.rangeChanged.emit(*self.sel)
 
     def _on_range_changed(self, value):
-        self.set_inputs(*value)
-        self.plot.set_slider_position(value)
-        self.rangeChanged.emit(*value)
+        vmin, vmax = value
+        if vmin == self.vmin:
+            vmin = -math.inf
+        if vmax == self.vmax:
+            vmax = math.inf
+
+        self.update_values(vmin, vmax)
+        self.rangeChanged.emit(*self.sel)
 
     @property
     def min(self):
-        return float(self.min_input.text())
+        return float(self.min_input.text() or '-inf')
 
     @property
     def max(self):
-        return float(self.max_input.text())
+        return float(self.max_input.text() or 'inf')
