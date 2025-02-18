@@ -470,10 +470,17 @@ class ThumbnailFilterWidget(QWidget):
         self.setLayout(layout)
 
     def _emit_filter(self):
+        show_thumb = self.with_thumbnail.isChecked()
+        show_no_thumb = self.without_thumbnail.isChecked()
+
+        if show_thumb and show_no_thumb:
+            self.parent().model.set_filter(self.column, None)
+            return
+
         filter = ThumbnailFilter(
             self.column,
-            show_with_thumbnail=self.with_thumbnail.isChecked(),
-            show_without_thumbnail=self.without_thumbnail.isChecked(),
+            show_with_thumbnail=show_thumb,
+            show_without_thumbnail=show_no_thumb,
         )
         self.filterChanged.emit(filter)
 
@@ -484,6 +491,9 @@ class ThumbnailFilterWidget(QWidget):
         else:
             self.with_thumbnail.setChecked(filter.show_with_thumbnail)
             self.without_thumbnail.setChecked(filter.show_without_thumbnail)
+
+    def hideEvent(self, event):
+        self._emit_filter()
 
 
 class CategoricalFilterWidget(QWidget):
@@ -547,20 +557,31 @@ class CategoricalFilterWidget(QWidget):
             for i in range(self.list_widget.count()):
                 selected.add(self.list_widget.item(i).data(Qt.UserRole))
 
-        self.filterChanged.emit(
-            CategoricalFilter(
-                self.column,
-                selected_values=selected,
-                include_nan=self.include_nan.isChecked()
+        if checked and self.include_nan.isChecked():
+            # no filter
+            self.parent().model.set_filter(self.column, None)
+        else:
+            self.filterChanged.emit(
+                CategoricalFilter(
+                    self.column,
+                    selected_values=selected,
+                    include_nan=self.include_nan.isChecked()
+                )
             )
-        )
 
     def _on_selection_changed(self, item: QListWidgetItem = None):
         selected = set()
+        n_selected = 0
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             if item.checkState() == Qt.Checked:
                 selected.add(item.data(Qt.UserRole))
+                n_selected += 1
+
+        if n_selected == self.list_widget.count() and self.include_nan.isChecked():
+            # no filter
+            self.parent().model.set_filter(self.column, None)
+            return
 
         self.filterChanged.emit(
             CategoricalFilter(
@@ -586,3 +607,12 @@ class CategoricalFilterWidget(QWidget):
             item.setCheckState(
                 Qt.Checked if value in filter.selected_values else Qt.Unchecked
             )
+
+    def hideEvent(self, event):
+        sel_count = sum(1
+            for idx in range(self.list_widget.count())
+            if self.list_widget.item(idx).checkState() == Qt.Checked
+        )
+
+        if self.include_nan.isChecked() and sel_count == self.list_widget.count():
+            self.parent().model.set_filter(self.column, None)
