@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas.api.types import infer_dtype
+from sklearn.neighbors import KernelDensity
+
 from .context import add_to_h5_file
+
 
 class StatusbarStylesheet(Enum):
     NORMAL = "QStatusBar {}"
@@ -56,3 +59,20 @@ def delete_variable(db, name):
             if name in f:
                 del f[f".reduced/{name}"]
                 del f[name]
+
+
+def kde(x: np.ndarray, npoints: int = 1000) -> tuple[np.ndarray, np.ndarray]:
+    """1D kernel density estimation.
+
+    Args:
+        x (np.ndarray): 1D array of data points.
+        npoints (int, optional): Number of points to evaluate the KDE at. Defaults to 1000.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: Tuple of (x, y) coordinates of the KDE.
+    """
+    xplot = np.linspace(x.min(), x.max(), npoints)[:, np.newaxis]
+    kde = KernelDensity().fit(x[:, None])
+    log_dens = kde.score_samples(xplot)
+    y = np.exp(log_dens)
+    return xplot.squeeze(), y
