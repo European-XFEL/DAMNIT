@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QWidgetAction,
     QGroupBox,
 )
-from superqt import QSearchableListWidget
+from superqt import QSearchableListWidget as SuperQListWidget
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
@@ -31,6 +31,17 @@ class FilterType(Enum):
     NUMERIC = "numeric"
     CATEGORICAL = "categorical"
     THUMBNAIL = "thumbnail"
+
+
+class QSearchableListWidget(SuperQListWidget):
+    def update_visible(self, text):
+        # Change the original implementation from using a set instead of a list
+        # for more efficient lookup on large tables
+        items_text = {x.text() for x in self.list_widget.findItems(text, Qt.MatchContains)}
+
+        for index in range(self.list_widget.count()):
+            item = self.item(index)
+            item.setHidden(item.text() not in items_text)
 
 
 class Filter:
