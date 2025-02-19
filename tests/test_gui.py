@@ -1273,6 +1273,10 @@ def test_filter_menu(mock_db_with_data, qtbot):
     assert isinstance(thumbnail_menu.filter_widget, ThumbnailFilterWidget)
 
     # Test filter application
+    with qtbot.waitSignal(numeric_menu.filter_widget.filterCleared):
+        numeric_menu.filter_widget._on_selection_changed()
+
+    numeric_menu.filter_widget.include_nan.setChecked(False)
     with qtbot.waitSignal(numeric_menu.filter_widget.filterChanged):
         numeric_menu.filter_widget._on_selection_changed()
 
