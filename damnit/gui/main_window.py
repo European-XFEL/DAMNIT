@@ -3,6 +3,7 @@ import os
 import re
 import shelve
 import sys
+import tempfile
 import time
 from argparse import ArgumentParser
 from datetime import datetime
@@ -102,7 +103,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_context_finished.connect(self._save_context_finished)
 
         self.table = None
-        
+
         self.zulip_messenger = None
 
         self._create_view()
@@ -220,7 +221,7 @@ da-dev@xfel.eu"""
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with shelve.open(str(self._settings_db_path)) as db:
-            settings = { 
+            settings = {
                 Settings.COLUMNS.value: self.table_view.get_column_states(),
                 Settings.THEME.value: self.current_theme.value
             }
@@ -434,12 +435,12 @@ da-dev@xfel.eu"""
         action_precreate_runs = QtWidgets.QAction("Pre-create new runs", self)
         action_precreate_runs.triggered.connect(self.precreate_runs_dialog)
         tableMenu = menu_bar.addMenu("Table")
-        
+
         tableMenu.addAction(action_columns)
         tableMenu.addAction(self.action_autoscroll)
         tableMenu.addAction(action_precreate_runs)
-        
-        #jump to run 
+
+        #jump to run
         menu_bar_right = QtWidgets.QMenuBar(self)
         searchMenu = menu_bar_right.addMenu(
             QtGui.QIcon(icon_path("search_icon.png")), "&Search Run")
@@ -456,7 +457,7 @@ da-dev@xfel.eu"""
 
         # Add View menu
         view_menu = self.menuBar().addMenu("View")
-        
+
         # Add theme toggle action
         self.dark_mode_action = QAction("Dark Mode", self)
         self.dark_mode_action.setCheckable(True)
@@ -849,14 +850,59 @@ da-dev@xfel.eu"""
         self.set_error_icon('wait')
         self._editor.launch_test_context(self.db)
 
+    def _maybe_write_context_file(self, check_ok):
+        if check_ok:
+            if self.editor_ctx_size_mtime != self.get_context_size_mtime():
+                log.info("Context file has changed on disk & in editor")
+                reply = self.editor_conflict_dialog()
+                if reply == QtWidgets.QDialog.DialogCode.Rejected:
+                    return
+
+            self._context_path.write_text(self._context_code_to_save)
+            self.mark_context_saved()
+        self._context_code_to_save = None
+        self.save_context_finished.emit(check_ok)
+
+    def editor_conflict_dialog(self):
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Conflicting changes")
+        layout = QtWidgets.QVBoxLayout()
+        dlg.setLayout(layout)
+        lbl = QtWidgets.QLabel(
+            "The context file has changed on disk since it was last loaded/saved"
+        )
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+        dlg_bb = QtWidgets.QDialogButtonBox(Qt.Orientation.Vertical)
+        layout.addWidget(dlg_bb)
+        ButtonRole = QtWidgets.QDialogButtonBox.ButtonRole
+        dlg_bb.addButton(
+            "View changes", ButtonRole.AcceptRole
+        ).clicked.connect(self.compare_changes)
+        dlg_bb.addButton(
+            "Reload file (discard your changes)", ButtonRole.DestructiveRole
+        ).clicked.connect
+        dlg_bb.addButton("Overwrite file (discard other changes)", ButtonRole.ApplyRole)
+        dlg_bb.addButton("Cancel", ButtonRole.RejectRole)
+        return dlg.exec()
+
+    def compare_changes(self):
+        fd, ctx_tmp = tempfile.mkstemp(
+            dir=self.context_dir, prefix='context-editing-', suffix='.py'
+        )
+        with open(fd, 'w') as f:
+            f.write(self._context_code_to_save)
+        proc = QtCore.QProcess(parent=self)
+        # Show stdout & stderr with the parent process
+        proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
+        proc.finished.connect(proc.deleteLater)
+        proc.start('meld', [str(self._context_path), ctx_tmp])
+        proc.closeWriteChannel()
+
     def test_context_result(self, test_result, output, checked_code):
         # want_save, self._context_save_wanted = self._context_save_wanted, False
         if self._context_code_to_save == checked_code:
-            if saving := test_result is not ContextTestResult.ERROR:
-                self._context_path.write_text(self._context_code_to_save)
-                self.mark_context_saved()
-            self._context_code_to_save = None
-            self.save_context_finished.emit(saving)
+            self._maybe_write_context_file(test_result is not ContextTestResult.ERROR)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
@@ -919,8 +965,8 @@ da-dev@xfel.eu"""
 
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
-            self.zulip_messenger = ZulipMessenger(self)       
-        
+            self.zulip_messenger = ZulipMessenger(self)
+
         if not self.zulip_messenger.ok:
             self.zulip_messenger = None
             return False
@@ -999,18 +1045,18 @@ da-dev@xfel.eu"""
         """Apply the selected theme to the application."""
         self.current_theme = theme
         self._save_theme(theme)
-        
+
         app = QtWidgets.QApplication.instance()
-        
+
         # Apply palette
         app.setPalette(ThemeManager.get_theme_palette(theme))
-        
+
         # Apply stylesheet
         app.setStyleSheet(ThemeManager.get_theme_stylesheet(theme))
-        
+
         # Update status bar style
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
-        
+
         # Update editor theme
         if hasattr(self, '_editor'):
             self._editor.update_theme(theme)
@@ -1018,7 +1064,7 @@ da-dev@xfel.eu"""
         # Update error widget lexer theme
         if hasattr(self, '_error_widget_lexer'):
             set_lexer_theme(self._error_widget_lexer, self.current_theme)
-        
+
         # Update plot windows
         if hasattr(self, '_canvas_inspect'):
             for window in self._canvas_inspect:
