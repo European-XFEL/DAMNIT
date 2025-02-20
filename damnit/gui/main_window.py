@@ -3,10 +3,7 @@ import os
 import re
 import shelve
 import sys
-import tempfile
-import time
 from argparse import ArgumentParser
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from socket import gethostname
