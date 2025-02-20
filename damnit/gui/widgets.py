@@ -287,7 +287,8 @@ class PlotLineWidget(QWidget):
 
         # Calculate scaling factors
         x_min = self.x_data[0]
-        x_range = self.x_data[-1] - x_min
+        x_max = self.x_data[-1]
+        x_range = x_max - x_min
         x_scale = w / x_range if x_range != 0 else 1.0
 
         y_min, y_max = np.min(self.y_data), np.max(self.y_data)
@@ -319,20 +320,22 @@ class PlotLineWidget(QWidget):
         pen = QPen(QColor(255, 0, 0, 150))  # Semi-transparent red
         pen.setWidth(2)
         painter.setPen(pen)
-        painter.drawLine(left_x, 0, left_x, h)
-        painter.drawLine(right_x, 0, right_x, h)
 
-        # Gray out outer areas
-        painter.fillRect(
-            right_x, 0, 
-            w - right_x, h,
-            QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
-        )
-        painter.fillRect(
-            0, 0, 
-            left_x, h,
-            QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
-        )
+        # draw selection boundaries and gray out outer areas
+        if right_x < w:
+            painter.drawLine(right_x, 0, right_x, h)
+            painter.fillRect(
+                right_x, 0, 
+                w - right_x, h,
+                QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
+            )
+        if left_x > 0:
+            painter.drawLine(left_x, 0, left_x, h)
+            painter.fillRect(
+                0, 0, 
+                left_x, h,
+                QBrush(QColor(128, 128, 128, 100))  # Semi-transparent gray
+            )
 
 
 class ValueRangeWidget(QWidget):
