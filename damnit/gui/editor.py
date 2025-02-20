@@ -1,3 +1,4 @@
+import logging
 import sys
 import traceback
 from enum import Enum
@@ -8,14 +9,18 @@ from tempfile import NamedTemporaryFile
 from pyflakes.api import check as pyflakes_check
 from pyflakes.reporter import Reporter
 from PyQt5.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QProcess, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
+from PyQt5 import QtWidgets
 from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file
 from ..context import ContextFile
 from ..ctxsupport.ctxrunner import extract_error_info
 from .theme import Theme, ThemeManager, set_lexer_theme
+
+
+log = logging.getLogger(__name__)
 
 
 class ContextTestResult(Enum):
@@ -121,6 +126,16 @@ class Editor(QsciScintilla):
         line_del = commands.find(QsciCommand.LineDelete)
         line_del.setKey(Qt.ControlModifier | Qt.Key_D)
 
+    def setText(self, p_str):
+        # Rough attempt to restore the scroll position, should work for small changes
+        sb = self.verticalScrollBar()
+        sb_min, sb_max = sb.minimum(), sb.maximum()
+        sb_fract = (sb.value() - sb_min) / ((sb_max - sb_min) or 1)  # Avoid divide-by-zero
+
+        super().setText(p_str)
+
+        sb.setValue(int(sb_fract * (sb.maximum() - sb.minimum()) + sb.minimum()))
+
     def _apply_theme(self):
         """Apply the current theme to the editor."""
         # Store current text and position
@@ -189,3 +204,72 @@ class Editor(QsciScintilla):
                     self.setCursorPosition(lineno, offset)
 
         self.check_result.emit(res, info, checked_code)
+
+
+class SaveConflictDialog(QtWidgets.QDialog):
+    def __init__(self, main_window, editor_code: str):
+        super().__init__(main_window)
+        self.main_window = main_window
+        self.editor_code = editor_code
+
+        self.setWindowTitle("Conflicting changes")
+        layout = QtWidgets.QVBoxLayout()
+        self.setLayout(layout)
+        lbl = QtWidgets.QLabel(
+            "The context file has changed on disk since it was last loaded/saved",
+        )
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+        self.view_changes = QtWidgets.QPushButton("View changes")
+        self.view_changes.clicked.connect(self.compare_changes)
+        reload = QtWidgets.QPushButton("Reload file (discard your changes)")
+        reload.clicked.connect(self.reload)
+        overwrite = QtWidgets.QPushButton("Overwrite file (discard other changes)")
+        overwrite.clicked.connect(self.overwrite)
+        cancel = QtWidgets.QPushButton("Cancel", self)
+        cancel.clicked.connect(self.reject)
+        for btn in [self.view_changes, reload, overwrite, cancel]:
+            layout.addWidget(btn)
+        self.view_changes.setFocus()
+
+        self.action = None
+        self.temp_file = NamedTemporaryFile(
+            mode='w+', encoding='utf-8', delete=False,
+            dir=main_window.context_dir, prefix='context-editing-', suffix='.py'
+        )
+        with self.temp_file:
+            self.temp_file.write(editor_code)
+        self.finished.connect(self.cleanup)
+
+    def cleanup(self):
+        Path(self.temp_file.name).unlink(missing_ok=True)
+
+    def overwrite(self):
+        self.action = 'overwrite'
+        self.accept()
+
+    def reload(self):
+        self.action = 'reload'
+        self.accept()
+
+    def exec_get_action(self):
+        self.exec()
+        return self.action
+
+    def compare_changes(self):
+        self.view_changes.setEnabled(False)
+        proc = QProcess(parent=self.main_window)
+        # Show stdout & stderr with the parent process
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)
+        proc.finished.connect(self.diff_closed)
+        proc.finished.connect(proc.deleteLater)
+        proc.start('meld', [str(self.main_window._context_path), self.temp_file.name])
+        proc.closeWriteChannel()
+
+    def diff_closed(self):
+        self.view_changes.setEnabled(True)
+        file_contents = Path(self.temp_file.name).read_text('utf-8', 'replace')
+        if file_contents != self.editor_code:
+            log.info("Editor contents changed in diff viewer")
+            self.main_window._editor.setText(file_contents)
+            self.editor_code = file_contents
