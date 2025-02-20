@@ -12,6 +12,8 @@ Added:
 - Add support for `complex` numbers (!374).
 - GUI: Add a Dark theme (!376).
 - add a`transient` attribute for variables we don't want to save data (!379).
+- GUI: Enhance the filter for numerical data with a slider to select filter
+  ranges and a line plot to visualize the data distribution (!400).
 
 Changed:
 
