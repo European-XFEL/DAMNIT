@@ -3,9 +3,7 @@ import os
 import re
 import shelve
 import sys
-import time
 from argparse import ArgumentParser
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from socket import gethostname
@@ -28,7 +26,7 @@ from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
-from .editor import ContextTestResult, Editor
+from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
 from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
@@ -102,7 +100,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_context_finished.connect(self._save_context_finished)
 
         self.table = None
-        
+
         self.zulip_messenger = None
 
         self._create_view()
@@ -220,7 +218,7 @@ da-dev@xfel.eu"""
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with shelve.open(str(self._settings_db_path)) as db:
-            settings = { 
+            settings = {
                 Settings.COLUMNS.value: self.table_view.get_column_states(),
                 Settings.THEME.value: self.current_theme.value
             }
@@ -434,12 +432,12 @@ da-dev@xfel.eu"""
         action_precreate_runs = QtWidgets.QAction("Pre-create new runs", self)
         action_precreate_runs.triggered.connect(self.precreate_runs_dialog)
         tableMenu = menu_bar.addMenu("Table")
-        
+
         tableMenu.addAction(action_columns)
         tableMenu.addAction(self.action_autoscroll)
         tableMenu.addAction(action_precreate_runs)
-        
-        #jump to run 
+
+        #jump to run
         menu_bar_right = QtWidgets.QMenuBar(self)
         searchMenu = menu_bar_right.addMenu(
             QtGui.QIcon(icon_path("search_icon.png")), "&Search Run")
@@ -456,7 +454,7 @@ da-dev@xfel.eu"""
 
         # Add View menu
         view_menu = self.menuBar().addMenu("View")
-        
+
         # Add theme toggle action
         self.dark_mode_action = QAction("Dark Mode", self)
         self.dark_mode_action.setCheckable(True)
@@ -849,14 +847,32 @@ da-dev@xfel.eu"""
         self.set_error_icon('wait')
         self._editor.launch_test_context(self.db)
 
+    def _maybe_write_context_file(self, check_ok):
+        code_to_save = self._context_code_to_save
+        self._context_code_to_save = None
+        if check_ok:
+            if self.editor_ctx_size_mtime != self.get_context_size_mtime():
+                log.info("Context file has changed on disk & in editor")
+                dlg = SaveConflictDialog(self, code_to_save)
+                action = dlg.exec_get_action()
+                if action == 'overwrite':
+                    code_to_save = dlg.editor_code
+                elif action == 'reload':
+                    self.reload_context()
+                    code_to_save = None
+                else:  # Cancelled
+                    code_to_save = None
+
+            if code_to_save is not None:
+                self._context_path.write_text(code_to_save)
+                self.mark_context_saved()
+
+        self.save_context_finished.emit(check_ok)
+
     def test_context_result(self, test_result, output, checked_code):
         # want_save, self._context_save_wanted = self._context_save_wanted, False
         if self._context_code_to_save == checked_code:
-            if saving := test_result is not ContextTestResult.ERROR:
-                self._context_path.write_text(self._context_code_to_save)
-                self.mark_context_saved()
-            self._context_code_to_save = None
-            self.save_context_finished.emit(saving)
+            self._maybe_write_context_file(test_result is not ContextTestResult.ERROR)
 
         if test_result == ContextTestResult.ERROR:
             self.set_error_widget_text(output)
@@ -919,8 +935,8 @@ da-dev@xfel.eu"""
 
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
-            self.zulip_messenger = ZulipMessenger(self)       
-        
+            self.zulip_messenger = ZulipMessenger(self)
+
         if not self.zulip_messenger.ok:
             self.zulip_messenger = None
             return False
@@ -986,7 +1002,7 @@ da-dev@xfel.eu"""
     def show_adeqt(self):
         from adeqt import AdeqtWindow
         if self.adeqt_window is None:
-            ns = {'window': self, 'table': self.table}
+            ns = {'window': self, 'table': self.table, 'editor': self._editor}
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
@@ -999,18 +1015,18 @@ da-dev@xfel.eu"""
         """Apply the selected theme to the application."""
         self.current_theme = theme
         self._save_theme(theme)
-        
+
         app = QtWidgets.QApplication.instance()
-        
+
         # Apply palette
         app.setPalette(ThemeManager.get_theme_palette(theme))
-        
+
         # Apply stylesheet
         app.setStyleSheet(ThemeManager.get_theme_stylesheet(theme))
-        
+
         # Update status bar style
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
-        
+
         # Update editor theme
         if hasattr(self, '_editor'):
             self._editor.update_theme(theme)
@@ -1018,7 +1034,7 @@ da-dev@xfel.eu"""
         # Update error widget lexer theme
         if hasattr(self, '_error_widget_lexer'):
             set_lexer_theme(self._error_widget_lexer, self.current_theme)
-        
+
         # Update plot windows
         if hasattr(self, '_canvas_inspect'):
             for window in self._canvas_inspect:
