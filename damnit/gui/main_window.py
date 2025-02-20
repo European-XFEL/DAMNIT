@@ -29,7 +29,7 @@ from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
-from .editor import ContextTestResult, Editor
+from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
 from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
@@ -851,53 +851,26 @@ da-dev@xfel.eu"""
         self._editor.launch_test_context(self.db)
 
     def _maybe_write_context_file(self, check_ok):
+        code_to_save = self._context_code_to_save
+        self._context_code_to_save = None
         if check_ok:
             if self.editor_ctx_size_mtime != self.get_context_size_mtime():
                 log.info("Context file has changed on disk & in editor")
-                reply = self.editor_conflict_dialog()
-                if reply == QtWidgets.QDialog.DialogCode.Rejected:
-                    return
+                dlg = SaveConflictDialog(self, code_to_save)
+                action = dlg.exec_get_action()
+                if action == 'overwrite':
+                    code_to_save = dlg.editor_code
+                elif action == 'reload':
+                    self.reload_context()
+                    code_to_save = None
+                else:  # Cancelled
+                    code_to_save = None
 
-            self._context_path.write_text(self._context_code_to_save)
-            self.mark_context_saved()
-        self._context_code_to_save = None
+            if code_to_save is not None:
+                self._context_path.write_text(code_to_save)
+                self.mark_context_saved()
+
         self.save_context_finished.emit(check_ok)
-
-    def editor_conflict_dialog(self):
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Conflicting changes")
-        layout = QtWidgets.QVBoxLayout()
-        dlg.setLayout(layout)
-        lbl = QtWidgets.QLabel(
-            "The context file has changed on disk since it was last loaded/saved"
-        )
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
-        dlg_bb = QtWidgets.QDialogButtonBox(Qt.Orientation.Vertical)
-        layout.addWidget(dlg_bb)
-        ButtonRole = QtWidgets.QDialogButtonBox.ButtonRole
-        dlg_bb.addButton(
-            "View changes", ButtonRole.AcceptRole
-        ).clicked.connect(self.compare_changes)
-        dlg_bb.addButton(
-            "Reload file (discard your changes)", ButtonRole.DestructiveRole
-        ).clicked.connect
-        dlg_bb.addButton("Overwrite file (discard other changes)", ButtonRole.ApplyRole)
-        dlg_bb.addButton("Cancel", ButtonRole.RejectRole)
-        return dlg.exec()
-
-    def compare_changes(self):
-        fd, ctx_tmp = tempfile.mkstemp(
-            dir=self.context_dir, prefix='context-editing-', suffix='.py'
-        )
-        with open(fd, 'w') as f:
-            f.write(self._context_code_to_save)
-        proc = QtCore.QProcess(parent=self)
-        # Show stdout & stderr with the parent process
-        proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
-        proc.finished.connect(proc.deleteLater)
-        proc.start('meld', [str(self._context_path), ctx_tmp])
-        proc.closeWriteChannel()
 
     def test_context_result(self, test_result, output, checked_code):
         # want_save, self._context_save_wanted = self._context_save_wanted, False
@@ -1032,7 +1005,7 @@ da-dev@xfel.eu"""
     def show_adeqt(self):
         from adeqt import AdeqtWindow
         if self.adeqt_window is None:
-            ns = {'window': self, 'table': self.table}
+            ns = {'window': self, 'table': self.table, 'editor': self._editor}
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
