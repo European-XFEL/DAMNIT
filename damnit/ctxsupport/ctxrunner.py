@@ -440,7 +440,7 @@ def generate_thumbnail(image):
         ax.imshow(image, vmin=vmin, vmax=vmax)
     else:
         # Use DataArray's own plotting method
-        image.plot(ax=ax, vmin=vmin, vmax=vmax, add_colorbar=False)
+        image.plot.imshow(ax=ax, vmin=vmin, vmax=vmax, add_colorbar=False)
     ax.axis('tight')
     ax.axis('off')
     ax.margins(0, 0)

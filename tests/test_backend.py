@@ -355,6 +355,10 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     def twodxarray(run):
         return xr.DataArray(np.random.rand(100, 100))
 
+    @Variable("2D-ish xarray")
+    def twod_ish_xarray(run):
+        return xr.DataArray(np.random.rand(1, 100))
+
     @Variable(title="Axes")
     def axes(run):
         _, ax = plt.subplots()
@@ -382,7 +386,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert f["axes/data"].ndim == 3
 
         # Test that the summaries are the right size
-        for var in ["twodarray", "twodxarray"]:
+        for var in ["twodarray", "twodxarray", "twod_ish_xarray"]:
             png = Image.open(io.BytesIO(f[f".reduced/{var}"][()]))
             assert np.asarray(png).shape == (THUMBNAIL_SIZE, THUMBNAIL_SIZE, 4)
 
