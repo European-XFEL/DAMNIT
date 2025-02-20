@@ -48,7 +48,7 @@ def get_supervisord_address(default_port=2322):
 
     return hostname, port
 
-def backend_is_running(root_path: Path, timeout=1):
+def listener_is_running(root_path: Path, timeout=1):
     config_path = root_path / "supervisord.conf"
     supervisorctl_status = ["supervisorctl", "-c", str(config_path), "status", "damnit"]
 
@@ -94,7 +94,7 @@ def write_supervisord_conf(root_path):
     if config_path.stat().st_uid == os.getuid():
         os.chmod(config_path, 0o666)
 
-def start_backend(root_path: Path, try_again=True):
+def start_listener(root_path: Path, try_again=True):
     config_path = root_path / "supervisord.conf"
     if not config_path.is_file():
         write_supervisord_conf(root_path)
@@ -120,7 +120,7 @@ def start_backend(root_path: Path, try_again=True):
             return False
 
         if try_again:
-            return start_backend(root_path, try_again=False)
+            return start_listener(root_path, try_again=False)
     elif rc == 3:
         # 3 means it's stopped and we need to start the program
         cmd = subprocess.run([*supervisorctl, "start", "damnit"])
@@ -147,35 +147,3 @@ def start_backend(root_path: Path, try_again=True):
         os.chmod(log_path, 0o666)
 
     return True
-
-def initialize_and_start_backend(root_path, proposal=None, context_file_src=None):
-    # Ensure the directory exists
-    root_path.mkdir(parents=True, exist_ok=True)
-    if root_path.stat().st_uid == os.getuid():
-        os.chmod(root_path, 0o777)
-
-    # If the database doesn't exist, create it
-    if not db_path(root_path).is_file():
-        if proposal is None:
-            raise ValueError("Must pass a proposal number to `initialize_and_start_backend()` if the database doesn't exist yet.")
-
-        # Initialize database
-        db = DamnitDB.from_dir(root_path)
-        db.metameta["proposal"] = proposal
-        db.metameta["context_python"] = "/gpfs/exfel/sw/software/mambaforge/22.11/envs/202501/bin/python"
-    else:
-        # Otherwise, load the proposal number
-        db = DamnitDB.from_dir(root_path)
-        proposal = db.metameta["proposal"]
-
-    context_path = root_path / "context.py"
-    # Copy initial context file if necessary
-    if not context_path.is_file():
-        if context_file_src is not None:
-            shutil.copyfile(context_file_src, context_path)
-        else:
-            context_path.touch()
-        os.chmod(context_path, 0o666)
-
-    # Start backend
-    return start_backend(root_path)
