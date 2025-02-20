@@ -33,6 +33,7 @@ Fixed:
 - handle failure generating summary while writing results to file (!370).
 - Fixed getting the run timestamps from very old proposals where only proc files
   are used (!399).
+- Fixed creation of thumbnails for 2D `DataArray`'s with shape `(1, n)` (!401).
 
 Deprecated:
 - GUI: Standalone comments are no longer supported in the run table(!362).
