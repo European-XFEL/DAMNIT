@@ -47,6 +47,7 @@ gui = [
     "PyQtWebEngine",
     "pyflakes",  # for checking context file in editor
     "QScintilla==2.13",
+    "scikit-learn",
     "superqt",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
 ]
