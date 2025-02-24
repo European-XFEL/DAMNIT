@@ -35,6 +35,8 @@ Fixed:
 - Fixed getting the run timestamps from very old proposals where only proc files
   are used (!399).
 - Fixed creation of thumbnails for 2D `DataArray`'s with shape `(1, n)` (!401).
+- Fixed execution of behaviour of non-cluster variables, previously they were
+  incorrectly also executed in cluster jobs (!403).
 
 Deprecated:
 - GUI: Standalone comments are no longer supported in the run table(!362).
