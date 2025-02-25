@@ -618,7 +618,7 @@ class Results:
 
                 if isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
-                elif isinstance(obj, PNGData):  # Thumbnail
+                elif type(obj).__name__ == 'PNGData':
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
                 elif obj.ndim > 0 and (
                         np.issubdtype(obj.dtype, np.number) or
@@ -631,7 +631,7 @@ class Results:
 
             # Fill with data
             for path, obj, _ in dsets:
-                if isinstance(obj, PNGData):
+                if type(obj).__name__ == 'PNGData':
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
                     f[path][()] = obj
