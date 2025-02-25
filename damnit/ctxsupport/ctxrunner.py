@@ -403,6 +403,9 @@ class PNGData:
 
 
 def is_png_data(obj):
+    # insinstance(obj, PNGData) returns false if the PNGData object has been
+    # instantiated from the context file code, so we need to check the data
+    # attribute.
     try:
         return obj.data.startswith(b'\x89PNG\r\n\x1a\n')
     except:
