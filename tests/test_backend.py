@@ -648,6 +648,24 @@ def test_filtering(mock_ctx, mock_run, caplog):
     assert set(results.cells) == { "scalar1", "scalar2", "timestamp", "array", "meta_array", "start_time" }
     assert results.cells["timestamp"].data > ts
 
+    # Test cluster filtering
+    ctx_code = """
+    from damnit_ctx import Variable
+
+    @Variable("foo", cluster=True)
+    def foo(run):
+        return 1
+
+    @Variable("bar")
+    def bar(run):
+        return 1
+    """
+    ctx = mkcontext(ctx_code)
+    assert set(ctx.filter().vars) == { "foo", "bar" }
+    assert set(ctx.filter(cluster=True).vars) == { "foo" }
+    assert set(ctx.filter(cluster=False).vars) == { "bar" }
+
+
 def test_add_to_db(mock_db):
     db_dir, db = mock_db
 

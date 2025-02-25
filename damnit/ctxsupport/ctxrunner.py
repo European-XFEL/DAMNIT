@@ -251,7 +251,7 @@ class ContextFile:
             if not v.transient or inc_transient
         }
 
-    def filter(self, run_data=RunData.ALL, cluster=True, name_matches=(), variables=()):
+    def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=()):
         new_vars = {}
         for name, var in self.vars.items():
 
@@ -264,7 +264,7 @@ class ContextFile:
             # raw/proc data, then only process the Variable's that require that data.
             data_match = run_data == RunData.ALL or var.data == run_data
             # Skip data tagged cluster unless we're in a dedicated Slurm job
-            cluster_match = cluster or not var.cluster
+            cluster_match = True if cluster is None else cluster == var.cluster
 
             if variables:  # --var: exact variable names (not titles)
                 name_match = name in variables
