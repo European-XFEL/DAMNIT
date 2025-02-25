@@ -18,18 +18,10 @@ RUN set -eux; \
     ; \
     apt list --installed $(apt-mark showmanual) > /.apt-deps-build
 
-COPY pyproject.toml /src/pyproject.toml
-# We need to copy the README too because it's used in pyproject.toml when
-# building the package.
-COPY README.md /src/README.md
+COPY . /src
 
 # set up venv and python dependencies
 RUN set -eux; \
-    mkdir -p /src/damnit; \
-    # install dependencies w/o installing package itself
-    # https://github.com/pypa/pip/issues/11440
-    echo '"""Hello"""' > /src/damnit/__init__.py; \
-    echo '__version__="0.0.0"' >> /src/damnit/__init__.py; \
     python3 -m venv --system-site-packages /app; \
     /app/bin/python3 -m pip install "/src[gui,backend]"; \
     /app/bin/python3 -m pip uninstall -y damnit; \
