@@ -402,6 +402,13 @@ class PNGData:
         self.data = data
 
 
+def is_png_data(obj):
+    try:
+        return obj.data.startswith(b'\x89PNG\r\n\x1a\n')
+    except:
+        return False
+
+
 def figure2png(fig, dpi=None):
     bio = io.BytesIO()
     fig.savefig(bio, dpi=dpi, format='png')
@@ -618,7 +625,7 @@ class Results:
 
                 if isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
-                elif isinstance(obj, PNGData):  # Thumbnail
+                elif is_png_data(obj):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
                 elif obj.ndim > 0 and (
                         np.issubdtype(obj.dtype, np.number) or
@@ -631,7 +638,7 @@ class Results:
 
             # Fill with data
             for path, obj, _ in dsets:
-                if isinstance(obj, PNGData):
+                if is_png_data(obj):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
                     f[path][()] = obj
