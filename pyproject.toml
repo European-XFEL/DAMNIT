@@ -1,5 +1,5 @@
 [build-system]
-requires = ["flit_core >=3.2,<4"]
+requires = ["flit_core >=3.2,<3.11"]
 build-backend = "flit_core.buildapi"
 
 [project]
@@ -47,6 +47,7 @@ gui = [
     "PyQtWebEngine",
     "pyflakes",  # for checking context file in editor
     "QScintilla==2.13",
+    "scikit-learn",
     "superqt",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
 ]
