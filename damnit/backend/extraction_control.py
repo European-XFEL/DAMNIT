@@ -93,6 +93,7 @@ class ExtractionRequest:
     run: int
     proposal: int
     run_data: RunData
+    damnit_python: str = sys.executable
     cluster: bool = False
     match: tuple = ()
     variables: tuple = ()   # Overrides match if present
@@ -103,7 +104,7 @@ class ExtractionRequest:
     def python_cmd(self):
         """Creates the command for a process to do this extraction"""
         cmd = [
-            sys.executable, '-m', 'damnit.backend.extract_data',
+            self.damnit_python, '-m', 'damnit.backend.extract_data',
             str(self.proposal), str(self.run), self.run_data.value,
             '--processing-id', self.processing_id,
         ]
