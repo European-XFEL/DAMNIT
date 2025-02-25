@@ -2,6 +2,8 @@
 from math import inf
 
 import numpy as np
+from PyQt5.QtWidgets import QApplication
+
 from damnit.gui.widgets import PlotLineWidget, ValueRangeWidget
 
 
@@ -27,10 +29,12 @@ def test_plot_line_widget(qtbot):
     widget.resize(200, 200)
     widget.show()
     widget.repaint()
+    QApplication.processEvents()
 
     # Test edge cases
     widget.set_slider_position((x_data[0], x_data[-1]))
     widget.repaint()
+    QApplication.processEvents()
 
 
 def test_value_range_widget(qtbot):
