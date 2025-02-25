@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 import struct
 from collections.abc import ItemsView, MutableMapping, ValuesView
 from dataclasses import asdict, dataclass
@@ -133,6 +134,9 @@ class DamnitDB:
             # The ID is not a secret and doesn't need to be cryptographically
             # secure, but the secrets module is convenient to get a random string.
             self.metameta.setdefault('db_id', token_hex(20))
+
+        # Use the Python environment the database was created under by default
+        self.metameta.setdefault("damnit_python", sys.executable)
 
         if not db_existed:
             # If this is a new database, set the latest current version
