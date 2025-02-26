@@ -1,4 +1,4 @@
-EXtra-data==1.19.0
+EXtra-data==1.20.0
 ipython==8.32.0
 kafka-python==2.0.5
 matplotlib==3.10.0
