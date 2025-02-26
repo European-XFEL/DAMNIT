@@ -235,7 +235,7 @@ class SaveConflictDialog(QtWidgets.QDialog):
         self.action = None
         self.temp_file = NamedTemporaryFile(
             mode='w+', encoding='utf-8', delete=False,
-            dir=main_window.context_dir, prefix='context-editing-', suffix='.py'
+            prefix='.damnit-context-editing-', suffix='.py'
         )
         with self.temp_file:
             self.temp_file.write(editor_code)
