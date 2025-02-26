@@ -55,7 +55,7 @@ markdown_extensions:
 nav:
   - index.md
   - gui.md
-  - backend.md
+  - configuration_and_management.md
   - api.md
   - internals.md
   - changelog.md
