@@ -70,8 +70,8 @@ Features:
   ![](static/histogramming.gif)
 
 - The table's `Cells` can be highlighted with custom background colors and text
-  formatting for emphasis, see [Cell configuration](backend.md#cell) for more
-  information.
+  formatting for emphasis, see [Cell
+  configuration](configuration_and_management.md#cell) for more information.
 
 
 ## Adding user-editable variables
@@ -91,7 +91,7 @@ way to filter variables based on these tags by using the "Variables by Tag" butt
 
 Tags are preserved in the database and are automatically updated when you modify
 them in the context file. For information on how to define tags for variables,
-see the [Variables](backend.md#variables) section.
+see the [Variables](configuration_and_management.md#variables) section.
 
 ## Exporting
 All the data in the run table can be exported to an Excel/CSV file, with the

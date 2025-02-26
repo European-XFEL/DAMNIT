@@ -93,6 +93,8 @@ class ExtractionRequest:
     run: int
     proposal: int
     run_data: RunData
+    sandbox_args: str = ""
+    damnit_python: str = sys.executable
     cluster: bool = False
     match: tuple = ()
     variables: tuple = ()   # Overrides match if present
@@ -102,8 +104,15 @@ class ExtractionRequest:
 
     def python_cmd(self):
         """Creates the command for a process to do this extraction"""
+        sandbox_args = []
+        if len(self.sandbox_args) > 0:
+            sandbox_args.extend(self.sandbox_args.split())
+            sandbox_args.append(str(self.proposal))
+            sandbox_args.append("--")
+
         cmd = [
-            sys.executable, '-m', 'damnit.backend.extract_data',
+            *sandbox_args,
+            self.damnit_python, '-m', 'damnit.backend.extract_data',
             str(self.proposal), str(self.run), self.run_data.value,
             '--processing-id', self.processing_id,
         ]
@@ -119,6 +128,7 @@ class ExtractionRequest:
             cmd.append('--mock')
         if self.update_vars:
             cmd.append('--update-vars')
+
         return cmd
 
     def submitted_info(self, cluster, job_id):

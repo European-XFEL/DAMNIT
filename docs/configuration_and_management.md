@@ -1,4 +1,6 @@
-# The backend and context file
+# Configuration and processing
+
+## The context file
 The backend runs a context file like this one, which contains functions that
 it will execute:
 ```python title="context.py" linenums="1"
@@ -146,7 +148,7 @@ $ damnit db-config noncluster_cpus 8
 $ damnit db-config noncluster_mem 50G
 ```
 
-## Cell
+### Cell
 
 The `Cell` object is a versatile container that allows customizing how data is
 stored and displayed in the table. When writing [Variables](#variables), you can
@@ -177,7 +179,7 @@ def peaks(run):
     )
 ```
 
-## Using Slurm
+### Using Slurm
 As mentioned in the previous section, variables can be marked for execution in a
 Slurm job with the `cluster=True` argument to the decorator:
 ```python
@@ -268,41 +270,6 @@ The environment *must* have these dependencies installed for DAMNIT to work:
 
 If your variables return [plotly](https://plotly.com/python/) plots, the
 environment must also have the `kaleido` package.
-
-## Managing the backend
-The backend is a process running under [Supervisor](http://supervisord.org/). In
-a nutshell:
-
-- Supervisor will manage the backend using a configuration file named
-  `supervisord.conf` stored in the database directory. It's configured to listen
-  for commands over HTTP on a certain port with a certain
-  username/password. Supervisor will save its logs to `supervisord.log`.
-- It can be controlled with `supervisorctl` on any machine using the same config
-  file.
-
-So lets say you're running the GUI on FastX, and the backend is now started. If
-you open a terminal and cd to the database directory you'll see:
-```bash
-$ cd /gpfs/path/to/proposal/usr/Shared/amore
-$ ls
-amore.log  context.py  extracted_data/  runs.sqlite  supervisord.conf supervisord.log
-```
-
-You could get the status of the backend with:
-```bash
-$ supervisorctl -c supervisord.conf status damnit
-damnit                           RUNNING   pid 3793870, uptime 0:00:20
-```
-
-And you could restart it with:
-```bash
-$ supervisorctl -c supervisord.conf restart damnit
-damnit: stopped
-damnit: started
-
-$ supervisorctl -c supervisord.conf status damnit
-damnit                           RUNNING   pid 3793880, uptime 0:00:04
-```
 
 ## Starting from scratch
 Sometimes it's useful to delete all of the data so far and start from scratch,
