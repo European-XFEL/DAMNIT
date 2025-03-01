@@ -134,6 +134,8 @@ class DamnitDB:
             # secure, but the secrets module is convenient to get a random string.
             self.metameta.setdefault('db_id', token_hex(20))
 
+        self.metameta.setdefault("concurrent_jobs", 15)
+
         if not db_existed:
             # If this is a new database, set the latest current version
             self.metameta["data_format_version"] = DATA_FORMAT_VERSION

@@ -315,11 +315,14 @@ class ExtractionSubmitter:
         return opts
 
 
-def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=30):
+def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=-1):
     """Called by the 'damnit reprocess' subcommand"""
     submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
         proposal = submitter.proposal
+
+    if limit_running == -1:
+        limit_running = submitter.db.metameta["concurrent_jobs"]
 
     if runs == ['all']:
         rows = submitter.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
