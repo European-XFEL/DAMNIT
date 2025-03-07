@@ -15,6 +15,8 @@ Added:
 - GUI: add a visual indicator on columns with active filter (!392)
 - GUI: Enhance the filter for numerical data with a slider to select filter
   ranges and a line plot to visualize the data distribution (!400).
+- It's now possible to specify the number of runs that will be processed
+  concurrently with the `concurrent_jobs` database setting (!408).
 
 Changed:
 
