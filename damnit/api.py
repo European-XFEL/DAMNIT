@@ -233,6 +233,7 @@ class RunVariables:
         with h5py.File(self.file) as f:
             all_keys = { name: False for name in f.keys() }
         del all_keys[".reduced"]
+        del all_keys[".errors"]
 
         # And the keys from the database
         user_vars = list(self._db.get_user_variables().keys())
