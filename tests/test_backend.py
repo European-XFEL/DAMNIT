@@ -1073,3 +1073,43 @@ def test_transient_variables(mock_run, mock_db, tmp_path):
     # also not saved in the db
     vars = db.conn.execute('SELECT * FROM run_variables WHERE name="var2"').fetchall()
     assert vars == []
+
+
+def test_capture_errors(mock_run, mock_db, tmp_path):
+    db_dir, db = mock_db
+
+    ctx_code = """
+    from damnit_ctx import Variable, Skip
+
+    @Variable()
+    def var1(run):
+        1/0
+
+    @Variable()
+    def var2(run):
+        raise Skip("Testing Skip")
+    """
+    ctx = mkcontext(ctx_code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+
+    with h5py.File(results_hdf5_path) as f:
+        for i in [1, 2]:
+            assert f'.errors/var{i}' in f
+            assert f'.reduced/var{i}' not in f
+            assert f'var{i}' not in f
+
+    reduced_data = load_reduced_data(results_hdf5_path)
+    add_to_db(reduced_data, db, 1000, 123)
+    attrs = db.conn.execute(
+        "SELECT attributes FROM run_variables WHERE name='var1'"
+    ).fetchone()[0]
+    assert json.loads(attrs) == {
+        'error': 'division by zero', 'error_cls': 'ZeroDivisionError'
+    }
+
+    attrs = db.conn.execute(
+        "SELECT attributes FROM run_variables WHERE name='var2'"
+    ).fetchone()[0]
+    assert json.loads(attrs) == {'error': 'Testing Skip', 'error_cls': 'Skip'}
