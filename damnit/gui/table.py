@@ -536,15 +536,18 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def error_item(self, attrs):
         item = self.itemPrototype().clone()
-        item.setToolTip(attrs['error'])
+        msg = attrs['error']
         match attrs.get('error_cls', ''):
             case 'Skip':
                 colour = 'lightgrey'
+                msg = "Skipped: " + msg
             case 'SourceNameError':  # Typically an issue with data, not code
-                colour = 'grey'
+                colour = 'lightgrey'
             case _:
-                colour = 'darkorange'
-        item.setBackground(QtGui.QBrush(QtGui.QColor(colour)))
+                colour = 'orange'
+                msg += " (see processing log for details)"
+        item.setToolTip(msg)
+        item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
         return item
 
     def new_item(self, value, column_id, max_diff, attrs):
