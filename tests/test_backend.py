@@ -541,7 +541,7 @@ def test_results_bad_obj(mock_run, tmp_path):
     results_hdf5_path = tmp_path / 'results.h5'
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
-        assert set(f) == {".reduced", "good", "start_time"}
+        assert set(f) == {".errors", ".reduced", "good", "start_time"}
         assert set(f[".reduced"]) == {"good", "start_time"}
 
 def test_results_cell(mock_run, tmp_path):
