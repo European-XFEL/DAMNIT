@@ -543,9 +543,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 msg = "Skipped: " + msg
             case 'SourceNameError':  # Typically an issue with data, not code
                 colour = 'lightgrey'
-            case _:
+            case cls:
                 colour = 'orange'
-                msg += " (see processing log for details)"
+                msg = f"{cls}: {msg} (see processing log for details)"
         item.setToolTip(msg)
         item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
         return item
