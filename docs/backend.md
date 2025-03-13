@@ -123,6 +123,20 @@ def bar(run, value: "var#foo"):
     return value * 2
 ```
 
+Dependents are not executed if a variable raises an error or returns `None`. You
+can raise `Skip` to provide a reason, visible as a tooltip on the table cell:
+
+```python
+from damnit_ctx import Variable, Skip
+
+@Variable()
+def binned_by_scan_step(run):
+    scan = Scantool(run)
+    if not scan.active:
+        raise Skip("Run is not a scan")
+    ...
+```
+
 Dependencies with default values are also allowed, the default value will be
 passed to the function if the dependency did not complete execution for some
 reason:
