@@ -113,19 +113,18 @@ def load_reduced_data(h5_path):
                 attributes=get_attrs(dset),
             )
             for name, dset in f['.reduced'].items()
+        } | {
+            name: ReducedData(None, attributes={
+                'error': get_dset_value(dset),
+                'error_cls': dset.attrs.get("type", "")
+            })
+            for name, dset in f['.errors'].items()
         }
 
 def add_to_db(reduced_data, db: DamnitDB, proposal, run):
     db.ensure_run(proposal, run)
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))
-
-    # Check that none of the values are None. We don't support None for the
-    # rather bland reason of there not being a type for it in the DataType enum,
-    # and right now it doesn't really make sense to add one.
-    for name, reduced in reduced_data.items():
-        if reduced.value is None:
-            raise RuntimeError(f"Variable '{name}' has value None, this is unsupported")
 
     # We're going to be formatting column names as strings into SQL code,
     # so check that they are simple identifiers before we get there.
@@ -142,7 +141,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         db.ensure_run(proposal, run, start_time=start_time.value)
 
     for name, reduced in reduced_data.items():
-        if not isinstance(reduced.value, (int, float, str, bytes, complex)):
+        if not isinstance(reduced.value, (int, float, str, bytes, complex, type(None))):
             raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
 
         db.set_variable(proposal, run, name, reduced)

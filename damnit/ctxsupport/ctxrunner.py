@@ -30,7 +30,7 @@ import requests
 import xarray as xr
 import yaml
 
-from damnit_ctx import RunData, Variable, Cell, isinstance_no_import
+from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
 
 log = logging.getLogger(__name__)
 
@@ -283,6 +283,7 @@ class ContextFile:
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
         res = {'start_time': Cell(np.asarray(get_start_time(run_data)))}
+        errors = {}
         mymdc = None
 
         for name in self.ordered_vars():
@@ -352,8 +353,12 @@ class ContextFile:
 
                     if data.summary is None:
                         data.summary = var.summary
-            except Exception:
-                log.error("Could not get data for %s", name, exc_info=True)
+            except Exception as e:
+                if isinstance(e, Skip):
+                    log.error("Skipped %s: %s", name, e)
+                else:
+                    log.error("Could not get data for %s", name, exc_info=True)
+                errors[name] = e
             else:
                 t1 = time.perf_counter()
                 log.info("Computed %s in %.03f s", name, t1 - t0)
@@ -364,7 +369,7 @@ class ContextFile:
             if var.transient and (name in res):
                 res.pop(name)
 
-        return Results(res, self)
+        return Results(res, errors, self)
 
 
 def get_start_time(xd_run):
@@ -512,8 +517,9 @@ def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
 
 
 class Results:
-    def __init__(self, cells, ctx):
+    def __init__(self, cells, errors, ctx):
         self.cells = cells
+        self.errors = errors
         self.ctx = ctx
         self._reduced = None
 
@@ -581,6 +587,7 @@ class Results:
         for name, cell in self.cells.items():
             summary_val = self.summarise(name)
             dsets.append((f'.reduced/{name}', summary_val, cell.summary_attrs()))
+            dsets.append((f'.errors/{name}', None, {}))  # Delete any previous error
             if not reduced_only:
                 obj = cell.data
                 if isinstance(obj, (xr.DataArray, xr.Dataset)):
@@ -605,6 +612,9 @@ class Results:
 
                     dsets.append((f'{name}/data', value, {}))
 
+        for name, exc in self.errors.items():
+            dsets.append((f'.errors/{name}', str(exc), {'type': type(exc).__name__}))
+
         log.info("Writing %d variables to %s",
                  len(self.cells), hdf5_path)
 
@@ -619,6 +629,9 @@ class Results:
             for grp_name, hint in obj_type_hints.items():
                 f.require_group(grp_name).attrs['_damnit_objtype'] = hint.value
 
+            f.require_group('.reduced')
+            f.require_group('.errors')
+
             # Create datasets before filling them, so metadata goes near the
             # start of the file.
             for path, obj, attrs in dsets:
@@ -626,7 +639,9 @@ class Results:
                 if path in f:
                     del f[path]
 
-                if isinstance(obj, str):
+                if obj is None:
+                    continue  # Deleted without replacement
+                elif isinstance(obj, str):
                     f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
                 elif is_png_data(obj):  # Thumbnail
                     f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
@@ -641,7 +656,9 @@ class Results:
 
             # Fill with data
             for path, obj, _ in dsets:
-                if is_png_data(obj):
+                if obj is None:
+                    continue  # Deleted dataset
+                elif is_png_data(obj):
                     f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
                 else:
                     f[path][()] = obj

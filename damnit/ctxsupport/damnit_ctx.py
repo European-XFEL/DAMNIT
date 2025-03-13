@@ -217,3 +217,7 @@ class Cell:
         if (max_diff := self._max_diff()) is not None:
             d['max_diff'] = max_diff
         return d
+
+
+class Skip(Exception):
+    pass

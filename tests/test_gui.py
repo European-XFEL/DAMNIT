@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPalette, QPixmap
+from PyQt5.QtGui import QColor, QPalette, QPixmap
 from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
                              QMessageBox, QStyledItemDelegate)
 
@@ -725,6 +725,10 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     def complex_xr_1d(run):
         import xarray as xr
         return xr.DataArray(np.array([1+1j, 2+2j, 3+3j, 4+4j]))
+
+    @Variable()
+    def error(run):
+        1/0
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
@@ -806,6 +810,10 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(complex_xr_1d)
         warning.assert_called_once()
+
+    assert isinstance(  # Errors evaluating variables get a coloured decoration
+        win.table.data(get_index('error'), role=Qt.DecorationRole), QColor
+    )
 
 
 def test_open_dialog(mock_db, qtbot):

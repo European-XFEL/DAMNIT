@@ -534,6 +534,22 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item.setEditable(True)
         return item
 
+    def error_item(self, attrs):
+        item = self.itemPrototype().clone()
+        msg = attrs['error']
+        match attrs.get('error_cls', ''):
+            case 'Skip':
+                colour = 'lightgrey'
+                msg = "Skipped: " + msg
+            case 'SourceNameError':  # Typically an issue with data, not code
+                colour = 'lightgrey'
+            case cls:
+                colour = 'orange'
+                msg = f"{cls}: {msg} (see processing log for details)"
+        item.setToolTip(msg)
+        item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
+        return item
+
     def new_item(self, value, column_id, max_diff, attrs):
         if is_png_bytes(value):
             return self.image_item(value)
@@ -541,6 +557,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             return self.comment_item(value)
         elif column_id == 'start_time':
             return self.text_item(value, timestamp2str(value))
+        elif 'error' in attrs:
+            return self.error_item(attrs)
         else:
             item = self.text_item(value)
             item.setEditable(column_id in self.editable_columns)
