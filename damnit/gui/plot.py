@@ -509,7 +509,7 @@ class ImagePlotWindow(PlotWindow):
                 vmin = np.nanquantile(image, 0.01, method='nearest')
                 vmax = np.nanquantile(image, 0.99, method='nearest')
                 image.plot.imshow(
-                    ax=self._axis, interpolation='nearest', vmin=vmin, vmax=vmax,
+                    ax=self._axis, interpolation='antialiased', vmin=vmin, vmax=vmax,
                     origin='lower'
                 )
             else:  # RGB(A) colour image
@@ -520,10 +520,8 @@ class ImagePlotWindow(PlotWindow):
             # Numpy array
             is_color_image = image.ndim == 3
 
-            interpolation = "antialiased" if is_color_image else "nearest"
-
             if self._image is None:
-                self._image = self._axis.imshow(image, interpolation=interpolation)
+                self._image = self._axis.imshow(image, interpolation="antialiased")
                 if not is_color_image:
                     self.figure.colorbar(self._image, ax=self._axis)
             else:
