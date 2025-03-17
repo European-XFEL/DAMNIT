@@ -196,10 +196,13 @@ class ExtractionSubmitter:
             '--wrap', shlex.join(req.python_cmd())
         ]
 
-    def submit_multi(self, reqs: list[ExtractionRequest], limit_running=15):
+    def submit_multi(self, reqs: list[ExtractionRequest], limit_running=-1):
         """Submit multiple requests using Slurm job arrays.
         """
         out = []
+
+        if limit_running == -1:
+            limit_running = self.db.metameta["concurrent_jobs"]
 
         assert len({r.cluster for r in reqs}) <= 1  # Don't mix cluster/non-cluster
 
@@ -320,9 +323,6 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
     submitter = ExtractionSubmitter(Path.cwd())
     if proposal is None:
         proposal = submitter.proposal
-
-    if limit_running == -1:
-        limit_running = submitter.db.metameta["concurrent_jobs"]
 
     if runs == ['all']:
         rows = submitter.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
