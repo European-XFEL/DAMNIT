@@ -7,7 +7,7 @@ from fonticon_fa6 import FA6S
 from natsort import natsorted
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QColor, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QCheckBox,
@@ -254,7 +254,9 @@ class FilterMenu(QMenu):
             item = model.sourceModel().index(row, column)
 
             if thumb := item.data(Qt.DecorationRole):
-                decos.add(type(thumb))
+                # QColor decoration is used for errors (no value)
+                if not isinstance(thumb, QColor):
+                    decos.add(type(thumb))
 
             if (value := item.data(Qt.UserRole)) is None:
                 continue
