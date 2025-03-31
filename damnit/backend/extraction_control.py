@@ -444,7 +444,7 @@ class ExtractionJobTracker:
         still_running = set()
         for line in stdout.splitlines():
             job_id, status = line.strip().split()
-            if status == 'RUNNING':
+            if status in ('RUNNING', 'PENDING'):
                 still_running.add(job_id)
 
         for info in jobs_to_check:
