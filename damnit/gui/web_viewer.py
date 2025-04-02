@@ -51,11 +51,11 @@ class UrlSchemeHandler(QWebEngineUrlSchemeHandler):
 
 
 class PlotlyPlot(QtWidgets.QWidget):
-    def __init__(self, variable, main_window):
+    def __init__(self, context_dir, proposal, run, name, main_window):
         super().__init__()
         self.main_window = main_window
 
-        self.url = f"{variable._db.path.parent}/{variable.proposal}/{variable.run}/{variable.name}"
+        self.url = f"{context_dir}/{proposal}/{run}/{name}"
 
         self.browser = QWebEngineView(self)
         profile = QWebEngineProfile.defaultProfile()
