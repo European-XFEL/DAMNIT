@@ -1,5 +1,5 @@
 import glob
-import time
+import sys
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -76,3 +76,12 @@ def kde(x: np.ndarray, npoints: int = 1000) -> tuple[np.ndarray, np.ndarray]:
     log_dens = kde.score_samples(xplot)
     y = np.exp(log_dens)
     return xplot.squeeze(), y
+
+
+def isinstance_no_import(obj, mod: str, cls: str):
+    """Check if isinstance(obj, mod.cls) without loading mod"""
+    m = sys.modules.get(mod)
+    if m is None:
+        return False
+
+    return isinstance(obj, getattr(m, cls))

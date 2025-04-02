@@ -171,6 +171,56 @@ class VariableData:
                 return blob2complex(value)
             return value
 
+    def preview(self):
+        """Get the preview data for the variable
+
+        May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure object,
+        or None if no preview is available.
+        """
+        with h5py.File(self._h5_path) as f:
+            xarray_group = dset = None
+            if (obj := f.get(f".preview/{self.name}")) is not None:
+                # Explicit preview
+                type_hint = self._type_hint(obj)
+                if isinstance(obj, h5py.Group):
+                    xarray_group = obj.name
+                else:
+                    dset = obj
+            else:
+                # Implicit: use data as preview if suitable
+                grp = f[self.name]
+                type_hint = self._type_hint(grp)
+                if self._type_hint(grp) is DataType.DataArray:
+                    xarray_group = self.name
+                else:
+                    dset = grp['data']
+
+            if xarray_group is not None:
+                for obj in f[xarray_group].values():
+                    if isinstance(obj, h5py.Dataset) and (
+                        obj.ndim > 3 or (obj.ndim == 3 and obj.shape[-1] not in (3, 4))
+                    ):
+                        return None  # Too many dims: bail out before loading
+
+                import xarray as xr
+                arr = xr.load_dataarray(
+                    self._h5_path, group=xarray_group, engine="h5netcdf"
+                )
+                if arr.ndim != 0:
+                    return arr
+
+            elif dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4)):
+                value = dset[()]
+
+                if type_hint is DataType.PlotlyFigure:
+                    import plotly.io as pio
+                    return pio.from_json(value.data)
+                else:
+                    return value
+
+        return None
+
+
     def __repr__(self):
         return f"<VariableData for '{self.name}' in p{self.proposal}, r{self.run}>"
 
