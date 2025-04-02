@@ -473,6 +473,27 @@ def generate_thumbnail(image):
     return figure2png(fig, dpi=THUMBNAIL_SIZE)
 
 
+def line_thumbnail(arr):
+    from matplotlib.figure import Figure
+
+    # width = 3 * height; roughly fits table cells
+    fig = Figure(figsize=(2, 2/3))
+    ax = fig.add_subplot()
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+    if isinstance(arr, np.ndarray):
+        ax.plot(arr)
+    else:
+        # Use DataArray's own plotting method
+        arr.plot(ax=ax)
+
+    ax.axis('tight')
+    ax.axis('off')
+    ax.margins(0, 0)
+
+    return figure2png(fig, dpi=THUMBNAIL_SIZE)
+
+
 def extract_error_info(exc_type, e, tb):
     lineno = -1
     offset = 0
@@ -571,6 +592,12 @@ class Results:
         elif isinstance(data, (np.ndarray, xr.DataArray)):
             if data.ndim == 0:
                 return data
+            elif data.ndim == 1:
+                try:
+                    return line_thumbnail(data)
+                except:
+                    logging.error("Error generating thumbnail for %s", name, exc_info=True)
+                    return "<thumbnail error>"
             elif data.ndim == 2:
                 if isinstance(data, np.ndarray):
                     data = np.nan_to_num(data)
