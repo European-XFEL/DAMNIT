@@ -49,6 +49,16 @@ def kill_pid(pid):
         print(f"PID {pid} doesn't exist")
 
 
+def check_rgba(dset):
+    assert dset.ndim == 3
+    assert dset.shape[-1] == 4
+
+def check_png(dset):
+    assert dset.ndim == 1
+    assert dset.dtype == np.dtype(np.uint8)
+    assert dset[:8].tobytes() == b'\x89PNG\r\n\x1a\n'
+
+
 def test_context_file(mock_ctx, tmp_path):
     code = """
     from damnit.context import Variable
@@ -382,8 +392,8 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         # The plots should be saved as 3D RGBA arrays
-        assert f["figure/data"].ndim == 3
-        assert f["axes/data"].ndim == 3
+        check_rgba(f["figure/data"])
+        check_rgba(f["axes/data"])
 
         # Test that the summaries are the right size
         for var in ["twodarray", "twodxarray", "twod_ish_xarray"]:
@@ -616,6 +626,33 @@ def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog)
     assert results.cells["dep_number"].data == user_var_values["user_number"]
     assert results.cells["dep_boolean"].data == False
     assert results.cells["dep_string"].data == user_var_values["user_string"] * 2
+
+def test_results_preview(mock_run, tmp_path):
+    ctx_code = """
+    from damnit_ctx import Variable, Cell
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    @Variable()
+    def var1(run):
+        return Cell(np.zeros((5, 5, 5)), preview=np.ones(5))
+
+    @Variable()
+    def var2(run):
+        arr = np.zeros((10, 10))
+        fig, ax = plt.subplots()
+        ax.plot(arr.mean())
+        return Cell(arr, preview=fig)
+    """
+    ctx = mkcontext(ctx_code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        np.testing.assert_array_equal(f['.preview/var1'][()], np.ones(5))
+        check_png(f['.reduced/var1'])  # Summary thumbnail made from preview
+        check_rgba(f['.preview/var2'])
+        check_png(f['.reduced/var2'])
 
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000

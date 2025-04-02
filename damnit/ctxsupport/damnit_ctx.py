@@ -175,9 +175,12 @@ class Cell:
                     )
                 elif not np.issubdtype(preview.dtype, np.number):
                     raise TypeError("preview array should be numeric")
-            elif not isinstance_no_import(data, 'matplotlib.figure', 'Figure') or \
-                     isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
-                raise TypeError("preview must be an array or a figure object")
+            elif not (
+                    isinstance_no_import(preview, 'matplotlib.figure', 'Figure') or
+                    isinstance_no_import(preview, 'plotly.graph_objs', 'Figure')
+            ):
+                raise TypeError("preview must be an array or a figure object "
+                                f"(got {type(preview)})")
 
         self.data = data
         self.summary = summary
