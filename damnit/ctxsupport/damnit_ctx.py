@@ -126,8 +126,11 @@ class Cell:
         Whether to display cell in bold
     background : str or sequence, optional
         Cell background color as hex string ('#ffcc00') or RGB sequence (0-255)
+    preview : array or figure object, optional
+        A plot, 1D or 2D array to show when double-clicking the table cell.
     """
-    def __init__(self, data, summary=None, summary_value=None, bold=None, background=None):
+    def __init__(self, data, summary=None, summary_value=None, bold=None, background=None,
+                 *, preview=None):
         # If the user returns an Axes, save the whole Figure
         if isinstance_no_import(data, 'matplotlib.axes', 'Axes'):
             data = data.get_figure()
@@ -164,11 +167,24 @@ class Cell:
                     )
             summary_value = arr
 
+        if preview is not None:
+            if isinstance(preview, (np.ndarray, xr.DataArray)):
+                if preview.ndim not in (1, 2):
+                    raise TypeError(
+                        f"preview should be a 1D or 2D array (shape is {preview.shape})"
+                    )
+                elif not np.issubdtype(preview.dtype, np.number):
+                    raise TypeError("preview array should be numeric")
+            elif not isinstance_no_import(data, 'matplotlib.figure', 'Figure') or \
+                     isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
+                raise TypeError("preview must be an array or a figure object")
+
         self.data = data
         self.summary = summary
         self.summary_value = summary_value
         self.bold = bold
         self.background = self._normalize_colour(background)
+        self.preview = preview
 
     @staticmethod
     def _normalize_colour(c):
