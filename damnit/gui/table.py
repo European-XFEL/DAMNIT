@@ -21,7 +21,7 @@ from .table_filter import FilterMenu, FilterProxy, FilterStatus
 log = logging.getLogger(__name__)
 
 ROW_HEIGHT = 30
-THUMBNAIL_SIZE = 35
+THUMBNAIL_SIZE = (100, 35)  # w, h (pixels)
 
 
 class FilterHeaderView(QtWidgets.QHeaderView):
@@ -829,10 +829,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         """
         pixmap = QtGui.QPixmap()
         pixmap.loadFromData(data, "PNG")
-        if max(pixmap.height(), pixmap.width()) > THUMBNAIL_SIZE:
-            pixmap = pixmap.scaled(
-                THUMBNAIL_SIZE, THUMBNAIL_SIZE, Qt.KeepAspectRatio
-            )
+        if pixmap.width() > THUMBNAIL_SIZE[0] or pixmap.height() > THUMBNAIL_SIZE[1]:
+            pixmap = pixmap.scaled(*THUMBNAIL_SIZE, Qt.KeepAspectRatio)
         return pixmap
 
     def numbers_for_plotting(self, *cols, by_title=True):
