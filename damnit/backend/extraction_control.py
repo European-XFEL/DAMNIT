@@ -157,6 +157,8 @@ class ExtractionSubmitter:
             env.pop(v, None)
         # Slurm jobs shouldn't attempt to use your X session
         env.pop('DISPLAY', None)
+        # Some LD_PRELOAD entries from FastX (?) cause spurious warnings
+        env.pop('LD_PRELOAD', None)
         return env
 
     def submit(self, req: ExtractionRequest):
