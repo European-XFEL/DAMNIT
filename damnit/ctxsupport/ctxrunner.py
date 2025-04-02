@@ -657,10 +657,10 @@ class Results:
                     attrs = {}
                     if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
                         obj = figure2array(obj)
-                        attrs['_damnit_objtype'] = DataType.Image
+                        attrs['_damnit_objtype'] = DataType.Image.value
                     elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
                         obj = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-                        attrs['_damnit_objtype'] = DataType.PlotlyFigure
+                        attrs['_damnit_objtype'] = DataType.PlotlyFigure.value
                     dsets.append((f'.preview/{name}', obj, attrs))
 
         for name, exc in self.errors.items():
