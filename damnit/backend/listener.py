@@ -3,6 +3,8 @@ import json
 import logging
 import os
 import platform
+import sqlite3
+import time
 from pathlib import Path
 from socket import gethostname
 from threading import Thread
@@ -28,6 +30,7 @@ KAFKA_CONF = {
         'events': ['daq_run_complete', 'online_correction_complete'],
     }
 }
+READONLY_WAIT_REOPEN = 2  # Wait N seconds to reopen after read-only error
 
 log = logging.getLogger(__name__)
 
@@ -90,8 +93,17 @@ class EventProcessor:
             for record in self.kafka_cns:
                 try:
                     self._process_kafka_event(record)
+                except sqlite3.OperationalError as e:
+                    if e.sqlite_errorcode == sqlite3.SQLITE_READONLY:
+                        log.error("SQLite database is read only. Pause, reopen, retry.")
+                        self.db.close()
+                        time.sleep(READONLY_WAIT_REOPEN)
+                        self.db = DamnitDB.from_dir(self.context_dir)
+                        self._process_kafka_event(record)
+                    else:
+                        log.error("Unexpected error handling Kafka event.", exc_info=True)
                 except Exception:
-                    log.error("Unepected error handling Kafka event.", exc_info=True)
+                    log.error("Unexpected error handling Kafka event.", exc_info=True)
 
             # After 10 minutes with no messages, check if the listener should stop
             if self.db.metameta.get('no_listener', 0):
