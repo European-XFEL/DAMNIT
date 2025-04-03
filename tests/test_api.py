@@ -143,6 +143,17 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     json_str = rv["plotly_mc_plotface"].read(deserialize_plotly=False)
     assert isinstance(json_str, str)
 
+    arr = rv["array_preview"].preview()
+    assert isinstance(arr, np.ndarray)
+    assert arr.ndim == 2
+
+    arr = rv["image"].preview()  # Implicit preview for 2D array
+    assert isinstance(arr, np.ndarray)
+    assert arr.ndim == 2
+
+    fig = rv["plotly_preview"].preview()
+    assert isinstance(fig, PlotlyFigure)
+
 def test_api_dependencies(venv):
     package_path = Path(__file__).parent.parent
     venv.install(package_path)

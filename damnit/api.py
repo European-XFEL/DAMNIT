@@ -214,7 +214,7 @@ class VariableData:
 
                 if type_hint is DataType.PlotlyFigure:
                     import plotly.io as pio
-                    return pio.from_json(value.data)
+                    return pio.from_json(value.tobytes())
                 else:
                     return value
 
@@ -281,10 +281,8 @@ class RunVariables:
     def _key_locations(self):
         # Read keys from the HDF5 file
         with h5py.File(self.file) as f:
-            all_keys = { name: False for name in f.keys() }
-        del all_keys[".reduced"]
-        if ".errors" in all_keys:
-            del all_keys[".errors"]
+            all_keys = { name: False for name in f.keys()
+                         if not name.startswith('.')}
 
         # And the keys from the database
         user_vars = list(self._db.get_user_variables().keys())
