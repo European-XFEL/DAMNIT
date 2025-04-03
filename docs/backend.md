@@ -155,7 +155,7 @@ $ damnit db-config noncluster_mem 50G
 The `Cell` object is a versatile container that allows customizing how data is
 stored and displayed in the table. When writing [Variables](#variables), you can
 return a `Cell` object to control both the full data storage and its summary
-representation. A `Cell` takes theses arguments:
+representation. A `Cell` takes these arguments:
 
 - `data`: The main data to store
 - `summary`: Function name (as string) from the `numpy` module to compute
@@ -163,9 +163,11 @@ representation. A `Cell` takes theses arguments:
 - `summary_value`: Direct value to use as summary (number or string)
 - `bold`: A boolean indicating whether the text should be rendered in a bold
   font in the table's cell
-- `background`: Cell background color as:
-    - Hex string (e.g., `#ffcc00`)
-    - RGB sequence (0-255 values)
+- `background`: Cell background color as hex string (e.g. `'#ffcc00'`)
+  or RGB sequence (0-255 values)
+- `preview`: What to show in a pop-up when the cell is double clicked.
+  This can be a 1D or 2D array, or a Matplotlib or Plotly figure.
+  If `data` is one of these types, it doesn't need to be specified again.
 
 Example Usage:
 
