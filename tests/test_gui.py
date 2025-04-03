@@ -30,6 +30,7 @@ from damnit.gui.table_filter import (CategoricalFilter,
                                      CategoricalFilterWidget, ThumbnailFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget, ThumbnailFilter)
 from damnit.gui.theme import Theme
+from damnit.gui.web_viewer import PlotlyPlot
 from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import extract_mock_run, mkcontext, reduced_data_from_dict
@@ -810,6 +811,13 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(complex_xr_1d)
         warning.assert_called_once()
+
+    # Check that objects with a preview are inspectable
+    plotly_preview = get_index('Plotly preview')
+    n_plots_before = len(win._canvas_inspect)
+    win.inspect_data(plotly_preview)
+    assert len(win._canvas_inspect) == n_plots_before + 1
+    assert isinstance(win._canvas_inspect[-1], PlotlyPlot)
 
     assert isinstance(  # Errors evaluating variables get a coloured decoration
         win.table.data(get_index('error'), role=Qt.DecorationRole), QColor
