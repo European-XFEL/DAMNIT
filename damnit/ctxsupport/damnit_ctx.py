@@ -4,6 +4,8 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import hashlib
+import inspect
 import logging
 import re
 import sys
@@ -58,6 +60,19 @@ class Variable:
         self.name = func.__name__
         if self.title is None:
             self.title = self.name
+
+        # calculate and store a hash of the Variable's source code
+        try:
+            source = inspect.getsource(func)
+            self.code_hash = hashlib.sha256(source.encode()).hexdigest()
+        except Exception:
+            log.warning(
+                f"Could not get source code for variable '{self.name}', "
+                "caching will be disabled.",
+                exc_info=True
+            )
+            self.code_hash = None
+
         return self
 
     def check(self):

@@ -84,6 +84,16 @@ class VariableData:
         """
         return self._h5_path
 
+    @property
+    def code_hash(self):
+        return self._db.conn.execute(
+            """
+            SELECT code_hash FROM run_variables
+            WHERE proposal=? AND run=? AND name=?
+            """,
+            (self.proposal, self.run, self.name),
+        ).fetchone()[0]
+
     def type_hint(self):
         """Type hint for this variable data.
 

@@ -32,6 +32,9 @@ import yaml
 
 from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
 
+from damnit import Damnit
+
+
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
@@ -235,7 +238,7 @@ class ContextFile:
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
-        
+
         args:
             inc_transient (bool): include transient Variables in the dict
         """
@@ -246,6 +249,7 @@ class ContextFile:
                 'tags': v.tags,
                 'attributes': None,
                 'type': None,
+                'code_hash': v.code_hash,
             }
             for (name, v) in self.vars.items()
             if not v.transient or inc_transient
@@ -282,92 +286,130 @@ class ContextFile:
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
-        res = {'start_time': Cell(np.asarray(get_start_time(run_data)))}
+        res = {}  # Results dictionary (name -> Cell or loaded data)
+        loaded = set()  # Set of variables that have been loaded from HDF5
         errors = {}
         mymdc = None
 
+        try:
+            damnit = Damnit(proposal)[run_number]
+        except (FileNotFoundError, KeyError):
+            log.error("Could not find run data for proposal %d, run %d", proposal, run_number, exc_info=True)
+            damnit = None
+
+        try:
+            start_timestamp_val = get_start_time(run_data)
+            res['start_time'] = Cell(start_timestamp_val)
+        except Exception as e:
+            log.error("Could not get start time", exc_info=True)
+            errors['start_time'] = e
+
+        # TODO should we have a read/execute function: for each selected var, find reversed dependencies until we get all data needed?
         for name in self.ordered_vars():
             t0 = time.perf_counter()
             var = self.vars[name]
 
-            try:
-                kwargs = {}
-                missing_deps = []
-                missing_input = []
+            if not var.transient and var.code_hash is not None:
+                db_hash = damnit[name].code_hash
 
-                for arg_name, param in inspect.signature(var.func).parameters.items():
-                    annotation = param.annotation
-                    if not isinstance(annotation, str):
+                if db_hash is not None and db_hash == var.code_hash:
+                    # Hashes match, try reading from HDF5
+                    loaded_data = damnit[name].read()
+
+                    if loaded_data is not None:
+                        # Successfully loaded from HDF5 - Cache Hit!
+                        res[name] = loaded_data
+                        t1 = time.perf_counter()
+                        log.info("Loaded %s from file in %.03f s", name, t1 - t0)
+                        loaded.add(name)
                         continue
 
-                    # Dependency within the context file
-                    if annotation.startswith("var#"):
-                        dep_name = annotation.removeprefix("var#")
-                        if dep_name in res:
-                            dep_data = res[dep_name]
-                            if isinstance(dep_data, Cell):
-                                dep_data = dep_data.data
-                            kwargs[arg_name] = dep_data
-                        elif param.default is inspect.Parameter.empty:
-                            missing_deps.append(dep_name)
-
-                    # Input variable passed from outside
-                    elif annotation.startswith("input#"):
-                        inp_name = annotation.removeprefix("input#")
-                        if inp_name in input_vars:
-                            kwargs[arg_name] = input_vars[inp_name]
-                        elif param.default is inspect.Parameter.empty:
-                            missing_input.append(inp_name)
-
-                    # Mymdc fields
-                    elif annotation.startswith("mymdc#"):
-                        if mymdc is None:
-                            mymdc = MyMetadataClient(proposal)
-                        metadata = annotation.removeprefix('mymdc#')
-                        kwargs[arg_name] = getattr(mymdc, metadata)(run_number)
-
-                    elif annotation == "meta#run_number":
-                        kwargs[arg_name] = run_number
-                    elif annotation == "meta#proposal":
-                        kwargs[arg_name] = proposal
-                    elif annotation == "meta#proposal_path":
-                        kwargs[arg_name] = get_proposal_path(run_data)
-                    else:
-                        raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
-
-                if missing_deps:
-                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
-                    continue
-                elif missing_input:
-                    log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
-                    continue
-
-                func = functools.partial(var.func, **kwargs)
-
-                if (data := func(run_data)) is None:
-                    continue
-
-                if not var.transient:
-                    if not isinstance(data, Cell):
-                        data = Cell(data)
-
-                    if data.summary is None:
-                        data.summary = var.summary
-            except Exception as e:
-                if isinstance(e, Skip):
-                    log.error("Skipped %s: %s", name, e)
-                else:
-                    log.error("Could not get data for %s", name, exc_info=True)
-                errors[name] = e
+                elif db_hash is not None:
+                     # Hash mismatch
+                     log.info(f"Code hash changed for '{name}' (p{proposal} r{run_number}).")
+    
             else:
-                t1 = time.perf_counter()
-                log.info("Computed %s in %.03f s", name, t1 - t0)
-                res[name] = data
+                try:
+                    kwargs = {}
+                    missing_deps = []
+                    missing_input = []
 
-        # remove transient results
+                    # loop through parameters, check annotations 'var#', 'input#', 'mymdc#', 'meta#'
+                    for arg_name, param in inspect.signature(var.func).parameters.items():
+                        annotation = param.annotation
+                        if not isinstance(annotation, str):
+                            continue
+
+                        # Dependency within the context file
+                        if annotation.startswith("var#"):
+                            dep_name = annotation.removeprefix("var#")
+                            if dep_name in res:
+                                dep_data = res[dep_name]
+                                if isinstance(dep_data, Cell):
+                                    dep_data = dep_data.data
+                                kwargs[arg_name] = dep_data
+                            elif param.default is inspect.Parameter.empty:
+                                missing_deps.append(dep_name)
+
+                        # Input variable passed from outside
+                        elif annotation.startswith("input#"):
+                            inp_name = annotation.removeprefix("input#")
+                            if inp_name in input_vars:
+                                kwargs[arg_name] = input_vars[inp_name]
+                            elif param.default is inspect.Parameter.empty:
+                                missing_input.append(inp_name)
+
+                        # Mymdc fields
+                        elif annotation.startswith("mymdc#"):
+                            if mymdc is None:
+                                mymdc = MyMetadataClient(proposal)
+                            metadata = annotation.removeprefix('mymdc#')
+                            kwargs[arg_name] = getattr(mymdc, metadata)(run_number)
+
+                        elif annotation == "meta#run_number":
+                            kwargs[arg_name] = run_number
+                        elif annotation == "meta#proposal":
+                            kwargs[arg_name] = proposal
+                        elif annotation == "meta#proposal_path":
+                            kwargs[arg_name] = get_proposal_path(run_data)
+                        else:
+                            raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
+
+                    if missing_deps:
+                        log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                        continue
+                    elif missing_input:
+                        log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
+                        continue
+
+                    # Variable function execution
+                    func = functools.partial(var.func, **kwargs)
+
+                    if (data := func(run_data)) is None:
+                        continue
+
+                    if not var.transient:
+                        if not isinstance(data, Cell):
+                            data = Cell(data)
+
+                        if data.summary is None:
+                            data.summary = var.summary
+
+                except Skip as e:
+                    log.info("Skipped %s: %s", name, e)
+                    errors[name] = e
+                except Exception as e:
+                    log.error("Could not compute data for %s", name, exc_info=True)
+                    errors[name] = e
+                else:
+                    t1 = time.perf_counter()
+                    log.info("Computed %s in %.03f s", name, t1 - t0)
+                    res[name] = data
+
+        # Remove transient/loaded results
         for name, var in self.vars.items():
-            if var.transient and (name in res):
-                res.pop(name)
+            if name in loaded or var.transient:
+                res.pop(name, None)
 
         return Results(res, errors, self)
 
@@ -518,13 +560,14 @@ def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
 
 class Results:
     def __init__(self, cells, errors, ctx):
-        self.cells = cells
-        self.errors = errors
-        self.ctx = ctx
+        self.cells: dict[str, Cell] = cells
+        self.errors: dict[str, Exception] = errors
+        self.ctx: ContextFile = ctx
         self._reduced = None
 
     @property
     def reduced(self):
+        """Generate dictionary of reduced data for database storage."""
         if self._reduced is None:
             r = {}
             for name in self.cells:
@@ -553,13 +596,16 @@ class Results:
             image_shape = data.get_size_inches() * data.dpi
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             try:
-                return figure2png(data, dpi=(data.dpi * zoom_ratio))
-            except:
-                logging.error("Error generating thumbnail for %s", name, exc_info=True)
-                return "<thumbnail error>"
+                 return figure2png(data, dpi=(data.dpi * zoom_ratio))
+            except Exception:
+                 logging.error("Error generating thumbnail for %s (matplotlib)", name, exc_info=True)
+                 return "<thumbnail error>"
         elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
-            return plotly2png(data)
-
+            try:
+                return plotly2png(data)
+            except Exception:
+                logging.error("Error generating thumbnail for %s (plotly)", name, exc_info=True)
+                return "<thumbnail error>"
         elif isinstance(data, (np.ndarray, xr.DataArray)):
             if data.ndim == 0:
                 return data
@@ -571,7 +617,7 @@ class Results:
 
                 try:
                     return generate_thumbnail(data)
-                except:
+                except Exception:
                     logging.error("Error generating thumbnail for %s", name, exc_info=True)
                     return "<thumbnail error>"
             else:
@@ -626,6 +672,7 @@ class Results:
                 if name in f:
                     del f[name]
 
+            # Set Type Hints
             for grp_name, hint in obj_type_hints.items():
                 f.require_group(grp_name).attrs['_damnit_objtype'] = hint.value
 
@@ -663,6 +710,7 @@ class Results:
                 else:
                     f[path][()] = obj
 
+        # Add Xarray objects
         for name, obj in xarray_dsets:
             if isinstance(obj, xr.DataArray):
                 # HDF5 doesn't allow slashes in names :(
