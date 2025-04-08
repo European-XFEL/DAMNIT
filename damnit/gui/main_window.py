@@ -15,6 +15,7 @@ from kafka.errors import NoBrokersAvailable
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
 from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer
 from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
@@ -1097,13 +1098,74 @@ class LogViewWindow(QtWidgets.QMainWindow):
     def __init__(self, file_path: Path, parent=None):
         super().__init__(parent)
         self.file_path = file_path
-        self.text_edit = QtWidgets.QPlainTextEdit(file_path.read_text())
+        self.text_edit = QtWidgets.QPlainTextEdit()
         self.text_edit.setReadOnly(True)
         font = self.text_edit.document().defaultFont()
         font.setFamily('monospace')
         self.text_edit.document().setDefaultFont(font)
         self.setCentralWidget(self.text_edit)
         self.resize(1000, 800)
+
+        # Read initial file content and keep track of the file size to only append new content
+        self.text_edit.setPlainText(self.file_path.read_text(encoding='utf-8', errors='replace'))
+        stat_res = self.file_path.stat()
+        self._last_mtime = stat_res.st_mtime
+        self._last_size = stat_res.st_size
+
+        # Poll for file changes using a timer
+        self._timer = QTimer(self)
+        self._timer.setInterval(1500)  # Check every 1.5 seconds
+        self._timer.timeout.connect(self._check_log_file_update)
+        self._timer.start()
+
+    def _check_log_file_update(self):
+        """Poll the file for changes in mtime or size."""
+        try:
+            stat_res = self.file_path.stat()
+        except FileNotFoundError:
+            # File might have been deleted
+            if self._last_size is not None:  # Avoid repeated logging
+                log.warning(f"Log file {self.file_path} not found.", exc_info=True)
+                self.text_edit.setPlainText(f"[Log file {self.file_path} not found or deleted]")
+                self._last_size = None
+                self._last_mtime = None
+            return
+
+        if stat_res.st_mtime != self._last_mtime or stat_res.st_size != self._last_size:
+            self._read_and_update_log(stat_res)
+
+    def _read_and_update_log(self, current_stat):
+        """Read changes from the log file and update the text edit."""
+        current_size = current_stat.st_size
+        self._last_mtime = current_stat.st_mtime
+
+        if self._last_size is None or current_size < self._last_size:
+            # File might have been truncated, replaced, or reappeared
+            try:
+                new_text = self.file_path.read_text(encoding='utf-8', errors='replace')
+                self.text_edit.setPlainText(new_text)
+                self._last_size = current_size
+            except Exception:
+                log.error(f"Error reading log file {self.file_path}", exc_info=True)
+                self.text_edit.setPlainText(f"[Error reading log file {self.file_path}]")
+                self._last_size = None
+                self._last_mtime = None
+
+        elif current_size > self._last_size:
+            # Append new content
+            try:
+                with self.file_path.open("rb") as f:
+                    f.seek(self._last_size)
+                    new_content = f.read()
+                self.text_edit.appendPlainText(new_content.decode('utf-8', errors='replace'))
+                self._last_size = current_size
+            except Exception:
+                log.error(f"Error reading log file {self.file_path}", exc_info=True)
+
+    def closeEvent(self, event):
+        # Stop watching the file when the window closes
+        self._timer.stop()
+        super().closeEvent(event)
 
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
