@@ -1095,7 +1095,7 @@ class TabBarStyle(QtWidgets.QProxyStyle):
 
 
 class LogViewWindow(QtWidgets.QMainWindow):
-    def __init__(self, file_path: Path, parent=None):
+    def __init__(self, file_path: Path, parent=None, polling_interval_ms: int = 1500):
         super().__init__(parent)
         self.file_path = file_path
         self.text_edit = QtWidgets.QPlainTextEdit()
@@ -1114,7 +1114,7 @@ class LogViewWindow(QtWidgets.QMainWindow):
 
         # Poll for file changes using a timer
         self._timer = QTimer(self)
-        self._timer.setInterval(1500)  # Check every 1.5 seconds
+        self._timer.setInterval(polling_interval_ms)
         self._timer.timeout.connect(self._check_log_file_update)
         self._timer.start()
 
