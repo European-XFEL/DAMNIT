@@ -17,6 +17,8 @@ Added:
   ranges and a line plot to visualize the data distribution (!400).
 - It's now possible to specify the number of runs that will be processed
   concurrently with the `concurrent_jobs` database setting (!408).
+- The variables list in the reprocessing dialog is now searchable (!380).
+- Errors from executing variables are displayed as tooltips on table cells (!416).
 
 Changed:
 
