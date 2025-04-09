@@ -163,7 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _create_status_bar(self) -> None:
         self._status_bar = QtWidgets.QStatusBar()
 
-        self._status_bar.messageChanged.connect(lambda m: self.show_default_status_message() if m == "" else m)
+        self._status_bar.messageChanged.connect(self.on_status_message_changed)
 
         self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage("Autoconfigure AMORE.")
@@ -171,6 +171,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar_connection_status = QtWidgets.QLabel()
         self._status_bar.addPermanentWidget(self._status_bar_connection_status)
+
+    def on_status_message_changed(self, msg):
+        if msg == "":
+            self.show_default_status_message()
 
     def show_status_message(self, message, timeout = 0, stylesheet = ''):
         if isinstance(stylesheet, StatusbarStylesheet):
@@ -908,7 +912,13 @@ da-dev@xfel.eu"""
         # Clear the widget and wait for a bit to visually indicate to the
         # user that something happened.
         self._error_widget.setText("")
-        QtCore.QTimer.singleShot(100, lambda: self._error_widget.setText(text))
+
+        # We use sleep() instead of a QTimer because otherwise during the tests
+        # the error widget may be free'd before the timer fires, leading to a
+        # segfault when the timer function attempts to use it.
+        import time
+        time.sleep(0.1)
+        self._error_widget.setText(text)
 
     def save_context(self):
         self._context_code_to_save = self._editor.text()
@@ -1059,6 +1069,7 @@ da-dev@xfel.eu"""
         if self._settings_db_path.parent.is_dir():
             with shelve.open(str(self._settings_db_path)) as settings:
                 settings[Settings.THEME.value] = theme.value
+
 
 class TableViewStyle(QtWidgets.QProxyStyle):
     """

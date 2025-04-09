@@ -58,7 +58,7 @@ def test_connect_to_kafka(mock_db, qtbot):
     with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
          patch(f"{pkg}.KafkaProducer") as kafka_prd:
         win = MainWindow(db_dir, True)
-        qtbot.addWidget(win)
+        qtbot.addWidget(win, before_close_func=lambda _: win.stop_update_listener_thread())
         kafka_cns.assert_called_once()
         kafka_prd.assert_called_once()
 
