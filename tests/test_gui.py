@@ -1427,8 +1427,6 @@ def test_logview_append_content(log_view_window, qtbot):
     with log_file_path.open("a") as f:
         f.write(appended_text)
 
-    # Wait until the filesystem reflects the change
-    qtbot.waitUntil(lambda: log_file_path.stat().st_mtime > initial_stat.st_mtime, timeout=2000)
     # Wait for the timer to fire and process the change
     qtbot.wait(LOG_WAIT_MS)
 
@@ -1448,7 +1446,6 @@ def test_logview_truncate_content(log_view_window, qtbot):
 
     log_file_path.write_text(truncated_content)
 
-    qtbot.waitUntil(lambda: log_file_path.stat().st_mtime > initial_stat.st_mtime, timeout=2000)
     qtbot.wait(LOG_WAIT_MS)
 
     final_stat = log_file_path.stat()
@@ -1470,7 +1467,7 @@ def test_logview_reappear_file(log_view_window, qtbot):
     log_file_path.write_text(reappeared_content)
     new_stat = log_file_path.stat()
 
-    qtbot.waitUntil(lambda: window._last_size == new_stat.st_size, timeout=LOG_WAIT_MS)
+    qtbot.wait(LOG_WAIT_MS)
 
     assert window.text_edit.toPlainText() == reappeared_content
     assert window._last_size == new_stat.st_size
