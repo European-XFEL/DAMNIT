@@ -58,7 +58,7 @@ def test_connect_to_kafka(mock_db, qtbot):
     with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
          patch(f"{pkg}.KafkaProducer") as kafka_prd:
         win = MainWindow(db_dir, True)
-        qtbot.addWidget(win)
+        qtbot.addWidget(win, before_close_func=lambda _: win.stop_update_listener_thread())
         kafka_cns.assert_called_once()
         kafka_prd.assert_called_once()
 
@@ -1405,3 +1405,70 @@ def test_filter_header(mock_db_with_data, qtbot):
 
     # Check that the filter icon is removed
     assert col_index not in header.filtered_columns
+
+
+### Test LogViewWindow
+LOG_WAIT_MS = 300  # a bit longer than polling interval (200ms)
+
+
+def test_logview_append_content(log_view_window, qtbot):
+    """Test appending new content to the log file."""
+    window, log_file_path = log_view_window
+    initial_content = log_file_path.read_text()
+    initial_stat = log_file_path.stat()
+    appended_text = "Line 3"
+
+    assert window.text_edit.toPlainText() == log_file_path.read_text()
+    assert initial_stat.st_size > 0
+    # Check internal state matches
+    assert window._last_size == initial_stat.st_size
+    assert window._last_mtime == initial_stat.st_mtime
+
+    with log_file_path.open("a") as f:
+        f.write(appended_text)
+
+    # Wait for the timer to fire and process the change
+    qtbot.wait(LOG_WAIT_MS)
+
+    expected_content = '\n'.join([initial_content, appended_text])
+    final_stat = log_file_path.stat()
+    assert window.text_edit.toPlainText() == expected_content
+    assert window._last_size == final_stat.st_size
+    assert window._last_mtime == final_stat.st_mtime
+
+
+def test_logview_truncate_content(log_view_window, qtbot):
+    """Test truncating the log file (writing less data)."""
+    window, log_file_path = log_view_window
+    initial_stat = log_file_path.stat()
+    truncated_content = "New Line 1"
+    assert len(truncated_content) < initial_stat.st_size
+
+    log_file_path.write_text(truncated_content)
+
+    qtbot.wait(LOG_WAIT_MS)
+
+    final_stat = log_file_path.stat()
+    assert window.text_edit.toPlainText() == truncated_content
+    assert window._last_size == final_stat.st_size
+    assert window._last_mtime == final_stat.st_mtime
+
+
+def test_logview_reappear_file(log_view_window, qtbot):
+    """Test the file reappearing after deletion."""
+    window, log_file_path = log_view_window
+
+    log_file_path.unlink()
+    qtbot.waitUntil(lambda: window._last_size is None, timeout=LOG_WAIT_MS)
+    assert f"[Log file {log_file_path} not found or deleted]" in window.text_edit.toPlainText()
+    assert window._last_mtime is None
+
+    reappeared_content = "It's back!"
+    log_file_path.write_text(reappeared_content)
+    new_stat = log_file_path.stat()
+
+    qtbot.wait(LOG_WAIT_MS)
+
+    assert window.text_edit.toPlainText() == reappeared_content
+    assert window._last_size == new_stat.st_size
+    assert window._last_mtime == new_stat.st_mtime

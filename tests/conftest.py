@@ -1,4 +1,6 @@
+import os
 import socket
+from time import sleep, time
 from unittest.mock import MagicMock
 
 import pytest
@@ -6,6 +8,7 @@ import numpy as np
 
 from damnit.backend.db import DamnitDB
 from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
+from damnit.gui.main_window import LogViewWindow
 
 from .helpers import amore_proto, mkcontext, extract_mock_run
 
@@ -201,3 +204,25 @@ def bound_port():
     yield port
 
     s.close()
+
+
+@pytest.fixture
+def log_view_window(tmp_path, qtbot):
+    """Fixture to set up LogViewWindow with a temporary log file."""
+    log_file_path = tmp_path / "test_log.log"
+    initial_content = "Line 1\nLine 2"
+    log_file_path.write_text(initial_content)
+
+    # Ensure mtime is distinct for tests and allows detection of first change.
+    # Set mtime in the past.
+    initial_mtime = time() - 5
+    os.utime(log_file_path, (initial_mtime, initial_mtime))
+
+    window = LogViewWindow(log_file_path, polling_interval_ms=200)
+    qtbot.addWidget(window) # Ensure cleanup
+    window.show()
+    qtbot.waitExposed(window) # Wait for window to be visible
+
+    qtbot.waitUntil(lambda: window.text_edit.toPlainText() == initial_content, timeout=3000)
+
+    yield window, log_file_path
