@@ -6,6 +6,7 @@ from glob import iglob
 from pathlib import Path
 
 import h5py
+import numpy as np
 
 from .backend.db import BlobTypes, DamnitDB, blob2complex
 
@@ -171,6 +172,60 @@ class VariableData:
                 return blob2complex(value)
             return value
 
+    def preview(self, deserialize_plotly=True):
+        """Get the preview data for the variable
+
+        May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure
+        object, a str of plotly JSON (with deserialize_plotly=False) or None
+        if no preview is available.
+        """
+        with h5py.File(self._h5_path) as f:
+            xarray_group = dset = None
+            if (obj := f.get(f".preview/{self.name}")) is not None:
+                # Explicit preview
+                type_hint = self._type_hint(obj)
+                if isinstance(obj, h5py.Group):
+                    xarray_group = obj.name
+                else:
+                    dset = obj
+            else:
+                # Implicit: use data as preview if suitable
+                grp = f[self.name]
+                type_hint = self._type_hint(grp)
+                if self._type_hint(grp) is DataType.DataArray:
+                    xarray_group = self.name
+                else:
+                    dset = grp['data']
+
+            if xarray_group is not None:
+                for obj in f[xarray_group].values():
+                    if isinstance(obj, h5py.Dataset) and (
+                        obj.ndim > 3 or (obj.ndim == 3 and obj.shape[-1] not in (3, 4))
+                    ):
+                        return None  # Too many dims: bail out before loading
+
+                import xarray as xr
+                arr = xr.load_dataarray(
+                    self._h5_path, group=xarray_group, engine="h5netcdf"
+                )
+                if arr.ndim != 0 and np.issubdtype(arr.dtype, np.number):
+                    return arr
+
+            elif np.issubdtype(dset.dtype, np.number) and (
+                    dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4))
+            ):
+                value = dset[()]
+
+                if type_hint is DataType.PlotlyFigure:
+                    import plotly.io as pio
+                    b = value.tobytes()
+                    return pio.from_json(b) if deserialize_plotly else b.decode()
+                else:
+                    return value
+
+        return None
+
+
     def __repr__(self):
         return f"<VariableData for '{self.name}' in p{self.proposal}, r{self.run}>"
 
@@ -231,10 +286,8 @@ class RunVariables:
     def _key_locations(self):
         # Read keys from the HDF5 file
         with h5py.File(self.file) as f:
-            all_keys = { name: False for name in f.keys() }
-        del all_keys[".reduced"]
-        if ".errors" in all_keys:
-            del all_keys[".errors"]
+            all_keys = { name: False for name in f.keys()
+                         if not name.startswith('.')}
 
         # And the keys from the database
         user_vars = list(self._db.get_user_variables().keys())

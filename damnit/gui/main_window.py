@@ -26,7 +26,8 @@ from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
-from ..util import StatusbarStylesheet, fix_data_for_plotting, icon_path
+from ..util import (StatusbarStylesheet, fix_data_for_plotting, icon_path,
+                    isinstance_no_import)
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
 from .new_context_dialog import NewContextFileDialog
@@ -635,50 +636,37 @@ da-dev@xfel.eu"""
             )
         )
 
-        cell_data = self.table.get_value_at(index)
-        is_image = self.table.itemFromIndex(index).data(Qt.DecorationRole) is not None
-
         try:
-            variable = RunVariables(self._context_path.parent, run)[quantity]
+            preview = RunVariables(self.context_dir, run)[quantity].preview()
         except FileNotFoundError:
             self.show_status_message(f"Couldn't get run variables for p{proposal}, r{run}",
                                      timeout=7000,
                                      stylesheet=StatusbarStylesheet.ERROR)
             return
-        except KeyError:
-            self.show_status_message(f"Unrecognized variable: '{quantity}'",
+        except Exception:
+            self.show_status_message(f"Error getting preview for '{quantity}'",
                                      timeout=7000,
                                      stylesheet=StatusbarStylesheet.ERROR)
             return
 
-        if not (is_image or variable.type_hint() or isinstance(cell_data, (int, float))):
-            QMessageBox.warning(self, "Can't inspect variable",
-                                f"'{quantity}' has type '{type(cell_data).__name__}', cannot inspect.")
+        if preview is None:
+            self.show_status_message(f"No preview data found for variable {quantity}",
+                                     timeout=7000)
             return
 
-        if variable.type_hint() is DataType.PlotlyFigure:
-            pp = PlotlyPlot(variable, self)
+        if isinstance_no_import(preview, 'plotly.graph_objs', 'Figure'):
+            pp = PlotlyPlot(self.context_dir, proposal, run, quantity, self)
             self._canvas_inspect.append(pp)
             pp.show()
             return
 
-        if variable.type_hint() is DataType.Dataset:
-            QMessageBox.warning(self, "Can't inspect variable",
-                                f"'{quantity}' is a Xarray Dataset (not supported).")
-
-        try:
-            data = variable.read()
-        except KeyError:
-            log.warning(f'"{quantity}" not found in {variable.file}...')
+        if not isinstance(preview, (np.ndarray, xr.DataArray)):
+            log.error("Only array objects are expected here, not %r", type(preview))
             return
 
-        if not isinstance(data, (np.ndarray, xr.DataArray)):
-            log.error("Only array objects are expected here, not %r", type(data))
-            return
+        title = f'{quantity_title} (run {run})'
 
-        title = f'{variable.title} (run {run})'
-
-        data = data.squeeze()
+        data = preview.squeeze()
 
         if data.ndim == 1:
             if isinstance(data, xr.DataArray):
@@ -693,7 +681,7 @@ da-dev@xfel.eu"""
                     x=[np.arange(len(data))],
                     y=[fix_data_for_plotting(data)],
                     xlabel=f"Event (run {run})",
-                    ylabel=variable.title,
+                    ylabel=quantity_title,
                     title=title,
             )
         elif data.ndim == 2 or (data.ndim == 3 and data.shape[-1] in (3, 4)):
@@ -701,7 +689,7 @@ da-dev@xfel.eu"""
                 canvas = ImagePlotWindow(
                     self,
                     image=data,
-                    title=f"{variable.title} (run {run})",
+                    title=f"{quantity_title} (run {run})",
                 )
             except Exception as exc:
                 QMessageBox.warning(
