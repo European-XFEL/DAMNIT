@@ -171,11 +171,12 @@ class VariableData:
                 return blob2complex(value)
             return value
 
-    def preview(self):
+    def preview(self, deserialize_plotly=True):
         """Get the preview data for the variable
 
-        May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure object,
-        or None if no preview is available.
+        May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure
+        object, a str of plotly JSON (with deserialize_plotly=False) or None
+        if no preview is available.
         """
         with h5py.File(self._h5_path) as f:
             xarray_group = dset = None
@@ -214,7 +215,8 @@ class VariableData:
 
                 if type_hint is DataType.PlotlyFigure:
                     import plotly.io as pio
-                    return pio.from_json(value.tobytes())
+                    b = value.tobytes()
+                    return pio.from_json(b) if deserialize_plotly else b.decode()
                 else:
                     return value
 
