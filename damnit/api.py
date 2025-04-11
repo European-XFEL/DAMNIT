@@ -6,6 +6,7 @@ from glob import iglob
 from pathlib import Path
 
 import h5py
+import numpy as np
 
 from .backend.db import BlobTypes, DamnitDB, blob2complex
 
@@ -207,10 +208,12 @@ class VariableData:
                 arr = xr.load_dataarray(
                     self._h5_path, group=xarray_group, engine="h5netcdf"
                 )
-                if arr.ndim != 0:
+                if arr.ndim != 0 and np.issubdtype(arr.dtype, np.number):
                     return arr
 
-            elif dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4)):
+            elif np.issubdtype(dset.dtype, np.number) and (
+                    dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4))
+            ):
                 value = dset[()]
 
                 if type_hint is DataType.PlotlyFigure:
