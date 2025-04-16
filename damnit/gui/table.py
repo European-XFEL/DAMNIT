@@ -15,9 +15,9 @@ from superqt.utils import qthrottled
 from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
-from ..util import delete_variable, timestamp2str
+from ..util import timestamp2str
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
-from .util import StatusbarStylesheet
+from .util import delete_variable, StatusbarStylesheet
 
 log = logging.getLogger(__name__)
 
