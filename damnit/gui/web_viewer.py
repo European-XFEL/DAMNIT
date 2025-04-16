@@ -37,7 +37,7 @@ class UrlSchemeHandler(QWebEngineUrlSchemeHandler):
             db_path = int(proposal)
  
         try:
-            _data = Damnit(db_path)[int(run), name].preview()
+            _data = Damnit(db_path)[int(run), name].preview_data()
         except Exception as ex:
             log.error(f"request job failed: {href!r}\n{ex}")
             job.fail(QWebEngineUrlRequestJob.Error.RequestFailed)

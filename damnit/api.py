@@ -172,12 +172,16 @@ class VariableData:
                 return blob2complex(value)
             return value
 
-    def preview(self, deserialize_plotly=True):
+    def preview_data(self, *, data_fallback=True, deserialize_plotly=True):
         """Get the preview data for the variable
 
         May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure
         object, a str of plotly JSON (with deserialize_plotly=False) or None
         if no preview is available.
+
+        If no preview was specified in the context file, but the returned data
+        meets the conditions for a preview, this can be returned instead.
+        Pass `data_fallback=False` to prevent this.
         """
         with h5py.File(self._h5_path) as f:
             xarray_group = dset = None
@@ -188,14 +192,18 @@ class VariableData:
                     xarray_group = obj.name
                 else:
                     dset = obj
-            else:
+            elif data_fallback:
                 # Implicit: use data as preview if suitable
                 grp = f[self.name]
                 type_hint = self._type_hint(grp)
-                if self._type_hint(grp) is DataType.DataArray:
+                if type_hint is DataType.DataArray:
                     xarray_group = self.name
+                elif type_hint is DataType.Dataset:
+                    return None
                 else:
                     dset = grp['data']
+            else:
+                return None
 
             if xarray_group is not None:
                 for obj in f[xarray_group].values():
