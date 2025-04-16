@@ -3,7 +3,7 @@ import re
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from ..backend.user_variables import value_types_by_name
-from ..util import icon_path
+from .util import icon_path
 
 
 class AddUserVariableDialog(QtWidgets.QDialog):

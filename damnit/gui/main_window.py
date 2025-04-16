@@ -26,8 +26,7 @@ from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
-from ..util import (StatusbarStylesheet, fix_data_for_plotting, icon_path,
-                    isinstance_no_import)
+from ..util import fix_data_for_plotting, isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
 from .new_context_dialog import NewContextFileDialog
@@ -39,6 +38,7 @@ from .standalone_comments import TimeComment
 from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
+from .util import icon_path, StatusbarStylesheet
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .zulip_messenger import ZulipMessenger
 
