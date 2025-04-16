@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget, QLineEdit, QHBoxLayout
 from superqt import QDoubleRangeSlider
 from superqt.utils import signals_blocked
 
-from ..util import icon_path, kde
+from .util import icon_path, kde
 
 
 class Arrow(QLabel):

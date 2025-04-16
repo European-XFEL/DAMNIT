@@ -20,7 +20,7 @@ def mock_ctx():
     import numpy as np
     import plotly.express as px
     import xarray as xr
-    from damnit.context import Variable
+    from damnit_ctx import Variable, Cell
 
     @Variable(title="Scalar1", tags=['scalar', 'integer'])
     def scalar1(run, run_nr: 'meta#run_number'):
@@ -78,6 +78,16 @@ def mock_ctx():
     def image(run, run_nr: 'meta#run_number'):
         if run_nr in (1, 1000):
             return np.random.rand(10, 10)
+
+    @Variable(title="Array preview")
+    def array_preview(run):
+        arr = np.zeros((5, 5, 5))
+        return Cell(arr, preview=arr[0])
+
+    @Variable(title="Plotly preview")
+    def plotly_preview(run):
+        fig = px.bar(x=["a", "b", "c"], y=[1, 3, 2])
+        return Cell(np.zeros(4), preview=fig)
     """
 
     return mkcontext(code)

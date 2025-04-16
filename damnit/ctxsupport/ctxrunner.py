@@ -465,6 +465,27 @@ def generate_thumbnail(image):
     return figure2png(fig, dpi=THUMBNAIL_SIZE)
 
 
+def line_thumbnail(arr):
+    from matplotlib.figure import Figure
+
+    # width = 3 * height; roughly fits table cells
+    fig = Figure(figsize=(2, 2/3))
+    ax = fig.add_subplot()
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+    if isinstance(arr, np.ndarray):
+        ax.plot(arr)
+    else:
+        # Use DataArray's own plotting method
+        arr.plot(ax=ax)
+
+    ax.axis('tight')
+    ax.axis('off')
+    ax.margins(0, 0)
+
+    return figure2png(fig, dpi=THUMBNAIL_SIZE)
+
+
 def extract_error_info(exc_type, e, tb):
     lineno = -1
     offset = 0
@@ -541,7 +562,7 @@ class Results:
             return summary_val
 
         # If a summary wasn't specified, try some default fallbacks
-        data = cell.data
+        data = cell.preview if (cell.preview is not None) else cell.data
         if isinstance(data, str):
             return data
         elif isinstance(data, xr.Dataset):
@@ -563,6 +584,12 @@ class Results:
         elif isinstance(data, (np.ndarray, xr.DataArray)):
             if data.ndim == 0:
                 return data
+            elif data.ndim == 1:
+                try:
+                    return line_thumbnail(data)
+                except:
+                    logging.error("Error generating thumbnail for %s", name, exc_info=True)
+                    return "<thumbnail error>"
             elif data.ndim == 2:
                 if isinstance(data, np.ndarray):
                     data = np.nan_to_num(data)
@@ -575,7 +602,8 @@ class Results:
                     logging.error("Error generating thumbnail for %s", name, exc_info=True)
                     return "<thumbnail error>"
             else:
-                return f"{data.dtype}: {data.shape}"
+                # Describe the full data (cell.data), not the preview data
+                return f"{cell.data.dtype}: {cell.data.shape}"
 
         return None
 
@@ -601,7 +629,7 @@ class Results:
                         value = figure2array(obj)
                         obj_type_hints[name] = DataType.Image
                     elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-                        # we want to compresss plotly figures in HDF5 files
+                        # we want to compress plotly figures in HDF5 files
                         # so we need to convert the data to array of uint8
                         value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
                         obj_type_hints[name] = DataType.PlotlyFigure
@@ -611,6 +639,21 @@ class Results:
                         value = np.asarray(obj)
 
                     dsets.append((f'{name}/data', value, {}))
+
+                if (obj := cell.preview) is None:
+                    # Delete any previous preview
+                    dsets.append((f'.preview/{name}', None, {}))
+                elif isinstance(obj, xr.DataArray):
+                    xarray_dsets.append((f'.preview/{name}', obj))
+                else:
+                    attrs = {}
+                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
+                        obj = figure2array(obj)
+                        attrs['_damnit_objtype'] = DataType.Image.value
+                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+                        obj = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
+                        attrs['_damnit_objtype'] = DataType.PlotlyFigure.value
+                    dsets.append((f'.preview/{name}', obj, attrs))
 
         for name, exc in self.errors.items():
             dsets.append((f'.errors/{name}', str(exc), {'type': type(exc).__name__}))

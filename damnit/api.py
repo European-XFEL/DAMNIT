@@ -6,8 +6,10 @@ from glob import iglob
 from pathlib import Path
 
 import h5py
+import numpy as np
 
 from .backend.db import BlobTypes, DamnitDB, blob2complex
+from .util import isinstance_no_import
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
@@ -171,6 +173,110 @@ class VariableData:
                 return blob2complex(value)
             return value
 
+    def preview_data(self, *, data_fallback=True, deserialize_plotly=True):
+        """Get the preview data for the variable
+
+        May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure
+        object, a str of plotly JSON (with deserialize_plotly=False) or None
+        if no preview is available.
+
+        If no preview was specified in the context file, but the returned data
+        meets the conditions for a preview, this can be returned instead.
+        Pass `data_fallback=False` to prevent this.
+        """
+        with h5py.File(self._h5_path) as f:
+            xarray_group = dset = None
+            if (obj := f.get(f".preview/{self.name}")) is not None:
+                # Explicit preview
+                type_hint = self._type_hint(obj)
+                if isinstance(obj, h5py.Group):
+                    xarray_group = obj.name
+                else:
+                    dset = obj
+            elif data_fallback:
+                # Implicit: use data as preview if suitable
+                grp = f[self.name]
+                type_hint = self._type_hint(grp)
+                if type_hint is DataType.DataArray:
+                    xarray_group = self.name
+                elif type_hint is DataType.Dataset:
+                    return None
+                else:
+                    dset = grp['data']
+            else:
+                return None
+
+            if xarray_group is not None:
+                for obj in f[xarray_group].values():
+                    if isinstance(obj, h5py.Dataset) and (
+                        obj.ndim > 3 or (obj.ndim == 3 and obj.shape[-1] not in (3, 4))
+                    ):
+                        return None  # Too many dims: bail out before loading
+
+                import xarray as xr
+                arr = xr.load_dataarray(
+                    self._h5_path, group=xarray_group, engine="h5netcdf"
+                )
+                if arr.ndim != 0 and np.issubdtype(arr.dtype, np.number):
+                    return arr
+
+            elif np.issubdtype(dset.dtype, np.number) and (
+                    dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4))
+            ):
+                value = dset[()]
+
+                if type_hint is DataType.PlotlyFigure:
+                    import plotly.io as pio
+                    b = value.tobytes()
+                    return pio.from_json(b) if deserialize_plotly else b.decode()
+                else:
+                    return value
+
+        return None
+
+    def preview(self):
+        """Show the preview data
+
+        This is intended for use in Jupyter notebooks
+        """
+        if (obj := self.preview_data()) is None:
+            return
+
+        if isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+            obj.show()
+            return obj
+        elif isinstance_no_import(obj, 'xarray', 'DataArray'):
+            return obj.plot()  # Let Xarray decide what to plot
+        else:  # ndarray
+            import matplotlib.pyplot as plt
+            obj = obj.squeeze()
+
+            fig, ax = plt.subplots()
+
+            match obj.ndim:
+                case 3:  # Colour image
+                    res = ax.imshow(obj, interpolation="antialiased")
+                    ax.tick_params(left=False, bottom=False,
+                                   labelleft=False, labelbottom=False)
+                    ax.set_xlabel("")
+                    ax.set_ylabel("")
+                case 2:
+                    res = ax.imshow(obj, interpolation="antialiased")
+                    vmin = np.nanquantile(obj, 0.01, method='nearest')
+                    vmax = np.nanquantile(obj, 0.99, method='nearest')
+                    res.set_clim(vmin, vmax)
+                    fig.colorbar(res, ax=ax)
+                case 1:
+                    res = ax.plot(obj, fmt='o')
+                    ax.set_ylabel(self.title)
+                case _:
+                    return None
+
+            if obj.ndim != 3:
+                ax.set_title(f'{self.title} (run {self.run})')
+
+            return res
+
     def __repr__(self):
         return f"<VariableData for '{self.name}' in p{self.proposal}, r{self.run}>"
 
@@ -231,10 +337,8 @@ class RunVariables:
     def _key_locations(self):
         # Read keys from the HDF5 file
         with h5py.File(self.file) as f:
-            all_keys = { name: False for name in f.keys() }
-        del all_keys[".reduced"]
-        if ".errors" in all_keys:
-            del all_keys[".errors"]
+            all_keys = { name: False for name in f.keys()
+                         if not name.startswith('.')}
 
         # And the keys from the database
         user_vars = list(self._db.get_user_variables().keys())
