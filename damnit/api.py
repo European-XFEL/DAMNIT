@@ -244,8 +244,9 @@ class VariableData:
 
         if isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
             obj.show()
+            return obj
         elif isinstance_no_import(obj, 'xarray', 'DataArray'):
-            obj.plot()  # Let Xarray decide what to plot
+            return obj.plot()  # Let Xarray decide what to plot
         else:  # ndarray
             import matplotlib.pyplot as plt
             obj = obj.squeeze()
@@ -254,23 +255,27 @@ class VariableData:
 
             match obj.ndim:
                 case 3:  # Colour image
-                    ax.imshow(obj, interpolation="antialiased")
+                    res = ax.imshow(obj, interpolation="antialiased")
                     ax.tick_params(left=False, bottom=False,
                                    labelleft=False, labelbottom=False)
                     ax.set_xlabel("")
                     ax.set_ylabel("")
                 case 2:
-                    img = ax.imshow(obj, interpolation="antialiased")
+                    res = ax.imshow(obj, interpolation="antialiased")
                     vmin = np.nanquantile(obj, 0.01, method='nearest')
                     vmax = np.nanquantile(obj, 0.99, method='nearest')
-                    img.set_clim(vmin, vmax)
-                    fig.colorbar(img, ax=ax)
+                    res.set_clim(vmin, vmax)
+                    fig.colorbar(res, ax=ax)
                 case 1:
-                    ax.plot(obj, fmt='o')
+                    res = ax.plot(obj, fmt='o')
                     ax.set_ylabel(self.title)
+                case _:
+                    return None
 
             if obj.ndim != 3:
                 ax.set_title(f'{self.title} (run {self.run})')
+
+            return res
 
     def __repr__(self):
         return f"<VariableData for '{self.name}' in p{self.proposal}, r{self.run}>"
