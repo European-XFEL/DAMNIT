@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.neighbors import KernelDensity
 
+from ..context import add_to_h5_file
 
 class StatusbarStylesheet(Enum):
     NORMAL = "QStatusBar {}"
@@ -32,3 +33,15 @@ def kde(x: np.ndarray, npoints: int = 1000) -> tuple[np.ndarray, np.ndarray]:
     log_dens = kde.score_samples(xplot)
     y = np.exp(log_dens)
     return xplot.squeeze(), y
+
+
+def delete_variable(db, name):
+    # Remove from the database
+    db.delete_variable(name)
+
+    # And the HDF5 files
+    for h5_path in (db.path.parent / "extracted_data").glob("*.h5"):
+        with add_to_h5_file(h5_path) as f:
+            if name in f:
+                del f[f".reduced/{name}"]
+                del f[name]
