@@ -9,6 +9,7 @@ import h5py
 import numpy as np
 
 from .backend.db import BlobTypes, DamnitDB, blob2complex
+from .util import isinstance_no_import
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
@@ -233,6 +234,43 @@ class VariableData:
 
         return None
 
+    def preview(self):
+        """Show the preview data
+
+        This is intended for use in Jupyter notebooks
+        """
+        if (obj := self.preview_data()) is None:
+            return
+
+        if isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+            obj.show()
+        elif isinstance_no_import(obj, 'xarray', 'DataArray'):
+            obj.plot()  # Let Xarray decide what to plot
+        else:  # ndarray
+            import matplotlib.pyplot as plt
+            obj = obj.squeeze()
+
+            fig, ax = plt.subplots()
+
+            match obj.ndim:
+                case 3:  # Colour image
+                    ax.imshow(obj, interpolation="antialiased")
+                    ax.tick_params(left=False, bottom=False,
+                                   labelleft=False, labelbottom=False)
+                    ax.set_xlabel("")
+                    ax.set_ylabel("")
+                case 2:
+                    img = ax.imshow(obj, interpolation="antialiased")
+                    vmin = np.nanquantile(obj, 0.01, method='nearest')
+                    vmax = np.nanquantile(obj, 0.99, method='nearest')
+                    img.set_clim(vmin, vmax)
+                    fig.colorbar(img, ax=ax)
+                case 1:
+                    ax.plot(obj, fmt='o')
+                    ax.set_ylabel(self.title)
+
+            if obj.ndim != 3:
+                ax.set_title(f'{self.title} (run {self.run})')
 
     def __repr__(self):
         return f"<VariableData for '{self.name}' in p{self.proposal}, r{self.run}>"
