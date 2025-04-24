@@ -1088,6 +1088,14 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     @Variable()
     def var2(run):
         raise Skip("Testing Skip")
+
+    @Variable(transient=True)
+    def var3(run):
+        return 1/0
+
+    @Variable()
+    def var4(run, var3: 'var#var3'):
+        return 1
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
@@ -1095,7 +1103,7 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     results.save_hdf5(results_hdf5_path)
 
     with h5py.File(results_hdf5_path) as f:
-        for i in [1, 2]:
+        for i in [1, 2, 4]:
             assert f'.errors/var{i}' in f
             assert f'.reduced/var{i}' not in f
             assert f'var{i}' not in f
@@ -1113,3 +1121,9 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         "SELECT attributes FROM run_variables WHERE name='var2'"
     ).fetchone()[0]
     assert json.loads(attrs) == {'error': 'Testing Skip', 'error_cls': 'Skip'}
+
+    attrs = db.conn.execute(
+        "SELECT attributes FROM run_variables WHERE name='var4'"
+    ).fetchone()[0]
+    assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
+
