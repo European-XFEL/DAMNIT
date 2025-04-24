@@ -337,6 +337,13 @@ class ContextFile:
 
                 if missing_deps:
                     log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                    # get error message from transient dependencies
+                    error_message = ''
+                    for dep in missing_deps:
+                        if self.vars[dep].transient and dep in errors:
+                            error_message += f'\ndependency ({dep}) failed: {repr(errors[f"{dep}"])}'
+                    if error_message:
+                        errors[name] = Exception(error_message)
                     continue
                 elif missing_input:
                     log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
@@ -366,8 +373,9 @@ class ContextFile:
 
         # remove transient results
         for name, var in self.vars.items():
-            if var.transient and (name in res):
-                res.pop(name)
+            if var.transient:
+                res.pop(name, None)
+                errors.pop(name, None)
 
         return Results(res, errors, self)
 
