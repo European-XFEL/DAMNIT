@@ -17,10 +17,11 @@ application where you'll see this name used instead of DAMNIT.
 
 ## Design overview
 There are two parts to DAMNIT: the frontend GUI and the backend. The GUI is
-currently written in PyQt and will be moved to a web interface at some
-point. The backend is a service that runs on XFEL's offline cluster for each
-proposal, so one instance of the backend for one proposal is completely separate
-from any others and can be started by any user.
+currently written in PyQt and will be moved to a [web
+interface](gui.md#experimental-the-web-interface) at some point. The backend is
+a service that runs on XFEL's offline cluster for each proposal, so one instance
+of the backend for one proposal is completely separate from any others and can
+be started by any user.
 
 To fill up the table you see in the screenshot above, the backend executes what
 we call a *context file*, which is simply a Python file that contains *variable*
