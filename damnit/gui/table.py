@@ -94,6 +94,7 @@ class TableView(QtWidgets.QTableView):
         self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
         self.context_menu.addAction(self.zulip_action)
         self.show_logs_action = QtWidgets.QAction('View processing logs')
+        self.show_logs_action.setEnabled(False)  # Enabled with selection
         self.show_logs_action.triggered.connect(self.show_run_logs)
         self.context_menu.addAction(self.show_logs_action)
         self.process_action = QtWidgets.QAction('Reprocess runs')
@@ -140,6 +141,8 @@ class TableView(QtWidgets.QTableView):
                 lambda: header.update_filtered_columns(self.model().filters))
             self.resizeRowsToContents()
 
+        self.selectionModel().selectionChanged.connect(self.selection_changed)
+
         self.model_updated.emit()
 
     def selected_rows(self):
@@ -148,6 +151,10 @@ class TableView(QtWidgets.QTableView):
         # Translate indices in sorted proxy model back to the underlying model
         proxy = self.model()
         return [proxy.mapToSource(ix) for ix in proxy_rows]
+
+    def selection_changed(self):
+        has_sel = self.selectionModel().hasSelection()
+        self.show_logs_action.setEnabled(has_sel)
 
     def item_changed(self, item):
         state = item.checkState()
