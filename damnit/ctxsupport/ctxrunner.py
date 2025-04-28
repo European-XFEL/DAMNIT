@@ -338,12 +338,17 @@ class ContextFile:
                 if missing_deps:
                     log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
                     # get error message from transient dependencies
-                    error_message = ''
+                    dep_errors = {}
                     for dep in missing_deps:
                         if self.vars[dep].transient and dep in errors:
-                            error_message += f'\ndependency ({dep}) failed: {repr(errors[f"{dep}"])}'
-                    if error_message:
-                        errors[name] = Exception(error_message)
+                            dep_errors[dep] = errors[dep]
+                    if len(dep_errors) > 0:
+                        msg = '\n'.join(f'\ndependency ({name}) failed: {repr(err)}'
+                                        for name, err in dep_errors.items())
+                        if all(isinstance(e, (Skip, extra_data.exceptions.SourceNameError)) for e in dep_errors.values()):
+                            errors[name] = Skip(msg)
+                        else:
+                            errors[name] = Exception(msg)
                     continue
                 elif missing_input:
                     log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
