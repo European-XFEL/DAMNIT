@@ -326,7 +326,15 @@ class TableView(QtWidgets.QTableView):
 
     def show_run_logs(self):
         # Get first selected row
-        row = self.selected_rows()[0].row()
+        try:
+            row = self.selected_rows()[0].row()
+        except IndexError:
+            self.damnit_model._main_window.show_status_message(
+                "No row selected",
+                timeout=7000,
+                stylesheet=StatusbarStylesheet.ERROR
+            )
+            return
         prop, run = self.damnit_model.row_to_proposal_run(row)
         self.log_view_requested.emit(prop, run)
 
