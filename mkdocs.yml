@@ -23,6 +23,7 @@ repo_url: https://github.com/European-XFEL/DAMNIT
 # https://squidfunk.github.io/mkdocs-material/reference/code-blocks/
 markdown_extensions:
   - admonition
+  - pymdownx.details
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span

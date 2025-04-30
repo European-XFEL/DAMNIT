@@ -2,9 +2,9 @@ from datetime import timedelta
 
 import numpy as np
 
+from exra.components import XGM, XrayPulses
 from damnit_ctx import Variable
 
-xgm_name = "SA1_XTD2_XGM/DOOCS/MAIN"
 
 # Run metadata
 
@@ -37,9 +37,8 @@ def proc_size(run, proposal_path: "meta#proposal_path", run_no: "meta#run_number
 
 @Variable(title="XGM intensity [uJ]", summary="mean")
 def xgm_intensity(run):
-    xgm = run[f"{xgm_name}:output", 'data.intensityTD'].xarray()
-    return xgm[:, np.where(xgm[0] > 1)[0]].mean(axis=1)
+    return XGM(run, "sa1").pulse_energy().mean("pulseIndex")
 
 @Variable(title="Pulses", summary="mean")
 def pulses(run):
-    return run[xgm_name, 'pulseEnergy.numberOfBunchesActual'].xarray()
+    return XrayPulses(run).pulse_counts().to_xarray()

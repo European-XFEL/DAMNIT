@@ -5,41 +5,26 @@ it will execute:
 import numpy as np
 from damnit_ctx import Variable
 
-xgm_name = "SA2_XTD1_XGM/XGM/DOOCS"
+from extra.components import XGM, XrayPulses
 
 @Variable(title="XGM intensity [uJ]", summary="mean")
 def xgm_intensity(run):
     """
     Mean XGM intensity per-train.
     """
-    xgm = run[f"{xgm_name}:output", 'data.intensityTD'].xarray()
-    return xgm[:, np.where(xgm[0] > 1)[0]].mean(axis=1)
+    return XGM(run).pulse_energy().mean("pulseIndex")
 
-@Variable(title="Pulses")
+@Variable(title="Pulses", summary="mean")
 def pulses(run):
     """
     Number of pulses in the run.
     """
-    return run[xgm_name, 'pulseEnergy.numberOfBunchesActual'].as_single_value()
+    return XrayPulses(run).pulse_counts().to_xarray()
 ```
 
 By convention it's stored under the `usr/Shared/amore` directory of a proposal,
 along with other files that DAMNIT creates like the SQLite database and the HDF5
 files that are created for each run.
-
-When you open a database in the GUI the context file will be available in the
-`Context file` tab:
-
-![](static/editor.gif)
-
-You can edit the file in that tab, and before every save the editor will
-validate the file. There are two kinds of problems you can have:
-
-- Errors (syntax errors, etc), in which case the editor will *not* save the file.
-- Warnings from [pyflakes](https://pypi.org/project/pyflakes/). Sometimes
-  pyflakes will give warnings that can be safely ignored, so they will not block
-  the editor from saving the file (though you should try to fix all the
-  warnings, pyflakes almost never reports false positives).
 
 ## `@Variable`'s
 Functions in the context file can be decorated with `@Variable` to denote that
@@ -74,7 +59,7 @@ these arguments:
 - `transient` (bool): do not save the variable's result to the database. This
   is useful for e.g. intermediate results to be reused by other Variables. Since
   their data isn't saved, `transient` variables can return any object. By
-  default Variables do save their results (transient=False).
+  default Variables do save their results (`transient=False`).
 
 Variable functions can return any of:
 
@@ -82,7 +67,10 @@ Variable functions can return any of:
 - Lists of scalars
 - Multi-dimensional `numpy.ndarray`'s or `xarray.DataArray`'s (2D arrays will be
   treated as images)
-- Matplotlib and Plotly `Figure`'s
+- `xarray.Dataset`'s
+- Matplotlib `Figure`s or `Axes` (will be saved as 2D images).
+- Plotly figures (will be saved as JSON so that the GUI can display them in an
+  interactive plot).
 - Strings
 - `None`
 
@@ -124,7 +112,8 @@ def bar(run, value: "var#foo"):
 ```
 
 Dependents are not executed if a variable raises an error or returns `None`. You
-can raise `Skip` to provide a reason, visible as a tooltip on the table cell:
+can raise `Skip` to provide a reason, which will be visible as a tooltip on the
+table cell in the GUI:
 
 ```python
 from damnit_ctx import Variable, Skip
@@ -148,7 +137,8 @@ def baz(run, value: "var#foo"=42):
 ```
 
 Variable functions can use up to 4 CPU cores and 25 GB of RAM by default.
-If more resources are needed, use `cluster=True` (described below) to access all
+If more resources are needed, use `cluster=True` (see the [Using
+Slurm](backend.md#using-slurm) section) to access all
 of the cores & memory of an assigned cluster node. If required, you can also
 change the limits for non-cluster variables:
 
@@ -174,8 +164,8 @@ representation. A `Cell` takes theses arguments:
 - `bold`: A boolean indicating whether the text should be rendered in a bold
   font in the table's cell
 - `background`: Cell background color as:
-  - Hex string (e.g., '#ffcc00')
-  - RGB sequence (0-255 values)
+    - Hex string (e.g., `#ffcc00`)
+    - RGB sequence (0-255 values)
 
 Example Usage:
 
@@ -213,11 +203,11 @@ $ damnit db-config slurm_partition allgpu
 ```
 
 If both `slurm_reservation` and `slurm_partition` are set, the reservation will
-be chosen. The jobs will be named something like `r42-p1234-damnit` and the logs
-will be saved to files named `r42-p1234-<jobid>.out` (containing both stdout and
-stderr) in the `slurm_logs/` directory.
+be chosen. The jobs will be named something like `r42-p1234-damnit` and both
+stdout and stderr will be written to the run's log file in the `process_logs/`
+directory.
 
-!!! note
+!!! warning
 
     Make sure to delete the reservation setting after the reservation has
     expired, otherwise Slurm jobs will fail to launch.
@@ -225,44 +215,6 @@ stderr) in the `slurm_logs/` directory.
     ```bash
     $ damnit db-config slurm_reservation --delete
     ```
-
-## Reprocessing
-The context file is loaded each time a run is received, so if you edit the
-context file the changes will only take effect for the runs coming later. But,
-it is possible to reprocess runs using a command line tool:
-```bash
-$ module load exfel amore
-$ damnit reprocess -h
-usage: damnit reprocess [-h] [--mock] [--proposal PROPOSAL] [--match MATCH] run [run ...]
-
-positional arguments:
-  run                  Run number, e.g. 96. Multiple runs can be specified at once, or pass 'all' to reprocess all runs in the database.
-
-options:
-  -h, --help           show this help message and exit
-  --mock               Use a fake run object instead of loading one from disk.
-  --proposal PROPOSAL  Proposal number, e.g. 1234
-  --match MATCH        String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`.
-```
-
-Note that you *must* run the tool from a database directory
-(`usr/Shared/amore`). Here are some examples of using it:
-```bash
-# Reprocess all variables for a single run
-$ damnit reprocess 100
-
-# Reprocess all variables with a title matching 'agipd' for a single run
-$ damnit reprocess 100 --match agipd
-
-# Reprocess variables for multiple runs
-$ damnit reprocess 1 10 100 --match agipd
-
-# Reprocess variables for a sequence of runs
-$ damnit reprocess $(seq 1 100) --match agipd
-
-# Reprocess all variables for all runs
-$ damnit reprocess all
-```
 
 ## Using custom environments
 DAMNIT supports running the context file in a user-defined Python environment,
@@ -319,11 +271,9 @@ damnit                           RUNNING   pid 3793880, uptime 0:00:04
 ```
 
 ## Starting from scratch
-Sometimes it's useful to delete all of the data so far and start from scratch,
-for example if there are some variables you want to delete (though deleting
-variables will be implemented soon™©®). As long as you have the context file
-this is safe, with the caveat that comments and user-editable variables _cannot_
-be restored.
+Sometimes it's useful to delete all of the data so far and start from
+scratch. As long as you have the context file this is safe, with the caveat that
+comments and user-editable variables _cannot_ be restored.
 
 The steps to delete all existing data are:
 
