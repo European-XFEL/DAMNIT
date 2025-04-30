@@ -240,7 +240,7 @@ class VariableData:
         This is intended for use in Jupyter notebooks
         """
         if (obj := self.preview_data()) is None:
-            return
+            raise ValueError("No preview available")
 
         if isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
             obj.show()
