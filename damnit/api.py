@@ -176,8 +176,8 @@ class VariableData:
     def preview_data(self, *, data_fallback=True, deserialize_plotly=True):
         """Get the preview data for the variable
 
-        May return a 1D or 2D data array, a 3D RGB(A) arrray, a plotly figure
-        object, a str of plotly JSON (with deserialize_plotly=False) or None
+        May return a 1D or 2D data array, a 3D RGB(A) arrray, a Plotly figure
+        object, a str of Plotly JSON (with deserialize_plotly=False) or None
         if no preview is available.
 
         If no preview was specified in the context file, but the returned data
