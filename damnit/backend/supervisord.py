@@ -29,22 +29,17 @@ def wait_until(condition, timeout=1):
     if slept_for >= timeout:
         raise TimeoutError("Condition timed out")
 
-def get_supervisord_address(default_port=2322):
+def get_supervisord_address():
     """
     Find an available hostname and port for supervisord to bind to.
     """
     hostname = socket.gethostname()
     ip = socket.gethostbyname(hostname)
 
-    port = default_port
-    with socket.socket() as s:
-        while True:
-            try:
-                s.bind((ip, port))
-            except OSError:
-                port += 1
-            else:
-                break
+    sock = socket.socket()
+    sock.bind(('', 0))
+    port = sock.getsockname()[1]
+    sock.close()
 
     return hostname, port
 
