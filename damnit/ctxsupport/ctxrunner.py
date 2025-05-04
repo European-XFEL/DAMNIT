@@ -22,6 +22,7 @@ from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+from contextlib import contextmanager
 
 import extra_data
 import h5py
@@ -521,20 +522,32 @@ def get_proposal_path(xd_run):
     return Path(*p.parts[:-3])
 
 
+@contextmanager
 def add_to_h5_file(path) -> h5py.File:
     """Open the file with exponential backoff if it's locked"""
     ex = None
 
+    f = None
     for i in range(6):
         try:
-            return h5py.File(path, 'a')
+            f = h5py.File(path, 'a')
+            break
         except BlockingIOError as e:
             # File is locked for writing; wait 1, 2, 4, ... seconds
             time.sleep(2 ** i)
             ex = e
 
-    # This should only be reached after all attempts to open the file failed
-    raise ex
+    if f is not None:
+        try:
+            yield f
+        finally:
+            f.close()
+
+            if os.stat(path).st_uid == os.getuid():
+                os.chmod(path, 0o666)
+    elif ex is not None:
+        # This should only be reached after all attempts to open the file failed
+        raise ex
 
 
 def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
@@ -735,9 +748,6 @@ class Results:
                 group=name,
                 engine="h5netcdf",
             )
-
-        if os.stat(hdf5_path).st_uid == os.getuid():
-            os.chmod(hdf5_path, 0o666)
 
 
 def mock_run():

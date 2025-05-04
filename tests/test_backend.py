@@ -32,7 +32,7 @@ from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
 from damnit.context import (ContextFile, ContextFileErrors, PNGData, RunData,
                             get_proposal_path)
-from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE
+from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE, add_to_h5_file
 from damnit.gui.main_window import MainWindow
 
 from .helpers import mkcontext, reduced_data_from_dict
@@ -58,6 +58,24 @@ def check_png(dset):
     assert dset.dtype == np.dtype(np.uint8)
     assert dset[:8].tobytes() == b'\x89PNG\r\n\x1a\n'
 
+def test_add_to_h5_file(tmp_path):
+    path = tmp_path / "foo.h5"
+    good_file_mode = "-rw-rw-rw-"
+    path_filemode = lambda p: stat.filemode(p.stat().st_mode)
+
+    with pytest.raises(RuntimeError):
+        with add_to_h5_file(path) as f:
+            f["foo"] = 1
+            raise RuntimeError("foo")
+
+    # When an exception is raised the file permissions should still be set
+    assert path.is_file()
+    assert path_filemode(path) == good_file_mode
+
+    # Test that the file is opened in append mode, such that previously saved
+    # data is still present.
+    with add_to_h5_file(path) as f:
+        assert f["foo"][()] == 1
 
 def test_context_file(mock_ctx, tmp_path):
     code = """
