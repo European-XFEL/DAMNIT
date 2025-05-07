@@ -664,7 +664,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
-        start_run = max([r for (p, r) in self.run_index if p == proposal]) + 1
+        start_run = max(
+            [r for (p, r) in self.run_index if p == proposal], default=0
+        ) + 1
+
         for run in range(start_run, start_run + n_runs):
             # To precreate the run we add it to the `run_info` table, and
             # the `run_variables` table with an empty comment. Adding it to
