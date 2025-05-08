@@ -283,7 +283,8 @@ class ContextFile:
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
-        res = {'start_time': Cell(np.asarray(get_start_time(run_data)))}
+        dep_results = {'start_time': get_start_time(run_data)}
+        res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         mymdc = None
 
@@ -304,10 +305,8 @@ class ContextFile:
                     # Dependency within the context file
                     if annotation.startswith("var#"):
                         dep_name = annotation.removeprefix("var#")
-                        if dep_name in res:
-                            dep_data = res[dep_name]
-                            if isinstance(dep_data, Cell):
-                                dep_data = dep_data.data
+                        if dep_name in dep_results:
+                            dep_data = dep_results[dep_name]
                             kwargs[arg_name] = dep_data
                         elif param.default is inspect.Parameter.empty:
                             missing_deps.append(dep_name)
@@ -350,17 +349,7 @@ class ContextFile:
                     log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
                     continue
 
-                func = functools.partial(var.func, **kwargs)
-
-                if (data := func(run_data)) is None:
-                    continue
-
-                if not var.transient:
-                    if not isinstance(data, Cell):
-                        data = Cell(data)
-
-                    if data.summary is None:
-                        data.summary = var.summary
+                cell = var.evaluate(run_data, kwargs)
             except Exception as e:
                 if isinstance(e, Skip):
                     log.error("Skipped %s: %s", name, e)
@@ -370,12 +359,14 @@ class ContextFile:
             else:
                 t1 = time.perf_counter()
                 log.info("Computed %s in %.03f s", name, t1 - t0)
-                res[name] = data
+                if not var.transient:
+                    res[name] = cell
+                if cell.data is not None:
+                    dep_results[name] = cell.data
 
         # remove transient results
         for name, var in self.vars.items():
             if var.transient:
-                res.pop(name, None)
                 errors.pop(name, None)
 
         return Results(res, errors, self)
@@ -656,6 +647,8 @@ class Results:
                         obj_type_hints[name] = DataType.PlotlyFigure
                     elif isinstance(obj, str):
                         value = obj
+                    elif obj is None:
+                        value = None  # Will delete any previous data in file
                     else:
                         value = np.asarray(obj)
 
@@ -685,7 +678,7 @@ class Results:
         # We need to open the files in append mode so that when proc Variable's
         # are processed after raw ones, the raw ones won't be lost.
         with add_to_h5_file(hdf5_path) as f:
-            # Delete whole groups for the Variable's we're modifying
+            # Delete whole groups for the Variables we're modifying
             for name in self.cells.keys():
                 if name in f:
                     del f[name]
