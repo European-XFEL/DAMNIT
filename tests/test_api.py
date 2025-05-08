@@ -103,6 +103,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
             "bar/baz": xr.DataArray([1+2j, 3-4j, 5+6j]),
         })
         return Cell(data, summary_value=data['bar/baz'][2])
+
+    @Variable(title="Summary only")
+    def summary_only(run):
+        return Cell(None, summary_value=7)
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -158,6 +162,8 @@ def test_variable_data(mock_db_with_data, monkeypatch):
 
     fig = rv["plotly_preview"].preview_data()
     assert isinstance(fig, PlotlyFigure)
+
+    assert rv["summary_only"].summary() == 7
 
 def test_api_dependencies(venv):
     package_path = Path(__file__).parent.parent

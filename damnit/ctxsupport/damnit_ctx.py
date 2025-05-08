@@ -106,6 +106,27 @@ class Variable:
         """
         return getattr(self.func, '__annotations__', {})
 
+    def evaluate(self, run_data, kwargs):
+        cell = self.func(run_data, **kwargs)
+
+        if self.transient:
+            if not isinstance(cell, Cell):
+                cell = _DummyCell(cell)
+        else:
+            if not isinstance(cell, Cell):
+                cell = Cell(cell)
+
+            if cell.summary is None:
+                cell.summary = self.summary
+
+        return cell
+
+
+class _DummyCell:
+    """For transient results, holds data with no type checks"""
+    def __init__(self, data):
+        self.data = data
+
 
 class Cell:
     """A container for data with customizable table display options.

@@ -318,7 +318,8 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
         assert caplog.records[0].levelname == "WARNING"
 
         # There should be no computed variables since we treat None as a missing dependency
-        assert tuple(results.cells.keys()) == ("start_time",)
+        assert set(results.cells.keys()) == {"start_time", "foo"}
+        assert results.cells['foo'].data is None
 
     default_value_code = """
     from damnit_ctx import Variable
@@ -1187,4 +1188,3 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         "SELECT attributes FROM run_variables WHERE name='var4'"
     ).fetchone()[0]
     assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
-
