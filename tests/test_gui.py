@@ -9,6 +9,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -730,6 +731,15 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     @Variable()
     def error(run):
         1/0
+
+    @Variable(title="2D array for line plot")
+    def line_plot_data(run):
+        return np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 8, 7, 6]])
+
+    @Variable(title="2D xarray for line plot")
+    def xarray_line_plot_data(run, data: "var#line_plot_data"):
+        import xarray as xr
+        return xr.DataArray(data, dims=['line', 'x'], coords={'line': ['A', 'B', 'C'], 'x': [0, 1, 2, 3]})
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
@@ -822,6 +832,41 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     assert isinstance(  # Errors evaluating variables get a coloured decoration
         win.table.data(get_index('error'), role=Qt.DecorationRole), QColor
     )
+
+    # Test the line plot functionality for 2D data
+    line_data_index = get_index('2D array for line plot')
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(line_data_index)
+        plot_window = win._canvas_inspect[-1]
+        warning.assert_not_called()
+
+        # Check image mode is the default
+        assert isinstance(plot_window._image_artist, plt.Artist)
+
+        # Toggle to line plot mode
+        plot_window._plot_as_lines_checkbox.setCheckState(Qt.Checked)
+        plot_window.figure.canvas.flush_events()
+
+        assert not plot_window._dynamic_aspect_checkbox.isEnabled()
+        assert plot_window._axis.get_aspect() == 'auto'
+
+        # Toggle back to image mode
+        plot_window._plot_as_lines_checkbox.setCheckState(Qt.Unchecked)
+        plot_window.figure.canvas.flush_events()
+
+        assert plot_window._dynamic_aspect_checkbox.isEnabled()
+
+    # Test the line plot with xarray data
+    xarray_line_data_index = get_index('2D xarray for line plot')
+    with patch.object(QMessageBox, "warning") as warning:
+        win.inspect_data(xarray_line_data_index)
+        xr_plot_window = win._canvas_inspect[-1]
+        warning.assert_not_called()
+
+        xr_plot_window._plot_as_lines_checkbox.setCheckState(Qt.Checked)
+        xr_plot_window.figure.canvas.flush_events()
+
+        assert len(xr_plot_window._axis.get_legend().get_texts()) == 3  # 3 rows in our test data
 
 
 def test_open_dialog(mock_db, qtbot):
