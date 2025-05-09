@@ -324,7 +324,7 @@ class RunVariables:
         titles_to_names = { title: name for name, title in names_to_titles.items() }
 
         if name not in key_locs and name not in titles_to_names:
-            raise KeyError(f"Variable data for '{name!r}' not found for p{self.proposal}, r{self.run}")
+            raise KeyError(f"Variable data for {name!r} not found for p{self.proposal}, r{self.run}")
 
         if name in titles_to_names:
             name = titles_to_names[name]
@@ -339,6 +339,10 @@ class RunVariables:
         with h5py.File(self.file) as f:
             all_keys = { name: False for name in f.keys()
                          if not name.startswith('.')}
+
+            # Add keys with summary but not data in file
+            all_keys.update({ name: False for name in f['.reduced'].keys()
+                              if name not in all_keys})
 
         # And the keys from the database
         user_vars = list(self._db.get_user_variables().keys())
