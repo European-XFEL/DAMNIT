@@ -473,11 +473,15 @@ class Xarray1DPlotWindow(PlotWindow):
         # The plot call above can add axis labels, so we need to do this again
         self.figure.tight_layout()
 
+
 class ImagePlotWindow(PlotWindow):
-    _image = None
+    _image_artist = None
+    _colorbar = None
+    _data_source = None
 
     def __init__(self, parent, image, **kwargs):
         super().__init__(parent, **kwargs)
+        self._data_source = image
 
         self._dynamic_aspect_checkbox = QtWidgets.QCheckBox("Dynamic aspect ratio")
         self._dynamic_aspect_checkbox.setCheckState(Qt.Unchecked)
@@ -486,63 +490,124 @@ class ImagePlotWindow(PlotWindow):
             lambda state: self.set_dynamic_aspect(state == Qt.Checked)
         )
 
+        self._plot_as_lines_checkbox = QtWidgets.QCheckBox("Plot as lines")
+        self._plot_as_lines_checkbox.setCheckState(Qt.Unchecked)
+        self._plot_as_lines_checkbox.setLayoutDirection(Qt.RightToLeft)
+        self._plot_as_lines_checkbox.stateChanged.connect(self._on_plot_mode_changed)
+
         before_mpl_nav = self.layout.indexOf(self._navigation_toolbar)
         self.layout.insertWidget(before_mpl_nav, self._dynamic_aspect_checkbox)
+        self.layout.insertWidget(before_mpl_nav + 1, self._plot_as_lines_checkbox)
 
         aspect_ratio = max(image.shape[:2]) / min(image.shape[:2])
         if aspect_ratio > 4:
             self._dynamic_aspect_checkbox.setCheckState(Qt.Checked)
 
-        self.update_canvas(image)
+        self.update_canvas(self._data_source)
+
+    def _on_plot_mode_changed(self, state):
+        self.update_canvas()
 
     def set_dynamic_aspect(self, is_dynamic):
-        aspect = "auto" if is_dynamic else "equal"
+        if self._plot_as_lines_checkbox.isChecked():
+            aspect = "auto"
+        else:
+            aspect = "auto" if is_dynamic else "equal"
         self._axis.set_aspect(aspect)
-        self.figure.canvas.draw()
+        self.figure.canvas.draw_idle()
 
-    def update_canvas(self, image):
-        if np.all(np.isnan(image)):
-            self._nan_warning_label.show()
+    def _draw_lines(self, current_data):
+        """Draw data as 1D lines."""
+        self._dynamic_aspect_checkbox.setEnabled(False)
+        self._axis.set_aspect("auto")
+
+        if isinstance(current_data, xr.DataArray):
+            current_data.plot.line(
+                hue=current_data.dims[0],
+                ax=self._axis,
+                add_legend=current_data.shape[0] <= 10,
+            )
+        else:
+            # Numpy array
+            self._axis.set_xlabel("Index")
+            self._axis.set_ylabel("Value")
+            self._axis.set_title("Line plot")
+            for i, row in enumerate(current_data):
+                self._axis.plot(row, label=f"Line {i}")
+            if current_data.shape[0] <= 10:
+                self._axis.legend()
+
+        self.figure.tight_layout()
+
+    def _draw_image(self, image):
+        """Draw data as a 2D image."""
+        self._dynamic_aspect_checkbox.setEnabled(True)
+        self.set_dynamic_aspect(self._dynamic_aspect_checkbox.isChecked())
 
         if isinstance(image, xr.DataArray):
             if image.ndim == 2:
                 vmin = np.nanquantile(image, 0.01, method='nearest')
                 vmax = np.nanquantile(image, 0.99, method='nearest')
-                image.plot.imshow(
+                plot_result = image.plot.imshow(
                     ax=self._axis, interpolation='antialiased', vmin=vmin, vmax=vmax,
-                    origin='lower'
+                    origin='lower', add_colorbar=True
                 )
+                if isinstance(plot_result, dict):
+                    self._image_artist = plot_result.get('artist')
+                    self._colorbar = plot_result.get('color_bar')
+                else:
+                    self._image_artist = plot_result
+                    self._colorbar = None
             else:  # RGB(A) colour image
-                image.plot.imshow(ax=self._axis, interpolation='antialiased')
-            # xarray plotting methods can add labels, so fix the layout:
+                self._image_artist = image.plot.imshow(ax=self._axis, interpolation='antialiased')
             self.figure.tight_layout()
         else:
             # Numpy array
             is_color_image = image.ndim == 3
-
-            if self._image is None:
-                self._image = self._axis.imshow(image, interpolation="antialiased")
-                if not is_color_image:
-                    self.figure.colorbar(self._image, ax=self._axis)
+            self._image_artist = self._axis.imshow(image, interpolation="antialiased")
+            if not is_color_image:
+                self._colorbar = self.figure.colorbar(self._image_artist, ax=self._axis)
+                vmin = np.nanquantile(image, 0.01, method='nearest')
+                vmax = np.nanquantile(image, 0.99, method='nearest')
+                self._image_artist.set_clim(vmin, vmax)
             else:
-                self._image.set_array(image)
-
-            # Specific settings for color/noncolor images
-            if is_color_image:
                 self._axis.tick_params(left=False, bottom=False,
                                        labelleft=False, labelbottom=False)
                 self._axis.set_xlabel("")
                 self._axis.set_ylabel("")
-            else:
-                vmin = np.nanquantile(image, 0.01, method='nearest')
-                vmax = np.nanquantile(image, 0.99, method='nearest')
-                self._image.set_clim(vmin, vmax)
+
+    def update_canvas(self, data=None):
+        if data is not None:
+            self._data_source = data
+
+        if self._data_source is None:
+            return 
+
+        if self._colorbar is not None:
+            try:
+                self._colorbar.remove()
+            except Exception:
+                log.error("Error removing colorbar", exc_info=True)
+            self._colorbar = None
+
+        self.figure.clear()
+        self._axis = self.figure.add_subplot(111)
+        self._update_plot_theme()
+        self._image_artist = None
+
+        if np.all(np.isnan(self._data_source)):
+            self._nan_warning_label.show()
+        else:
+            self._nan_warning_label.hide()
+
+        if self._plot_as_lines_checkbox.isChecked() and self._data_source.ndim == 2:
+            self._draw_lines(self._data_source)
+        else:
+            self._draw_image(self._data_source)
 
         self._setup_scroll_zoom()
-
-        # Update the toolbar history so that clicking the home button resets the
-        # plot limits properly.
         self._canvas.toolbar.update()
+        self.figure.canvas.draw_idle()
 
 
 class SearchableComboBox(QtWidgets.QComboBox):
