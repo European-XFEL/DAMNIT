@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.2]
 
 Added:
 
@@ -17,6 +17,11 @@ Added:
   ranges and a line plot to visualize the data distribution (!400).
 - It's now possible to specify the number of runs that will be processed
   concurrently with the `concurrent_jobs` database setting (!408).
+- The variables list in the reprocessing dialog is now searchable (!380).
+- Errors from executing variables are displayed as tooltips on table cells (!416).
+- Store & show preview data as well as summary value (!431).
+- GUI: LogViewWindow udpates when new lines are added to the log file (!434).
+- GUI: add toggle for plotting 2d data as lines (!449).
 
 Changed:
 
@@ -44,6 +49,8 @@ Fixed:
 
 Deprecated:
 - GUI: Standalone comments are no longer supported in the run table(!362).
+
+[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.1.4...0.2)
 
 ## [0.1.4]
 
@@ -194,6 +201,7 @@ Fixed:
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/commits/0.1)
 
 
+[0.2]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2
 [0.1.4]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.1.4
 [0.1.3]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.1.3
 [0.1.2]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.1.2
