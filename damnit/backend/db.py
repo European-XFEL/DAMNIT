@@ -149,6 +149,10 @@ class DamnitDB:
             elif data_format_version < DATA_FORMAT_VERSION:
                 self.upgrade_schema(data_format_version)
 
+        # Ensure that the `comment` column exists in the database as a
+        # user-editable variable.
+        self.add_user_variable(UserEditableVariable("comment", "Comment", "string"), exist_ok=True)
+
     @classmethod
     def from_dir(cls, path):
         return cls(Path(path, DB_NAME))
@@ -210,10 +214,13 @@ class DamnitDB:
     def change_run_comment(self, proposal: int, run: int, comment: str):
         self.set_variable(proposal, run, "comment", ReducedData(comment))
 
-    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
+    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False, overwrite=False):
         v = variable
+        if exist_ok and not overwrite and v.name in self.get_user_variables():
+            return
+
         with self.conn:
-            or_replace = ' OR REPLACE' if exist_ok else ''
+            or_replace = ' OR REPLACE' if overwrite else ''
             self.conn.execute(
                 f"INSERT{or_replace} INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
                 (v.name, v.variable_type, v.title, v.description)

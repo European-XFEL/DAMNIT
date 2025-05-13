@@ -1081,7 +1081,10 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     # Test initial state - all columns should be visible
     initial_var_count = count_visible_vars()
     initial_static_count = count_visible_static()
-    assert initial_var_count == len(db.variable_names())
+    # Exclude the comment variable from this test because it's considered a
+    # regular user-editable variable by the database, but a 'static' column by
+    # the GUI (for standalone-comment historical reasons).
+    assert initial_var_count == len([x for x in db.variable_names() if x != "comment"])
     assert initial_static_count == table_view.get_static_columns_count()
 
     # Test filtering with single tag
