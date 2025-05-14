@@ -454,7 +454,6 @@ class RunVariables:
         # the `variables` table (yet) so we need to explicitly add their titles.
         special_vars = {
             "start_time": "Timestamp",
-            "comment": "Comment"
         }
         for name, title in special_vars.items():
             if name in available_vars:
