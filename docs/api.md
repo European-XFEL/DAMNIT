@@ -38,6 +38,9 @@ run_vars["myvar"] = 42
 
 # An alternative style would be:
 myvar.write(42)
+
+# Deleting the value for the run is also possible
+del run_vars["myvar"]
 ```
 
 ## API reference

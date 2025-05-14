@@ -194,6 +194,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     rv["comment"] = "humbug"
     assert rv["comment"].read() == "humbug"
 
+    # Test deleting values
+    del rv["comment"]
+    assert "comment" not in rv.keys()
+
     # Test sending Kafka updates
     foo_var = rv["foo"]
     with patch("damnit.kafka.KafkaProducer") as kafka_prd:
@@ -229,7 +233,7 @@ def test_writing(variable_name, good_input, bad_input, mock_db_with_data, monkey
     assert rv[variable_name].read() == good_input
 
     if bad_input is not None:
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             rv[variable_name] = bad_input
 
 def test_api_dependencies(venv):

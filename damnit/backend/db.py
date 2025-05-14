@@ -216,8 +216,15 @@ class DamnitDB:
 
     def add_user_variable(self, variable: UserEditableVariable, exist_ok=False, overwrite=False):
         v = variable
-        if exist_ok and not overwrite and v.name in self.get_user_variables():
+        current_user_vars = self.get_user_variables()
+        if exist_ok and not overwrite and v.name in current_user_vars:
             return
+
+        if overwrite and v.name in current_user_vars:
+            current_type = current_user_vars[v.name].variable_type
+            new_type = v.variable_type
+            if new_type != current_type:
+                raise RuntimeError("Changing the type of variable '{v.name}' from {current_type} to {new_type} is not supported")
 
         with self.conn:
             or_replace = ' OR REPLACE' if overwrite else ''
