@@ -52,7 +52,7 @@ class MyMetadataClient:
     def __init__(self, proposal, timeout=10, init_server="https://exfldadev01.desy.de/zwop"):
         self.proposal = proposal
         self.timeout = timeout
-        self._cache = {}
+        self._cached_data = {}
 
         proposal_path = Path(extra_data.read_machinery.find_proposal(f"p{proposal:06d}"))
         credentials_path = proposal_path / "usr/mymdc-credentials.yml"
@@ -73,15 +73,14 @@ class MyMetadataClient:
 
         self._headers = { "X-API-key": self.token }
 
-    @staticmethod
     def _cache(func):
         @wraps(func)
         def wrapper(self, run):
             key = (run, func.__name__)
-            if key in self._cache:
-                return self._cache[key]
-            self._cache[key] = func(self, run)
-            return self._cache[key]
+            if key in self._cached_data:
+                return self._cached_data[key]
+            self._cached_data[key] = func(self, run)
+            return self._cached_data[key]
         return wrapper
 
     @_cache
