@@ -15,7 +15,7 @@ def icon_path(name):
     """
     Helper function to get the path to an icon file stored under ico/.
     """
-    return str(Path(__file__).parent / "gui/ico" / name)
+    return str(Path(__file__).parent / "ico" / name)
 
 
 def kde(x: np.ndarray, npoints: int = 1000) -> tuple[np.ndarray, np.ndarray]:
