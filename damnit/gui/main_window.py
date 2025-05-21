@@ -1,5 +1,6 @@
 import logging
 import os
+import pickle
 import re
 import shelve
 import sys
@@ -11,6 +12,7 @@ from socket import gethostname
 import h5py
 import numpy as np
 import xarray as xr
+from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
@@ -28,7 +30,7 @@ from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
 from ..util import fix_data_for_plotting, isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
-from .kafka import UpdateAgent
+from ..kafka import UpdateProducer
 from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
 from .plot import (ImagePlotWindow, PlottingControls, ScatterPlotWindow,
@@ -140,10 +142,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def stop_update_listener_thread(self):
         if self._updates_thread is not None:
-            self.update_agent.stop()
+            self.update_consumer.stop()
             self._updates_thread.exit()
             self._updates_thread.wait()
             self._updates_thread = None
+
+            # We call flush() here to ensure that all messages are sent since we
+            # don't pass `flush=True` anywhere else.
+            self.update_producer.flush()
 
     def center_window(self):
         """
@@ -350,7 +356,7 @@ da-dev@xfel.eu"""
         self.table.add_editable_column(name)
 
         if self._connect_to_kafka:
-            self.update_agent.variable_set(name, title, description, variable_type)
+            self.update_producer.variable_set(name, title, variable_type)
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
@@ -585,7 +591,8 @@ da-dev@xfel.eu"""
         assert self.db_id is not None
 
         try:
-            self.update_agent = UpdateAgent(self.db_id)
+            self.update_consumer = UpdateConsumer(self.db.kafka_topic)
+            self.update_producer = UpdateProducer(self.db.kafka_topic)
         except NoBrokersAvailable:
             QtWidgets.QMessageBox.warning(self, "Broker connection failed",
                                           f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
@@ -593,10 +600,10 @@ da-dev@xfel.eu"""
             return
 
         self._updates_thread = QtCore.QThread()
-        self.update_agent.moveToThread(self._updates_thread)
+        self.update_consumer.moveToThread(self._updates_thread)
 
-        self._updates_thread.started.connect(self.update_agent.listen_loop)
-        self.update_agent.message.connect(self.handle_update)
+        self._updates_thread.started.connect(self.update_consumer.listen_loop)
+        self.update_consumer.message.connect(self.handle_update)
         QtCore.QTimer.singleShot(0, self._updates_thread.start)
 
     def get_run_file(self, proposal, run, log=True):
@@ -930,7 +937,7 @@ da-dev@xfel.eu"""
         log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
         self.db.set_variable(prop, run, name, ReducedData(value))
         if self._connect_to_kafka:
-            self.update_agent.run_values_updated(prop, run, name, value)
+            self.update_producer.run_values_updated(prop, run, name, value)
 
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
@@ -992,7 +999,7 @@ da-dev@xfel.eu"""
                 )
                 if self._connect_to_kafka:
                     for req, (job_id, cluster) in zip(reqs, submitted):
-                        self.update_agent.processing_submitted(
+                        self.update_producer.processing_submitted(
                             req.submitted_info(cluster, job_id)
                         )
 
@@ -1166,6 +1173,37 @@ class LogViewWindow(QtWidgets.QMainWindow):
         self._timer.stop()
         super().closeEvent(event)
 
+class UpdateConsumer(QtCore.QObject):
+    message = QtCore.pyqtSignal(object)
+
+    def __init__(self, topic: str) -> None:
+        QtCore.QObject.__init__(self)
+
+        self.kafka_cns = KafkaConsumer(
+            topic, bootstrap_servers=UPDATE_BROKERS
+        )
+        self.running = False
+
+    def listen_loop(self) -> None:
+        self.running = True
+
+        while self.running:
+            # Note: this doesn't throw an exception on timeout, it just returns
+            # an empty dict.
+            topic_messages = self.kafka_cns.poll(timeout_ms=100)
+
+            for topic, messages in topic_messages.items():
+                for msg in messages:
+                    try:
+                        unpickled_msg = pickle.loads(msg.value)
+                    except Exception:
+                        log.error("Kafka event could not be un-pickled.", exc_info=True)
+                        continue
+
+                    self.message.emit(unpickled_msg)
+
+    def stop(self):
+        self.running = False
 
 def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
     if not db_path(context_dir).is_file():

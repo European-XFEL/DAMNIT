@@ -1,6 +1,7 @@
 import pytest
 
 from damnit.backend.db import complex2blob, blob2complex
+from damnit.backend.user_variables import UserEditableVariable
 
 
 def test_metameta(mock_db):
@@ -44,6 +45,22 @@ def test_standalone_comment(mock_db):
     res = [tuple(r) for r in db.conn.execute("SELECT * FROM time_comments")]
     assert res == [(ts, 'Revised comment')]
 
+
+def test_add_user_variable(mock_db):
+    _, db = mock_db
+
+    # Add a user-editable variable
+    assert "foo" not in db.get_user_variables()
+    db.add_user_variable(UserEditableVariable("foo", "Foo", "int"))
+    assert "foo" in db.get_user_variables()
+
+    # Try to change the title
+    db.add_user_variable(UserEditableVariable("foo", "Bar", "int"), overwrite=True)
+    assert db.get_user_variables()["foo"].title == "Bar"
+
+    # Changing the type should fail
+    with pytest.raises(RuntimeError):
+        db.add_user_variable(UserEditableVariable("foo", "Bar", "string"), overwrite=True)
 
 def test_tags(mock_db_with_data):
     _, db = mock_db_with_data

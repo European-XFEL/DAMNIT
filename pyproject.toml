@@ -18,6 +18,7 @@ dependencies = [
     "h5netcdf>=1.4.1",
     "h5py",
     "numpy",
+    "kafka-python-ng",
     "orjson",  # used in plotly for faster json serialization
     "pandas",
     "plotly",
@@ -28,7 +29,6 @@ dependencies = [
 backend = [
     "EXtra-data",
     "ipython",
-    "kafka-python-ng",
     "kaleido",  # used in plotly to convert figures to images
     "matplotlib",
     "numpy",

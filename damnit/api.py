@@ -8,8 +8,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .backend.db import BlobTypes, DamnitDB, blob2complex
+from .backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex
 from .util import isinstance_no_import
+from .kafka import UpdateProducer
 
 
 # This is a copy of damnit.ctxsupport.ctxrunner.DataType, purely so that we can
@@ -37,6 +38,13 @@ def find_proposal(propno):
     raise FileNotFoundError("Couldn't find proposal dir for {!r}".format(propno))
 
 
+# This variable is meant to be an instance of UpdateProducer, but we lazily
+# initialize it because creating the producer because takes ~100ms. Which isn't
+# very much, but it may otherwise be created hundreds of times if used in a
+# context file so it's better to avoid it where possible.
+UPDATE_PRODUCER = None
+
+
 class VariableData:
     """Represents a variable for a single run.
 
@@ -47,7 +55,7 @@ class VariableData:
     def __init__(self, name: str, title: str,
                  proposal: int, run: int,
                  h5_path: Path, data_format_version: int,
-                 db: DamnitDB, db_only: bool):
+                 db: DamnitDB, db_only: bool, missing: bool):
         self._name = name
         self._title = title
         self._proposal = proposal
@@ -56,6 +64,7 @@ class VariableData:
         self._data_format_version = data_format_version
         self._db = db
         self._db_only = db_only
+        self._missing = missing
 
     @property
     def name(self) -> str:
@@ -151,6 +160,50 @@ class VariableData:
             else:
                 # Otherwise, return a Numpy array
                 return group["data"][()]
+
+    def write(self, value, send_update=True):
+        """Write a value to a user-editable variable.
+
+        This may throw an exception if converting `value` to the type of the
+        editable variable fails, e.g. `db[100]["number"] = "foo"` will fail if
+        the `number` variable has a numeric type.
+
+        Args:
+            value: The new value to be saved in the database. Passing `None`
+                will delete the entry for the run.
+            send_update (bool): Whether or not to send an update after
+                writing to the database. Don't use this unless you know what
+                you're doing, it may disappear in the future.
+        """
+        if not self._db_only:
+            raise RuntimeError(f"Cannot write to variable '{self.name}', it's not a user-editable variable.")
+
+        user_variable = self._db.get_user_variables()[self.name]
+        variable_type = user_variable.get_type_class()
+
+        # Convert the input if a non-None value was passed
+        if value is not None:
+            ex = TypeError(f"Forbidden conversion of value {value!r} to type '{variable_type.py_type}'")
+            try:
+                # Sometimes the underlying conversion functions will throw a
+                # `ValueError`, e.g. `int("foo")`.
+                value = variable_type.to_db_value(value)
+            except ValueError:
+                raise ex
+
+            if value is None:
+                raise ex
+
+        # Write to the database
+        self._db.set_variable(self.proposal, self.run, self.name, ReducedData(value))
+
+        if send_update:
+            global UPDATE_PRODUCER
+            if UPDATE_PRODUCER is None:
+                UPDATE_PRODUCER = UpdateProducer(None)
+
+            UPDATE_PRODUCER.variable_set(self.name, self.title, variable_type.type_name,
+                                      flush=True, topic=self._db.kafka_topic)
 
     def summary(self):
         """Read the summary data for a variable.
@@ -318,21 +371,46 @@ class RunVariables:
         """The path to the HDF5 file for the run."""
         return self._h5_path
 
-    def __getitem__(self, name):
+    def _get_variable(self, name):
         key_locs = self._key_locations()
-        names_to_titles = self._var_titles()
+        names_to_titles = self._var_titles(all_vars=True)
         titles_to_names = { title: name for name, title in names_to_titles.items() }
-
-        if name not in key_locs and name not in titles_to_names:
-            raise KeyError(f"Variable data for {name!r} not found for p{self.proposal}, r{self.run}")
 
         if name in titles_to_names:
             name = titles_to_names[name]
 
-        return VariableData(name, names_to_titles[name],
+        if name not in key_locs and name not in names_to_titles:
+            raise KeyError(f"Variable data for {name!r} not found for p{self.proposal}, r{self.run}")
+
+        missing = name not in key_locs
+        user_variables = self._db.get_user_variables()
+        if missing and name in user_variables:
+            key_locs[name] = True
+        elif missing and name not in user_variables:
+            raise KeyError(f"Variable data for {name!r} not found for p{self.proposal}, r{self.run}")
+
+        return VariableData(name, names_to_titles.get(name),
                             self.proposal, self.run,
                             self._h5_path, self._data_format_version,
-                            self._db, key_locs[name])
+                            self._db, key_locs[name],
+                            missing)
+
+    def __getitem__(self, name):
+        variable = self._get_variable(name)
+        if variable._missing:
+            raise KeyError(f"Variable data for {name!r} not found for p{self.proposal}, r{self.run}")
+
+        return variable
+
+    def __setitem__(self, name, value):
+        variable = self._get_variable(name)
+
+        # The environment variable is basically only useful for tests
+        send_update = bool(int(os.environ.get("DAMNIT_API_SEND_UPDATE", 1)))
+        variable.write(value, send_update)
+
+    def __delitem__(self, name):
+        self.__setitem__(name, None)
 
     def _key_locations(self):
         # Read keys from the HDF5 file
@@ -366,17 +444,16 @@ class RunVariables:
         """
         return sorted(self._key_locations().keys())
 
-    def _var_titles(self):
+    def _var_titles(self, all_vars=False):
         result = self._db.conn.execute("SELECT name, title FROM variables").fetchall()
         available_vars = self.keys()
         titles = { row[0]: row[1] if row[1] is not None else row[0] for row in result
-                   if row[0] in available_vars }
+                   if all_vars or row[0] in available_vars }
 
         # These variables are created automatically, but they aren't included in
         # the `variables` table (yet) so we need to explicitly add their titles.
         special_vars = {
             "start_time": "Timestamp",
-            "comment": "Comment"
         }
         for name, title in special_vars.items():
             if name in available_vars:

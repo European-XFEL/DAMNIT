@@ -149,6 +149,10 @@ class DamnitDB:
             elif data_format_version < DATA_FORMAT_VERSION:
                 self.upgrade_schema(data_format_version)
 
+        # Ensure that the `comment` column exists in the database as a
+        # user-editable variable.
+        self.add_user_variable(UserEditableVariable("comment", "Comment", "string"), exist_ok=True)
+
     @classmethod
     def from_dir(cls, path):
         return cls(Path(path, DB_NAME))
@@ -210,10 +214,20 @@ class DamnitDB:
     def change_run_comment(self, proposal: int, run: int, comment: str):
         self.set_variable(proposal, run, "comment", ReducedData(comment))
 
-    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
+    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False, overwrite=False):
         v = variable
+        current_user_vars = self.get_user_variables()
+        if exist_ok and not overwrite and v.name in current_user_vars:
+            return
+
+        if overwrite and v.name in current_user_vars:
+            current_type = current_user_vars[v.name].variable_type
+            new_type = v.variable_type
+            if new_type != current_type:
+                raise RuntimeError("Changing the type of variable '{v.name}' from {current_type} to {new_type} is not supported")
+
         with self.conn:
-            or_replace = ' OR REPLACE' if exist_ok else ''
+            or_replace = ' OR REPLACE' if overwrite else ''
             self.conn.execute(
                 f"INSERT{or_replace} INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
                 (v.name, v.variable_type, v.title, v.description)
@@ -237,7 +251,7 @@ class DamnitDB:
                 attributes=rr["attributes"],
             )
             user_variables[var_name] = new_var
-        log.debug("Loaded %d user variables", len(user_variables))
+
         return user_variables
 
     def update_computed_variables(self, vars: dict):
