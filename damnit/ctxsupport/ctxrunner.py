@@ -350,12 +350,17 @@ class ContextFile:
 
                 cell = var.evaluate(run_data, kwargs)
             except Exception as e:
+                sys.stdout.flush()  # As in the else block
                 if isinstance(e, Skip):
                     log.error("Skipped %s: %s", name, e)
                 else:
                     log.error("Could not get data for %s", name, exc_info=True)
                 errors[name] = e
             else:
+                # When output is going to a file, stdout is block buffered, so
+                # this ensures that print()-ed messages appear before the log
+                # message (on stderr) that the variable has finished.
+                sys.stdout.flush()
                 t1 = time.perf_counter()
                 log.info("Computed %s in %.03f s", name, t1 - t0)
                 if not var.transient:
