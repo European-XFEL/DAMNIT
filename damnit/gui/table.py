@@ -860,6 +860,17 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item = self.item(row, col)
         return item.data(Qt.UserRole) if item is not None else None
 
+    # QStandardItemModel assumes empty cells (no item) can be edited, regardless
+    # of itemPrototype. This override prevents editing empty cells.
+    def flags(self, model_index):
+        # Not using itemFromIndex() here, as it creates & inserts items
+        if model_index.isValid() and model_index.model() is self:
+            itm = self.item(model_index.row(), model_index.column())
+            if itm is not None:
+                return itm.flags()
+
+        return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled |Qt.ItemIsDropEnabled
+
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
             return False
