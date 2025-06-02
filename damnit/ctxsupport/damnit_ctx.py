@@ -231,7 +231,7 @@ class Cell:
     def get_summary(self):
         if self.summary_value is not None:
             return self.summary_value
-        elif self.summary is not None:
+        elif (self.data is not None) and (self.summary is not None):
             try:
                 return np.asarray(getattr(np, self.summary)(self.data))
             except Exception:
