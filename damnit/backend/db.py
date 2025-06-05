@@ -47,6 +47,21 @@ CREATE TABLE IF NOT EXISTS variable_tags(
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (variable_name, tag_id)
 );
+
+-- Trigger to remove an orphaned tag after its last reference is deleted from variable_tags
+CREATE TRIGGER IF NOT EXISTS delete_orphan_tags_after_variable_tag_delete
+AFTER DELETE ON variable_tags
+FOR EACH ROW
+BEGIN
+    -- Check if the tag_id from the deleted row (OLD.tag_id)
+    -- no longer exists in any other row in variable_tags
+    DELETE FROM tags
+    WHERE id = OLD.tag_id
+    AND NOT EXISTS (
+        SELECT 1 FROM variable_tags
+        WHERE tag_id = OLD.tag_id
+    );
+END;
 """
 
 
@@ -112,6 +127,8 @@ class DamnitDB:
         # Ensure the database is writable by everyone
         if os.stat(path).st_uid == os.getuid():
             os.chmod(path, 0o666)
+        # Enable foreign key enforcement for this connection
+        self.conn.execute("PRAGMA foreign_keys = ON;") 
 
         self.conn.row_factory = sqlite3.Row
         self.metameta = MetametaMapping(self.conn)
@@ -397,67 +414,65 @@ class DamnitDB:
     def add_tag(self, tag_name: str) -> int:
         """Add a new tag to the database if it doesn't exist.
         Returns the tag ID."""
-        cursor = self.conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
-        self.conn.commit()
-        cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
-        return cursor.fetchone()[0]
+        with self.conn:
+            self.conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
+            cursor = self.conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+            return cursor.fetchone()[0]
 
     def get_tag_id(self, tag_name: str) -> Optional[int]:
         """Get the ID of a tag by its name."""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
-        result = cursor.fetchone()
-        return result[0] if result else None
+        with self.conn:
+            cursor = self.conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+            result = cursor.fetchone()
+            return result[0] if result else None
 
     def tag_variable(self, variable_name: str, tag_name: str):
         """Associate a tag with a variable."""
         tag_id = self.add_tag(tag_name)
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT OR IGNORE INTO variable_tags (variable_name, tag_id) VALUES (?, ?)",
-            (variable_name, tag_id)
-        )
-        self.conn.commit()
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO variable_tags (variable_name, tag_id) VALUES (?, ?)",
+                (variable_name, tag_id)
+            )
 
     def untag_variable(self, variable_name: str, tag_name: str):
         """Remove a tag association from a variable."""
         tag_id = self.get_tag_id(tag_name)
         if tag_id is not None:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "DELETE FROM variable_tags WHERE variable_name = ? AND tag_id = ?",
-                (variable_name, tag_id)
-            )
-            self.conn.commit()
+            with self.conn:
+                self.conn.execute(
+                    "DELETE FROM variable_tags WHERE variable_name = ? AND tag_id = ?",
+                    (variable_name, tag_id)
+                )
 
     def get_variable_tags(self, variable_name: str) -> list[str]:
         """Get all tags associated with a variable."""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT t.name
-            FROM tags t
-            JOIN variable_tags vt ON t.id = vt.tag_id
-            WHERE vt.variable_name = ?
-        """, (variable_name,))
-        return [row[0] for row in cursor.fetchall()]
+        with self.conn:
+            cursor = self.conn.execute("""
+                SELECT t.name
+                FROM tags t
+                JOIN variable_tags vt ON t.id = vt.tag_id
+                WHERE vt.variable_name = ?
+            """, (variable_name,))
+            return [row[0] for row in cursor.fetchall()]
 
     def get_variables_by_tag(self, tag_name: str) -> list[str]:
         """Get all variables that have a specific tag."""
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT vt.variable_name
-            FROM variable_tags vt
-            JOIN tags t ON vt.tag_id = t.id
-            WHERE t.name = ?
-        """, (tag_name,))
-        return [row[0] for row in cursor.fetchall()]
+        with self.conn:
+            cursor = self.conn.execute("""
+                SELECT vt.variable_name
+                FROM variable_tags vt
+                JOIN tags t ON vt.tag_id = t.id
+                WHERE t.name = ?
+            """, (tag_name,))
+            return [row[0] for row in cursor.fetchall()]
 
     def get_all_tags(self) -> list[str]:
         """Get all existing tags."""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT name FROM tags ORDER BY name")
-        return [row[0] for row in cursor.fetchall()]
+        with self.conn:
+            cursor = self.conn.execute("SELECT name FROM tags ORDER BY name")
+            return [row[0] for row in cursor.fetchall()]
+
 
 class MetametaMapping(MutableMapping):
     def __init__(self, conn):
