@@ -1,6 +1,6 @@
 import pytest
 
-from damnit.backend.db import complex2blob, blob2complex
+from damnit.backend.db import complex2blob, blob2complex, DamnitDB
 
 
 def test_metameta(mock_db):
@@ -89,6 +89,77 @@ def test_tags(mock_db_with_data):
 
     # Test untagging with nonexistent variable (should not raise error)
     db.untag_variable("nonexistent_var", "important")
+
+
+def test_tag_cleanup(tmp_path):
+    """
+    Tests that the SQLite trigger correctly cleans up orphaned tags
+    when variable-tag associations are removed or variables are deleted.
+    """
+    db = DamnitDB.from_dir(tmp_path)
+
+    # helper function
+    def _var_def(title, tags=None):
+        return {
+            "title": title,
+            "description": f"Desc for {title}",
+            "tags": tags,
+            "attributes": None,
+            "type": None,
+        }
+
+    # 1. remove tags by updating variables
+    db.update_computed_variables({
+        "var1": _var_def("Var1 Title", ["tagA", "tagB"]),
+        "var2": _var_def("Var2 Title", ["tagB"]),
+    })
+    assert set(db.get_all_tags()) == {"tagA", "tagB"}
+    assert set(db.get_variable_tags("var1")) == {"tagA", "tagB"}
+    assert set(db.get_variable_tags("var2")) == {"tagB"}
+
+    # Update var1 to remove tagA. 'tagA' is removed by trigger.
+    db.update_computed_variables({
+        "var1": _var_def("Var1 Title", ["tagB"]),
+        "var2": _var_def("Var2 Title", ["tagB"]),
+    })
+    assert set(db.get_all_tags()) == {"tagB"}
+    assert set(db.get_variable_tags("var1")) == {"tagB"}
+    assert set(db.get_variable_tags("var2")) == {"tagB"}
+
+    # Update var1 to remove tagB. 'tagB' is still used by var2, so it remains.
+    db.update_computed_variables({
+        "var1": _var_def("Var1 Title"),
+        "var2": _var_def("Var2 Title", ["tagB"]),
+    })
+    assert set(db.get_all_tags()) == {"tagB"}
+    assert set(db.get_variable_tags("var1")) == set()
+    assert set(db.get_variable_tags("var2")) == {"tagB"}
+
+    # Update var2 to remove tagB. 'tagB' now becomes orphaned and trigger removes it.
+    db.update_computed_variables({
+        "var1": _var_def("Var1 Title"),
+        "var2": _var_def("Var2 Title")
+    })
+    assert set(db.get_variable_tags("var2")) == set()
+    assert set(db.get_all_tags()) == set()
+
+    # 2. remove tags by delete_variable
+    db.update_computed_variables({
+        "var3": _var_def("Var3 Title", ["tagC", "tagD"]),
+        "var4": _var_def("Var4 Title", ["tagD"]),
+    })
+    assert set(db.get_all_tags()) == {"tagC", "tagD"}
+
+    # Delete var3.
+    db.delete_variable("var3")
+    assert set(db.get_all_tags()) == {"tagD"}
+    assert "var3" not in {row[0] for row in db.conn.execute("SELECT name FROM variables")}
+    assert set(db.get_variable_tags("var4")) == {"tagD"}
+
+    # Delete var4.
+    db.delete_variable("var4")
+    assert set(db.get_all_tags()) == set()
+    assert "var4" not in {row[0] for row in db.conn.execute("SELECT name FROM variables")}
 
 
 @pytest.mark.parametrize("value", [
