@@ -1,0 +1,44 @@
+CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
+CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
+
+-- attributes column was added in v2
+CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type, summary_method, attributes);
+CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
+
+-- These are dummy views that will be overwritten later, but they should at least
+-- exist on startup.
+CREATE VIEW IF NOT EXISTS runs      AS SELECT * FROM run_info;
+CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
+
+CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
+CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
+CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
+
+-- Tags related tables
+CREATE TABLE IF NOT EXISTS tags(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS variable_tags(
+    variable_name TEXT NOT NULL,
+    tag_id INTEGER NOT NULL,
+    FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (variable_name, tag_id)
+);
+
+-- Trigger to remove an orphaned tag after its last reference is deleted from variable_tags
+-- Added in schema version 3
+CREATE TRIGGER IF NOT EXISTS delete_orphan_tags_after_variable_tag_delete
+AFTER DELETE ON variable_tags
+FOR EACH ROW
+BEGIN
+    -- Check if the tag_id from the deleted row (OLD.tag_id)
+    -- no longer exists in any other row in variable_tags
+    DELETE FROM tags
+    WHERE id = OLD.tag_id
+    AND NOT EXISTS (
+        SELECT 1 FROM variable_tags
+        WHERE tag_id = OLD.tag_id
+    );
+END;

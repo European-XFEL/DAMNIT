@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment);
+CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr);
+CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
+CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
+CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);

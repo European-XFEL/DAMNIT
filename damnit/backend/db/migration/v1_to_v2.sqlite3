@@ -1,0 +1,19 @@
+BEGIN TRANSACTION;
+
+-- attributes column is new in v2
+ALTER TABLE run_variables ADD COLUMN attributes
+
+-- Tags related tables
+CREATE TABLE IF NOT EXISTS tags(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS variable_tags(
+    variable_name TEXT NOT NULL,
+    tag_id INTEGER NOT NULL,
+    FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (variable_name, tag_id)
+);
+
+COMMIT;

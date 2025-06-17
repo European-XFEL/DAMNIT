@@ -14,55 +14,14 @@ from typing import Any, Optional
 from ..definitions import UPDATE_TOPIC
 from .user_variables import UserEditableVariable
 
-DB_NAME = Path('runs.sqlite')
-
 log = logging.getLogger(__name__)
 
-V2_SCHEMA = """
-CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
-CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
+DB_NAME = Path('runs.sqlite')
+DATA_FORMAT_VERSION = 3
+MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
--- attributes column is new in v2
-CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type, summary_method, attributes);
-CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
-
--- These are dummy views that will be overwritten later, but they should at least
--- exist on startup.
-CREATE VIEW IF NOT EXISTS runs      AS SELECT * FROM run_info;
-CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
-
-CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
-CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
-CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
-
--- Tags related tables
-CREATE TABLE IF NOT EXISTS tags(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL
-);
-CREATE TABLE IF NOT EXISTS variable_tags(
-    variable_name TEXT NOT NULL,
-    tag_id INTEGER NOT NULL,
-    FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (variable_name, tag_id)
-);
-
--- Trigger to remove an orphaned tag after its last reference is deleted from variable_tags
-CREATE TRIGGER IF NOT EXISTS delete_orphan_tags_after_variable_tag_delete
-AFTER DELETE ON variable_tags
-FOR EACH ROW
-BEGIN
-    -- Check if the tag_id from the deleted row (OLD.tag_id)
-    -- no longer exists in any other row in variable_tags
-    DELETE FROM tags
-    WHERE id = OLD.tag_id
-    AND NOT EXISTS (
-        SELECT 1 FROM variable_tags
-        WHERE tag_id = OLD.tag_id
-    );
-END;
-"""
+with open("db/schema/v{DATA_FORMAT_VERSION}.sqlite3", "r") as f:
+    SCHEMA = f.read()
 
 
 class SummaryType(Enum):
@@ -114,8 +73,6 @@ def blob2complex(data: bytes) -> complex:
 def db_path(root_path: Path):
     return root_path / DB_NAME
 
-DATA_FORMAT_VERSION = 2
-MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 class DamnitDB:
     def __init__(self, path=DB_NAME, allow_old=False):
@@ -143,7 +100,7 @@ class DamnitDB:
             data_format_version = DATA_FORMAT_VERSION
 
         if can_apply_schema:
-            self.conn.executescript(V2_SCHEMA)
+            self.conn.executescript(SCHEMA)
 
         # A random ID for the update topic
         if 'db_id' not in self.metameta:
@@ -181,8 +138,11 @@ class DamnitDB:
         log.info("Upgrading database format from v%d to v%d",
                  from_version, DATA_FORMAT_VERSION)
         with self.conn:
-            if from_version < 2:
-                self.conn.execute("ALTER TABLE run_variables ADD COLUMN attributes")
+            for version in range(from_version, DATA_FORMAT_VERSION + 1):
+                diff = f'{version}_to_{version + 1}.sqlite3'
+                with open(f'db/migration/{diff}', 'r') as f:
+                    log.debug(f"updating database schema from version {version} to {version + 1}")
+                    self.conn.executescript(f.read())
 
             # Now set data_format_version to the current version
             self.conn.execute(
@@ -562,16 +522,6 @@ class MsgKind(Enum):
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
 
-
-# Old schemas for reference and migration
-
-V0_SCHEMA = """
-CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment);
-CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON runs (proposal, runnr);
-CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
-CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
-CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
-"""
 
 if __name__ == '__main__':
     DamnitDB()
