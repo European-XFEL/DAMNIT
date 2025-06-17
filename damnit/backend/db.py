@@ -20,7 +20,7 @@ DB_NAME = Path('runs.sqlite')
 DATA_FORMAT_VERSION = 3
 MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
-with open("db/schema/v{DATA_FORMAT_VERSION}.sqlite3", "r") as f:
+with open(Path(__file__).parent / f"db/schema/v{DATA_FORMAT_VERSION}.sqlite3", "r") as f:
     SCHEMA = f.read()
 
 
@@ -135,13 +135,12 @@ class DamnitDB:
         return UPDATE_TOPIC.format(self.metameta['db_id'])
 
     def upgrade_schema(self, from_version):
-        log.info("Upgrading database format from v%d to v%d",
-                 from_version, DATA_FORMAT_VERSION)
         with self.conn:
-            for version in range(from_version, DATA_FORMAT_VERSION + 1):
-                diff = f'{version}_to_{version + 1}.sqlite3'
-                with open(f'db/migration/{diff}', 'r') as f:
-                    log.debug(f"updating database schema from version {version} to {version + 1}")
+            for version in range(from_version, DATA_FORMAT_VERSION):
+                log.info(f"updating database schema from version {version} to {version + 1}")
+                diff = f'v{version}_to_v{version + 1}.sqlite3'
+                script_path = Path(__file__).parent / f'db/migration/{diff}'
+                with open(script_path, 'r') as f:
                     self.conn.executescript(f.read())
 
             # Now set data_format_version to the current version
