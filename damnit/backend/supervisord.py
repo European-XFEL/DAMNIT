@@ -143,14 +143,14 @@ def start_backend(root_path: Path, try_again=True):
 
     return True
 
-def initialize_and_start_backend(root_path, proposal=None, context_file_src=None):
+def initialize_and_start_backend(root_path, proposal=None, context_file_src=None, user_vars_src=None):
     # Ensure the directory exists
     root_path.mkdir(parents=True, exist_ok=True)
     if root_path.stat().st_uid == os.getuid():
         os.chmod(root_path, 0o777)
 
     # If the database doesn't exist, create it
-    if not db_path(root_path).is_file():
+    if new_db := not db_path(root_path).is_file():
         if proposal is None:
             raise ValueError("Must pass a proposal number to `initialize_and_start_backend()` if the database doesn't exist yet.")
 
@@ -171,6 +171,12 @@ def initialize_and_start_backend(root_path, proposal=None, context_file_src=None
         else:
             context_path.touch()
         os.chmod(context_path, 0o666)
+
+    # Copy user editable variables if requested
+    if new_db and (user_vars_src is not None):
+        prev_db = DamnitDB(user_vars_src)
+        for var in prev_db.get_user_variables().values():
+            db.add_user_variable(var)
 
     # Start backend
     return start_backend(root_path)

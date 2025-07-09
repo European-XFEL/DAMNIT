@@ -1030,6 +1030,31 @@ def test_initialize_and_start_backend(tmp_path, bound_port, request):
     assert backend_is_running(db_dir)
 
 
+def test_copy_ctx_and_user_vars(tmp_path, mock_db, mock_user_vars):
+    prev_db_dir, prev_db = mock_db
+
+    for var in mock_user_vars.values():
+        prev_db.add_user_variable(var)
+
+    db_dir = tmp_path / "new"
+    db_dir.mkdir()
+    with patch("damnit.backend.supervisord.start_backend"):
+        initialize_and_start_backend(
+            db_dir,
+            1234,
+            context_file_src=(prev_db_dir / "context.py"),
+            user_vars_src=(prev_db_dir / "runs.sqlite")
+        )
+
+    ctx_file = db_dir / "context.py"
+    assert ctx_file.is_file()
+    assert ctx_file.read_text() == (prev_db_dir / "context.py").read_text()
+
+    db_file = db_dir / "runs.sqlite"
+    assert db_file.is_file()
+    assert set(DamnitDB(db_file).get_user_variables()) == set(mock_user_vars)
+
+
 def test_event_processor(mock_db, caplog):
     db_dir, db = mock_db
     db.metameta["proposal"] = 1234

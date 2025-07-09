@@ -378,7 +378,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         # p1234, and the user always wants to create a database and start the
         # backend.
         with (patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
-              patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=template_path),
+              patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=(template_path, None)),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
               patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
               patch.object(win, "autoconfigure")):
@@ -391,7 +391,9 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
         # We expect the database to be initialized and the backend started
         win.autoconfigure.assert_called_once_with(db_dir)
-        initialize_and_start_backend.assert_called_once_with(db_dir, 1234, template_path)
+        initialize_and_start_backend.assert_called_once_with(
+            db_dir, 1234, template_path, None
+        )
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
