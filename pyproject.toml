@@ -19,7 +19,7 @@ dependencies = [
     "h5py",
     "numpy",
     "orjson",  # used in plotly for faster json serialization
-    "pandas",
+    "pandas >=2.1.0",
     "plotly",
     "xarray"
 ]

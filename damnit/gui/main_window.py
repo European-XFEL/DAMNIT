@@ -955,7 +955,7 @@ da-dev@xfel.eu"""
         df = self.table.dataframe_for_export(columns, selected_rows, drop_image_cols=True)
         df.sort_values('Run', axis=0, inplace=True)
 
-        df = df.applymap(prettify_notation)
+        df = df.map(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
         self.zulip_messenger.send_table(df)
 
