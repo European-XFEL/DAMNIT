@@ -251,7 +251,7 @@ class ContextFile:
             if not v.transient or inc_transient
         }
 
-    def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=()):
+    def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=(), lazy=False):
         new_vars = {}
         for name, var in self.vars.items():
 
@@ -277,15 +277,43 @@ class ContextFile:
                 new_vars[name] = var
 
         # Add back any dependencies of the selected variables
-        new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
+        if not lazy:
+            new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
+    def execute(self, run_data, run_number, proposal, input_vars, lazy=False) -> 'Results':
         dep_results = {'start_time': get_start_time(run_data)}
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         mymdc = None
+
+        if lazy:
+            # Find all dependencies of the variables we're going to run
+            deps_to_load = set()
+            for var in self.vars.values():
+                for param in inspect.signature(var.func).parameters.values():
+                    annotation = param.annotation
+                    if isinstance(annotation, str) and annotation.startswith("var#"):
+                        deps_to_load.add(annotation.removeprefix("var#"))
+
+            if deps_to_load:
+                try:
+                    from damnit.api import Damnit
+                    db = Damnit(proposal)
+
+                    for dep_name in deps_to_load:
+                        try:
+                            var_data = db[run_number, dep_name]
+                            dep_results[dep_name] = var_data.read()
+                        except KeyError:
+                            log.warning(f"Lazy dependency '{dep_name}' not found in database for p{proposal} r{run_number}")
+                        except Exception as e:
+                            log.warning(f"Failed to load lazy dependency '{dep_name}' for p{proposal} r{run_number}: {e}")
+                except FileNotFoundError:
+                    log.error(f"Could not find DAMNIT database for proposal {proposal} to do lazy loading. Dependencies will be missing.")
+                except ImportError as e:
+                    log.error(f"Failed to import damnit.api, cannot do lazy loading: {e}")
 
         for name in self.ordered_vars():
             t0 = time.perf_counter()
@@ -780,6 +808,8 @@ def main(argv=None):
     exec_ap.add_argument('--var', action="append", default=[])
     exec_ap.add_argument('--save', action='append', default=[])
     exec_ap.add_argument('--save-reduced', action='append', default=[])
+    exec_ap.add_argument('--lazy', action='store_true',
+                         help="Only execute selected variables, loading dependencies from existing data.")
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -813,7 +843,7 @@ def main(argv=None):
         ctx_whole.check()
         ctx = ctx_whole.filter(
             run_data=run_data, cluster=args.cluster_job, name_matches=args.match,
-            variables=args.var,
+            variables=args.var, lazy=args.lazy,
         )
         log.info("Using %d variables (of %d) from context file %s",
              len(ctx.vars), len(ctx_whole.vars),
@@ -827,7 +857,8 @@ def main(argv=None):
             actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
             run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
 
-        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
+        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={},
+                          lazy=args.lazy)
 
         for path in args.save:
             res.save_hdf5(path)
