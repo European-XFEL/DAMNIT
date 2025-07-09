@@ -98,6 +98,7 @@ class ExtractionRequest:
     variables: tuple = ()   # Overrides match if present
     mock: bool = False
     update_vars: bool = True
+    lazy: bool = False
     processing_id: str = field(default_factory=lambda : str(uuid4()))
 
     def python_cmd(self):
@@ -119,6 +120,8 @@ class ExtractionRequest:
             cmd.append('--mock')
         if self.update_vars:
             cmd.append('--update-vars')
+        if self.lazy:
+            cmd.append('--lazy')
         return cmd
 
     def submitted_info(self, cluster, job_id):

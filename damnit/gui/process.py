@@ -121,6 +121,9 @@ class ProcessingDialog(QtWidgets.QDialog):
         hbox_select_btns.addWidget(self.btn_deselect_all)
         vbox2.addLayout(hbox_select_btns)
 
+        self.lazy_cb = QtWidgets.QCheckBox("Lazy processing (only (re)calculate selected variables)")
+        main_vbox.addWidget(self.lazy_cb)
+
         self.dlg_buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.dlg_buttons.button(QDialogButtonBox.Ok).setEnabled(False)
         self.dlg_buttons.accepted.connect(self.accept)
@@ -200,6 +203,9 @@ class ProcessingDialog(QtWidgets.QDialog):
         return [itm.data(Qt.UserRole) for itm in self._var_list_items()
                 if itm.checkState() == Qt.Checked]
 
+    def is_lazy(self):
+        return self.lazy_cb.isChecked()
+
     def extraction_requests(self) -> list[ExtractionRequest]:
         prop = int(self.proposal_num())
         # If all variables are selected, don't specify them explicitly, so that
@@ -208,7 +214,7 @@ class ProcessingDialog(QtWidgets.QDialog):
             var_ids = ()
         else:
             var_ids = tuple(self.selected_vars())
-        l = [ExtractionRequest(r, prop, RunData.ALL, variables=var_ids)
+        l = [ExtractionRequest(r, prop, RunData.ALL, variables=var_ids, lazy=self.is_lazy())
              for r in self.selected_runs]
         for req in l[1:]:
             req.update_vars = False
