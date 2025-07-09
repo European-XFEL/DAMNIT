@@ -26,7 +26,7 @@ from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
 from ..definitions import UPDATE_BROKERS
-from ..util import fix_data_for_plotting, isinstance_no_import
+from ..util import isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
 from .new_context_dialog import NewContextFileDialog
@@ -677,9 +677,11 @@ da-dev@xfel.eu"""
                         self, f"Can't inspect variable {quantity}", str(exc))
                     return
             else:
+                if data.dtype == np.bool_:
+                    data = data.astype(np.float64)
                 canvas = ScatterPlotWindow(self,
                     x=[np.arange(len(data))],
-                    y=[fix_data_for_plotting(data)],
+                    y=[data],
                     xlabel=f"Event (run {run})",
                     ylabel=quantity_title,
                     title=title,
