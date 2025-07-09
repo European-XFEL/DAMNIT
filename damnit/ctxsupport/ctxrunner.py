@@ -277,7 +277,29 @@ class ContextFile:
                 new_vars[name] = var
 
         # Add back any dependencies of the selected variables
-        if not lazy:
+        if lazy:
+            # We start with the set of vars to execute
+            vars_to_execute = set(new_vars.keys())
+
+            while True:
+                newly_added = set()
+                
+                for var_name in list(vars_to_execute):
+                    var = self.vars[var_name]
+                    direct_deps = set(var.arg_dependencies().values())
+                    for dep_name in direct_deps:
+                        dep_var = self.vars[dep_name]
+                        if dep_var.transient and dep_name not in vars_to_execute:
+                            newly_added.add(dep_name)
+
+                if not newly_added:
+                    break
+
+                vars_to_execute.update(newly_added)
+
+            # Update new_vars from the final set
+            new_vars = {name: self.vars[name] for name in vars_to_execute}
+        else:
             new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
         return ContextFile(new_vars, self.code)
