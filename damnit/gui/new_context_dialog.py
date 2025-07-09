@@ -75,13 +75,13 @@ class NewContextFileDialog(QDialog):
         if path:
             self.ui.file_edit.setText(path)
 
-    def run_get_result(self) -> Optional[Path]:
+    def run_get_result(self) -> (Optional[Path], Optional[Path]):
         if self.exec() == QDialog.Rejected:
-            return None
+            return None, None
 
         if self.ui.template_rb.isChecked():
             item = self.ui.template_list.currentItem()
-            return Path(item.data(Qt.ItemDataRole.UserRole))
+            return Path(item.data(Qt.ItemDataRole.UserRole)), None
 
         elif self.ui.proposal_rb.isChecked():
             propnum = self.ui.proposal_edit.text()
@@ -96,7 +96,8 @@ class NewContextFileDialog(QDialog):
                 QMessageBox.critical(self, "No context file",
                                      f"Proposal {propnum} didn't contain a context file")
                 return self.run_get_result()
-            return path
+            copy_user_vars = self.ui.user_vars_cb.isChecked()
+            return path, (path.parent / "runs.sqlite" if copy_user_vars else None)
 
         else:  # file_rb
-            return Path(self.ui.file_edit.text())
+            return Path(self.ui.file_edit.text()), None

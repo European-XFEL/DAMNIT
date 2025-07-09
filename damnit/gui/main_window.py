@@ -1180,11 +1180,11 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
 
         if not (context_dir / 'context.py').is_file():
             new_ctx_dialog = NewContextFileDialog(context_dir, parent)
-            context_file_src = new_ctx_dialog.run_get_result()
+            context_file_src, user_vars_src = new_ctx_dialog.run_get_result()
             if context_file_src is None:
                 return False
         else:
-            context_file_src = None
+            context_file_src = user_vars_src = None
 
         if prop_no is None:
             prop_no, ok = QtWidgets.QInputDialog.getInt(
@@ -1192,7 +1192,9 @@ def prompt_setup_db_and_backend(context_dir: Path, prop_no=None, parent=None):
             )
             if not ok:
                 return False
-        initialize_and_start_backend(context_dir, prop_no, context_file_src)
+        initialize_and_start_backend(
+            context_dir, prop_no, context_file_src, user_vars_src
+        )
         return True
 
     # The folder already contains a database
