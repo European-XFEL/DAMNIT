@@ -185,6 +185,7 @@ class DamnitDB:
             if from_version < 2:
                 self.conn.execute("ALTER TABLE run_variables ADD COLUMN attributes")
                 self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (2,))
+                self.conn.commit()
 
             if from_version < 3:
                 self.conn.executescript(dedent("""\
@@ -201,6 +202,7 @@ class DamnitDB:
                         PRIMARY KEY (variable_name, tag_id)
                     );"""))
                 self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (3,))
+                self.conn.commit()
 
             if from_version < 4:
                 self.conn.execute(dedent("""\
@@ -219,6 +221,7 @@ class DamnitDB:
                         );
                     END;"""))
                 self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (4,))
+                self.conn.commit()
 
     def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
