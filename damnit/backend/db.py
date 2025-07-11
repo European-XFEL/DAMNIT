@@ -184,16 +184,15 @@ class DamnitDB:
         with self.conn:
             if from_version < 2:
                 self.conn.execute("ALTER TABLE run_variables ADD COLUMN attributes")
-            
+                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (2,))
+
             if from_version < 3:
-                self.conn.execute(dedent("""\
+                self.conn.executescript(dedent("""\
                     -- Tags related tables
                     CREATE TABLE IF NOT EXISTS tags(
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT UNIQUE NOT NULL
-                    );"""))
-                
-                self.conn.execute(dedent("""\
+                    );
                     CREATE TABLE IF NOT EXISTS variable_tags(
                         variable_name TEXT NOT NULL,
                         tag_id INTEGER NOT NULL,
@@ -201,6 +200,7 @@ class DamnitDB:
                         FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
                         PRIMARY KEY (variable_name, tag_id)
                     );"""))
+                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (3,))
 
             if from_version < 4:
                 self.conn.execute(dedent("""\
@@ -218,12 +218,7 @@ class DamnitDB:
                             WHERE tag_id = OLD.tag_id
                         );
                     END;"""))
-
-            # Now set data_format_version to the current version
-            self.conn.execute(
-                "UPDATE metameta SET value=? WHERE key='data_format_version'",
-                (DATA_FORMAT_VERSION,)
-            )
+                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (4,))
 
     def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
