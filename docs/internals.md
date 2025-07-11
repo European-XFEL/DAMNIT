@@ -90,7 +90,17 @@ a proposal by default:
 The DAMNIT data format details the exact structure of the data in the database
 and HDF5 files.
 
-### v2 (current)
+### v4 (current)
+
+Adds a trigger to remove orphaned tags after their last reference is deleted
+from `variable_tags`.
+
+### v3
+
+Adds `tags` and `variables_tags` tables to the database schema which stores
+tags (any string) associated to variables.
+
+### v2
 
 This is a minor change to the database schema, adding an `attributes` column to
 the `run_variables` table which contains summary values for the table.
