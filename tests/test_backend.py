@@ -1213,3 +1213,84 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         "SELECT attributes FROM run_variables WHERE name='var4'"
     ).fetchone()[0]
     assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
+
+
+def test_variable_group(mock_run, caplog):
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class TestGroup(VariableGroup):
+        def __init__(self, title, calib, **kwargs):
+            self.calibration_factor = calib
+            super().__init__(title, **kwargs)
+
+        @Variable(title="Raw Value", tags="raw")
+        def raw_value(self, run):
+            return 10
+
+        @Variable(title="Calibrated Value")
+        def calibrated_value(self, run, raw: "var#raw_value"):
+            return raw * self.calibration_factor
+
+        @Variable(title="Offset Value", summary="max")
+        def offset_value(self, run, test_value: int, offset: 'input#offset'=5):
+            return test_value + offset
+
+    # Instantiate the group
+    my_group = TestGroup("My Test Group", calib=1.5, test_value=5, tags="test_group")
+    """
+    ctx = mkcontext(code)
+
+    # Test variable naming and structure
+    assert len(ctx.vars) == 3
+    assert "my_group__raw_value" in ctx.vars
+    assert "my_group__calibrated_value" in ctx.vars
+    assert "my_group__offset_value" in ctx.vars
+
+    # Test title generation
+    assert ctx.vars["my_group__raw_value"].title == "My Test Group/Raw Value"
+    assert ctx.vars["my_group__calibrated_value"].title == "My Test Group/Calibrated Value"
+
+    # Test tag merging
+    assert "test_group" in ctx.vars["my_group__raw_value"].tags
+    assert "raw" in ctx.vars["my_group__raw_value"].tags
+
+    # Check topological ordering for dependency resolution
+    ordered = ctx.ordered_vars()
+    assert ordered.index("my_group__raw_value") < ordered.index("my_group__calibrated_value")
+
+    # Execute and check results
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog, input_vars={"offset": 10})
+    assert results.cells["my_group__raw_value"].data == 10
+    # Check that calibration factor from group __init__ was used
+    assert results.cells["my_group__calibrated_value"].data == 15.0
+    # Check that input# variables are passed through correctly
+    assert results.cells["my_group__offset_value"].data == 15
+
+    # Test that an error in a dependency correctly stops downstream variables
+    error_code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class ErrorGroup(VariableGroup):
+        @Variable()
+        def bad_var(self, run):
+            return 1 / 0
+
+        @Variable()
+        def good_var(self, run, bad_data: "var#bad_var"):
+            return 42
+
+    error_group = ErrorGroup("Error Group")
+    """
+    ctx_err = mkcontext(error_code)
+
+    with caplog.at_level(logging.ERROR):
+        results_err = ctx_err.execute(mock_run, 1000, 1234, {})
+
+    # Check that an error was logged for bad_var
+    assert caplog.records[0].levelname == "ERROR"
+
+    assert "error_group__good_var" not in results_err.cells
+    assert "error_group__good_var" not in results_err.errors
+    # The error itself should be recorded
+    assert "error_group__bad_var" in results_err.errors

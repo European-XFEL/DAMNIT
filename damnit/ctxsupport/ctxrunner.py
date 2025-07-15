@@ -237,7 +237,7 @@ class ContextFile:
                 vars |= value.variables(prefix=key)
 
         log.debug("Loaded %d variables", len(vars))
-        return cls(vars, code), d
+        return cls(vars, code)
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database

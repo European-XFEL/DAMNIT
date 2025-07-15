@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from copy import copy
 from enum import Enum
 from functools import wraps
+from inspect import signature
 
 import h5py
 import numpy as np
@@ -185,6 +186,7 @@ class VariableGroup:
         new_var.transient |= self.transient
 
         # Create wrapper function that includes group context
+        # new_var(self._create_wrapper_function(original_var.func))
         new_var.func = self._create_wrapper_function(original_var.func)
         new_var.name = method_name
 
@@ -203,7 +205,9 @@ class VariableGroup:
         @wraps(original_func)
         def wrapper(run_data, **kwargs):
             # Add group-specific kwargs
-            kwargs |= self.group_kwargs
+            args_in_func = set(signature(original_func).parameters)
+            group_kwargs = {k: v for k, v in self.group_kwargs.items() if k in args_in_func}
+            kwargs |= group_kwargs
 
             # Call the original function with group context
             return original_func(self, run_data, **kwargs)
