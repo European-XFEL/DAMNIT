@@ -8,7 +8,9 @@ import logging
 import re
 import sys
 from collections.abc import Sequence
+from copy import copy
 from enum import Enum
+from functools import wraps
 
 import h5py
 import numpy as np
@@ -93,9 +95,11 @@ class Variable:
         Get all direct dependencies of this Variable with a certain
         type/prefix. Returns a dict of argument name to variable name.
         """
-        return { arg_name: annotation.removeprefix(prefix)
-                 for arg_name, annotation in self.annotations().items()
-                 if annotation.startswith(prefix) }
+        return {
+            arg_name: annotation.removeprefix(prefix)
+            for arg_name, annotation in self.annotations().items()
+            if isinstance(annotation, str) and annotation.startswith(prefix)
+        }
 
     def annotations(self):
         """
@@ -120,6 +124,103 @@ class Variable:
                 cell.summary = self.summary
 
         return cell
+
+    def clone(self) -> 'Variable':
+        """Create a clone of this Variable.
+        """
+        return copy(self)
+
+class VariableGroup:
+    """Base class for creating reusable groups of Variables"""
+    # TODO assume var ref are from the same instance of VariableGroup
+
+    def __init__(
+        self,
+        title: str,
+        *,
+        sep: str = '/',
+        tags: str | list[str] | None = None,
+        cluster: bool = False,
+        transient: bool = False,
+        **kwargs,
+    ):
+        """
+
+        Args:
+            title: The title of the variable group.
+            sep: The separator to use to construct variable titles. Variables'
+                titles in a VariableGroup are formatted as
+                <group_title><sep><variable_title>. Defaults to '/'.
+            tags: A list of tags to apply to all Variables in this group.
+            cluster: If True, all Variables in this group are marked as cluster.
+            transient: If True, all Variables in this group are transient.
+            kwargs: Additional keyword arguments that will be passed to all
+                Variables in this group. These can be used to pass
+                device-specific parameters or other context that should be
+                available to all variables.
+        """
+        self.title = title
+        self.sep = sep
+        self.tags = (tags,) if isinstance(tags, str) else tags
+        self.cluster = cluster
+        self.transient = transient
+        self.group_kwargs = kwargs
+        self._variables = {}
+
+        # Process all methods decorated with @Variable
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if isinstance(attr, Variable):
+                # Create a new Variable instance for this group
+                var = self._create_group_variable(attr, attr_name)
+                self._variables[var.name] = var
+
+    def _create_group_variable(self, original_var: Variable, method_name: str) -> Variable:
+        """Create a new Variable instance for this group"""
+        new_var = original_var.clone()
+
+        new_var.title = f"{self.title}{self.sep}{new_var.title or method_name}"
+        new_var.tags = self._merge_tags(new_var.tags)
+        new_var.cluster |= self.cluster
+        new_var.transient |= self.transient
+
+        # Create wrapper function that includes group context
+        new_var.func = self._create_wrapper_function(original_var.func)
+        new_var.name = method_name
+
+        return new_var
+
+    def _merge_tags(self, original_tags):
+        """Merge original tags with group tags"""
+        if self.tags is None:
+            return original_tags
+        if original_tags is None:
+            return self.tags
+        return tuple(self.tags) + tuple(original_tags)
+
+    def _create_wrapper_function(self, original_func):
+        """Create a wrapper function that provides group context"""
+        @wraps(original_func)
+        def wrapper(run_data, **kwargs):
+            # Add group-specific kwargs
+            kwargs |= self.group_kwargs
+
+            # Call the original function with group context
+            return original_func(self, run_data, **kwargs)
+
+        return wrapper
+
+    def variables(self, prefix: str) -> dict[str, Variable]:
+        """Get all variables in this group"""
+        _vars = {}
+        for original_var in self._variables.values():
+            var = original_var.clone()
+            # Prefix the variable name with the group prefix
+            full_name = f'{prefix}_{var.name}'
+            var.func.__name__ = full_name
+            var.name = full_name
+            _vars[full_name] = var
+        return _vars
 
 
 class _DummyCell:
