@@ -216,10 +216,29 @@ class VariableGroup:
         for original_var in self._variables.values():
             var = original_var.clone()
             # Prefix the variable name with the group prefix
-            full_name = f'{prefix}_{var.name}'
+            full_name = f'{prefix}__{var.name}'
             var.func.__name__ = full_name
             var.name = full_name
             _vars[full_name] = var
+
+        # edit annotations to include the group prefix
+        for var in _vars.values():
+            annotations = var.annotations()
+            for arg_name, annotation in annotations.items():
+                if isinstance(annotation, str) and annotation.startswith('var#'):
+                    dep_name = annotation.removeprefix('var#')
+
+                    if dep_name in self._variables.keys():
+                        # If the dependency is a variable in this group, prefix it
+                        annotations[arg_name] = f'var#{prefix}__{dep_name}'
+                    elif dep_name.startswith('_root.'):
+                        # If the dependency is defined outside this group
+                        # _root is only necessary in case we defined a variable
+                        # with the same name in this group.
+                        annotations[arg_name] = f'var#{dep_name.removeprefix("_root.")}'
+
+            var.func.__annotations__ = annotations
+
         return _vars
 
 
