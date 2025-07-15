@@ -30,7 +30,7 @@ import numpy as np
 import requests
 import xarray as xr
 import yaml
-from damnit_ctx import (Cell, Group, RunData, Skip, Variable,
+from damnit_ctx import (Cell, RunData, Skip, Variable, VariableGroup,
                         isinstance_no_import)
 
 log = logging.getLogger(__name__)
@@ -247,11 +247,11 @@ class ContextFile:
         for key, value in d.items():
             if isinstance(value, Variable):
                 vars[value.name] = value
-            if isinstance(value, Group):
+            if isinstance(value, VariableGroup):
                 vars |= value.variables(prefix=key)
 
         log.debug("Loaded %d variables", len(vars))
-        return cls(vars, code)
+        return cls(vars, code), d
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
