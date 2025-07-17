@@ -4,6 +4,7 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import inspect
 import logging
 import re
 import sys
@@ -11,7 +12,6 @@ from collections.abc import Sequence
 from copy import copy
 from enum import Enum
 from functools import wraps
-from inspect import signature
 
 import h5py
 import numpy as np
@@ -126,18 +126,16 @@ class Variable:
 
         return cell
 
-    def clone(self) -> 'Variable':
-        """Create a clone of this Variable.
-        """
+    def copy(self):
         return copy(self)
+
 
 class VariableGroup:
     """Base class for creating reusable groups of Variables"""
-    # TODO assume var ref are from the same instance of VariableGroup
 
     def __init__(
         self,
-        title: str,
+        title: str = None,
         *,
         sep: str = '/',
         tags: str | list[str] | None = None,
@@ -166,31 +164,11 @@ class VariableGroup:
         self.cluster = cluster
         self.transient = transient
         self.group_kwargs = kwargs
-        self._variables = {}
-
-        # Process all methods decorated with @Variable
-        for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-            if isinstance(attr, Variable):
-                # Create a new Variable instance for this group
-                var = self._create_group_variable(attr, attr_name)
-                self._variables[var.name] = var
-
-    def _create_group_variable(self, original_var: Variable, method_name: str) -> Variable:
-        """Create a new Variable instance for this group"""
-        new_var = original_var.clone()
-
-        new_var.title = f"{self.title}{self.sep}{new_var.title or method_name}"
-        new_var.tags = self._merge_tags(new_var.tags)
-        new_var.cluster |= self.cluster
-        new_var.transient |= self.transient
-
-        # Create wrapper function that includes group context
-        # new_var(self._create_wrapper_function(original_var.func))
-        new_var.func = self._create_wrapper_function(original_var.func)
-        new_var.name = method_name
-
-        return new_var
+        self._variables = {
+            name: getattr(self, name)
+            for name in dir(self)
+            if isinstance(getattr(self, name), Variable)
+        }
 
     def _merge_tags(self, original_tags):
         """Merge original tags with group tags"""
@@ -200,17 +178,37 @@ class VariableGroup:
             return self.tags
         return tuple(self.tags) + tuple(original_tags)
 
-    def _create_wrapper_function(self, original_func):
+    def _init_group_variable(self, prefix, original_var: Variable) -> Variable:
+        """Create a new Variable instance for this group"""
+        new_var = original_var.copy()
+
+        new_var.name = f'{prefix}__{new_var.name}'
+        new_var.title = f"{self.title or prefix}{self.sep}{new_var.title}"
+        new_var.tags = self._merge_tags(new_var.tags)
+        new_var.cluster |= self.cluster
+        new_var.transient |= self.transient
+
+        return new_var
+
+    def _create_wrapper_function(self, var, annotations, signature):
         """Create a wrapper function that provides group context"""
-        @wraps(original_func)
-        def wrapper(run_data, **kwargs):
+        func = var.func
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
             # Add group-specific kwargs
-            args_in_func = set(signature(original_func).parameters)
+            args_in_func = list(inspect.signature(func).parameters)
             group_kwargs = {k: v for k, v in self.group_kwargs.items() if k in args_in_func}
             kwargs |= group_kwargs
 
             # Call the original function with group context
-            return original_func(self, run_data, **kwargs)
+            if args_in_func[0] == 'self':
+                return func(self, *args, **kwargs)
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = var.name
+        wrapper.__annotations__ = annotations
+        wrapper.__signature__ = signature
 
         return wrapper
 
@@ -218,20 +216,13 @@ class VariableGroup:
         """Get all variables in this group"""
         _vars = {}
         for original_var in self._variables.values():
-            var = original_var.clone()
-            # Prefix the variable name with the group prefix
-            full_name = f'{prefix}__{var.name}'
-            var.func.__name__ = full_name
-            var.name = full_name
-            _vars[full_name] = var
+            var = self._init_group_variable(prefix, original_var)
 
-        # edit annotations to include the group prefix
-        for var in _vars.values():
-            annotations = var.annotations()
+            # edit annotations to include the group prefix
+            annotations = var.annotations().copy()
             for arg_name, annotation in annotations.items():
                 if isinstance(annotation, str) and annotation.startswith('var#'):
                     dep_name = annotation.removeprefix('var#')
-
                     if dep_name in self._variables.keys():
                         # If the dependency is a variable in this group, prefix it
                         annotations[arg_name] = f'var#{prefix}__{dep_name}'
@@ -241,7 +232,25 @@ class VariableGroup:
                         # with the same name in this group.
                         annotations[arg_name] = f'var#{dep_name.removeprefix("_root.")}'
 
-            var.func.__annotations__ = annotations
+            # Create new signature with the modified annotations
+            original_sig = inspect.signature(var.func)
+            params = []
+            for index, param in enumerate(original_sig.parameters.values()):
+                if index == 0 and param.name == 'self':
+                    # Skip the 'self' parameter for instance methods
+                    continue
+                # Replace the parameter with the new annotation if it exists
+                if param.name in annotations:
+                    param = param.replace(annotation=annotations[param.name])                
+                params.append(param)
+
+            new_sig = original_sig.replace(parameters=params)
+
+            # wrap the original function with the new signature and instance kwargs
+            var.func = self._create_wrapper_function(
+                var, annotations=annotations, signature=new_sig)
+
+            _vars[var.name] = var
 
         return _vars
 
