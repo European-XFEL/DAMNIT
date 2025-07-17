@@ -237,6 +237,7 @@ def test_context_file(mock_ctx, tmp_path):
         ctx.check()
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
+    caplog.clear()
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
@@ -1215,41 +1216,49 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
 
 
-def test_variable_group(mock_run, caplog):
+def test_variable_group(mock_run, tmp_path, caplog):
     code = """
     from damnit_ctx import Variable, VariableGroup
 
     class TestGroup(VariableGroup):
-        def __init__(self, title, calib, **kwargs):
+        def __init__(self, *args, calib=1.0, **kwargs):
             self.calibration_factor = calib
-            super().__init__(title, **kwargs)
+            super().__init__(*args, **kwargs)
+
+        def _some_value(self):
+            return 42
 
         @Variable(title="Raw Value", tags="raw")
         def raw_value(self, run):
             return 10
 
-        @Variable(title="Calibrated Value")
+        @Variable()
         def calibrated_value(self, run, raw: "var#raw_value"):
             return raw * self.calibration_factor
 
         @Variable(title="Offset Value", summary="max")
         def offset_value(self, run, test_value: int, offset: 'input#offset'=5):
-            return test_value + offset
+            return test_value + offset + self._some_value()
 
     # Instantiate the group
     my_group = TestGroup("My Test Group", calib=1.5, test_value=5, tags="test_group")
+    your_group = TestGroup(calib=2.0, test_value=10)
     """
     ctx = mkcontext(code)
 
     # Test variable naming and structure
-    assert len(ctx.vars) == 3
+    assert len(ctx.vars) == 6
     assert "my_group__raw_value" in ctx.vars
     assert "my_group__calibrated_value" in ctx.vars
     assert "my_group__offset_value" in ctx.vars
+    assert "your_group__raw_value" in ctx.vars
+    assert "your_group__calibrated_value" in ctx.vars
+    assert "your_group__offset_value" in ctx.vars
 
     # Test title generation
     assert ctx.vars["my_group__raw_value"].title == "My Test Group/Raw Value"
-    assert ctx.vars["my_group__calibrated_value"].title == "My Test Group/Calibrated Value"
+    assert ctx.vars["my_group__calibrated_value"].title == "My Test Group/calibrated_value"
+    assert ctx.vars["your_group__offset_value"].title == "your_group/Offset Value"
 
     # Test tag merging
     assert "test_group" in ctx.vars["my_group__raw_value"].tags
@@ -1265,7 +1274,7 @@ def test_variable_group(mock_run, caplog):
     # Check that calibration factor from group __init__ was used
     assert results.cells["my_group__calibrated_value"].data == 15.0
     # Check that input# variables are passed through correctly
-    assert results.cells["my_group__offset_value"].data == 15
+    assert results.cells["my_group__offset_value"].data == 57.0
 
     # Test that an error in a dependency correctly stops downstream variables
     error_code = """
@@ -1294,3 +1303,115 @@ def test_variable_group(mock_run, caplog):
     assert "error_group__good_var" not in results_err.errors
     # The error itself should be recorded
     assert "error_group__bad_var" in results_err.errors
+
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    # top-level variable to act as a global dependency
+    @Variable(title="Global Base")
+    def base(run):
+        return 100
+
+    class ProcessingGroup(VariableGroup):
+
+        @Variable(title="Local base", transient=True)
+        def base(self, run):
+            return 50
+
+        @Variable(title="Step 1")
+        def step1(self, run, base: "var#_root.base"):
+            # This variable depends on a top-level ('root') variable
+            return base + 1
+
+        @Variable(title="Step 2")
+        def step2(self, run, s1_data: "var#step1", base: "var#base", offset: int = 0):
+            # This variable has an intra-group dependency
+            return s1_data * 2 + base + offset
+
+    proc_b = ProcessingGroup(title="Processor B", offset=-3)
+    proc_a = ProcessingGroup(title="Processor A")
+    
+
+    # A variable that depends on outputs from both group instances
+    @Variable(title="A vs B")
+    def a_vs_b_diff(run, a_result: "var#proc_a__step2", b_result: "var#proc_b__step2"):
+        return a_result - b_result
+    """
+    ctx = mkcontext(code)
+
+    # Check that all variable names are generated correctly
+    expected_vars = {
+        "base",
+        "proc_a__base", "proc_a__step1", "proc_a__step2",
+        "proc_b__base", "proc_b__step1", "proc_b__step2",
+        "a_vs_b_diff"
+    }
+    assert set(ctx.vars.keys()) == expected_vars
+    
+    for var in ctx.vars.values():
+        print(var.name, var.title, var.tags, var.annotations())
+
+    # Check the dependency graph and execution order
+    ordered_vars = ctx.ordered_vars()
+
+    assert ordered_vars.index("base") < ordered_vars.index("proc_a__step1")
+    assert ordered_vars.index("base") < ordered_vars.index("proc_b__step1")
+
+    assert ordered_vars.index("proc_a__step1") < ordered_vars.index("proc_a__step2")
+    assert ordered_vars.index("proc_b__step1") < ordered_vars.index("proc_b__step2")
+
+    assert ordered_vars.index("proc_a__step2") < ordered_vars.index("a_vs_b_diff")
+    assert ordered_vars.index("proc_b__step2") < ordered_vars.index("a_vs_b_diff")
+
+    # Execute the context and check the results
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+
+    # Check results for proc_a
+    assert results.cells["proc_a__step1"].data == 101
+    assert results.cells["proc_a__step2"].data == 252
+
+    # Check results for proc_b
+    assert results.cells["proc_b__step1"].data == 101
+    assert results.cells["proc_b__step2"].data == 249
+
+    # Check the final composer variable
+    assert results.cells["a_vs_b_diff"].data == 3
+
+    results_hdf5_path = tmp_path / "results.hdf5"
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        assert f["proc_a__step1/data"][()] == 101
+        assert f["proc_a__step2/data"][()] == 252
+        assert f["proc_b__step1/data"][()] == 101
+        assert f["proc_b__step2/data"][()] == 249
+        assert f["a_vs_b_diff/data"][()] == 3
+        assert "base" in f
+        assert "proc_a__base" not in f
+
+    # Test that a missing root dependency is handled correctly
+    bad_root_code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class BadRootGroup(VariableGroup):
+        @Variable()
+        def step1(self, run, base: "var#_root.missing_global"):
+            return 1
+
+    bad_group = BadRootGroup("Bad Group")
+    """
+    with pytest.raises(KeyError, match="missing_global"):
+        mkcontext(bad_root_code)
+    
+    # Test that a missing dependency is handled correctly
+    bad_root_code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class BadRootGroup(VariableGroup):
+        @Variable()
+        def step1(self, run, base: "var#missing_local"):
+            return 1
+
+    bad_group = BadRootGroup("Bad Group")
+    """
+    with pytest.raises(KeyError, match="missing_local"):
+        mkcontext(bad_root_code)
