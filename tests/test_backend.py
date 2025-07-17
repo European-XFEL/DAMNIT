@@ -1415,3 +1415,31 @@ def test_variable_group(mock_run, tmp_path, caplog):
     """
     with pytest.raises(KeyError, match="missing_local"):
         mkcontext(bad_root_code)
+
+    # test inheritance of VariableGroup
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class BaseGroup(VariableGroup):
+        @Variable()
+        def step1(self, run, value: float = 0.0):
+            return value + 1
+
+    class ChildGroup(BaseGroup):
+        @Variable()
+        def step2(self, run, s1_data: "var#step1"):
+            return s1_data * 2
+
+    base_group = BaseGroup("Base Group")
+    child_group = ChildGroup("Child Group", value=1, cluster=True)
+    """
+    ctx = mkcontext(code)
+    assert len(ctx.vars) == 3
+    assert sorted(ctx.vars) == ["base_group__step1", "child_group__step1", "child_group__step2"]
+
+    assert ctx.vars["base_group__step1"].cluster is False
+    assert ctx.vars["child_group__step1"].cluster is True
+    assert ctx.vars["child_group__step2"].cluster is True
+
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+    assert results.cells["child_group__step2"].data == 4
