@@ -164,11 +164,16 @@ class VariableGroup:
         self.cluster = cluster
         self.transient = transient
         self.group_kwargs = kwargs
-        self._variables = {
-            name: getattr(self, name)
-            for name in dir(self)
-            if isinstance(getattr(self, name), Variable)
-        }
+
+        self._variables = {}
+        self._groups = {}
+
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if isinstance(attr, Variable):
+                self._variables[attr_name] = attr
+            elif isinstance(attr, VariableGroup):
+                self._groups[attr_name] = attr
 
     def _merge_tags(self, original_tags):
         """Merge original tags with group tags"""
@@ -176,7 +181,7 @@ class VariableGroup:
             return original_tags
         if original_tags is None:
             return self.tags
-        return tuple(self.tags) + tuple(original_tags)
+        return set(self.tags) | set(original_tags)
 
     def _init_group_variable(self, prefix, original_var: Variable) -> Variable:
         """Create a new Variable instance for this group"""
@@ -197,18 +202,19 @@ class VariableGroup:
         @wraps(func)
         def wrapper(*args, **kwargs):
             # Add group-specific kwargs
-            args_in_func = list(inspect.signature(func).parameters)
+            args_in_func = inspect.signature(func).parameters
             group_kwargs = {k: v for k, v in self.group_kwargs.items() if k in args_in_func}
             kwargs |= group_kwargs
 
             # Call the original function with group context
-            if args_in_func[0] == 'self':
+            if next(iter(args_in_func)) == 'self':
                 return func(self, *args, **kwargs)
             return func(*args, **kwargs)
 
         wrapper.__name__ = var.name
         wrapper.__annotations__ = annotations
         wrapper.__signature__ = signature
+        wrapper.__doc__ = func.__doc__
 
         return wrapper
 
@@ -231,6 +237,12 @@ class VariableGroup:
                         # _root is only necessary in case we defined a variable
                         # with the same name in this group.
                         annotations[arg_name] = f'var#{dep_name.removeprefix("_root.")}'
+                    else:
+                        for group_name, group in self._groups.items():
+                            if dep_name.removeprefix(f'{group_name}__') in group._variables.keys():
+                                # If the dependency is a variable in a nested group, prefix it
+                                annotations[arg_name] = f'var#{prefix}__{dep_name}'
+                                break
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)
@@ -251,6 +263,14 @@ class VariableGroup:
                 var, annotations=annotations, signature=new_sig)
 
             _vars[var.name] = var
+
+        # Add variables from nested groups
+        for group_name, group in self._groups.items():
+            group_prefix = f"{prefix}__{group_name}"
+            # update title and tags for the group
+            group.title = f"{self.title or prefix}{self.sep}{group.title or group_name}"
+            group.tags = self._merge_tags(group.tags)
+            _vars.update(group.variables(group_prefix))
 
         return _vars
 
