@@ -266,8 +266,8 @@ class MIDDiagnostics(VariableGroup):
     # This variable can depend on children of the nested groups
     @Variable(title="Photons per µJ")
     def photons_per_microjoule(self, run,
-                               photons: "var#agipd__n_photons",
-                               energy: "var#xgm__corrected_energy"):
+                               photons: "var#agipd.n_photons",
+                               energy: "var#xgm.corrected_energy"):
         return photons / energy
 
 # Instantiate the top-level group
@@ -282,7 +282,7 @@ When groups are nested:
 - **Dependencies:** The dependency syntax remains the same. To depend on a
   variable within a nested group from a sibling, you use its path from the
   current group's perspective, joined by double underscores (e.g.,
-  `var#agipd__n_photons`).
+  `var#agipd__n_photons`) or a dot (e.g. `var#agipd.n_photons`).
 - **Property Inheritance:**
     - `tags`: Are inherited recursively. In the example above, the `Diag` tag
       from the `MIDDiagnostics` instance will be applied to all variables inside
@@ -292,6 +292,12 @@ When groups are nested:
       specific group class. This ensures that a high-level grouping doesn't
       unintentionally mark a low-level, lightweight variable for heavy cluster
       processing.
+
+!!! note "Dependency syntax limitation"
+  
+    Dot-notation currently only works inside a VariableGroup, if your Variable
+    outside a VariableGroup depends on a Variable inside a VariableGroup,
+    you'll have to use the double-underscore notation.
 
 ### Inheritance
 `VariableGroup` also supports standard Python class inheritance. A group can

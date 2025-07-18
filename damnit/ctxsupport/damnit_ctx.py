@@ -229,20 +229,15 @@ class VariableGroup:
             for arg_name, annotation in annotations.items():
                 if isinstance(annotation, str) and annotation.startswith('var#'):
                     dep_name = annotation.removeprefix('var#')
-                    if dep_name in self._variables.keys():
-                        # If the dependency is a variable in this group, prefix it
-                        annotations[arg_name] = f'var#{prefix}__{dep_name}'
-                    elif dep_name.startswith('_root.'):
+
+                    if dep_name.startswith('_root.'):
                         # If the dependency is defined outside this group
                         # _root is only necessary in case we defined a variable
                         # with the same name in this group.
                         annotations[arg_name] = f'var#{dep_name.removeprefix("_root.")}'
                     else:
-                        for group_name, group in self._groups.items():
-                            if dep_name.removeprefix(f'{group_name}__') in group._variables.keys():
-                                # If the dependency is a variable in a nested group, prefix it
-                                annotations[arg_name] = f'var#{prefix}__{dep_name}'
-                                break
+                        dep_name = dep_name.replace('.', '__')
+                        annotations[arg_name] = f'var#{prefix}__{dep_name}'
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)

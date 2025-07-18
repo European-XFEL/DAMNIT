@@ -1479,8 +1479,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
         @Variable(title="Intensity per Photon")
         def intensity_per_photon(self, run,
-                                 intensity: "var#xgm__intensity",
-                                 photons: "var#detector__photon_count"):
+                                 intensity: "var#xgm.intensity",
+                                 photons: "var#detector.photon_count"):
             # This depends on variables from two different nested subgroups
             return intensity / photons
 
@@ -1489,12 +1489,21 @@ def test_variable_group(mock_run, tmp_path, caplog):
         instrument = InstrumentDiagnostics("SCS Instrument", cluster=True, tags=["scs"])
 
         @Variable(title="Experiment Quality")
-        def quality(self, run, ipp: "var#instrument__intensity_per_photon"):
+        def quality(self, run, ipp: "var#instrument.intensity_per_photon"):
             # Depends on a variable from a nested group
             return "good" if ipp > 1.0 else "bad"
+        
+        @Variable()
+        def deep_nested_access(run, data: "var#instrument.detector.image"):
+            return data.mean()
 
     # Instantiate the top-level group
     exp1 = Experiment("My Experiment")
+
+    # TODO 'dot' var access notation does not yet work outside VariableGroup
+    # @Variable()
+    # def nested_var_access(run, data: "var#exp1.instrument.detector.image"):
+    #     return data.mean()
     """
     ctx = mkcontext(code)
 
@@ -1505,6 +1514,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         "exp1__instrument__detector__photon_count",
         "exp1__instrument__intensity_per_photon",
         "exp1__quality",
+        "exp1__deep_nested_access",
     }
     assert set(ctx.vars.keys()) == expected_vars
 
@@ -1548,6 +1558,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert results.cells["exp1__instrument__detector__photon_count"].data == 10_000
     assert results.cells["exp1__instrument__intensity_per_photon"].data == 15.0 / 10_000
     assert results.cells["exp1__quality"].data == "bad"
+    assert results.cells["exp1__deep_nested_access"].data == 1.0
 
     # Check that transient variables are not saved
     results_hdf5_path = tmp_path / "results.h5"
