@@ -150,8 +150,118 @@ $ damnit db-config noncluster_cpus 8
 $ damnit db-config noncluster_mem 50G
 ```
 
-## Cell
+## `VariableGroup`
+For more complex or reusable sets of analyses, you can group related variables
+together using the `VariableGroup` class. This allows you to create
+self-contained components that can be configured and instantiated multiple
+times.
 
+A `VariableGroup` is a class that inherits from `damnit_ctx.VariableGroup` and
+contains methods decorated with `@Variable`.
+
+```python title="context.py"
+from damnit_ctx import Variable, VariableGroup
+
+class XGMDiagnostics(VariableGroup):
+
+    @Variable(title="Pulse Energy", summary="mean")
+    def pulse_energy(self, run, device_name: str):
+        return XGM(run, self.device_name).pulse_energy()
+
+    @Variable(title="Corrected Energy", summary="mean")
+    def corrected_energy(self, run, energy: "var#pulse_energy", offset: float = 0.0):
+        # This has an intra-group dependency on the 'pulse_energy' variable
+        return energy + offset
+
+# Instantiate the group in your context file
+xgm_sase2 = XGMDiagnostics(
+    "XGM SA2",
+    device_name="SA2_XTD6_XGM/XGM/DOOCS",
+    offset=1.1,
+    tags=["XGM", "SA2"]
+)
+xgm_hed = XGMDiagnostics(
+    "XGM HED",
+    device_name="HED_XTD9_XGM/XGM/DOOCS",
+    offset=0.9,
+    tags=["XGM", "HED"]
+)
+```
+
+### Naming and Titles
+When you create an instance of a `VariableGroup` (e.g., `xgm_sase1`), the
+variables within it are automatically given prefixed names to avoid conflicts.
+- The **variable name** (the Python identifier) is formed by joining the
+  instance name and the method name with a double underscore:
+  `xgm_sase1__pulse_energy`.
+- The **variable title** (for display in the GUI) is formed by joining the
+  group's title and the variable's title with a separator (default is `/`):
+  `XGM SA1/Pulse Energy`.
+
+### Dependencies
+`VariableGroup` simplifies dependency management:
+- **Intra-group dependencies:** To depend on another variable within the *same
+  group instance*, just use its method name (e.g., `var#pulse_energy`). DAMNIT
+  automatically rewrites this to the correct full name
+  (`var#xgm_sase1__pulse_energy`).
+- **Global dependencies:** To depend on a top-level variable outside of any
+  `VariableGroup`, you must use the `_root.` prefix to avoid ambiguity. This explicitly
+  tells DAMNIT to look in the global scope.
+
+```python
+@Variable(title="Global Offset")
+def global_offset(run):
+    return 42
+
+class Group(VariableGroup):
+    @Variable
+    def local_var(self, run, offset: "var#_root.global_offset"):
+        # Correctly depends on the top-level global_offset
+        return 10 + offset
+
+instance = Group("Group")
+```
+
+!!! warning
+    A dependency on a variable outside the group (e.g., `var#global_offset`)
+    without the `_root.` prefix will fail at load time if a local variable of
+    the same name does not exist. The `_root.` prefix is required for all
+    non-local dependencies.
+
+- **Cross-group dependencies:** To use the result of one group instance in
+  another, you must create a top-level "composer" variable that depends on the
+  fully-qualified names of the variables from each group.
+
+```python
+# Continuing the XGMDiagnostics example...
+@Variable(title="SASE1 vs HED")
+def xgm_comparison(run, sa2_energy: "var#xgm_sase2__corrected_energy",
+                        hed_energy: "var#xgm_hed__corrected_energy"):
+    return hed_energy / sa2_energy
+```
+
+### Inheritance
+`VariableGroup` also supports inheritance. A group can inherit from a base class
+and will automatically include all `@Variable`s from its parent(s), allowing you
+to create common, reusable sets of analyses.
+
+```python
+class BaseAnalysis(VariableGroup):
+    @Variable(title="Train Count")
+    def n_trains(self, run):
+        return len(run.train_ids)
+
+class DetectorAnalysis(BaseAnalysis): # Inherits n_trains
+    @Variable(title="Photon Count", data="proc")
+    def photon_count(self, run. n_trains: "var#n_trains"):
+        # ... some detector-specific logic
+        return 1e6
+
+detector = DetectorAnalysis("Detector")
+# This instance will have two variables: detector__n_trains and detector__photon_count
+```
+
+## Cell
 The `Cell` object is a versatile container that allows customizing how data is
 stored and displayed in the table. When writing [Variables](#variables), you can
 return a `Cell` object to control both the full data storage and its summary
