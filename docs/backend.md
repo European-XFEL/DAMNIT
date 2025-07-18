@@ -166,7 +166,7 @@ class XGMDiagnostics(VariableGroup):
 
     @Variable(title="Pulse Energy", summary="mean")
     def pulse_energy(self, run, device_name: str):
-        return XGM(run, self.device_name).pulse_energy()
+        return XGM(run, device_name).pulse_energy()
 
     @Variable(title="Corrected Energy", summary="mean")
     def corrected_energy(self, run, energy: "var#pulse_energy", offset: float = 0.0):
@@ -189,24 +189,24 @@ xgm_hed = XGMDiagnostics(
 ```
 
 ### Naming and Titles
-When you create an instance of a `VariableGroup` (e.g., `xgm_sase1`), the
+When you create an instance of a `VariableGroup` (e.g., `xgm_sase2`), the
 variables within it are automatically given prefixed names to avoid conflicts.
 - The **variable name** (the Python identifier) is formed by joining the
   instance name and the method name with a double underscore:
-  `xgm_sase1__pulse_energy`.
+  `xgm_sase2__pulse_energy`.
 - The **variable title** (for display in the GUI) is formed by joining the
   group's title and the variable's title with a separator (default is `/`):
-  `XGM SA1/Pulse Energy`.
+  `XGM SA2/Pulse Energy`.
 
 ### Dependencies
 `VariableGroup` simplifies dependency management:
 - **Intra-group dependencies:** To depend on another variable within the *same
   group instance*, just use its method name (e.g., `var#pulse_energy`). DAMNIT
   automatically rewrites this to the correct full name
-  (`var#xgm_sase1__pulse_energy`).
+  (`var#xgm_sase2__pulse_energy`).
 - **Global dependencies:** To depend on a top-level variable outside of any
-  `VariableGroup`, you must use the `_root.` prefix to avoid ambiguity. This explicitly
-  tells DAMNIT to look in the global scope.
+  `VariableGroup`, you must use the `_root.` prefix to avoid ambiguity. This
+  explicitly tells DAMNIT to look in the global scope.
 
 ```python
 @Variable(title="Global Offset")
@@ -234,16 +234,69 @@ instance = Group("Group")
 
 ```python
 # Continuing the XGMDiagnostics example...
-@Variable(title="SASE1 vs HED")
+@Variable(title="SASE2 vs HED")
 def xgm_comparison(run, sa2_energy: "var#xgm_sase2__corrected_energy",
                         hed_energy: "var#xgm_hed__corrected_energy"):
     return hed_energy / sa2_energy
 ```
 
+### Composition (Nesting Groups)
+
+You can build more complex structures by nesting `VariableGroup` instances
+inside other groups. This allows you to compose small, focused analysis
+components into a larger, hierarchical system.
+
+```python
+class Detector(VariableGroup):
+    @Variable(title="Photon Count")
+    def n_photons(self, run, det_name: str):
+        return run.alias[det_name]['photon-count'].xarray()
+
+# MIDDiagnostics composes XGMDiagnostics and Detector
+class MIDDiagnostics(VariableGroup):
+    # Nested instances of other groups
+    xgm = XGMDiagnostics(
+        "XGM SA2",
+        device_name="SA2_XTD6_XGM/XGM/DOOCS",
+        offset=1.1,
+        tags=["XGM", "SA2"]
+    )
+    agipd = Detector("AGIPD", det_name="AGIPD")
+
+    # This variable can depend on children of the nested groups
+    @Variable(title="Photons per µJ")
+    def photons_per_microjoule(self, run,
+                               photons: "var#agipd__n_photons",
+                               energy: "var#xgm__corrected_energy"):
+        return photons / energy
+
+# Instantiate the top-level group
+mid = MIDDiagnostics("MID Diagnostics", tags=["Diag"])
+```
+
+When groups are nested:
+- **Naming and Titles:** Prefixes are applied recursively. A variable
+  `n_photons` inside the `agipd` instance, which is inside the `mid` instance,
+  will have the name `mid__agipd__n_photons` and the title `MID
+  Diagnostics/AGIPD/Photon Count`.
+- **Dependencies:** The dependency syntax remains the same. To depend on a
+  variable within a nested group from a sibling, you use its path from the
+  current group's perspective, joined by double underscores (e.g.,
+  `var#agipd__n_photons`).
+- **Property Inheritance:**
+    - `tags`: Are inherited recursively. In the example above, the `Diag` tag
+      from the `MIDDiagnostics` instance will be applied to all variables inside
+      it, including those from the nested `xgm` and `agipd` groups.
+    - `cluster` and `transient`: These properties are **not** inherited by
+      subgroups. They only apply to the direct `@Variable`s defined within that
+      specific group class. This ensures that a high-level grouping doesn't
+      unintentionally mark a low-level, lightweight variable for heavy cluster
+      processing.
+
 ### Inheritance
-`VariableGroup` also supports inheritance. A group can inherit from a base class
-and will automatically include all `@Variable`s from its parent(s), allowing you
-to create common, reusable sets of analyses.
+`VariableGroup` also supports standard Python class inheritance. A group can
+inherit from a base class and will automatically include all `@Variable`s from
+its parent(s), allowing you to create common, reusable sets of analyses.
 
 ```python
 class BaseAnalysis(VariableGroup):
@@ -251,11 +304,11 @@ class BaseAnalysis(VariableGroup):
     def n_trains(self, run):
         return len(run.train_ids)
 
-class DetectorAnalysis(BaseAnalysis): # Inherits n_trains
+class DetectorAnalysis(BaseAnalysis):  # Inherits n_trains
     @Variable(title="Photon Count", data="proc")
-    def photon_count(self, run. n_trains: "var#n_trains"):
-        # ... some detector-specific logic
-        return 1e6
+    def photon_count(self, run, n_trains: "var#n_trains"):
+        # Depends on an inherited variable
+        return 1e6 / n_trains
 
 detector = DetectorAnalysis("Detector")
 # This instance will have two variables: detector__n_trains and detector__photon_count
