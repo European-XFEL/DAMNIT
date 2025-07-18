@@ -1422,7 +1422,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     class BaseGroup(VariableGroup):
         @Variable()
-        def step1(self, run, value: float = 0.0):
+        def step1(run, value: float = 0.0):
             return value + 1
 
     class ChildGroup(BaseGroup):
@@ -1430,12 +1430,17 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def step2(self, run, s1_data: "var#step1"):
             return s1_data * 2
 
+    class ChildGroup2(BaseGroup):
+        @Variable()
+        def step1(run):
+            return 'overridden step1'
+
     base_group = BaseGroup("Base Group")
     child_group = ChildGroup("Child Group", value=1, cluster=True)
+    child_group2 = ChildGroup2("Child Group 2")
     """
     ctx = mkcontext(code)
-    assert len(ctx.vars) == 3
-    assert sorted(ctx.vars) == ["base_group__step1", "child_group__step1", "child_group__step2"]
+    assert set(ctx.vars) == {"base_group__step1", "child_group2__step1", "child_group__step1", "child_group__step2"}
 
     assert ctx.vars["base_group__step1"].cluster is False
     assert ctx.vars["child_group__step1"].cluster is True
@@ -1443,3 +1448,113 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
     assert results.cells["child_group__step2"].data == 4
+    assert results.cells["child_group2__step1"].data == 'overridden step1'
+
+    # Test VariableGroup composition
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    # Define some reusable, low-level groups
+    class XGMGroup(VariableGroup):
+        @Variable(title="Intensity")
+        def intensity(self, run, factor: float = 1.0):
+            return 10 * factor
+
+    class DetectorGroup(VariableGroup):
+        @Variable(title="Image", transient=True)
+        def image(self, run):
+            import numpy as np
+            return np.ones((100, 100), dtype=np.uint8)
+
+        @Variable(summary="sum")
+        def photon_count(self, run, image_data: "var#image"):
+            # A mock calculation
+            return image_data.sum()
+
+    # A mid-level group that composes the low-level ones
+    class InstrumentDiagnostics(VariableGroup):
+        # Nested group instances
+        xgm = XGMGroup("XGM", factor=1.5)
+        detector = DetectorGroup("Detector", tags="detector")
+
+        @Variable(title="Intensity per Photon")
+        def intensity_per_photon(self, run,
+                                 intensity: "var#xgm__intensity",
+                                 photons: "var#detector__photon_count"):
+            # This depends on variables from two different nested subgroups
+            return intensity / photons
+
+    # A top-level group that nests the mid-level group (2 levels of nesting)
+    class Experiment(VariableGroup):
+        instrument = InstrumentDiagnostics("SCS Instrument", cluster=True, tags=["scs"])
+
+        @Variable(title="Experiment Quality")
+        def quality(self, run, ipp: "var#instrument__intensity_per_photon"):
+            # Depends on a variable from a nested group
+            return "good" if ipp > 1.0 else "bad"
+
+    # Instantiate the top-level group
+    exp1 = Experiment("My Experiment")
+    """
+    ctx = mkcontext(code)
+
+    # Check that all variables from the nested structure are present and named correctly
+    expected_vars = {
+        "exp1__instrument__xgm__intensity",
+        "exp1__instrument__detector__image",
+        "exp1__instrument__detector__photon_count",
+        "exp1__instrument__intensity_per_photon",
+        "exp1__quality",
+    }
+    assert set(ctx.vars.keys()) == expected_vars
+
+    # Check title generation with multiple levels of nesting
+    assert ctx.vars["exp1__instrument__xgm__intensity"].title == "My Experiment/SCS Instrument/XGM/Intensity"
+    assert ctx.vars["exp1__instrument__detector__photon_count"].title == "My Experiment/SCS Instrument/Detector/photon_count"
+    assert ctx.vars["exp1__instrument__intensity_per_photon"].title == "My Experiment/SCS Instrument/Intensity per Photon"
+    assert ctx.vars["exp1__quality"].title == "My Experiment/Experiment Quality"
+
+    # Check that tags are correctly inherited down the hierarchy
+    # 'detector' tag from DetectorGroup instance should be present
+    assert "detector" in ctx.vars["exp1__instrument__detector__photon_count"].tags
+    # 'scs' tag from InstrumentDiagnostics instance should be present on all its children
+    assert "scs" in ctx.vars["exp1__instrument__detector__photon_count"].tags
+    assert "scs" in ctx.vars["exp1__instrument__xgm__intensity"].tags
+
+    # Check that 'cluster' and 'transient' properties are NOT inherited by subgroups
+    # The 'instrument' group was marked as cluster=True, so its direct variables should be cluster.
+    assert ctx.vars["exp1__instrument__intensity_per_photon"].cluster is True
+    # But variables from the nested 'detector' and 'xgm' groups should NOT be cluster.
+    assert ctx.vars["exp1__instrument__detector__photon_count"].cluster is False
+    assert ctx.vars["exp1__instrument__xgm__intensity"].cluster is False
+    # The 'image' variable was marked transient=True in its own definition.
+    assert ctx.vars["exp1__instrument__detector__image"].transient is True
+
+    # Check dependency resolution and execution order
+    ordered_vars = ctx.ordered_vars()
+    # Check dependencies within the deepest group
+    assert ordered_vars.index("exp1__instrument__detector__image") < ordered_vars.index("exp1__instrument__detector__photon_count")
+    # Check dependencies for the mid-level composer variable
+    assert ordered_vars.index("exp1__instrument__xgm__intensity") < ordered_vars.index("exp1__instrument__intensity_per_photon")
+    assert ordered_vars.index("exp1__instrument__detector__photon_count") < ordered_vars.index("exp1__instrument__intensity_per_photon")
+    # Check dependencies for the top-level composer variable
+    assert ordered_vars.index("exp1__instrument__intensity_per_photon") < ordered_vars.index("exp1__quality")
+
+    # Execute the context and verify the results
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+
+    # Verify intermediate and final calculations
+    assert results.cells["exp1__instrument__xgm__intensity"].data == 15.0  # 10 * 1.5
+    assert results.cells["exp1__instrument__detector__photon_count"].data == 10_000
+    assert results.cells["exp1__instrument__intensity_per_photon"].data == 15.0 / 10_000
+    assert results.cells["exp1__quality"].data == "bad"
+
+    # Check that transient variables are not saved
+    results_hdf5_path = tmp_path / "results.h5"
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        # The transient 'image' variable should not exist in the file
+        assert "exp1__instrument__detector__image" not in f
+        # A non-transient variable should exist
+        assert "exp1__quality" in f
+        assert f["exp1__quality/data"][()] == b"bad"
