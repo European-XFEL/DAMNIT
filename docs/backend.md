@@ -275,6 +275,7 @@ mid = MIDDiagnostics("MID Diagnostics", tags=["Diag"])
 ```
 
 When groups are nested:
+
 - **Naming and Titles:** Prefixes are applied recursively. A variable
   `n_photons` inside the `agipd` instance, which is inside the `mid` instance,
   will have the name `mid__agipd__n_photons` and the title `MID
