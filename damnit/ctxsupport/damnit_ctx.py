@@ -58,6 +58,12 @@ class Variable:
     # @Variable() is used as a decorator on a function that computes a value
     def __call__(self, func):
         self.func = func
+        if hasattr(func, '__annotations__'):
+            for k, v in func.__annotations__.items():
+                if isinstance(v, str) and v.startswith('var#'):
+                    # Replace '.' syntaxic sugar with '__' in var dependencies
+                    func.__annotations__[k] = v.replace('.', '__')
+
         self.name = func.__name__
         if self.title is None:
             self.title = self.name
@@ -229,15 +235,9 @@ class VariableGroup:
             for arg_name, annotation in annotations.items():
                 if isinstance(annotation, str) and annotation.startswith('var#'):
                     dep_name = annotation.removeprefix('var#')
-
-                    if dep_name.startswith('_root.'):
-                        # If the dependency is defined outside this group
-                        # _root is only necessary in case we defined a variable
-                        # with the same name in this group.
-                        annotations[arg_name] = f'var#{dep_name.removeprefix("_root.")}'
-                    else:
-                        dep_name = dep_name.replace('.', '__')
-                        annotations[arg_name] = f'var#{prefix}__{dep_name}'
+                    if dep_name.startswith('self__'):
+                        # Dependency is in this instance -> prefix the dep_name
+                        annotations[arg_name] = f'var#{prefix}__{dep_name.removeprefix("self__")}'
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)

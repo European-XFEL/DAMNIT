@@ -169,7 +169,7 @@ class XGMDiagnostics(VariableGroup):
         return XGM(run, device_name).pulse_energy()
 
     @Variable(title="Corrected Energy", summary="mean")
-    def corrected_energy(self, run, energy: "var#pulse_energy", offset: float = 0.0):
+    def corrected_energy(self, run, energy: "var#self.pulse_energy", offset: float = 0.0):
         # This has an intra-group dependency on the 'pulse_energy' variable
         return energy + offset
 
@@ -199,14 +199,19 @@ variables within it are automatically given prefixed names to avoid conflicts.
   `XGM SA2/Pulse Energy`.
 
 ### Dependencies
-`VariableGroup` simplifies dependency management:
+
 - **Intra-group dependencies:** To depend on another variable within the *same
-  group instance*, just use its method name (e.g., `var#pulse_energy`). DAMNIT
-  automatically rewrites this to the correct full name
-  (`var#xgm_sase2__pulse_energy`).
-- **Global dependencies:** To depend on a top-level variable outside of any
-  `VariableGroup`, you must use the `_root.` prefix to avoid ambiguity. This
-  explicitly tells DAMNIT to look in the global scope.
+  VariableGroup instance*, you must prefix the path with `self.`. This
+  explicitly tells DAMNIT to look within the current group instance.
+  ```python
+  @Variable()
+  def corrected_energy(self, run, energy: "var#self.pulse_energy"):
+      # ...
+  ```
+- **Global and Cross-Group Dependencies:** To depend on any variable outside the
+  current group's scope (either a top-level variable or a variable in another
+  group instance), you use its final, fully-qualified name. The lookup is
+  performed from the global namespace of all processed variables.
 
 ```python
 @Variable(title="Global Offset")
@@ -214,34 +219,20 @@ def global_offset(run):
     return 42
 
 class Group(VariableGroup):
-    @Variable
-    def local_var(self, run, offset: "var#_root.global_offset"):
+    @Variable()
+    def local_var(self, run, offset: "var#global_offset"):
         # Correctly depends on the top-level global_offset
         return 10 + offset
+
+    @Variable()
+    def another_var(self, run, xgm_energy: "var#xgm_hed.corrected_energy"):
+        # Correctly depends on a variable from another group instance
+        return xgm_energy * 2
 
 instance = Group("Group")
 ```
 
-!!! warning
-    A dependency on a variable outside the group (e.g., `var#global_offset`)
-    without the `_root.` prefix will fail at load time if a local variable of
-    the same name does not exist. The `_root.` prefix is required for all
-    non-local dependencies.
-
-- **Cross-group dependencies:** To use the result of one group instance in
-  another, you must create a top-level "composer" variable that depends on the
-  fully-qualified names of the variables from each group.
-
-```python
-# Continuing the XGMDiagnostics example...
-@Variable(title="SASE2 vs HED")
-def xgm_comparison(run, sa2_energy: "var#xgm_sase2__corrected_energy",
-                        hed_energy: "var#xgm_hed__corrected_energy"):
-    return hed_energy / sa2_energy
-```
-
 ### Composition (Nesting Groups)
-
 You can build more complex structures by nesting `VariableGroup` instances
 inside other groups. This allows you to compose small, focused analysis
 components into a larger, hierarchical system.
@@ -266,8 +257,8 @@ class MIDDiagnostics(VariableGroup):
     # This variable can depend on children of the nested groups
     @Variable(title="Photons per µJ")
     def photons_per_microjoule(self, run,
-                               photons: "var#agipd.n_photons",
-                               energy: "var#xgm.corrected_energy"):
+                               photons: "var#self.agipd.n_photons",
+                               energy: "var#self.xgm.corrected_energy"):
         return photons / energy
 
 # Instantiate the top-level group
@@ -280,10 +271,10 @@ When groups are nested:
   `n_photons` inside the `agipd` instance, which is inside the `mid` instance,
   will have the name `mid__agipd__n_photons` and the title `MID
   Diagnostics/AGIPD/Photon Count`.
-- **Dependencies:** The dependency syntax remains the same. To depend on a
-  variable within a nested group from a sibling, you use its path from the
-  current group's perspective, joined by double underscores (e.g.,
-  `var#agipd__n_photons`) or a dot (e.g. `var#agipd.n_photons`).
+- **Dependencies:** To depend on a variable within the same instance (including
+  any nested groups), you use a path from `self`. You can use dot-notation `.`,
+  which acts as an alias for the double-underscore `__` used in the final
+  variable name (e.g. `var#self.detector.image_data`)
 - **Property Inheritance:**
     - `tags`: Are inherited recursively. In the example above, the `Diag` tag
       from the `MIDDiagnostics` instance will be applied to all variables inside
@@ -293,12 +284,6 @@ When groups are nested:
       specific group class. This ensures that a high-level grouping doesn't
       unintentionally mark a low-level, lightweight variable for heavy cluster
       processing.
-
-!!! note "Dependency syntax limitation"
-  
-    Dot-notation currently only works inside a VariableGroup, if your Variable
-    outside a VariableGroup depends on a Variable inside a VariableGroup,
-    you'll have to use the double-underscore notation.
 
 ### Inheritance
 `VariableGroup` also supports standard Python class inheritance. A group can
@@ -313,7 +298,7 @@ class BaseAnalysis(VariableGroup):
 
 class DetectorAnalysis(BaseAnalysis):  # Inherits n_trains
     @Variable(title="Photon Count", data="proc")
-    def photon_count(self, run, n_trains: "var#n_trains"):
+    def photon_count(self, run, n_trains: "var#self.n_trains"):
         # Depends on an inherited variable
         return 1e6 / n_trains
 

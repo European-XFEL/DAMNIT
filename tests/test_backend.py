@@ -1233,7 +1233,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return 10
 
         @Variable()
-        def calibrated_value(self, run, raw: "var#raw_value"):
+        def calibrated_value(self, run, raw: "var#self.raw_value"):
             return raw * self.calibration_factor
 
         @Variable(title="Offset Value", summary="max")
@@ -1286,7 +1286,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return 1 / 0
 
         @Variable()
-        def good_var(self, run, bad_data: "var#bad_var"):
+        def good_var(self, run, bad_data: "var#self.bad_var"):
             return 42
 
     error_group = ErrorGroup("Error Group")
@@ -1319,22 +1319,21 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return 50
 
         @Variable(title="Step 1")
-        def step1(self, run, base: "var#_root.base"):
+        def step1(self, run, base: "var#base"):
             # This variable depends on a top-level ('root') variable
             return base + 1
 
         @Variable(title="Step 2")
-        def step2(self, run, s1_data: "var#step1", base: "var#base", offset: int = 0):
+        def step2(self, run, s1_data: "var#self.step1", base: "var#self.base", offset: int = 0):
             # This variable has an intra-group dependency
             return s1_data * 2 + base + offset
 
     proc_b = ProcessingGroup(title="Processor B", offset=-3)
     proc_a = ProcessingGroup(title="Processor A")
-    
 
     # A variable that depends on outputs from both group instances
     @Variable(title="A vs B")
-    def a_vs_b_diff(run, a_result: "var#proc_a__step2", b_result: "var#proc_b__step2"):
+    def a_vs_b_diff(run, a_result: "var#proc_a.step2", b_result: "var#proc_b.step2"):
         return a_result - b_result
     """
     ctx = mkcontext(code)
@@ -1394,7 +1393,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     class BadRootGroup(VariableGroup):
         @Variable()
-        def step1(self, run, base: "var#_root.missing_global"):
+        def step1(self, run, base: "var#missing_global"):
             return 1
 
     bad_group = BadRootGroup("Bad Group")
@@ -1408,7 +1407,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     class BadRootGroup(VariableGroup):
         @Variable()
-        def step1(self, run, base: "var#missing_local"):
+        def step1(self, run, base: "var#self.missing_local"):
             return 1
 
     bad_group = BadRootGroup("Bad Group")
@@ -1427,7 +1426,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     class ChildGroup(BaseGroup):
         @Variable()
-        def step2(self, run, s1_data: "var#step1"):
+        def step2(self, run, s1_data: "var#self.step1"):
             return s1_data * 2
 
     class ChildGroup2(BaseGroup):
@@ -1467,7 +1466,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return np.ones((100, 100), dtype=np.uint8)
 
         @Variable(summary="sum")
-        def photon_count(self, run, image_data: "var#image"):
+        def photon_count(self, run, image_data: "var#self.image"):
             # A mock calculation
             return image_data.sum()
 
@@ -1479,8 +1478,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
         @Variable(title="Intensity per Photon")
         def intensity_per_photon(self, run,
-                                 intensity: "var#xgm.intensity",
-                                 photons: "var#detector.photon_count"):
+                                 intensity: "var#self.xgm.intensity",
+                                 photons: "var#self.detector.photon_count"):
             # This depends on variables from two different nested subgroups
             return intensity / photons
 
@@ -1489,21 +1488,20 @@ def test_variable_group(mock_run, tmp_path, caplog):
         instrument = InstrumentDiagnostics("SCS Instrument", cluster=True, tags=["scs"])
 
         @Variable(title="Experiment Quality")
-        def quality(self, run, ipp: "var#instrument.intensity_per_photon"):
+        def quality(self, run, ipp: "var#self.instrument.intensity_per_photon"):
             # Depends on a variable from a nested group
             return "good" if ipp > 1.0 else "bad"
         
         @Variable()
-        def deep_nested_access(run, data: "var#instrument.detector.image"):
+        def deep_nested_access(run, data: "var#self.instrument.detector.image"):
             return data.mean()
 
     # Instantiate the top-level group
     exp1 = Experiment("My Experiment")
 
-    # TODO 'dot' var access notation does not yet work outside VariableGroup
-    # @Variable()
-    # def nested_var_access(run, data: "var#exp1.instrument.detector.image"):
-    #     return data.mean()
+    @Variable()
+    def nested_var_access(run, data: "var#exp1.instrument.detector.image"):
+        return data.mean()
     """
     ctx = mkcontext(code)
 
@@ -1515,6 +1513,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         "exp1__instrument__intensity_per_photon",
         "exp1__quality",
         "exp1__deep_nested_access",
+        "nested_var_access",
     }
     assert set(ctx.vars.keys()) == expected_vars
 
