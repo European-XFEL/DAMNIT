@@ -1230,6 +1230,11 @@ def test_pattern_matching_dependency(mock_run):
         return ','.join(sorted(data.keys()))
 
     @Variable()
+    def res3(run, data: 'var#bar?'):
+        # no match on data, this variable won't execute
+        return 1
+
+    @Variable()
     def var1(run):
         return 7
 
@@ -1253,3 +1258,4 @@ def test_pattern_matching_dependency(mock_run):
         print(f'{k=}:{v.data}')
     assert results.cells['res1'].data.tolist() == [175, 3]
     assert results.cells['res2'].data == 'var1,var10,var2,var3'
+    assert 'res3' not in results.cells
