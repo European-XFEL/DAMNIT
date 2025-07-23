@@ -1233,7 +1233,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return 10
 
         @Variable()
-        def calibrated_value(self, run, raw: "var#self.raw_value"):
+        def calibrated_value(self, run, raw: "self#raw_value"):
             return raw * self.calibration_factor
 
         @Variable(title="Offset Value", summary="max")
@@ -1286,7 +1286,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return 1 / 0
 
         @Variable()
-        def good_var(self, run, bad_data: "var#self.bad_var"):
+        def good_var(self, run, bad_data: "self#bad_var"):
             return 42
 
     error_group = ErrorGroup("Error Group")
@@ -1324,7 +1324,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return base + 1
 
         @Variable(title="Step 2")
-        def step2(self, run, s1_data: "var#self.step1", base: "var#self.base", offset: int = 0):
+        def step2(self, run, s1_data: "self#step1", base: "self#base", offset: int = 0):
             # This variable has an intra-group dependency
             return s1_data * 2 + base + offset
 
@@ -1407,7 +1407,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     class BadRootGroup(VariableGroup):
         @Variable()
-        def step1(self, run, base: "var#self.missing_local"):
+        def step1(self, run, base: "self#missing_local"):
             return 1
 
     bad_group = BadRootGroup("Bad Group")
@@ -1426,7 +1426,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     class ChildGroup(BaseGroup):
         @Variable()
-        def step2(self, run, s1_data: "var#self.step1"):
+        def step2(self, run, s1_data: "self#step1"):
             return s1_data * 2
 
     class ChildGroup2(BaseGroup):
@@ -1466,7 +1466,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return np.ones((100, 100), dtype=np.uint8)
 
         @Variable(summary="sum")
-        def photon_count(self, run, image_data: "var#self.image"):
+        def photon_count(self, run, image_data: "self#image"):
             # A mock calculation
             return image_data.sum()
 
@@ -1478,8 +1478,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
         @Variable(title="Intensity per Photon")
         def intensity_per_photon(self, run,
-                                 intensity: "var#self.xgm.intensity",
-                                 photons: "var#self.detector.photon_count"):
+                                 intensity: "self#xgm.intensity",
+                                 photons: "self#detector.photon_count"):
             # This depends on variables from two different nested subgroups
             return intensity / photons
 
@@ -1488,12 +1488,12 @@ def test_variable_group(mock_run, tmp_path, caplog):
         instrument = InstrumentDiagnostics("SCS Instrument", cluster=True, tags=["scs"])
 
         @Variable(title="Experiment Quality")
-        def quality(self, run, ipp: "var#self.instrument.intensity_per_photon"):
+        def quality(self, run, ipp: "self#instrument.intensity_per_photon"):
             # Depends on a variable from a nested group
             return "good" if ipp > 1.0 else "bad"
         
         @Variable()
-        def deep_nested_access(run, data: "var#self.instrument.detector.image"):
+        def deep_nested_access(run, data: "self#instrument.detector.image"):
             return data.mean()
 
     # Instantiate the top-level group

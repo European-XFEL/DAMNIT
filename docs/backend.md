@@ -169,7 +169,7 @@ class XGMDiagnostics(VariableGroup):
         return XGM(run, device_name).pulse_energy()
 
     @Variable(title="Corrected Energy", summary="mean")
-    def corrected_energy(self, run, energy: "var#self.pulse_energy", offset: float = 0.0):
+    def corrected_energy(self, run, energy: "self#pulse_energy", offset: float = 0.0):
         # This has an intra-group dependency on the 'pulse_energy' variable
         return energy + offset
 
@@ -201,11 +201,12 @@ variables within it are automatically given prefixed names to avoid conflicts.
 ### Dependencies
 
 - **Intra-group dependencies:** To depend on another variable within the *same
-  VariableGroup instance*, you must prefix the path with `self.`. This
-  explicitly tells DAMNIT to look within the current group instance.
+  VariableGroup instance*, you must replace the `var#` prefix with `self#` in
+  the attribute annotation. This explicitly tells DAMNIT to look within the
+  current group instance.
   ```python
   @Variable()
-  def corrected_energy(self, run, energy: "var#self.pulse_energy"):
+  def corrected_energy(self, run, energy: "self#pulse_energy"):
       # ...
   ```
 - **Global and Cross-Group Dependencies:** To depend on any variable outside the
@@ -257,8 +258,8 @@ class MIDDiagnostics(VariableGroup):
     # This variable can depend on children of the nested groups
     @Variable(title="Photons per µJ")
     def photons_per_microjoule(self, run,
-                               photons: "var#self.agipd.n_photons",
-                               energy: "var#self.xgm.corrected_energy"):
+                               photons: "self#agipd.n_photons",
+                               energy: "self#xgm.corrected_energy"):
         return photons / energy
 
 # Instantiate the top-level group
@@ -274,7 +275,7 @@ When groups are nested:
 - **Dependencies:** To depend on a variable within the same instance (including
   any nested groups), you use a path from `self`. You can use dot-notation `.`,
   which acts as an alias for the double-underscore `__` used in the final
-  variable name (e.g. `var#self.detector.image_data`)
+  variable name (e.g. `self#detector.image_data`)
 - **Property Inheritance:**
     - `tags`: Are inherited recursively. In the example above, the `Diag` tag
       from the `MIDDiagnostics` instance will be applied to all variables inside
@@ -298,7 +299,7 @@ class BaseAnalysis(VariableGroup):
 
 class DetectorAnalysis(BaseAnalysis):  # Inherits n_trains
     @Variable(title="Photon Count", data="proc")
-    def photon_count(self, run, n_trains: "var#self.n_trains"):
+    def photon_count(self, run, n_trains: "self#n_trains"):
         # Depends on an inherited variable
         return 1e6 / n_trains
 

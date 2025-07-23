@@ -60,7 +60,7 @@ class Variable:
         self.func = func
         if hasattr(func, '__annotations__'):
             for k, v in func.__annotations__.items():
-                if isinstance(v, str) and v.startswith('var#'):
+                if isinstance(v, str) and (v.startswith('var#') or v.startswith('self#')):
                     # Replace '.' syntaxic sugar with '__' in var dependencies
                     func.__annotations__[k] = v.replace('.', '__')
 
@@ -233,11 +233,10 @@ class VariableGroup:
             # edit annotations to include the group prefix
             annotations = var.annotations().copy()
             for arg_name, annotation in annotations.items():
-                if isinstance(annotation, str) and annotation.startswith('var#'):
-                    dep_name = annotation.removeprefix('var#')
-                    if dep_name.startswith('self__'):
-                        # Dependency is in this instance -> prefix the dep_name
-                        annotations[arg_name] = f'var#{prefix}__{dep_name.removeprefix("self__")}'
+                if isinstance(annotation, str) and annotation.startswith('self#'):
+                    dep_name = annotation.removeprefix('self#')
+                    # Dependency is in this instance -> prefix the dep_name
+                    annotations[arg_name] = f'var#{prefix}__{dep_name}'
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)
