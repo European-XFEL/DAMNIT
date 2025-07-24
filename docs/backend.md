@@ -111,6 +111,25 @@ def bar(run, value: "var#foo"):
     return value * 2
 ```
 
+Pattern matching using unix shell-style
+[wildcards](https://docs.python.org/3/library/fnmatch.html) is allowed in `var#`
+annotations. In such case, a `dict` is returned where keys are the name of
+matching dependencies and values are their results:
+```python
+@Variable()
+def base_1(run):
+    return 1
+
+@Variable()
+def base_2(run):
+    return 2
+
+@Variable()
+def sum_values(run, data: 'var#base_?'):
+    # data is a dict
+    return sum(data.values())
+```
+
 Dependents are not executed if a variable raises an error or returns `None`. You
 can raise `Skip` to provide a reason, which will be visible as a tooltip on the
 table cell in the GUI:

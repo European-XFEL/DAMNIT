@@ -6,7 +6,7 @@ possibly running in a different Python interpreter. It will run a context file
 """
 
 import argparse
-import functools
+import fnmatch
 import inspect
 import io
 import logging
@@ -191,14 +191,25 @@ class ContextFile:
         if problems:
             raise ContextFileErrors(problems)
 
-    def ordered_vars(self):
+    def direct_dependencies(self, *variables: Variable) -> set[str]:
+        """return a set of names of direct dependencies of the passed Variable's
+        """
+        dependencies = set()
+        for variable in variables:
+            for dependency in variable.arg_dependencies().values():
+                # expand matching patterns to match all variable dependencies
+                dependencies.update(fnmatch.filter(self.vars, dependency))
+        return dependencies
+
+    def ordered_vars(self) -> tuple[str]:
         """
         Return a tuple of variables in the context file, topologically sorted.
         """
-        vars_graph = { name: set(var.arg_dependencies().values()) for name, var in self.vars.items() }
+        ts = TopologicalSorter()
 
-        # Sort and return
-        ts = TopologicalSorter(vars_graph)
+        for name, var in self.vars.items():
+            ts.add(name, *self.direct_dependencies(var))
+
         return tuple(ts.static_order())
 
     def all_dependencies(self, *variables):
@@ -209,7 +220,7 @@ class ContextFile:
         dependencies = set()
 
         for var in variables:
-            var_deps = set(var.arg_dependencies().values())
+            var_deps = self.direct_dependencies(var)
             dependencies |= var_deps
 
             if len(var_deps) > 0:
@@ -304,8 +315,13 @@ class ContextFile:
                     # Dependency within the context file
                     if annotation.startswith("var#"):
                         dep_name = annotation.removeprefix("var#")
-                        if dep_name in dep_results:
+                        match = fnmatch.filter(dep_results, dep_name)
+
+                        if len(match) == 1 and match[0] == dep_name:
                             dep_data = dep_results[dep_name]
+                            kwargs[arg_name] = dep_data
+                        elif len(match) > 1:
+                            dep_data = {name: dep_results[name] for name in match}
                             kwargs[arg_name] = dep_data
                         elif param.default is inspect.Parameter.empty:
                             missing_deps.append(dep_name)
