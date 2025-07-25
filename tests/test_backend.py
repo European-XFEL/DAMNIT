@@ -237,6 +237,7 @@ def test_context_file(mock_ctx, tmp_path):
         ctx.check()
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
+    caplog.clear()
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
@@ -1213,3 +1214,357 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         "SELECT attributes FROM run_variables WHERE name='var4'"
     ).fetchone()[0]
     assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
+
+
+def test_variable_group(mock_run, tmp_path, caplog):
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class TestGroup(VariableGroup):
+        def __init__(self, *args, calib=1.0, **kwargs):
+            self.calibration_factor = calib
+            super().__init__(*args, **kwargs)
+
+        def _some_value(self):
+            return 42
+
+        @Variable(title="Raw Value", tags="raw")
+        def raw_value(self, run):
+            return 10
+
+        @Variable()
+        def calibrated_value(self, run, raw: "self#raw_value"):
+            return raw * self.calibration_factor
+
+        @Variable(title="Offset Value", summary="max")
+        def offset_value(self, run, test_value: int, offset: 'input#offset'=5):
+            return test_value + offset + self._some_value()
+
+    # Instantiate the group
+    my_group = TestGroup("My Test Group", calib=1.5, test_value=5, tags="test_group")
+    your_group = TestGroup(calib=2.0, test_value=10)
+    """
+    ctx = mkcontext(code)
+
+    # Test variable naming and structure
+    assert len(ctx.vars) == 6
+    assert "my_group__raw_value" in ctx.vars
+    assert "my_group__calibrated_value" in ctx.vars
+    assert "my_group__offset_value" in ctx.vars
+    assert "your_group__raw_value" in ctx.vars
+    assert "your_group__calibrated_value" in ctx.vars
+    assert "your_group__offset_value" in ctx.vars
+
+    # Test title generation
+    assert ctx.vars["my_group__raw_value"].title == "My Test Group/Raw Value"
+    assert ctx.vars["my_group__calibrated_value"].title == "My Test Group/calibrated_value"
+    assert ctx.vars["your_group__offset_value"].title == "your_group/Offset Value"
+
+    # Test tag merging
+    assert "test_group" in ctx.vars["my_group__raw_value"].tags
+    assert "raw" in ctx.vars["my_group__raw_value"].tags
+
+    # Check topological ordering for dependency resolution
+    ordered = ctx.ordered_vars()
+    assert ordered.index("my_group__raw_value") < ordered.index("my_group__calibrated_value")
+
+    # Execute and check results
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog, input_vars={"offset": 10})
+    assert results.cells["my_group__raw_value"].data == 10
+    # Check that calibration factor from group __init__ was used
+    assert results.cells["my_group__calibrated_value"].data == 15.0
+    # Check that input# variables are passed through correctly
+    assert results.cells["my_group__offset_value"].data == 57.0
+
+    # Test that an error in a dependency correctly stops downstream variables
+    error_code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class ErrorGroup(VariableGroup):
+        @Variable()
+        def bad_var(self, run):
+            return 1 / 0
+
+        @Variable()
+        def good_var(self, run, bad_data: "self#bad_var"):
+            return 42
+
+    error_group = ErrorGroup("Error Group")
+    """
+    ctx_err = mkcontext(error_code)
+
+    with caplog.at_level(logging.ERROR):
+        results_err = ctx_err.execute(mock_run, 1000, 1234, {})
+
+    # Check that an error was logged for bad_var
+    assert caplog.records[0].levelname == "ERROR"
+
+    assert "error_group__good_var" not in results_err.cells
+    assert "error_group__good_var" not in results_err.errors
+    # The error itself should be recorded
+    assert "error_group__bad_var" in results_err.errors
+
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    # top-level variable to act as a global dependency
+    @Variable(title="Global Base")
+    def base(run):
+        return 100
+
+    class ProcessingGroup(VariableGroup):
+
+        @Variable(title="Local base", transient=True)
+        def base(self, run):
+            return 50
+
+        @Variable(title="Step 1")
+        def step1(self, run, base: "var#base"):
+            # This variable depends on a top-level ('root') variable
+            return base + 1
+
+        @Variable(title="Step 2")
+        def step2(self, run, s1_data: "self#step1", base: "self#base", offset: int = 0):
+            # This variable has an intra-group dependency
+            return s1_data * 2 + base + offset
+
+    proc_b = ProcessingGroup(title="Processor B", offset=-3)
+    proc_a = ProcessingGroup(title="Processor A")
+
+    # A variable that depends on outputs from both group instances
+    @Variable(title="A vs B")
+    def a_vs_b_diff(run, a_result: "var#proc_a.step2", b_result: "var#proc_b.step2"):
+        return a_result - b_result
+    """
+    ctx = mkcontext(code)
+
+    # Check that all variable names are generated correctly
+    expected_vars = {
+        "base",
+        "proc_a__base", "proc_a__step1", "proc_a__step2",
+        "proc_b__base", "proc_b__step1", "proc_b__step2",
+        "a_vs_b_diff"
+    }
+    assert set(ctx.vars.keys()) == expected_vars
+    
+    for var in ctx.vars.values():
+        print(var.name, var.title, var.tags, var.annotations())
+
+    # Check the dependency graph and execution order
+    ordered_vars = ctx.ordered_vars()
+
+    assert ordered_vars.index("base") < ordered_vars.index("proc_a__step1")
+    assert ordered_vars.index("base") < ordered_vars.index("proc_b__step1")
+
+    assert ordered_vars.index("proc_a__step1") < ordered_vars.index("proc_a__step2")
+    assert ordered_vars.index("proc_b__step1") < ordered_vars.index("proc_b__step2")
+
+    assert ordered_vars.index("proc_a__step2") < ordered_vars.index("a_vs_b_diff")
+    assert ordered_vars.index("proc_b__step2") < ordered_vars.index("a_vs_b_diff")
+
+    # Execute the context and check the results
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+
+    # Check results for proc_a
+    assert results.cells["proc_a__step1"].data == 101
+    assert results.cells["proc_a__step2"].data == 252
+
+    # Check results for proc_b
+    assert results.cells["proc_b__step1"].data == 101
+    assert results.cells["proc_b__step2"].data == 249
+
+    # Check the final composer variable
+    assert results.cells["a_vs_b_diff"].data == 3
+
+    results_hdf5_path = tmp_path / "results.hdf5"
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        assert f["proc_a__step1/data"][()] == 101
+        assert f["proc_a__step2/data"][()] == 252
+        assert f["proc_b__step1/data"][()] == 101
+        assert f["proc_b__step2/data"][()] == 249
+        assert f["a_vs_b_diff/data"][()] == 3
+        assert "base" in f
+        assert "proc_a__base" not in f
+
+    # Test that a missing root dependency is handled correctly
+    bad_root_code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class BadRootGroup(VariableGroup):
+        @Variable()
+        def step1(self, run, base: "var#missing_global"):
+            return 1
+
+    bad_group = BadRootGroup("Bad Group")
+    """
+    with pytest.raises(KeyError, match="missing_global"):
+        mkcontext(bad_root_code)
+    
+    # Test that a missing dependency is handled correctly
+    bad_root_code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class BadRootGroup(VariableGroup):
+        @Variable()
+        def step1(self, run, base: "self#missing_local"):
+            return 1
+
+    bad_group = BadRootGroup("Bad Group")
+    """
+    with pytest.raises(KeyError, match="missing_local"):
+        mkcontext(bad_root_code)
+
+    # test inheritance of VariableGroup
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    class BaseGroup(VariableGroup):
+        @Variable()
+        def step1(run, value: float = 0.0):
+            return value + 1
+
+    class ChildGroup(BaseGroup):
+        @Variable()
+        def step2(self, run, s1_data: "self#step1"):
+            return s1_data * 2
+
+    class ChildGroup2(BaseGroup):
+        @Variable()
+        def step1(run):
+            return 'overridden step1'
+
+    base_group = BaseGroup("Base Group")
+    child_group = ChildGroup("Child Group", value=1, cluster=True)
+    child_group2 = ChildGroup2("Child Group 2")
+    """
+    ctx = mkcontext(code)
+    assert set(ctx.vars) == {"base_group__step1", "child_group2__step1", "child_group__step1", "child_group__step2"}
+
+    assert ctx.vars["base_group__step1"].cluster is False
+    assert ctx.vars["child_group__step1"].cluster is True
+    assert ctx.vars["child_group__step2"].cluster is True
+
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+    assert results.cells["child_group__step2"].data == 4
+    assert results.cells["child_group2__step1"].data == 'overridden step1'
+
+    # Test VariableGroup composition
+    code = """
+    from damnit_ctx import Variable, VariableGroup
+
+    # Define some reusable, low-level groups
+    class XGMGroup(VariableGroup):
+        @Variable(title="Intensity")
+        def intensity(self, run, factor: float = 1.0):
+            return 10 * factor
+
+    class DetectorGroup(VariableGroup):
+        @Variable(title="Image", transient=True)
+        def image(self, run):
+            import numpy as np
+            return np.ones((100, 100), dtype=np.uint8)
+
+        @Variable(summary="sum")
+        def photon_count(self, run, image_data: "self#image"):
+            # A mock calculation
+            return image_data.sum()
+
+    # A mid-level group that composes the low-level ones
+    class InstrumentDiagnostics(VariableGroup):
+        # Nested group instances
+        xgm = XGMGroup("XGM", factor=1.5)
+        detector = DetectorGroup("Detector", tags="detector")
+
+        @Variable(title="Intensity per Photon")
+        def intensity_per_photon(self, run,
+                                 intensity: "self#xgm.intensity",
+                                 photons: "self#detector.photon_count"):
+            # This depends on variables from two different nested subgroups
+            return intensity / photons
+
+    # A top-level group that nests the mid-level group (2 levels of nesting)
+    class Experiment(VariableGroup):
+        instrument = InstrumentDiagnostics("SCS Instrument", cluster=True, tags=["scs"])
+
+        @Variable(title="Experiment Quality")
+        def quality(self, run, ipp: "self#instrument.intensity_per_photon"):
+            # Depends on a variable from a nested group
+            return "good" if ipp > 1.0 else "bad"
+        
+        @Variable()
+        def deep_nested_access(run, data: "self#instrument.detector.image"):
+            return data.mean()
+
+    # Instantiate the top-level group
+    exp1 = Experiment("My Experiment")
+
+    @Variable()
+    def nested_var_access(run, data: "var#exp1.instrument.detector.image"):
+        return data.mean()
+    """
+    ctx = mkcontext(code)
+
+    # Check that all variables from the nested structure are present and named correctly
+    expected_vars = {
+        "exp1__instrument__xgm__intensity",
+        "exp1__instrument__detector__image",
+        "exp1__instrument__detector__photon_count",
+        "exp1__instrument__intensity_per_photon",
+        "exp1__quality",
+        "exp1__deep_nested_access",
+        "nested_var_access",
+    }
+    assert set(ctx.vars.keys()) == expected_vars
+
+    # Check title generation with multiple levels of nesting
+    assert ctx.vars["exp1__instrument__xgm__intensity"].title == "My Experiment/SCS Instrument/XGM/Intensity"
+    assert ctx.vars["exp1__instrument__detector__photon_count"].title == "My Experiment/SCS Instrument/Detector/photon_count"
+    assert ctx.vars["exp1__instrument__intensity_per_photon"].title == "My Experiment/SCS Instrument/Intensity per Photon"
+    assert ctx.vars["exp1__quality"].title == "My Experiment/Experiment Quality"
+
+    # Check that tags are correctly inherited down the hierarchy
+    # 'detector' tag from DetectorGroup instance should be present
+    assert "detector" in ctx.vars["exp1__instrument__detector__photon_count"].tags
+    # 'scs' tag from InstrumentDiagnostics instance should be present on all its children
+    assert "scs" in ctx.vars["exp1__instrument__detector__photon_count"].tags
+    assert "scs" in ctx.vars["exp1__instrument__xgm__intensity"].tags
+
+    # Check that 'cluster' and 'transient' properties are NOT inherited by subgroups
+    # The 'instrument' group was marked as cluster=True, so its direct variables should be cluster.
+    assert ctx.vars["exp1__instrument__intensity_per_photon"].cluster is True
+    # But variables from the nested 'detector' and 'xgm' groups should NOT be cluster.
+    assert ctx.vars["exp1__instrument__detector__photon_count"].cluster is False
+    assert ctx.vars["exp1__instrument__xgm__intensity"].cluster is False
+    # The 'image' variable was marked transient=True in its own definition.
+    assert ctx.vars["exp1__instrument__detector__image"].transient is True
+
+    # Check dependency resolution and execution order
+    ordered_vars = ctx.ordered_vars()
+    # Check dependencies within the deepest group
+    assert ordered_vars.index("exp1__instrument__detector__image") < ordered_vars.index("exp1__instrument__detector__photon_count")
+    # Check dependencies for the mid-level composer variable
+    assert ordered_vars.index("exp1__instrument__xgm__intensity") < ordered_vars.index("exp1__instrument__intensity_per_photon")
+    assert ordered_vars.index("exp1__instrument__detector__photon_count") < ordered_vars.index("exp1__instrument__intensity_per_photon")
+    # Check dependencies for the top-level composer variable
+    assert ordered_vars.index("exp1__instrument__intensity_per_photon") < ordered_vars.index("exp1__quality")
+
+    # Execute the context and verify the results
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+
+    # Verify intermediate and final calculations
+    assert results.cells["exp1__instrument__xgm__intensity"].data == 15.0  # 10 * 1.5
+    assert results.cells["exp1__instrument__detector__photon_count"].data == 10_000
+    assert results.cells["exp1__instrument__intensity_per_photon"].data == 15.0 / 10_000
+    assert results.cells["exp1__quality"].data == "bad"
+    assert results.cells["exp1__deep_nested_access"].data == 1.0
+
+    # Check that transient variables are not saved
+    results_hdf5_path = tmp_path / "results.h5"
+    results.save_hdf5(results_hdf5_path)
+    with h5py.File(results_hdf5_path) as f:
+        # The transient 'image' variable should not exist in the file
+        assert "exp1__instrument__detector__image" not in f
+        # A non-transient variable should exist
+        assert "exp1__quality" in f
+        assert f["exp1__quality/data"][()] == b"bad"

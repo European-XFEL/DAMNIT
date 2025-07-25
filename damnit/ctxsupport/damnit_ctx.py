@@ -4,11 +4,14 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import inspect
 import logging
 import re
 import sys
 from collections.abc import Sequence
+from copy import copy
 from enum import Enum
+from functools import wraps
 
 import h5py
 import numpy as np
@@ -55,6 +58,12 @@ class Variable:
     # @Variable() is used as a decorator on a function that computes a value
     def __call__(self, func):
         self.func = func
+        if hasattr(func, '__annotations__'):
+            for k, v in func.__annotations__.items():
+                if isinstance(v, str) and (v.startswith('var#') or v.startswith('self#')):
+                    # Replace '.' syntaxic sugar with '__' in var dependencies
+                    func.__annotations__[k] = v.replace('.', '__')
+
         self.name = func.__name__
         if self.title is None:
             self.title = self.name
@@ -93,9 +102,11 @@ class Variable:
         Get all direct dependencies of this Variable with a certain
         type/prefix. Returns a dict of argument name to variable name.
         """
-        return { arg_name: annotation.removeprefix(prefix)
-                 for arg_name, annotation in self.annotations().items()
-                 if annotation.startswith(prefix) }
+        return {
+            arg_name: annotation.removeprefix(prefix)
+            for arg_name, annotation in self.annotations().items()
+            if isinstance(annotation, str) and annotation.startswith(prefix)
+        }
 
     def annotations(self):
         """
@@ -120,6 +131,142 @@ class Variable:
                 cell.summary = self.summary
 
         return cell
+
+    def copy(self):
+        return copy(self)
+
+
+class VariableGroup:
+    """Base class for creating reusable groups of Variables"""
+
+    def __init__(
+        self,
+        title: str = None,
+        *,
+        sep: str = '/',
+        tags: str | list[str] | None = None,
+        cluster: bool = False,
+        transient: bool = False,
+        **kwargs,
+    ):
+        """
+
+        Args:
+            title: The title of the variable group.
+            sep: The separator to use to construct variable titles. Variables'
+                titles in a VariableGroup are formatted as
+                <group_title><sep><variable_title>. Defaults to '/'.
+            tags: A list of tags to apply to all Variables in this group.
+            cluster: If True, all Variables in this group are marked as cluster.
+            transient: If True, all Variables in this group are transient.
+            kwargs: Additional keyword arguments that will be passed to all
+                Variables in this group. These can be used to pass
+                device-specific parameters or other context that should be
+                available to all variables.
+        """
+        self.title = title
+        self.sep = sep
+        self.tags = (tags,) if isinstance(tags, str) else tags
+        self.cluster = cluster
+        self.transient = transient
+        self.group_kwargs = kwargs
+
+        self._variables = {}
+        self._groups = {}
+
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if isinstance(attr, Variable):
+                self._variables[attr_name] = attr
+            elif isinstance(attr, VariableGroup):
+                self._groups[attr_name] = attr
+
+    def _merge_tags(self, original_tags):
+        """Merge original tags with group tags"""
+        if self.tags is None:
+            return original_tags
+        if original_tags is None:
+            return self.tags
+        return set(self.tags) | set(original_tags)
+
+    def _init_group_variable(self, prefix, original_var: Variable) -> Variable:
+        """Create a new Variable instance for this group"""
+        new_var = original_var.copy()
+
+        new_var.name = f'{prefix}__{new_var.name}'
+        new_var.title = f"{self.title or prefix}{self.sep}{new_var.title}"
+        new_var.tags = self._merge_tags(new_var.tags)
+        new_var.cluster |= self.cluster
+        new_var.transient |= self.transient
+
+        return new_var
+
+    def _create_wrapper_function(self, var, annotations, signature):
+        """Create a wrapper function that provides group context"""
+        func = var.func
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Add group-specific kwargs
+            args_in_func = inspect.signature(func).parameters
+            group_kwargs = {k: v for k, v in self.group_kwargs.items() if k in args_in_func}
+            kwargs |= group_kwargs
+
+            # Call the original function with group context
+            if next(iter(args_in_func)) == 'self':
+                return func(self, *args, **kwargs)
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = var.name
+        wrapper.__annotations__ = annotations
+        wrapper.__signature__ = signature
+        wrapper.__doc__ = func.__doc__
+
+        return wrapper
+
+    def variables(self, prefix: str) -> dict[str, Variable]:
+        """Get all variables in this group"""
+        _vars = {}
+        for original_var in self._variables.values():
+            var = self._init_group_variable(prefix, original_var)
+
+            # edit annotations to include the group prefix
+            annotations = var.annotations().copy()
+            for arg_name, annotation in annotations.items():
+                if isinstance(annotation, str) and annotation.startswith('self#'):
+                    dep_name = annotation.removeprefix('self#')
+                    # Dependency is in this instance -> prefix the dep_name
+                    annotations[arg_name] = f'var#{prefix}__{dep_name}'
+
+            # Create new signature with the modified annotations
+            original_sig = inspect.signature(var.func)
+            params = []
+            for index, param in enumerate(original_sig.parameters.values()):
+                if index == 0 and param.name == 'self':
+                    # Skip the 'self' parameter for instance methods
+                    continue
+                # Replace the parameter with the new annotation if it exists
+                if param.name in annotations:
+                    param = param.replace(annotation=annotations[param.name])                
+                params.append(param)
+
+            new_sig = original_sig.replace(parameters=params)
+
+            # wrap the original function with the new signature and instance kwargs
+            var.func = self._create_wrapper_function(
+                var, annotations=annotations, signature=new_sig)
+
+            _vars[var.name] = var
+
+        # Add variables from nested groups
+        for group_name, group in self._groups.items():
+            group_prefix = f"{prefix}__{group_name}"
+            # update title and tags for the group
+            group.title = f"{self.title or prefix}{self.sep}{group.title or group_name}"
+            group.tags = self._merge_tags(group.tags)
+            _vars.update(group.variables(group_prefix))
+
+        return _vars
 
 
 class _DummyCell:
