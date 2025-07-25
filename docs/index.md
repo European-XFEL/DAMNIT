@@ -43,3 +43,11 @@ open GUIs, so the effect is that you see an automatically-updating table of
 runs with variables coming from code that you can modify in the context file;
 which gives an enormous amount of flexibility to customize the variables for
 your experiment.
+
+# Acknowledgements
+
+This work is partially supported by the consortium
+[DAPHNE4NFDI](https://www.daphne4nfdi.de/) in the context of the work of the
+[NFDI e.V.](https://www.nfdi.de/). The consortium is funded by the Deutsche
+Forschungsgemeinschaft ([DFG](https://www.dfg.de/), German Research Foundation)
+- project number 460248799.
