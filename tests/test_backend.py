@@ -1914,3 +1914,22 @@ def test_variable_group(mock_run, tmp_path, caplog):
     """
     ctx = mkcontext(code_empty_group)
     assert len(ctx.vars) == 0
+
+    code_subclass_group = """
+    from damnit_ctx import Variable, Group
+    
+    class BaseGroup(Group):
+        pass
+    """
+    with pytest.raises(TypeError, match="Use it as a decorator"):
+        ctx = mkcontext(code_subclass_group)
+
+    code_invalid_group_argument = """
+    from damnit_ctx import Group
+
+    @Group(unknown_property="value")
+    class UnknownGroup:
+        pass
+    """
+    with pytest.raises(TypeError, match="unknown_property"):
+        ctx = mkcontext(code_invalid_group_argument)
