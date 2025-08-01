@@ -1675,6 +1675,11 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def deep_nested_access(run, data: "self#instrument.detector.image"):
             return data.mean()
 
+        @Variable()
+        def deep_nested_access_dunder(run, data: "self#instrument__detector__image"):
+            # This uses the dunder syntax instead of the dot
+            return data.mean()
+
     # Instantiate the top-level group
     exp1 = Experiment(title="My Experiment")
 
@@ -1693,6 +1698,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         "exp1__quality",
         "exp1__deep_nested_access",
         "nested_var_access",
+        "exp1__deep_nested_access_dunder",
     }
     assert set(ctx.vars.keys()) == expected_vars
 
@@ -1728,6 +1734,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert results.cells["exp1__instrument__intensity_per_photon"].data == 15.0 / 10_000
     assert results.cells["exp1__quality"].data == "bad"
     assert results.cells["exp1__deep_nested_access"].data == 1.0
+    assert results.cells["exp1__deep_nested_access_dunder"].data == 1.0
 
     # Check that transient variables are not saved
     results_hdf5_path = tmp_path / "results.h5"
@@ -1975,7 +1982,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     with pytest.raises(TypeError, match="field1"):
         ctx = mkcontext(redefined_field_code)
     
-    code = """
+    code_tags = """
     from damnit_ctx import Variable, Group
 
     @Group(tags=['ClassA'])
@@ -2018,7 +2025,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     ee = E(title='E Group', tags=['group_e'])
     ff = F(title='F', tags=['group_f'])
     """
-    ctx = mkcontext(code)
+    ctx = mkcontext(code_tags)
 
     assert ctx.vars["a__a_var"].title == "a/A Variable"
     assert ctx.vars["b__a_var"].title == "b/A Variable"
@@ -2048,3 +2055,29 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert set(ctx.vars["dd__a_var"].tags) == {"varA", "group_d"}
     assert set(ctx.vars["ee__a_var"].tags) == {"varA", "group_e"}
     assert set(ctx.vars["ff__a_var"].tags) == {"varA", "group_f"}
+
+    code_custom_sep = """
+    from damnit_ctx import Variable, Group
+
+    @Group(title="My Analysis", sep=" -> ")
+    class CustomSepGroup:
+        @Variable(title="Step 1")
+        def step1(self, run):
+            return 1
+
+    my_group = CustomSepGroup()
+    """
+    ctx = mkcontext(code_custom_sep)
+    assert ctx.vars["my_group__step1"].title == "My Analysis -> Step 1"
+
+    code_empty_group = """
+    from damnit_ctx import Group
+
+    @Group(title="Empty")
+    class EmptyGroup:
+        pass
+
+    empty = EmptyGroup()
+    """
+    ctx = mkcontext(code_empty_group)
+    assert len(ctx.vars) == 0
