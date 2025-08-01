@@ -17,7 +17,10 @@ import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["RunData", "Variable", "Cell"]
+from dataclasses import dataclass, fields, is_dataclass, make_dataclass
+from typing import Callable, Generator
+
+__all__ = ["Cell", "Group", "RunData", "Variable"]
 
 log = logging.getLogger(__name__)
 
@@ -136,50 +139,60 @@ class Variable:
         return copy(self)
 
 
-class VariableGroup:
-    """Base class for creating reusable groups of Variables"""
+class Group:
+    """Base class for grouping Variables.
 
-    def __init__(
-        self,
-        title: str = None,
-        *,
-        sep: str = '/',
-        tags: str | list[str] | None = None,
-        cluster: bool = False,
-        transient: bool = False,
-        **kwargs,
-    ):
+    Use as a decorator, it transforms a class into a Group-aware dataclass.
+    - `@Group` for default behavior.
+    - `@Group(title='...', ...)` to provide parameters.
+    """
+
+    def __new__(cls, decorated_cls: type = None, **kwargs) -> Callable | type:
+        """Allows `Group` to function as a decorator.
+
+        It's called when you use `@Group` or `@Group(...)`.
         """
+        # Ensures that when subclasses of Group are instantiated,
+        # this decorator logic does not re-run. We only want it to run
+        # when `Group` itself is called directly.
+        if cls is not Group:
+            return super().__new__(cls)
 
-        Args:
-            title: The title of the variable group.
-            sep: The separator to use to construct variable titles. Variables'
-                titles in a VariableGroup are formatted as
-                <group_title><sep><variable_title>. Defaults to '/'.
-            tags: A list of tags to apply to all Variables in this group.
-            cluster: If True, all Variables in this group are marked as cluster.
-            transient: If True, all Variables in this group are transient.
-            kwargs: Additional keyword arguments that will be passed to all
-                Variables in this group. These can be used to pass
-                device-specific parameters or other context that should be
-                available to all variables.
+        def wrapper(wrapped_cls: type) -> type:
+            return _new_group(wrapped_cls, kwargs)
+
+        if decorated_cls is None:
+            # Called as `@Group(...)`. Return the wrapper.
+            return wrapper
+        else:
+            # Called as `@Group` without arguments. Decorate the class immediately.
+            return wrapper(decorated_cls)
+
+    def __init_subclass__(cls, **kwargs):
+        """Prevents direct subclassing of Group by end-users.
+        
+        We allow it only for our internal `_GroupTemplate`
         """
-        self.title = title
-        self.sep = sep
-        self.tags = (tags,) if isinstance(tags, str) else tags
-        self.cluster = cluster
-        self.transient = transient
-        self.group_kwargs = kwargs
+        super().__init_subclass__(**kwargs)
+        
+        # Check if the new subclass's immediate parent is `Group`.
+        if Group in cls.__bases__ and cls.__name__ != '_GroupTemplate':
+            raise TypeError(
+                f"Cannot subclass 'Group' directly (class {cls.__name__!r}). "
+                "Use it as a decorator: @Group"
+            )
 
-        self._variables = {}
-        self._groups = {}
 
-        for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-            if isinstance(attr, Variable):
-                self._variables[attr_name] = attr
-            elif isinstance(attr, VariableGroup):
-                self._groups[attr_name] = attr
+@dataclass
+class _GroupTemplate(Group):
+    title: str = None
+    tags: tuple[str] = None
+    sep: str = '/'
+
+    def __post_init__(self):
+        """Post-initialization to ensure tags are always a tuple."""
+        if isinstance(self.tags, str):
+            self.tags = (self.tags,)
 
     def _merge_tags(self, original_tags):
         """Merge original tags with group tags"""
@@ -196,8 +209,6 @@ class VariableGroup:
         new_var.name = f'{prefix}__{new_var.name}'
         new_var.title = f"{self.title or prefix}{self.sep}{new_var.title}"
         new_var.tags = self._merge_tags(new_var.tags)
-        new_var.cluster |= self.cluster
-        new_var.transient |= self.transient
 
         return new_var
 
@@ -207,10 +218,7 @@ class VariableGroup:
 
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Add group-specific kwargs
             args_in_func = inspect.signature(func).parameters
-            group_kwargs = {k: v for k, v in self.group_kwargs.items() if k in args_in_func}
-            kwargs |= group_kwargs
 
             # Call the original function with group context
             if next(iter(args_in_func)) == 'self':
@@ -224,10 +232,24 @@ class VariableGroup:
 
         return wrapper
 
+    def _variables(self) -> Generator[Variable, None, None]:
+        """Get all variables in this group"""
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if isinstance(attr, Variable):
+                yield attr
+
+    def _groups(self) -> Generator[tuple[str, Group], None, None]:
+        """Get all variable groups in this group"""
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if isinstance(attr, Group):
+                yield attr_name, attr
+
     def variables(self, prefix: str) -> dict[str, Variable]:
         """Get all variables in this group"""
         _vars = {}
-        for original_var in self._variables.values():
+        for original_var in self._variables():
             var = self._init_group_variable(prefix, original_var)
 
             # edit annotations to include the group prefix
@@ -259,7 +281,7 @@ class VariableGroup:
             _vars[var.name] = var
 
         # Add variables from nested groups
-        for group_name, group in self._groups.items():
+        for group_name, group in self._groups():
             group_prefix = f"{prefix}__{group_name}"
             # update title and tags for the group
             group.title = f"{self.title or prefix}{self.sep}{group.title or group_name}"
@@ -267,6 +289,59 @@ class VariableGroup:
             _vars.update(group.variables(group_prefix))
 
         return _vars
+
+
+GROUP_FIELD_NAMES = {f.name for f in fields(_GroupTemplate)}
+
+
+def _new_group(cls: type, decorator_kwargs: dict) -> type:
+    """Transform a class into a Group-based dataclass."""
+    if invalid_args := set(decorator_kwargs.keys()).difference(GROUP_FIELD_NAMES):
+        raise TypeError(f"Invalid Group arguments: {invalid_args}")
+
+    cls_annotations = cls.__dict__.get('__annotations__', {})
+    parent_fields = set()
+    is_group_subclass = issubclass(cls, Group)
+
+    if not is_group_subclass:
+        if redefined := GROUP_FIELD_NAMES.intersection(cls_annotations):
+             raise TypeError(f"Group fields {redefined} redefined in class {cls.__name__!r}")
+    else:
+        for base in cls.__mro__[1:]:
+            if is_dataclass(base):
+                parent_fields.update(base.__dataclass_fields__.keys())
+        if redefined := parent_fields.intersection(cls_annotations):
+            raise TypeError(f"Parent fields redefined with new annotations: {redefined}")
+
+    if is_group_subclass:
+        dataclass_cls = dataclass(cls)
+    else:
+        DynamicGroupBase = make_dataclass(
+            f"_DynamicGroupFor_{cls.__name__}",
+            fields=[(f.name, f.type, f) for f in fields(_GroupTemplate)],
+            bases=(_GroupTemplate,),
+        )
+        attrs = {k: v for k, v in cls.__dict__.items() if k not in ('__dict__', '__weakref__')}
+        new_cls = type(cls.__name__, (cls, DynamicGroupBase), attrs)
+        dataclass_cls = dataclass(new_cls)
+
+    if not decorator_kwargs:
+        return dataclass_cls
+
+    original_init = dataclass_cls.__init__
+    init_sig = inspect.signature(original_init)
+
+    @wraps(original_init)
+    def new_init(self, *args, **kwargs):
+        bound_args = init_sig.bind_partial(self, *args, **kwargs)
+        final_kwargs = decorator_kwargs.copy()
+        user_provided_args = bound_args.arguments
+        user_provided_args.pop('self', None)
+        final_kwargs.update(user_provided_args)
+        original_init(self, **final_kwargs)
+
+    dataclass_cls.__init__ = new_init
+    return dataclass_cls
 
 
 class _DummyCell:
