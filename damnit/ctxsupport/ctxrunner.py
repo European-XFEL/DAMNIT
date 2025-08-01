@@ -29,7 +29,7 @@ import numpy as np
 import requests
 import xarray as xr
 import yaml
-from damnit_ctx import (Cell, RunData, Skip, Variable, Group,
+from damnit_ctx import (Cell, Group, RunData, Skip, Variable,
                         isinstance_no_import)
 
 log = logging.getLogger(__name__)

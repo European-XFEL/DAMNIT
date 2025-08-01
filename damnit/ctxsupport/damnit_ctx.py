@@ -10,15 +10,14 @@ import re
 import sys
 from collections.abc import Sequence
 from copy import copy
+from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from enum import Enum
 from functools import wraps
+from typing import Callable, Generator
 
 import h5py
 import numpy as np
 import xarray as xr
-
-from dataclasses import dataclass, fields, is_dataclass, make_dataclass
-from typing import Callable, Generator
 
 __all__ = ["Cell", "Group", "RunData", "Variable"]
 
