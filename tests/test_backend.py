@@ -1350,9 +1350,6 @@ def test_variable_group(mock_run, tmp_path, caplog):
         "a_vs_b_diff"
     }
     assert set(ctx.vars.keys()) == expected_vars
-    
-    for var in ctx.vars.values():
-        print(var.name, var.title, var.tags, var.annotations())
 
     # Check the dependency graph and execution order
     ordered_vars = ctx.ordered_vars()
@@ -1545,9 +1542,6 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert "scs" in ctx.vars["exp1__instrument__detector__photon_count"].tags
     assert "scs" in ctx.vars["exp1__instrument__xgm__intensity"].tags
 
-    for var in ctx.vars.values():
-        print(var.name, var.title, var.tags)
-
     # Check dependency resolution and execution order
     ordered_vars = ctx.ordered_vars()
     # Check dependencies within the deepest group
@@ -1673,24 +1667,147 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert ctx.vars["dd__d_var"].cluster is True
     assert ctx.vars["dd__dd_var"].title == "dd/DD_var"
     assert set(ctx.vars["dd__dd_var"].tags) == {"DD", "DD_var"}
-    # assert ctx.vars["dd__dd_var"].cluster is False  # <<< This is a bug, it should be False
+    assert ctx.vars["dd__dd_var"].cluster is True  # promoted to cluster as it dependes on a cluster variable
     assert ctx.vars["dd__dd_var"].data == RunData.PROC
     assert ctx.vars["dd__dd_var2"].title == "dd/dd_var2"
     assert set(ctx.vars["dd__dd_var2"].tags) == {"DD"}
-    # assert ctx.vars["dd__dd_var2"].cluster is False  # <<< This is a bug, it should be False
+    assert ctx.vars["dd__dd_var2"].cluster is True  # promoted to cluster as it dependes on a cluster variable
     assert ctx.vars["dd__dd_var2"].data == RunData.PROC
 
     assert ctx.vars["dd2__dd_var"].title == "DD2/DD_var"
     assert set(ctx.vars["dd2__dd_var"].tags) == {"DD2", "DD_var"}
-    # assert ctx.vars["dd2__dd_var"].cluster is False  # This is a bug, it should be False
+    assert ctx.vars["dd2__dd_var"].cluster is True  # promoted to cluster as it dependes on a cluster variable
     assert ctx.vars["dd2__dd_var2"].title == "DD2/dd_var2"
     assert set(ctx.vars["dd2__dd_var2"].tags) == {"DD2"}
-    # assert ctx.vars["dd2__dd_var2"].cluster is False  # This is a bug, it should be False
+    assert ctx.vars["dd2__dd_var2"].cluster is True  # promoted to cluster as it dependes on a cluster variable
 
+    code_fields = """
+    from dataclasses import field
 
-    code_fields = """"""
+    import numpy as np
+    from damnit_ctx import Variable, Group
 
-def test_asdf():
+    @Group
+    class FieldsGroup:
+        field1: int = 2
+        field2: str = "default"
+        field3: float = 1.0
+        field4: bool = True
+        field5: list = field(default_factory=list)
+        field6: dict = field(default_factory=dict)
+        field7: tuple = (1, 2, 3)
+        field8: set = field(default_factory=lambda: {1, 2, 3})
+        
+        @Variable(title="Field 1 Variable")
+        def field1_var(self, run):
+            return self.field1 + 1
+
+        @Variable(title="Field 2 Variable")
+        def field2_var(self, run):
+            return self.field2.upper()
+
+        @Variable(title="Field 3 Variable")
+        def field3_var(self, run):
+            return self.field3 * 2.0
+
+        @Variable(title="Field 4 Variable")
+        def field4_var(self, run):
+            return not self.field4
+
+        @Variable(title="Field 5 Variable")
+        def field5_var(self, run):
+            return [x * 2 for x in self.field5]
+
+        @Variable(title="Field 6 Variable")
+        def field6_var(self, run):
+            return np.asarray([v * 2 for v in self.field6.values()])
+
+        @Variable(title="Field 7 Variable")
+        def field7_var(self, run):
+            return tuple(x * 2 for x in self.field7)
+
+        @Variable(title="Field 8 Variable")
+        def field8_var(self, run):
+            return [x * 2 for x in self.field8]
+
+    class ChildGroup(FieldsGroup):
+        field9: int = 40
+
+        @Variable()
+        def field9_var(self, run):
+            return self.field9 + self.field1
+
+    @Group
+    class ChildGroup2(ChildGroup):
+        field10: int = 2
+
+        @Variable()
+        def field10_var(self, run):
+            return self.field10 + self.field9
+
+    fields_group = FieldsGroup(
+        "Fields Group",
+        field1=10,
+        field2="test",
+        field3=3.5,
+        field4=False,
+        field5=[1, 2, 3],
+        field6={'a': 1, 'b': 2},
+        field7=(4, 5),
+        field8={6, 7}
+    )
+    child_group = ChildGroup()
+    child_group2 = ChildGroup2(title="Child Group 2", tags=['c2'], field1=0)
+    """
+    ctx = mkcontext(code_fields)    
+    # Check that all fields are correctly initialized and variables are created
+    for i in range(1, 9):
+        assert ctx.vars[f"fields_group__field{i}_var"].title == f"Fields Group/Field {i} Variable"
+
+    assert ctx.vars["fields_group__field1_var"].tags is None
+    assert ctx.vars["child_group__field9_var"].tags is None
+    assert set(ctx.vars["child_group2__field1_var"].tags) == {'c2'}
+    assert set(ctx.vars["child_group2__field10_var"].tags) == {'c2'}
+
+    # Check that field values are correctly set
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+    assert results.cells["fields_group__field1_var"].data == 11
+    assert results.cells["fields_group__field2_var"].data == "TEST"
+    assert results.cells["fields_group__field3_var"].data == 7.0
+    assert results.cells["fields_group__field4_var"].data.tolist() is True
+    assert results.cells["fields_group__field5_var"].data.tolist() == [2, 4, 6]
+    assert results.cells["fields_group__field6_var"].data.tolist() == [2, 4]
+    assert results.cells["fields_group__field7_var"].data.tolist() == [8, 10]
+    assert results.cells["fields_group__field8_var"].data.tolist() == [12, 14]
+
+    assert results.cells["child_group__field9_var"].data == 42
+
+    assert results.cells["child_group2__field10_var"].data == 42
+
+    redefined_default_field_code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        tags: str = 'G'
+    """
+    with pytest.raises(TypeError, match="tags"):
+        ctx = mkcontext(redefined_default_field_code)
+
+    redefined_field_code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class BaseGroup:
+        field1: int = 10
+    
+    @Group
+    class DerivedGroup(BaseGroup):
+        field1: int = 20  # Redefine field1
+    """
+    with pytest.raises(TypeError, match="field1"):
+        ctx = mkcontext(redefined_field_code)
+    
     code = """
     from damnit_ctx import Variable, Group
 
