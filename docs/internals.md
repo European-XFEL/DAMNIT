@@ -50,7 +50,7 @@ we don't normally need to reinstall it. But if we do, e.g. to add or update
 dependencies, run:
 
 ```bash
-$ module load pixi
+$ module load exfel pixi
 $ pixi install
 ```
 
