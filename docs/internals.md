@@ -43,7 +43,15 @@ $ ssh xsoft@max-exfl.desy.de
 # Helper command to cd into the module directory and activate its environment
 $ amoremod mid # This will activate the stable module, use `beta` for the beta module
 $ git pull # Or whatever command is necessary to update the code
-$ pip install '.[gui,backend]'
+```
+
+The package is installed in a pixi environment as an editable install, so
+we don't normally need to reinstall it. But if we do, e.g. to add or update
+dependencies, run:
+
+```bash
+$ module load pixi
+$ pixi install
 ```
 
 ## Kafka
