@@ -41,7 +41,7 @@ To update a module:
 $ ssh xsoft@max-exfl.desy.de
 
 # Helper command to cd into the module directory and activate its environment
-$ amoremod mid # This will activate the stable module, use `beta` for the beta module
+$ damnitmod mid # This will activate the stable module, use `beta` for the beta module
 $ git pull # Or whatever command is necessary to update the code
 ```
 
