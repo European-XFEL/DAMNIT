@@ -191,14 +191,13 @@ class ContextFile:
         if problems:
             raise ContextFileErrors(problems)
 
-    def direct_dependencies(self, *variables: Variable) -> set[str]:
-        """return a set of names of direct dependencies of the passed Variable's
+    def direct_dependencies(self, variable: Variable) -> set[str]:
+        """return a set of names of direct dependencies of the passed Variable
         """
         dependencies = set()
-        for variable in variables:
-            for dependency in variable.arg_dependencies().values():
-                # expand matching patterns to match all variable dependencies
-                dependencies.update(fnmatch.filter(self.vars, dependency))
+        for dependency in variable.arg_dependencies().values():
+            # expand matching patterns to match all variable dependencies
+            dependencies.update(fnmatch.filter(self.vars, dependency))
         return dependencies
 
     def ordered_vars(self) -> tuple[str]:
@@ -318,11 +317,9 @@ class ContextFile:
                         match = fnmatch.filter(dep_results, dep_name)
 
                         if len(match) == 1 and match[0] == dep_name:
-                            dep_data = dep_results[dep_name]
-                            kwargs[arg_name] = dep_data
+                            kwargs[arg_name] = dep_results[dep_name]
                         elif len(match) > 1:
-                            dep_data = {name: dep_results[name] for name in match}
-                            kwargs[arg_name] = dep_data
+                            kwargs[arg_name] = {name: dep_results[name] for name in match}
                         elif param.default is inspect.Parameter.empty:
                             missing_deps.append(dep_name)
 
