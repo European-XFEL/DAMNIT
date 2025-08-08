@@ -21,18 +21,12 @@ class DataType(Enum):
     Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
 
-
-DATA_ROOT_DIR = os.environ.get('EXTRA_DATA_DATA_ROOT', '/gpfs/exfel/exp')
-
 # Also copied, this time from extra_data.read_machinery
 def find_proposal(propno):
-    """Find the proposal directory for a given proposal on Maxwell"""
-    if '/' in propno:
-        # Already passed a proposal directory
-        return propno
-
-    for d in iglob(osp.join(DATA_ROOT_DIR, '*/*/{}'.format(propno))):
-        return d
+    root_dir = os.environ.get('XFEL_DATA_ROOT', '/gpfs/exfel/exp')
+    dir_name = f"p{propno:06}"
+    for d in iglob(osp.join(root_dir, '*/*/{}'.format(dir_name))):
+        return Path(d)
 
     raise FileNotFoundError("Couldn't find proposal dir for {!r}".format(propno))
 
@@ -424,8 +418,8 @@ class Damnit:
                 a path to a database directory.
         """
         if isinstance(location, int):
-            proposal_path = find_proposal(f"p{location:06}")
-            self._db_dir = Path(proposal_path) / "usr/Shared/amore"
+            proposal_path = find_proposal(location)
+            self._db_dir = proposal_path / "usr/Shared/amore"
         elif isinstance(location, (Path, str)):
             self._db_dir = Path(location)
         else:

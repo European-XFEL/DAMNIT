@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import pytest
 from testpath import MockCommand
 
+from damnit.backend.listener import ListenerDB
 from damnit.cli import main, excepthook as ipython_excepthook
 
 
@@ -92,21 +93,21 @@ def test_listen(tmp_path, monkeypatch):
         main(["listen", "--test"])
         listen.assert_called_once()
 
-    # Should fail without an existing database
-    with (patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
-          pytest.raises(SystemExit)):
+    with patch(f"{pkg}.start_listener") as start_listener:
         main(["listen", "--daemonize"])
-        initialize_and_start_backend.assert_not_called()
-
-    # Should work with an existing database
-    (tmp_path / "runs.sqlite").touch()
-    with patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend:
-        main(["listen", "--daemonize"])
-        initialize_and_start_backend.assert_called_once()
+        start_listener.assert_called_once()
 
     # Can't pass both --test and --daemonize
     with pytest.raises(SystemExit):
         main(["listen", "--daemonize", "--test"])
+
+    listener_db_path = tmp_path / "listener.sqlite"
+    assert not listener_db_path.exists()
+    main(["listener-config", "static-mode", "0"])
+    assert listener_db_path.exists()
+
+    with ListenerDB(tmp_path) as db:
+        assert db.settings["static_mode"] == False
 
 def test_reprocess(mock_db_with_data, monkeypatch):
     db_dir, db = mock_db_with_data

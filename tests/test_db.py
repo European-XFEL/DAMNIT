@@ -7,10 +7,11 @@ def test_metameta(mock_db):
     _, db = mock_db
 
     # Test various parts of the mutable mapping API
-    assert set(db.metameta.keys()) == {'db_id', 'data_format_version', 'concurrent_jobs'}
+    assert set(db.metameta.keys()) == {'db_id', 'data_format_version', 'concurrent_jobs', 'damnit_python'}
     del db.metameta['db_id']
     del db.metameta['data_format_version']
     del db.metameta['concurrent_jobs']
+    del db.metameta['damnit_python']
     assert len(db.metameta) == 0
 
     db.metameta['a'] = 12
