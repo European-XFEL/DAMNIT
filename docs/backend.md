@@ -111,8 +111,8 @@ def bar(run, value: "var#foo"):
     return value * 2
 ```
 
-Pattern matching using unix shell-style
-[wildcards](https://docs.python.org/3/library/fnmatch.html) is allowed in `var#`
+Pattern matching using glob
+[patterns](https://docs.python.org/3/library/fnmatch.html) is allowed in `var#`
 annotations. In such case, a `dict` is returned where keys are the name of
 matching dependencies and values are their results:
 ```python
@@ -125,7 +125,7 @@ def base_2(run):
     return 2
 
 @Variable()
-def sum_values(run, data: 'var#base_?'):
+def sum_values(run, data: 'var#base_*'):
     # data is a dict
     return sum(data.values())
 ```
