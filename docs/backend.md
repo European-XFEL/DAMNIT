@@ -189,9 +189,8 @@ When you create an instance of a `Group` (e.g., `xgm_sa2`), the `Variable`s
 within it are automatically given prefixed names to avoid conflicts. The
 instance name (the Python variable name you assign it to) is used as the prefix.
 
-- The **`Variable` name** (the Python identifier) is formed by joining the
-  `Group`'s instance name and the method's name with a double underscore:
-  `xgm_sa2__pulse_energy`.
+- The **`Variable` name** is formed by joining the `Group`'s instance name and
+  the method's name with a dot: `xgm_sa2.pulse_energy`.
 - The **variable title** (for display in the GUI) is formed by joining the
   `Group`'s title and the `Variable`'s title with a separator (default is `/`):
   `XGM SA2/Pulse Energy`.
@@ -273,12 +272,12 @@ mid = MIDDiagnostics(
 When groups are nested:
 
 - **Naming and Titles:** Prefixes are applied recursively. The `n_photons`
-  `Variable` will have the final name `mid__agipd__n_photons` and the title
+  `Variable` will have the final name `mid.agipd.n_photons` and the title
   `MID Diag/AGIPD/Photon Count`.
 - **Dependencies:** To depend on a variable within the same instance (including
-  any nested groups), use `self#` followed by the path to the variable, using
-  double underscores (`__`) or a dot (`.`) to separate group instance names from
-  the final variable name: `self#agipd.n_photons`.
+  any nested groups), use `self#` followed by the path to the variable, using a
+  dot (`.`) to separate group instance names from the final variable name:
+  `self#agipd.n_photons`.
 
 - **Group Properties:**
     - `title`: Prefixes all `Variable`'s title in this `Group` and member `Group`s.
@@ -314,7 +313,7 @@ class DetectorAnalysis(BaseAnalysis):  # Inherits n_trains
 class DetectorAnalysisAlt(BaseAnalysis):
     ...
 
-# This instance will have two variables: detector__n_trains and detector__photon_count
+# This instance will have two variables: detector.n_trains and detector.photon_count
 detector = DetectorAnalysis("Detector")
 ```
 
