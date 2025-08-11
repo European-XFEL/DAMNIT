@@ -6,7 +6,7 @@
    enabled but that's not recommended because it can be slow.
 2. Open a terminal and run:
    ```bash
-   $ module load exfel amore
+   $ module load exfel damnit
    $ damnit gui
 
    # Alternatively, if you already know you want proposal 1234

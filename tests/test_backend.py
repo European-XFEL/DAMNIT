@@ -236,6 +236,18 @@ def test_context_file(mock_ctx, tmp_path):
     with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
         ctx.check()
 
+    no_parenthesis = """
+    from damnit.context import Variable
+    
+    @Variable
+    def foo(run):
+        return 42
+    """
+    ctx = mkcontext(no_parenthesis)
+    assert ctx.vars["foo"].title == "foo"
+    assert ctx.vars["foo"].name == "foo"
+
+
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     caplog.clear()
     # Track all error messages during creation. This is necessary because a
@@ -1215,6 +1227,52 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         "SELECT attributes FROM run_variables WHERE name='var4'"
     ).fetchone()[0]
     assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
+
+
+def test_pattern_matching_dependency(mock_run):
+    ctx_code = """
+    from damnit_ctx import Variable
+    import numpy as np
+
+    @Variable()
+    def res1(run, data: 'var#var?'):
+        result = data['var1'] + data['var2'].sum() + data['var3'].sum()
+        return [result, len(data)]
+
+    @Variable()
+    def res2(run, data: 'var#var*'):
+        return ','.join(sorted(data.keys()))
+
+    @Variable()
+    def res3(run, data: 'var#bar?'):
+        # no match on data, this variable won't execute
+        return 1
+
+    @Variable()
+    def var1(run):
+        return 7
+
+    @Variable()
+    def var2(run, data: 'var#var1'):
+        # transient vars can return any data type
+        return np.arange(data)
+
+    @Variable()
+    def var3(run, data: 'var#var2'):
+        return data.size * data
+
+    @Variable()
+    def var10(run):
+        return 10
+    """
+    ctx = mkcontext(ctx_code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    for k, v in results.cells.items():
+        print(f'{k=}:{v.data}')
+    assert results.cells['res1'].data.tolist() == [175, 3]
+    assert results.cells['res2'].data == 'var1,var10,var2,var3'
+    assert 'res3' not in results.cells
 
 
 def test_variable_group(mock_run, tmp_path, caplog):

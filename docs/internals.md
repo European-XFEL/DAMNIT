@@ -32,8 +32,8 @@ damnit` should be sufficient.
 ## Deployment on Maxwell
 DAMNIT is deployed in a stable and beta module on Maxwell:
 ```bash
-$ module load exfel amore # The full path is actually amore/mid
-$ module load exfel amore/beta
+$ module load exfel damnit  # The full module name is damnit/stable
+$ module load exfel damnit/beta
 ```
 
 To update a module:
