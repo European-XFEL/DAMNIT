@@ -1307,33 +1307,33 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     # Test variable naming and structure
     assert len(ctx.vars) == 6
-    assert "my_group__raw_value" in ctx.vars
-    assert "my_group__calibrated_value" in ctx.vars
-    assert "my_group__offset_value" in ctx.vars
-    assert "your_group__raw_value" in ctx.vars
-    assert "your_group__calibrated_value" in ctx.vars
-    assert "your_group__offset_value" in ctx.vars
+    assert "my_group.raw_value" in ctx.vars
+    assert "my_group.calibrated_value" in ctx.vars
+    assert "my_group.offset_value" in ctx.vars
+    assert "your_group.raw_value" in ctx.vars
+    assert "your_group.calibrated_value" in ctx.vars
+    assert "your_group.offset_value" in ctx.vars
 
     # Test title generation
-    assert ctx.vars["my_group__raw_value"].title == "My Test Group/Raw Value"
-    assert ctx.vars["my_group__calibrated_value"].title == "My Test Group/calibrated_value"
-    assert ctx.vars["your_group__offset_value"].title == "your_group/Offset Value"
+    assert ctx.vars["my_group.raw_value"].title == "My Test Group/Raw Value"
+    assert ctx.vars["my_group.calibrated_value"].title == "My Test Group/calibrated_value"
+    assert ctx.vars["your_group.offset_value"].title == "your_group/Offset Value"
 
     # Test tag merging
-    assert "test_group" in ctx.vars["my_group__raw_value"].tags
-    assert "raw" in ctx.vars["my_group__raw_value"].tags
+    assert "test_group" in ctx.vars["my_group.raw_value"].tags
+    assert "raw" in ctx.vars["my_group.raw_value"].tags
 
     # Check topological ordering for dependency resolution
     ordered = ctx.ordered_vars()
-    assert ordered.index("my_group__raw_value") < ordered.index("my_group__calibrated_value")
+    assert ordered.index("my_group.raw_value") < ordered.index("my_group.calibrated_value")
 
     # Execute and check results
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog, input_vars={"offset": 10})
-    assert results.cells["my_group__raw_value"].data == 10
+    assert results.cells["my_group.raw_value"].data == 10
     # Check that calibration factor from group __init__ was used
-    assert results.cells["my_group__calibrated_value"].data == 15.0
+    assert results.cells["my_group.calibrated_value"].data == 15.0
     # Check that input# variables are passed through correctly
-    assert results.cells["my_group__offset_value"].data == 57.0
+    assert results.cells["my_group.offset_value"].data == 57.0
 
     # Test that an error in a dependency correctly stops downstream variables
     error_code = """
@@ -1359,10 +1359,10 @@ def test_variable_group(mock_run, tmp_path, caplog):
     # Check that an error was logged for bad_var
     assert caplog.records[0].levelname == "ERROR"
 
-    assert "error_group__good_var" not in results_err.cells
-    assert "error_group__good_var" not in results_err.errors
+    assert "error_group.good_var" not in results_err.cells
+    assert "error_group.good_var" not in results_err.errors
     # The error itself should be recorded
-    assert "error_group__bad_var" in results_err.errors
+    assert "error_group.bad_var" in results_err.errors
 
     code = """
     from damnit_ctx import Variable, Group
@@ -1403,8 +1403,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
     # Check that all variable names are generated correctly
     expected_vars = {
         "base",
-        "proc_a__base", "proc_a__step1", "proc_a__step2",
-        "proc_b__base", "proc_b__step1", "proc_b__step2",
+        "proc_a.base", "proc_a.step1", "proc_a.step2",
+        "proc_b.base", "proc_b.step1", "proc_b.step2",
         "a_vs_b_diff"
     }
     assert set(ctx.vars.keys()) == expected_vars
@@ -1412,25 +1412,25 @@ def test_variable_group(mock_run, tmp_path, caplog):
     # Check the dependency graph and execution order
     ordered_vars = ctx.ordered_vars()
 
-    assert ordered_vars.index("base") < ordered_vars.index("proc_a__step1")
-    assert ordered_vars.index("base") < ordered_vars.index("proc_b__step1")
+    assert ordered_vars.index("base") < ordered_vars.index("proc_a.step1")
+    assert ordered_vars.index("base") < ordered_vars.index("proc_b.step1")
 
-    assert ordered_vars.index("proc_a__step1") < ordered_vars.index("proc_a__step2")
-    assert ordered_vars.index("proc_b__step1") < ordered_vars.index("proc_b__step2")
+    assert ordered_vars.index("proc_a.step1") < ordered_vars.index("proc_a.step2")
+    assert ordered_vars.index("proc_b.step1") < ordered_vars.index("proc_b.step2")
 
-    assert ordered_vars.index("proc_a__step2") < ordered_vars.index("a_vs_b_diff")
-    assert ordered_vars.index("proc_b__step2") < ordered_vars.index("a_vs_b_diff")
+    assert ordered_vars.index("proc_a.step2") < ordered_vars.index("a_vs_b_diff")
+    assert ordered_vars.index("proc_b.step2") < ordered_vars.index("a_vs_b_diff")
 
     # Execute the context and check the results
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
 
     # Check results for proc_a
-    assert results.cells["proc_a__step1"].data == 101
-    assert results.cells["proc_a__step2"].data == 252
+    assert results.cells["proc_a.step1"].data == 101
+    assert results.cells["proc_a.step2"].data == 252
 
     # Check results for proc_b
-    assert results.cells["proc_b__step1"].data == 101
-    assert results.cells["proc_b__step2"].data == 249
+    assert results.cells["proc_b.step1"].data == 101
+    assert results.cells["proc_b.step2"].data == 249
 
     # Check the final composer variable
     assert results.cells["a_vs_b_diff"].data == 3
@@ -1438,13 +1438,13 @@ def test_variable_group(mock_run, tmp_path, caplog):
     results_hdf5_path = tmp_path / "results.hdf5"
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
-        assert f["proc_a__step1/data"][()] == 101
-        assert f["proc_a__step2/data"][()] == 252
-        assert f["proc_b__step1/data"][()] == 101
-        assert f["proc_b__step2/data"][()] == 249
+        assert f["proc_a.step1/data"][()] == 101
+        assert f["proc_a.step2/data"][()] == 252
+        assert f["proc_b.step1/data"][()] == 101
+        assert f["proc_b.step2/data"][()] == 249
         assert f["a_vs_b_diff/data"][()] == 3
         assert "base" in f
-        assert "proc_a__base" not in f
+        assert "proc_a.base" not in f
 
     # Test that a missing root dependency is handled correctly
     bad_root_code = """
@@ -1503,15 +1503,15 @@ def test_variable_group(mock_run, tmp_path, caplog):
     child_group2 = ChildGroup2("Child Group 2")
     """
     ctx = mkcontext(code)
-    assert set(ctx.vars) == {"base_group__step1", "child_group2__step1", "child_group__step1", "child_group__step2"}
+    assert set(ctx.vars) == {"base_group.step1", "child_group2.step1", "child_group.step1", "child_group.step2"}
 
-    assert ctx.vars["base_group__step1"].tags is None
-    assert set(ctx.vars["child_group__step1"].tags) == {"Child", "other tag"}
-    assert set(ctx.vars["child_group__step2"].tags) == {"Child", "other tag"}
+    assert ctx.vars["base_group.step1"].tags is None
+    assert set(ctx.vars["child_group.step1"].tags) == {"Child", "other tag"}
+    assert set(ctx.vars["child_group.step2"].tags) == {"Child", "other tag"}
 
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
-    assert results.cells["child_group__step2"].data == 4
-    assert results.cells["child_group2__step1"].data == 'overridden step1'
+    assert results.cells["child_group.step2"].data == 4
+    assert results.cells["child_group2.step1"].data == 'overridden step1'
 
     # Test Group composition
     code = """
@@ -1567,7 +1567,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return data.mean()
 
         @Variable()
-        def deep_nested_access_dunder(run, data: "self#instrument__detector__image"):
+        def deep_nested_access_dunder(run, data: "self#instrument.detector.image"):
             # This uses the dunder syntax instead of the dot
             return data.mean()
 
@@ -1582,60 +1582,60 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     # Check that all variables from the nested structure are present and named correctly
     expected_vars = {
-        "exp1__instrument__xgm__intensity",
-        "exp1__instrument__detector__image",
-        "exp1__instrument__detector__photon_count",
-        "exp1__instrument__intensity_per_photon",
-        "exp1__quality",
-        "exp1__deep_nested_access",
+        "exp1.instrument.xgm.intensity",
+        "exp1.instrument.detector.image",
+        "exp1.instrument.detector.photon_count",
+        "exp1.instrument.intensity_per_photon",
+        "exp1.quality",
+        "exp1.deep_nested_access",
         "nested_var_access",
-        "exp1__deep_nested_access_dunder",
+        "exp1.deep_nested_access_dunder",
     }
     assert set(ctx.vars.keys()) == expected_vars
 
     # Check title generation with multiple levels of nesting
-    assert ctx.vars["exp1__instrument__xgm__intensity"].title == "My Experiment/SCS Instrument/XGM/Intensity"
-    assert ctx.vars["exp1__instrument__detector__photon_count"].title == "My Experiment/SCS Instrument/Detector/photon_count"
-    assert ctx.vars["exp1__instrument__intensity_per_photon"].title == "My Experiment/SCS Instrument/Intensity per Photon"
-    assert ctx.vars["exp1__quality"].title == "My Experiment/Experiment Quality"
+    assert ctx.vars["exp1.instrument.xgm.intensity"].title == "My Experiment/SCS Instrument/XGM/Intensity"
+    assert ctx.vars["exp1.instrument.detector.photon_count"].title == "My Experiment/SCS Instrument/Detector/photon_count"
+    assert ctx.vars["exp1.instrument.intensity_per_photon"].title == "My Experiment/SCS Instrument/Intensity per Photon"
+    assert ctx.vars["exp1.quality"].title == "My Experiment/Experiment Quality"
 
     # Check that tags are correctly inherited down the hierarchy
     # 'detector' tag from DetectorGroup instance should be present
-    assert "detector" in ctx.vars["exp1__instrument__detector__photon_count"].tags
+    assert "detector" in ctx.vars["exp1.instrument.detector.photon_count"].tags
     # 'scs' tag from InstrumentDiagnostics instance should be present on all its children
-    assert "scs" in ctx.vars["exp1__instrument__detector__photon_count"].tags
-    assert "scs" in ctx.vars["exp1__instrument__xgm__intensity"].tags
+    assert "scs" in ctx.vars["exp1.instrument.detector.photon_count"].tags
+    assert "scs" in ctx.vars["exp1.instrument.xgm.intensity"].tags
 
     # Check dependency resolution and execution order
     ordered_vars = ctx.ordered_vars()
     # Check dependencies within the deepest group
-    assert ordered_vars.index("exp1__instrument__detector__image") < ordered_vars.index("exp1__instrument__detector__photon_count")
+    assert ordered_vars.index("exp1.instrument.detector.image") < ordered_vars.index("exp1.instrument.detector.photon_count")
     # Check dependencies for the mid-level composer variable
-    assert ordered_vars.index("exp1__instrument__xgm__intensity") < ordered_vars.index("exp1__instrument__intensity_per_photon")
-    assert ordered_vars.index("exp1__instrument__detector__photon_count") < ordered_vars.index("exp1__instrument__intensity_per_photon")
+    assert ordered_vars.index("exp1.instrument.xgm.intensity") < ordered_vars.index("exp1.instrument.intensity_per_photon")
+    assert ordered_vars.index("exp1.instrument.detector.photon_count") < ordered_vars.index("exp1.instrument.intensity_per_photon")
     # Check dependencies for the top-level composer variable
-    assert ordered_vars.index("exp1__instrument__intensity_per_photon") < ordered_vars.index("exp1__quality")
+    assert ordered_vars.index("exp1.instrument.intensity_per_photon") < ordered_vars.index("exp1.quality")
 
     # Execute the context and verify the results
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
 
     # Verify intermediate and final calculations
-    assert results.cells["exp1__instrument__xgm__intensity"].data == 15.0  # 10 * 1.5
-    assert results.cells["exp1__instrument__detector__photon_count"].data == 10_000
-    assert results.cells["exp1__instrument__intensity_per_photon"].data == 15.0 / 10_000
-    assert results.cells["exp1__quality"].data == "bad"
-    assert results.cells["exp1__deep_nested_access"].data == 1.0
-    assert results.cells["exp1__deep_nested_access_dunder"].data == 1.0
+    assert results.cells["exp1.instrument.xgm.intensity"].data == 15.0  # 10 * 1.5
+    assert results.cells["exp1.instrument.detector.photon_count"].data == 10_000
+    assert results.cells["exp1.instrument.intensity_per_photon"].data == 15.0 / 10_000
+    assert results.cells["exp1.quality"].data == "bad"
+    assert results.cells["exp1.deep_nested_access"].data == 1.0
+    assert results.cells["exp1.deep_nested_access_dunder"].data == 1.0
 
     # Check that transient variables are not saved
     results_hdf5_path = tmp_path / "results.h5"
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         # The transient 'image' variable should not exist in the file
-        assert "exp1__instrument__detector__image" not in f
+        assert "exp1.instrument.detector.image" not in f
         # A non-transient variable should exist
-        assert "exp1__quality" in f
-        assert f["exp1__quality/data"][()] == b"bad"
+        assert "exp1.quality" in f
+        assert f["exp1.quality/data"][()] == b"bad"
 
     code_group_settings = """
     from damnit_ctx import Variable, Group
@@ -1688,63 +1688,63 @@ def test_variable_group(mock_run, tmp_path, caplog):
     ctx = mkcontext(code_group_settings)
 
     # Check that the group settings are applied correctly
-    assert ctx.vars["a__var1"].title == "A/var1"
-    assert set(ctx.vars["a__var1"].tags) == {'A'}
-    assert ctx.vars["a__var1"].cluster is False
-    assert ctx.vars["a__var1"].transient is True
-    assert ctx.vars["a__var1"].data == RunData.RAW
+    assert ctx.vars["a.var1"].title == "A/var1"
+    assert set(ctx.vars["a.var1"].tags) == {'A'}
+    assert ctx.vars["a.var1"].cluster is False
+    assert ctx.vars["a.var1"].transient is True
+    assert ctx.vars["a.var1"].data == RunData.RAW
 
-    assert ctx.vars["aa__var1"].title == "AA/var1"
-    assert set(ctx.vars["aa__var1"].tags) == {"AA"}
-    assert ctx.vars["aa__var1"].cluster is False
-    assert ctx.vars["aa__var1"].transient is True
-    assert ctx.vars["aa__var1"].data == RunData.RAW
+    assert ctx.vars["aa.var1"].title == "AA/var1"
+    assert set(ctx.vars["aa.var1"].tags) == {"AA"}
+    assert ctx.vars["aa.var1"].cluster is False
+    assert ctx.vars["aa.var1"].transient is True
+    assert ctx.vars["aa.var1"].data == RunData.RAW
 
-    assert ctx.vars["b__var1"].title == "A/var1"
-    assert set(ctx.vars["b__var1"].tags) == {'A'}
-    assert ctx.vars["b__var1"].cluster is False
-    assert ctx.vars["b__var1"].transient is True
-    assert ctx.vars["b__var1"].data == RunData.RAW
+    assert ctx.vars["b.var1"].title == "A/var1"
+    assert set(ctx.vars["b.var1"].tags) == {'A'}
+    assert ctx.vars["b.var1"].cluster is False
+    assert ctx.vars["b.var1"].transient is True
+    assert ctx.vars["b.var1"].data == RunData.RAW
 
-    assert ctx.vars["b__var2"].title == "A/b"
-    assert set(ctx.vars["b__var2"].tags) == {"A", "B",}
-    assert ctx.vars["b__var2"].cluster is True
-    assert ctx.vars["b__var2"].transient is False
-    assert ctx.vars["b__var2"].data == RunData.RAW
+    assert ctx.vars["b.var2"].title == "A/b"
+    assert set(ctx.vars["b.var2"].tags) == {"A", "B",}
+    assert ctx.vars["b.var2"].cluster is True
+    assert ctx.vars["b.var2"].transient is False
+    assert ctx.vars["b.var2"].data == RunData.RAW
 
-    assert ctx.vars["b__var3"].title == "A/var3"
-    assert set(ctx.vars["b__var3"].tags) == {'A'}
-    assert ctx.vars["b__var3"].cluster is True  # promoted to cluster as it dependes on a cluster variable
-    assert ctx.vars["b__var3"].transient is False
-    assert ctx.vars["b__var3"].data == RunData.RAW
+    assert ctx.vars["b.var3"].title == "A/var3"
+    assert set(ctx.vars["b.var3"].tags) == {'A'}
+    assert ctx.vars["b.var3"].cluster is True  # promoted to cluster as it dependes on a cluster variable
+    assert ctx.vars["b.var3"].transient is False
+    assert ctx.vars["b.var3"].data == RunData.RAW
 
-    assert ctx.vars["c__var1"].title == "c/var1"
-    assert ctx.vars["c__var1"].tags is None
-    assert ctx.vars["c__var1"].cluster is False
+    assert ctx.vars["c.var1"].title == "c/var1"
+    assert ctx.vars["c.var1"].tags is None
+    assert ctx.vars["c.var1"].cluster is False
 
-    assert ctx.vars["d__d_var"].title == "D/d_var"
-    assert set(ctx.vars["d__d_var"].tags) == {"D", "D_var"}
-    assert ctx.vars["d__d_var"].cluster is True
-    assert ctx.vars["d__d_var"].data == RunData.RAW
+    assert ctx.vars["d.d_var"].title == "D/d_var"
+    assert set(ctx.vars["d.d_var"].tags) == {"D", "D_var"}
+    assert ctx.vars["d.d_var"].cluster is True
+    assert ctx.vars["d.d_var"].data == RunData.RAW
 
-    assert ctx.vars["dd__d_var"].title == "dd/d_var"
-    assert set(ctx.vars["dd__d_var"].tags) == {"DD", "D_var"}
-    assert ctx.vars["dd__d_var"].cluster is True
-    assert ctx.vars["dd__dd_var"].title == "dd/DD_var"
-    assert set(ctx.vars["dd__dd_var"].tags) == {"DD", "DD_var"}
-    assert ctx.vars["dd__dd_var"].cluster is True  # promoted to cluster as it dependes on a cluster variable
-    assert ctx.vars["dd__dd_var"].data == RunData.PROC
-    assert ctx.vars["dd__dd_var2"].title == "dd/dd_var2"
-    assert set(ctx.vars["dd__dd_var2"].tags) == {"DD"}
-    assert ctx.vars["dd__dd_var2"].cluster is True  # promoted to cluster as it dependes on a cluster variable
-    assert ctx.vars["dd__dd_var2"].data == RunData.PROC
+    assert ctx.vars["dd.d_var"].title == "dd/d_var"
+    assert set(ctx.vars["dd.d_var"].tags) == {"DD", "D_var"}
+    assert ctx.vars["dd.d_var"].cluster is True
+    assert ctx.vars["dd.dd_var"].title == "dd/DD_var"
+    assert set(ctx.vars["dd.dd_var"].tags) == {"DD", "DD_var"}
+    assert ctx.vars["dd.dd_var"].cluster is True  # promoted to cluster as it dependes on a cluster variable
+    assert ctx.vars["dd.dd_var"].data == RunData.PROC
+    assert ctx.vars["dd.dd_var2"].title == "dd/dd_var2"
+    assert set(ctx.vars["dd.dd_var2"].tags) == {"DD"}
+    assert ctx.vars["dd.dd_var2"].cluster is True  # promoted to cluster as it dependes on a cluster variable
+    assert ctx.vars["dd.dd_var2"].data == RunData.PROC
 
-    assert ctx.vars["dd2__dd_var"].title == "DD2/DD_var"
-    assert set(ctx.vars["dd2__dd_var"].tags) == {"DD2", "DD_var"}
-    assert ctx.vars["dd2__dd_var"].cluster is True  # promoted to cluster as it dependes on a cluster variable
-    assert ctx.vars["dd2__dd_var2"].title == "DD2/dd_var2"
-    assert set(ctx.vars["dd2__dd_var2"].tags) == {"DD2"}
-    assert ctx.vars["dd2__dd_var2"].cluster is True  # promoted to cluster as it dependes on a cluster variable
+    assert ctx.vars["dd2.dd_var"].title == "DD2/DD_var"
+    assert set(ctx.vars["dd2.dd_var"].tags) == {"DD2", "DD_var"}
+    assert ctx.vars["dd2.dd_var"].cluster is True  # promoted to cluster as it dependes on a cluster variable
+    assert ctx.vars["dd2.dd_var2"].title == "DD2/dd_var2"
+    assert set(ctx.vars["dd2.dd_var2"].tags) == {"DD2"}
+    assert ctx.vars["dd2.dd_var2"].cluster is True  # promoted to cluster as it dependes on a cluster variable
 
     code_fields = """
     from dataclasses import field
@@ -1827,27 +1827,27 @@ def test_variable_group(mock_run, tmp_path, caplog):
     ctx = mkcontext(code_fields)    
     # Check that all fields are correctly initialized and variables are created
     for i in range(1, 9):
-        assert ctx.vars[f"fields_group__field{i}_var"].title == f"Fields Group/Field {i} Variable"
+        assert ctx.vars[f"fields_group.field{i}_var"].title == f"Fields Group/Field {i} Variable"
 
-    assert ctx.vars["fields_group__field1_var"].tags is None
-    assert ctx.vars["child_group__field9_var"].tags is None
-    assert set(ctx.vars["child_group2__field1_var"].tags) == {'c2'}
-    assert set(ctx.vars["child_group2__field10_var"].tags) == {'c2'}
+    assert ctx.vars["fields_group.field1_var"].tags is None
+    assert ctx.vars["child_group.field9_var"].tags is None
+    assert set(ctx.vars["child_group2.field1_var"].tags) == {'c2'}
+    assert set(ctx.vars["child_group2.field10_var"].tags) == {'c2'}
 
     # Check that field values are correctly set
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
-    assert results.cells["fields_group__field1_var"].data == 11
-    assert results.cells["fields_group__field2_var"].data == "TEST"
-    assert results.cells["fields_group__field3_var"].data == 7.0
-    assert results.cells["fields_group__field4_var"].data.tolist() is True
-    assert results.cells["fields_group__field5_var"].data.tolist() == [2, 4, 6]
-    assert results.cells["fields_group__field6_var"].data.tolist() == [2, 4]
-    assert results.cells["fields_group__field7_var"].data.tolist() == [8, 10]
-    assert results.cells["fields_group__field8_var"].data.tolist() == [12, 14]
+    assert results.cells["fields_group.field1_var"].data == 11
+    assert results.cells["fields_group.field2_var"].data == "TEST"
+    assert results.cells["fields_group.field3_var"].data == 7.0
+    assert results.cells["fields_group.field4_var"].data.tolist() is True
+    assert results.cells["fields_group.field5_var"].data.tolist() == [2, 4, 6]
+    assert results.cells["fields_group.field6_var"].data.tolist() == [2, 4]
+    assert results.cells["fields_group.field7_var"].data.tolist() == [8, 10]
+    assert results.cells["fields_group.field8_var"].data.tolist() == [12, 14]
 
-    assert results.cells["child_group__field9_var"].data == 42
+    assert results.cells["child_group.field9_var"].data == 42
 
-    assert results.cells["child_group2__field10_var"].data == 42
+    assert results.cells["child_group2.field10_var"].data == 42
 
     redefined_default_field_code = """
     from damnit_ctx import Variable, Group
@@ -1918,34 +1918,34 @@ def test_variable_group(mock_run, tmp_path, caplog):
     """
     ctx = mkcontext(code_tags)
 
-    assert ctx.vars["a__a_var"].title == "a/A Variable"
-    assert ctx.vars["b__a_var"].title == "b/A Variable"
-    assert ctx.vars["c__a_var"].title == "c/C Variable"
-    assert ctx.vars["d__a_var"].title == "d/A Variable"
-    assert ctx.vars["e__a_var"].title == "e/A Variable"
-    assert ctx.vars["f__a_var"].title == "F Group/A Variable"
+    assert ctx.vars["a.a_var"].title == "a/A Variable"
+    assert ctx.vars["b.a_var"].title == "b/A Variable"
+    assert ctx.vars["c.a_var"].title == "c/C Variable"
+    assert ctx.vars["d.a_var"].title == "d/A Variable"
+    assert ctx.vars["e.a_var"].title == "e/A Variable"
+    assert ctx.vars["f.a_var"].title == "F Group/A Variable"
 
-    assert ctx.vars["aa__a_var"].title == "A Group/A Variable"
-    assert ctx.vars["bb__a_var"].title == "B Group/A Variable"
-    assert ctx.vars["cc__a_var"].title == "C Group/C Variable"
-    assert ctx.vars["dd__a_var"].title == "D Group/A Variable"
-    assert ctx.vars["ee__a_var"].title == "E Group/A Variable"
-    assert ctx.vars["ff__a_var"].title == "F/A Variable"
+    assert ctx.vars["aa.a_var"].title == "A Group/A Variable"
+    assert ctx.vars["bb.a_var"].title == "B Group/A Variable"
+    assert ctx.vars["cc.a_var"].title == "C Group/C Variable"
+    assert ctx.vars["dd.a_var"].title == "D Group/A Variable"
+    assert ctx.vars["ee.a_var"].title == "E Group/A Variable"
+    assert ctx.vars["ff.a_var"].title == "F/A Variable"
 
-    assert set(ctx.vars["a__a_var"].tags) == {"varA", "ClassA"}
-    assert set(ctx.vars["b__a_var"].tags) == {"varA", "ClassA"}
-    assert set(ctx.vars["b__b_var"].tags) == {"varB", "ClassA"}
-    assert set(ctx.vars["c__a_var"].tags) == {"varC", "ClassA"}
-    assert set(ctx.vars["d__a_var"].tags) == {"varA", "ClassA"}
-    assert set(ctx.vars["e__a_var"].tags) == {"varA"}
-    assert set(ctx.vars["f__a_var"].tags) == {"varA", "ClassF"}
+    assert set(ctx.vars["a.a_var"].tags) == {"varA", "ClassA"}
+    assert set(ctx.vars["b.a_var"].tags) == {"varA", "ClassA"}
+    assert set(ctx.vars["b.b_var"].tags) == {"varB", "ClassA"}
+    assert set(ctx.vars["c.a_var"].tags) == {"varC", "ClassA"}
+    assert set(ctx.vars["d.a_var"].tags) == {"varA", "ClassA"}
+    assert set(ctx.vars["e.a_var"].tags) == {"varA"}
+    assert set(ctx.vars["f.a_var"].tags) == {"varA", "ClassF"}
 
-    assert set(ctx.vars["aa__a_var"].tags) == {"varA", "group_a"}
-    assert set(ctx.vars["bb__a_var"].tags) == {"varA", "group_b"}
-    assert set(ctx.vars["cc__a_var"].tags) == {"varC", "group_c"}
-    assert set(ctx.vars["dd__a_var"].tags) == {"varA", "group_d"}
-    assert set(ctx.vars["ee__a_var"].tags) == {"varA", "group_e"}
-    assert set(ctx.vars["ff__a_var"].tags) == {"varA", "group_f"}
+    assert set(ctx.vars["aa.a_var"].tags) == {"varA", "group_a"}
+    assert set(ctx.vars["bb.a_var"].tags) == {"varA", "group_b"}
+    assert set(ctx.vars["cc.a_var"].tags) == {"varC", "group_c"}
+    assert set(ctx.vars["dd.a_var"].tags) == {"varA", "group_d"}
+    assert set(ctx.vars["ee.a_var"].tags) == {"varA", "group_e"}
+    assert set(ctx.vars["ff.a_var"].tags) == {"varA", "group_f"}
 
     code_custom_sep = """
     from damnit_ctx import Variable, Group
@@ -1959,7 +1959,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     my_group = CustomSepGroup()
     """
     ctx = mkcontext(code_custom_sep)
-    assert ctx.vars["my_group__step1"].title == "My Analysis -> Step 1"
+    assert ctx.vars["my_group.step1"].title == "My Analysis -> Step 1"
 
     code_empty_group = """
     from damnit_ctx import Group
