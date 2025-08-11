@@ -13,6 +13,7 @@ from copy import copy
 from dataclasses import dataclass, fields, is_dataclass, make_dataclass
 from enum import Enum
 from functools import wraps
+from keyword import iskeyword
 from typing import Callable, Generator
 
 import h5py
@@ -34,6 +35,26 @@ def isinstance_no_import(obj, mod: str, cls: str):
         return False
 
     return isinstance(obj, getattr(m, cls))
+
+
+def is_valid_variable_name(name: str) -> bool:
+    """Check if the name is a valid Variable name."""
+    # must be a string
+    if not isinstance(name, str):
+        return False
+
+    for part in name.split('.'):
+        # must be a non-empty string
+        if not part:
+            return False
+        # prevent using a Python keyword
+        if iskeyword(part):
+            return False
+        # must be a valid Python identifier
+        if not part.isidentifier():
+            return False
+
+    return True
 
 
 class RunData(Enum):
@@ -60,12 +81,6 @@ class Variable:
     # @Variable() is used as a decorator on a function that computes a value
     def __call__(self, func):
         self.func = func
-        if hasattr(func, '__annotations__'):
-            for k, v in func.__annotations__.items():
-                if isinstance(v, str) and (v.startswith('var#') or v.startswith('self#')):
-                    # Replace '.' syntaxic sugar with '__' in var dependencies
-                    func.__annotations__[k] = v.replace('.', '__')
-
         self.name = func.__name__
         if self.title is None:
             self.title = self.name
@@ -73,9 +88,9 @@ class Variable:
 
     def check(self):
         problems = []
-        if not self.name.isidentifier():
+        if not is_valid_variable_name(self.name):
             problems.append(
-                f"The variable name {self.name!r} is not a valid Python identifier"
+                f"The name {self.name!r} is not a valid Variable name."
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(
@@ -205,7 +220,7 @@ class _GroupTemplate(Group):
         """Create a new Variable instance for this group"""
         new_var = original_var.copy()
 
-        new_var.name = f'{prefix}__{new_var.name}'
+        new_var.name = f'{prefix}.{new_var.name}'
         new_var.title = f"{self.title or prefix}{self.sep}{new_var.title}"
         new_var.tags = self._merge_tags(new_var.tags)
 
@@ -257,7 +272,7 @@ class _GroupTemplate(Group):
                 if isinstance(annotation, str) and annotation.startswith('self#'):
                     dep_name = annotation.removeprefix('self#')
                     # Dependency is in this instance -> prefix the dep_name
-                    annotations[arg_name] = f'var#{prefix}__{dep_name}'
+                    annotations[arg_name] = f'var#{prefix}.{dep_name}'
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)
@@ -281,7 +296,7 @@ class _GroupTemplate(Group):
 
         # Add variables from nested groups
         for group_name, group in self._groups():
-            group_prefix = f"{prefix}__{group_name}"
+            group_prefix = f"{prefix}.{group_name}"
             # update title and tags for the group
             group.title = f"{self.title or prefix}{self.sep}{group.title or group_name}"
             group.tags = self._merge_tags(group.tags)
