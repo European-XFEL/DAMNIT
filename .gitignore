@@ -156,3 +156,5 @@ cython_debug/
 #VIM swp files
 *.swp
 *.DS_Store
+# pixi environments
+.pixi
