@@ -236,6 +236,18 @@ def test_context_file(mock_ctx, tmp_path):
     with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
         ctx.check()
 
+    no_parenthesis = """
+    from damnit.context import Variable
+    
+    @Variable
+    def foo(run):
+        return 42
+    """
+    ctx = mkcontext(no_parenthesis)
+    assert ctx.vars["foo"].title == "foo"
+    assert ctx.vars["foo"].name == "foo"
+
+
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
