@@ -30,7 +30,7 @@ import numpy as np
 import requests
 import xarray as xr
 import yaml
-from damnit_ctx import (Cell, RunData, Skip, Variable, VariableGroup,
+from damnit_ctx import (Cell, RunData, Skip, Variable, is_group_instance,
                         isinstance_no_import)
 
 log = logging.getLogger(__name__)
@@ -247,7 +247,7 @@ class ContextFile:
         for key, value in d.items():
             if isinstance(value, Variable):
                 vars[value.name] = value
-            if isinstance(value, VariableGroup):
+            if is_group_instance(value):
                 vars |= value.variables(prefix=key)
 
         log.debug("Loaded %d variables", len(vars))
