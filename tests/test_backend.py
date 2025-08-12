@@ -33,6 +33,7 @@ from damnit.backend.supervisord import wait_until, write_supervisord_conf
 from damnit.context import (ContextFile, ContextFileErrors, PNGData, RunData,
                             get_proposal_path)
 from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE, add_to_h5_file
+from damnit.ctxsupport.damnit_ctx import Group, is_group, is_group_instance
 from damnit.gui.main_window import MainWindow
 
 from .helpers import mkcontext, reduced_data_from_dict
@@ -1995,15 +1996,6 @@ def test_variable_group(mock_run, tmp_path, caplog):
     ctx = mkcontext(code_empty_group)
     assert len(ctx.vars) == 0
 
-    code_subclass_group = """
-    from damnit_ctx import Variable, Group
-    
-    class BaseGroup(Group):
-        pass
-    """
-    with pytest.raises(TypeError, match="Use it as a decorator"):
-        ctx = mkcontext(code_subclass_group)
-
     code_invalid_group_argument = """
     from damnit_ctx import Group
 
@@ -2013,3 +2005,13 @@ def test_variable_group(mock_run, tmp_path, caplog):
     """
     with pytest.raises(TypeError, match="unknown_property"):
         ctx = mkcontext(code_invalid_group_argument)
+
+    # test helper functions
+    @Group
+    class A:
+        pass
+
+    assert is_group(A)
+    assert is_group(A())
+    assert not is_group_instance(A)
+    assert is_group_instance(A())

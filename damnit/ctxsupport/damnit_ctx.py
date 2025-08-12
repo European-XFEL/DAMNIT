@@ -20,11 +20,12 @@ import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["Cell", "Group", "RunData", "Variable"]
+__all__ = ["Cell", "Group", "is_group", "is_group_instance", "RunData", "Variable"]
 
 log = logging.getLogger(__name__)
 
 
+GROUP_MARKER_ATTR = "__damnit_group__"
 THUMBNAIL_SIZE = 300 # px
 
 
@@ -160,52 +161,35 @@ class Variable:
         return copy(self)
 
 
-class Group:
-    """Base class for grouping Variables.
+def is_group(obj) -> bool:
+    """Return True if obj is a Group class or an instance of a Group class."""
+    cls = obj if isinstance(obj, type) else type(obj)
+    return hasattr(cls, GROUP_MARKER_ATTR)
 
-    Use as a decorator, it transforms a class into a Group-aware dataclass.
+
+def is_group_instance(obj) -> bool:
+    """Return True if obj is an instance of a Group class.
+    """
+    return hasattr(type(obj), GROUP_MARKER_ATTR)
+
+
+def Group(cls: type = None, **kwargs) -> Callable | type:
+    """A class decorator that transforms a class into a Group.
+
+    Transforms a class into a Group 'dataclass'. Allow for creating reusable,
+    configurable, and nestable sets of related Variables.
+
     - `@Group` for default behavior.
     - `@Group(title='...', ...)` to provide parameters.
     """
+    def wrapper(wrapped_cls: type) -> type:
+        return _new_group(wrapped_cls, kwargs)
 
-    def __new__(cls, decorated_cls: type = None, **kwargs) -> Callable | type:
-        """Allows `Group` to function as a decorator.
-
-        It's called when you use `@Group` or `@Group(...)`.
-        """
-        # Ensures that when subclasses of Group are instantiated,
-        # this decorator logic does not re-run. We only want it to run
-        # when `Group` itself is called directly.
-        if cls is not Group:
-            return super().__new__(cls)
-
-        def wrapper(wrapped_cls: type) -> type:
-            return _new_group(wrapped_cls, kwargs)
-
-        if decorated_cls is None:
-            # Called as `@Group(...)`. Return the wrapper.
-            return wrapper
-        else:
-            # Called as `@Group` without arguments. Decorate the class immediately.
-            return wrapper(decorated_cls)
-
-    def __init_subclass__(cls, **kwargs):
-        """Prevents direct subclassing of Group by end-users.
-        
-        We allow it only for our internal `_GroupTemplate`
-        """
-        super().__init_subclass__(**kwargs)
-        
-        # Check if the new subclass's immediate parent is `Group`.
-        if Group in cls.__bases__ and cls.__name__ != '_GroupTemplate':
-            raise TypeError(
-                f"Cannot subclass 'Group' directly (class {cls.__name__!r}). "
-                "Use it as a decorator: @Group"
-            )
+    return wrapper if cls is None else wrapper(cls)
 
 
 @dataclass
-class _GroupTemplate(Group):
+class _GroupBase:
     title: str = None
     tags: tuple[str] = None
     sep: str = '/'
@@ -256,16 +240,28 @@ class _GroupTemplate(Group):
     def _variables(self) -> Generator[Variable, None, None]:
         """Get all variables in this group"""
         for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-            if isinstance(attr, Variable):
-                yield attr
+            if attr_name.startswith('__'):
+                continue
 
-    def _groups(self) -> Generator[tuple[str, Group], None, None]:
+            try:
+                attr = getattr(self, attr_name)
+                if isinstance(attr, Variable):
+                    yield attr
+            except AttributeError:
+                continue
+
+    def _groups(self) -> Generator[tuple[str, '_GroupBase'], None, None]:
         """Get all variable groups in this group"""
         for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-            if isinstance(attr, Group):
-                yield attr_name, attr
+            if attr_name.startswith('__'):
+                continue
+
+            try:
+                attr = getattr(self, attr_name)
+                if is_group_instance(attr):
+                    yield attr_name, attr
+            except AttributeError:
+                continue
 
     def variables(self, prefix: str) -> dict[str, Variable]:
         """Get all variables in this group"""
@@ -312,7 +308,7 @@ class _GroupTemplate(Group):
         return _vars
 
 
-GROUP_FIELD_NAMES = {f.name for f in fields(_GroupTemplate)}
+GROUP_FIELD_NAMES = {f.name for f in fields(_GroupBase)}
 
 
 def _new_group(cls: type, decorator_kwargs: dict) -> type:
@@ -321,30 +317,31 @@ def _new_group(cls: type, decorator_kwargs: dict) -> type:
         raise TypeError(f"Invalid Group arguments: {invalid_args}")
 
     cls_annotations = cls.__dict__.get('__annotations__', {})
-    parent_fields = set()
-    is_group_subclass = issubclass(cls, Group)
 
-    if not is_group_subclass:
-        if redefined := GROUP_FIELD_NAMES.intersection(cls_annotations):
-             raise TypeError(f"Group fields {redefined} redefined in class {cls.__name__!r}")
-    else:
-        for base in cls.__mro__[1:]:
-            if is_dataclass(base):
-                parent_fields.update(base.__dataclass_fields__.keys())
+    if is_group(cls):
+        parent_fields = {
+            f.name
+            for base in cls.__mro__[1:] if is_dataclass(base)
+            for f in fields(base)
+        }
         if redefined := parent_fields.intersection(cls_annotations):
             raise TypeError(f"Parent fields redefined with new annotations: {redefined}")
 
-    if is_group_subclass:
         dataclass_cls = dataclass(cls)
     else:
+        if redefined := GROUP_FIELD_NAMES.intersection(cls_annotations):
+            raise TypeError(f"Group fields {redefined} redefined in class {cls.__name__!r}")
+
         DynamicGroupBase = make_dataclass(
             f"_DynamicGroupFor_{cls.__name__}",
-            fields=[(f.name, f.type, f) for f in fields(_GroupTemplate)],
-            bases=(_GroupTemplate,),
+            fields=[(f.name, f.type, f) for f in fields(_GroupBase)],
+            bases=(_GroupBase,),
         )
         attrs = {k: v for k, v in cls.__dict__.items() if k not in ('__dict__', '__weakref__')}
         new_cls = type(cls.__name__, (cls, DynamicGroupBase), attrs)
         dataclass_cls = dataclass(new_cls)
+
+    setattr(dataclass_cls, GROUP_MARKER_ATTR, True)
 
     if not decorator_kwargs:
         return dataclass_cls
