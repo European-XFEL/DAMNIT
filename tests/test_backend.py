@@ -1229,7 +1229,7 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
 
 def test_pattern_matching_dependency(mock_run):
     ctx_code = """
-    from damnit_ctx import Variable
+    from damnit_ctx import Variable, Skip
     import numpy as np
 
     @Variable()
@@ -1262,12 +1262,34 @@ def test_pattern_matching_dependency(mock_run):
     @Variable()
     def var10(run):
         return 10
+
+    @Variable()
+    def barb(run):
+        raise Skip()
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
 
-    for k, v in results.cells.items():
-        print(f'{k=}:{v.data}')
     assert results.cells['res1'].data.tolist() == [175, 3]
     assert results.cells['res2'].data == 'var1,var10,var2,var3'
     assert 'res3' not in results.cells
+
+    missing_dep = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def foo(run, bar: 'var#bar'):
+        return bar
+    """
+    with pytest.raises(KeyError, match='bar'):
+        mkcontext(missing_dep)
+
+    missing_dep_pattern = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def foo(run, bar: 'var#bar*'):
+        return bar
+    """
+    with pytest.raises(KeyError, match='bar*'):
+        ctx = mkcontext(missing_dep_pattern)
