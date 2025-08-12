@@ -196,7 +196,6 @@ class ContextFile:
         """
         dependencies = set()
         for dependency in variable.arg_dependencies().values():
-            # expand matching patterns to match all variable dependencies
             deps = fnmatch.filter(self.vars, dependency)
             if len(deps) == 0:
                 raise KeyError(f"Missing dependency: {dependency!r} for {variable.name!r}")
