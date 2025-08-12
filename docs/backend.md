@@ -169,8 +169,174 @@ $ damnit db-config noncluster_cpus 8
 $ damnit db-config noncluster_mem 50G
 ```
 
-## Cell
+## `@Group`
+For more complex or reusable sets of analyses, you can group related variables
+together using a class decorated with `@group`. This allows you to create
+self-contained, configurable components that can be instantiated multiple times.
 
+A `Group` is a standard Python class containing methods decorated with
+`@Variable`. The class itself is decorated with `@Group`, which transforms it
+into a configurable, `dataclass` object.
+
+```python title="context.py"
+from extra.components import XGM
+from damnit_ctx import Variable, Group
+
+@Group(title="XGM Diag", tags=["XGM"])
+class XGMDiagnostics:
+    # parameters are defined as dataclass fields
+    device_name: str = None
+    offset: float = 0.0
+
+    @Variable(title="Pulse Energy", summary="mean")
+    def pulse_energy(self, run):
+        # Use instance attributes for configuration
+        return XGM(run, self.device_name).pulse_energy()
+
+    @Variable(title="Corrected Energy", summary="mean")
+    def corrected_energy(self, run, energy: "self#pulse_energy"):
+        # This has an intra-group dependency on the 'pulse_energy' variable
+        return energy + self.offset
+
+# Instantiate the group in your context file, providing parameters values
+xgm_sa2 = XGMDiagnostics(title="XGM SA2", device_name="SA2_XTD6_XGM/XGM/DOOCS", offset=1.1)
+xgm_hed = XGMDiagnostics(title="XGM HED", device_name="HED_XTD9_XGM/XGM/DOOCS", offset=0.9)
+```
+
+### Naming and Titles
+When you create an instance of a `Group` (e.g., `xgm_sa2`), the `Variable`s
+within it are automatically given prefixed names to avoid conflicts. The
+instance name (the Python variable name you assign it to) is used as the prefix.
+
+- The **`Variable` name** is formed by joining the `Group`'s instance name and
+  the method's name with a dot: `xgm_sa2.pulse_energy`.
+- The **variable title** (for display in the GUI) is formed by joining the
+  `Group`'s title and the `Variable`'s title with a separator (default is `/`):
+  `XGM SA2/Pulse Energy`.
+
+### Dependencies
+
+- **Intra-group dependencies:** To depend on another variable within the same
+  `Group` instance, you must replace the `var#` prefix with `self#` in the
+  attribute annotation. This explicitly tells DAMNIT to look for the `Variable`
+  within the current `Group`'s scope.
+  ```python
+  @Variable()
+  def corrected_energy(self, run, energy: "self#pulse_energy"):
+      ...
+  ```
+- **Global and Cross-Group Dependencies:** To depend on any variable outside the
+  current group's scope, you use the standard `var#` prefix with the variable's
+  final, fully-qualified name.
+  ```python
+  @Variable(title="Global Offset")
+  def global_offset(run):
+      return 42
+
+  @Group
+  class MyGroup:
+
+      @Variable()
+      def local_var(self, run, offset: "var#global_offset"):
+          # Correctly depends on the top-level global_offset
+          return 10 + offset
+
+      @Variable()
+      def another_var(self, run, xgm_energy: "var#xgm_hed.corrected_energy"):
+          # Correctly depends on a variable from another group instance
+          return xgm_energy * 2
+
+  instance = MyGroup("Group")
+  ```
+
+### Composition (Nesting Groups)
+You can build more complex structures by nesting `Group` instances inside other
+groups. This allows you to compose small, focused analysis components into a
+larger, hierarchical system.
+
+```python
+@Group(title="DET")
+class Detector:
+    name: str = "LPD"
+
+    @Variable(title="Photon Count")
+    def n_photons(self, run):
+        return run.alias[self.name]['photon-count'].xarray()
+
+# MIDDiagnostics composes XGMDiagnostics and Detector
+@Group(title="MID Diag", tags=["MID", "Diag"])
+class MIDDiagnostics:
+    # Nested instances of other groups
+    xgm: XGMDiagnostics = None
+    agipd = Detector(title="AGIPD", name="AGIPD1M")
+
+    # This variable can depend on children of the nested groups
+    @Variable(title="Photons per µJ")
+    def photons_per_microjoule(self, run,
+                               photons: "self#agipd.n_photons",
+                               energy: "self#xgm.corrected_energy"):
+        return photons / energy
+
+# Instantiate the top-level group
+mid = MIDDiagnostics(
+    xgm=XGM(
+        title="XGM SA2",
+        device_name="SA2_XTD6_XGM/XGM/DOOCS",
+        offset=1.1,
+        tags=["XGM", "SA2"]
+    ),
+)
+```
+
+When groups are nested:
+
+- **Naming and Titles:** Prefixes are applied recursively. The `n_photons`
+  `Variable` will have the final name `mid.agipd.n_photons` and the title
+  `MID Diag/AGIPD/Photon Count`.
+- **Dependencies:** To depend on a variable within the same instance (including
+  any nested groups), use `self#` followed by the path to the variable, using a
+  dot (`.`) to separate group instance names from the final variable name:
+  `self#agipd.n_photons`.
+
+- **Group Properties:**
+    - `title`: Prefixes all `Variable`'s title in this `Group` and member `Group`s.
+    - `sep` (default `/`): Separates this title string to the next level title.
+    - `tags`: Are propagated recursively. In the example above, the `Diag` tag
+      from `MIDDiagnostics` will be applied to all variables inside it, including
+      those from the nested `xgm` and `agipd` instances.
+    - `cluster`, `data` and `transient`: These properties are **not** configurable
+      at `Group` level and must be defined directly on `Variable`s.
+
+### Inheritance
+`Group` supports standard Python class inheritance. A decorated class can
+inherit from another decorated class and will automatically include all
+`@Variable` methods from its parent(s), allowing you to create common, reusable
+sets of analyses.
+
+```python
+@Group(title='Base')
+class BaseAnalysis:
+    @Variable(title="Train Count")
+    def n_trains(self, run):
+        return len(run.train_ids)
+
+# inherits base class' Group properties (e.g. title='Base')
+class DetectorAnalysis(BaseAnalysis):  # Inherits n_trains
+    @Variable(title="Photon Count", data="proc")
+    def photon_count(self, run, n_trains: "self#n_trains"):
+        # Depends on an inherited variable
+        return 1e6 / n_trains
+
+# Sub class decorate with @Group resets Group's properties
+@Group(tags=["Alt"])
+class DetectorAnalysisAlt(BaseAnalysis):
+    ...
+
+# This instance will have two variables: detector.n_trains and detector.photon_count
+detector = DetectorAnalysis("Detector")
+```
+
+## Cell
 The `Cell` object is a versatile container that allows customizing how data is
 stored and displayed in the table. When writing [Variables](#variables), you can
 return a `Cell` object to control both the full data storage and its summary
