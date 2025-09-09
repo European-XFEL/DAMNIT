@@ -249,10 +249,18 @@ instance name (the Python variable name you assign it to) is used as the prefix.
   instance = MyGroup("Group")
   ```
 
-### Composition (Nesting Groups)
-You can build more complex structures by nesting `Group` instances inside other
-groups. This allows you to compose small, focused analysis components into a
-larger, hierarchical system.
+### Relating Groups
+You can create more complex analysis pipelines by relating groups to each
+other. DAMNIT supports two patterns for this:
+- Nesting `Group`s for building self-contained, hierarchical components
+- Linking `Group`s for connecting independent components.
+
+**Nesting (composition):**
+
+By adding `Group` instances as attributes of your `Group`, you create a tight,
+hierarchical relationship, as if the inner group is a sub-component of the outer
+one. This is useful for building a complex object out of smaller, dedicated
+parts.
 
 ```python
 @Group(title="DET")
@@ -306,6 +314,54 @@ When groups are nested:
       those from the nested `xgm` and `agipd` instances.
     - `cluster`, `data` and `transient`: These properties are **not** configurable
       at `Group` level and must be defined directly on `Variable`s.
+
+**Linking:**
+
+Alternatively, you can losely link independent `Group`s. This is useful for:
+
+- **Avoiding Duplication**: Link to a shared component (like an XGM diagnostic)
+  from multiple other groups. The XGM analysis will run only once, and all
+  dependent groups will use its result.
+- **Logical Separation**: Keep different analysis domains separate. For example,
+  detector diagnostics and beamline diagnostics can be defined in independent
+  groups and then linked together by a higher-level analysis, without mixing
+  their internal logic.
+- **No Hardcoding**: Avoid hardcoding variable names like
+  "var#xgm_sa2.intensity". By linking, you make your group configurable,
+  allowing it to be connected to xgm_sa2 in one context and xgm_hed in another,
+  simply by changing the string passed during instantiation.
+
+Define an attribute as a `str` and use it within a `self#` dependency path.
+DAMNIT will resolve this by using the string's value as the prefix for the
+dependency lookup.
+
+```python
+@Group(title="MID Diagnostics", tags=["MID", "Diag"])
+class MIDDiagnostics:
+    # the name of an XGMDiagnostics instance, e.g. "xgm_sa2".
+    xgm_source: str
+    agipd = Detector(title="AGIPD", name="AGIPD1M")
+
+    @Variable(title="Photons per µJ")
+    def photons_per_microjoule(self, run,
+                               photons: "self#agipd.n_photons",
+                               energy: "self#xgm_source.corrected_energy"):
+        # The system resolves `xgm_source` to its string value ("xgm_sa2")
+        # and looks up the final variable `xgm_sa2.corrected_energy`.
+        return photons / energy
+
+# 1. Define the shared, top-level instances. Their Python variable
+#    names ("xgm_sa2", "xgm_hed") are their public identifiers.
+xgm_sa2 = XGMDiagnostics(device_name="SA2_XTD6_XGM/XGM/DOOCS")
+xgm_hed = XGMDiagnostics(device_name="HED_XTD9_XGM/XGM/DOOCS")
+
+# 2. Instantiate the linking group and provide the name of the dependency.
+diag1 = MIDDiagnostics(xgm_source="xgm_sa2")
+diag2 = MIDDiagnostics(xgm_source="xgm_hed")
+
+# Result: `diag1` depends on `xgm_sa2.corrected_energy`, and
+# `diag2` depends on `xgm_hed.corrected_energy`. No work is duplicated.
+```
 
 ### Inheritance
 `Group` supports standard Python class inheritance. A decorated class can
