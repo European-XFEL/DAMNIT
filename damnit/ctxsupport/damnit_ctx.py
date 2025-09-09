@@ -274,8 +274,26 @@ class _GroupBase:
             for arg_name, annotation in annotations.items():
                 if isinstance(annotation, str) and annotation.startswith('self#'):
                     dep_name = annotation.removeprefix('self#')
-                    # Dependency is in this instance -> prefix the dep_name
-                    annotations[arg_name] = f'var#{prefix}.{dep_name}'
+                    attr_name, _, attr_parts = dep_name.partition('.')
+
+                    if not hasattr(self, attr_name):
+                        raise AttributeError(
+                            f"Group instance {prefix!r} is missing attribute {attr_name!r} "
+                            f"needed to resolve dependency {dep_name!r} of Variable {var.name!r}"
+                        )
+
+                    attr = getattr(self, attr_name)
+                    if isinstance(attr, str):
+                        # The attribute is a string, referencing another
+                        # Variable or Group outside this Group.
+                        resolved_name = attr
+                        if attr_parts:
+                            resolved_name += f".{attr_parts}"
+                    else:
+                        # Dependency is in this instance -> prefix the dep_name
+                        resolved_name = f'{prefix}.{dep_name}'
+
+                    annotations[arg_name] = f"var#{resolved_name}"
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)
