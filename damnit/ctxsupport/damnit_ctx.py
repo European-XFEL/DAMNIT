@@ -9,6 +9,7 @@ import re
 import sys
 from collections.abc import Sequence
 from enum import Enum
+from typing import Any
 
 import h5py
 import numpy as np
@@ -41,8 +42,14 @@ class Variable:
     _name = None
 
     def __init__(
-            self, title=None, description=None, summary=None, data=None,
-            cluster=False, tags=None, transient=False
+        self,
+        title: str = None,
+        description: str = None,
+        summary: str = None,
+        data: Any = None,
+        cluster: bool = False,
+        tags: str | Sequence[str] = None,
+        transient: bool = False,
     ):
         self.tags = (tags,) if isinstance(tags, str) else tags
         self.description = description
@@ -127,6 +134,15 @@ class Variable:
                 cell.summary = self.summary
 
         return cell
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            'title': self.title,
+            'description': self.description,
+            'tags': self.tags,
+            'attributes': None,
+            'type': None,
+        }
 
 
 class _DummyCell:

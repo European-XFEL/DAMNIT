@@ -248,18 +248,12 @@ class ContextFile:
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
-        
+
         args:
             inc_transient (bool): include transient Variables in the dict
         """
         return {
-            name: {
-                'title': v.title,
-                'description': v.description,
-                'tags': v.tags,
-                'attributes': None,
-                'type': None,
-            }
+            name: v.to_dict()
             for (name, v) in self.vars.items()
             if not v.transient or inc_transient
         }
