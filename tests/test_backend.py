@@ -1496,7 +1496,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     bad_group = BadRootGroup("Bad Group")
     """
-    with pytest.raises(KeyError, match="missing_local"):
+    with pytest.raises(AttributeError, match="missing_local"):
         mkcontext(bad_root_code)
 
     # test inheritance of Group
@@ -2015,3 +2015,76 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert is_group(A())
     assert not is_group_instance(A)
     assert is_group_instance(A())
+
+
+    # test group linking with string attributes
+    code_linking = """
+    from damnit_ctx import Variable, Group
+
+    @Group(title="Shared Component")
+    class SharedComponent:
+        base_value: int = 0
+
+        @Variable(title="Shared Value")
+        def shared_value(self, run):
+            return self.base_value
+
+    @Group(title="Linking Group")
+    class LinkingGroup:
+        # holds the name of a SharedComponent instance.
+        source_name: str = None
+
+        @Variable(title="Processed Value")
+        def processed_value(self, run, data: "self#source_name.shared_value"):
+            return data + 1
+
+    # Define two separate, shared instances
+    shared1 = SharedComponent(base_value=100)
+    shared2 = SharedComponent(base_value=200)
+
+    # Link two different groups to the two different shared instances
+    linker_a = LinkingGroup(source_name="shared1")
+    linker_b = LinkingGroup(source_name="shared2")
+    """
+    ctx = mkcontext(code_linking)
+
+    expected_vars = {
+        "shared1.shared_value",
+        "shared2.shared_value",
+        "linker_a.processed_value",
+        "linker_b.processed_value",
+    }
+    assert set(ctx.vars.keys()) == expected_vars
+
+    ordered_vars = ctx.ordered_vars()
+    assert ordered_vars.index("shared1.shared_value") < ordered_vars.index("linker_a.processed_value")
+    assert ordered_vars.index("shared2.shared_value") < ordered_vars.index("linker_b.processed_value")
+
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+
+    # linker_a should be linked to shared1
+    assert results.cells["shared1.shared_value"].data == 100
+    assert results.cells["linker_a.processed_value"].data == 101
+
+    # linker_b should be linked to shared2
+    assert results.cells["shared2.shared_value"].data == 200
+    assert results.cells["linker_b.processed_value"].data == 201
+
+
+    # test KeyError is raised if the linking attribute is missing
+    code_linking_missing = """
+    from damnit_ctx import Variable, Group
+
+    @Group(title="Linking Group")
+    class LinkingGroup:
+        source_name: str = None
+
+        @Variable(title="Processed Value")
+        def processed_value(self, run, data: "self#source_name.some_var"):
+            return 1
+
+    # Instantiate the group WITHOUT providing the required 'source_name'
+    linker_a = LinkingGroup()
+    """
+    with pytest.raises(KeyError, match="source_name"):
+        mkcontext(code_linking_missing)
