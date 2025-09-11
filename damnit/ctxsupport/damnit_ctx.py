@@ -10,7 +10,7 @@ import re
 import sys
 from collections.abc import Sequence
 from copy import copy
-from dataclasses import dataclass, fields, is_dataclass, make_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, make_dataclass
 from enum import Enum
 from functools import wraps
 from keyword import iskeyword
@@ -190,9 +190,9 @@ def Group(cls: type = None, **kwargs) -> Callable | type:
 
 @dataclass
 class _GroupBase:
-    title: str = None
-    tags: tuple[str] = None
-    sep: str = '/'
+    title: str | None = field(default=None, kw_only=True)
+    tags: tuple[str] | None = field(default=None, kw_only=True)
+    sep: str = field(default='/', kw_only=True)
 
     def __post_init__(self):
         """Post-initialization to ensure tags are always a tuple."""

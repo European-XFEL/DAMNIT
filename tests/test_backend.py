@@ -1323,8 +1323,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return self.test_value + offset + self._some_value()
 
     # Instantiate the group
-    my_group = TestGroup("My Test Group", calibration_factor=1.5, test_value=5, tags="test_group")
-    your_group = TestGroup(calibration_factor=2.0, test_value=10)
+    my_group = TestGroup(title="My Test Group", calibration_factor=1.5, test_value=5, tags="test_group")
+    your_group = TestGroup(2.0, 10)
     """
     ctx = mkcontext(code)
 
@@ -1372,7 +1372,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def good_var(self, run, bad_data: "self#bad_var"):
             return 42
 
-    error_group = ErrorGroup("Error Group")
+    error_group = ErrorGroup(title="Error Group")
     """
     ctx_err = mkcontext(error_code)
 
@@ -1479,7 +1479,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def step1(self, run, base: "var#missing_global"):
             return 1
 
-    bad_group = BadRootGroup("Bad Group")
+    bad_group = BadRootGroup(title="Bad Group")
     """
     with pytest.raises(KeyError, match="missing_global"):
         mkcontext(bad_root_code)
@@ -1494,7 +1494,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def step1(self, run, base: "self#missing_local"):
             return 1
 
-    bad_group = BadRootGroup("Bad Group")
+    bad_group = BadRootGroup(title="Bad Group")
     """
     with pytest.raises(AttributeError, match="missing_local"):
         mkcontext(bad_root_code)
@@ -1521,9 +1521,9 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def step1(run):
             return 'overridden step1'
 
-    base_group = BaseGroup("Base Group")
-    child_group = ChildGroup("Child Group", value=1, tags=['Child', 'other tag'])
-    child_group2 = ChildGroup2("Child Group 2")
+    base_group = BaseGroup(title="Base Group")
+    child_group = ChildGroup(title="Child Group", value=1, tags=['Child', 'other tag'])
+    child_group2 = ChildGroup2(title="Child Group 2")
     """
     ctx = mkcontext(code)
     assert set(ctx.vars) == {"base_group.step1", "child_group2.step1", "child_group.step1", "child_group.step2"}
@@ -1565,8 +1565,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
     @Group
     class InstrumentDiagnostics:
         # Nested group instances
-        xgm = XGMGroup("XGM", factor=1.5)
-        detector = DetectorGroup("Detector", tags="detector")
+        xgm = XGMGroup(title="XGM", factor=1.5)
+        detector = DetectorGroup(title="Detector", tags="detector")
 
         @Variable(title="Intensity per Photon")
         def intensity_per_photon(self, run,
@@ -1834,7 +1834,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return self.field10 + self.field9
 
     fields_group = FieldsGroup(
-        "Fields Group",
+        title="Fields Group",
         field1=10,
         field2="test",
         field3=3.5,
@@ -2088,3 +2088,23 @@ def test_variable_group(mock_run, tmp_path, caplog):
     """
     with pytest.raises(KeyError, match="source_name"):
         mkcontext(code_linking_missing)
+
+
+    # test fields with no default argument
+    code_nodefault = """
+    from damnit_ctx import Variable, Group
+
+    @Group(title="No Default Group")
+    class NoDefaultGroup:
+        arg0: int
+        arg1: str
+
+        @Variable(title="No Default Var")
+        def no_default_var(self, run):
+            return 1 + self.arg0
+
+    no_default = NoDefaultGroup(123, arg1='test')
+    """
+    ctx = mkcontext(code_nodefault)
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+    assert results.cells["no_default.no_default_var"].data == 124
