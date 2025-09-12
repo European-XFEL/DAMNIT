@@ -317,6 +317,7 @@ class _GroupBase:
 
         # Add variables from nested groups
         for group_name, group in self._groups():
+            group = copy(group)
             group_prefix = f"{prefix}.{group_name}"
             # update title and tags for the group
             group.title = f"{self.title or prefix}{self.sep}{group.title or group_name}"
