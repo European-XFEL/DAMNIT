@@ -338,6 +338,7 @@ def _new_group(cls: type, decorator_kwargs: dict) -> type:
     cls_annotations = cls.__dict__.get('__annotations__', {})
 
     if is_group(cls):
+        # Subclass of another Group class
         parent_fields = {
             f.name
             for base in cls.__mro__[1:] if is_dataclass(base)
@@ -348,16 +349,12 @@ def _new_group(cls: type, decorator_kwargs: dict) -> type:
 
         dataclass_cls = dataclass(cls)
     else:
+        # New Group class, not subclassing another Group
         if redefined := GROUP_FIELD_NAMES.intersection(cls_annotations):
             raise TypeError(f"Group fields {redefined} redefined in class {cls.__name__!r}")
 
-        DynamicGroupBase = make_dataclass(
-            f"_DynamicGroupFor_{cls.__name__}",
-            fields=[(f.name, f.type, f) for f in fields(_GroupBase)],
-            bases=(_GroupBase,),
-        )
         attrs = {k: v for k, v in cls.__dict__.items() if k not in ('__dict__', '__weakref__')}
-        new_cls = type(cls.__name__, (cls, DynamicGroupBase), attrs)
+        new_cls = type(cls.__name__, (cls, _GroupBase), attrs)
         dataclass_cls = dataclass(new_cls)
 
     setattr(dataclass_cls, GROUP_MARKER_ATTR, True)
@@ -368,14 +365,13 @@ def _new_group(cls: type, decorator_kwargs: dict) -> type:
     original_init = dataclass_cls.__init__
     init_sig = inspect.signature(original_init)
 
+    # Allow the _GroupBase parameters to be given defaults by the decorator
     @wraps(original_init)
     def new_init(self, *args, **kwargs):
         bound_args = init_sig.bind_partial(self, *args, **kwargs)
-        final_kwargs = decorator_kwargs.copy()
         user_provided_args = bound_args.arguments
         user_provided_args.pop('self', None)
-        final_kwargs.update(user_provided_args)
-        original_init(self, **final_kwargs)
+        original_init(self, **(decorator_kwargs | user_provided_args))
 
     dataclass_cls.__init__ = new_init
     return dataclass_cls

@@ -171,7 +171,7 @@ $ damnit db-config noncluster_mem 50G
 
 ## `@Group`
 For more complex or reusable sets of analyses, you can group related variables
-together using a class decorated with `@group`. This allows you to create
+together using a class decorated with `@Group`. This allows you to create
 self-contained, configurable components that can be instantiated multiple times.
 
 A `Group` is a standard Python class containing methods decorated with
