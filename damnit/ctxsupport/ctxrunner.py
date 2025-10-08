@@ -15,6 +15,7 @@ import pickle
 import sys
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import timezone
 from enum import Enum
 from functools import wraps
@@ -22,7 +23,6 @@ from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
-from contextlib import contextmanager
 
 import extra_data
 import h5py
@@ -30,8 +30,8 @@ import numpy as np
 import requests
 import xarray as xr
 import yaml
-
-from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
+from damnit_ctx import (Cell, RunData, Skip, Variable, is_group_instance,
+                        isinstance_no_import)
 
 log = logging.getLogger(__name__)
 
@@ -242,7 +242,14 @@ class ContextFile:
         d = {}
         codeobj = compile(code, path, 'exec')
         exec(codeobj, d)
-        vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
+
+        vars = {}
+        for key, value in d.items():
+            if isinstance(value, Variable):
+                vars[value.name] = value
+            if is_group_instance(value):
+                vars |= value.variables(prefix=key)
+
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
 
