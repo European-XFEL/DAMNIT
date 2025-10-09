@@ -91,6 +91,9 @@ damnit = { path = ".", editable = true }
 [tool.pixi.environments]
 default = { features = ["backend", "gui"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
-test = { features = ["test"], solve-group = "default" }
+test = { features = ["test", "backend", "gui"], solve-group = "default" }
 
 [tool.pixi.tasks]
+
+[tool.pixi.feature.test.tasks]
+test = "python -m pytest -v --cov=damnit --cov-report=xml"
