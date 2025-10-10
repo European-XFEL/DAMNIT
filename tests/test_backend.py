@@ -1195,6 +1195,14 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     @Variable()
     def var4(run, var3: 'var#var3'):
         return 1
+
+    @Variable(transient=True)
+    def var5(run):
+        raise NotImplementedError
+
+    @Variable()
+    def summary(run, data: 'var#var?'):
+        return len(data)
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
@@ -1225,6 +1233,13 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         "SELECT attributes FROM run_variables WHERE name='var4'"
     ).fetchone()[0]
     assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
+
+    attrs = db.conn.execute(
+        "SELECT attributes FROM run_variables WHERE name='summary'"
+    ).fetchone()[0]
+    data = json.loads(attrs)
+    assert '(var5)' in data['error']
+    assert '(var3)' in data['error']
 
 
 def test_pattern_matching_dependency(mock_run):
