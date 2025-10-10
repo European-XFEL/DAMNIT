@@ -1,6 +1,11 @@
 version: 2
 updates:
-  - package-ecosystem: "pip"
-    directory: "/.github/dependabot/"
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
