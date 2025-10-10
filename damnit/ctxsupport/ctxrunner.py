@@ -324,7 +324,7 @@ class ContextFile:
                         elif len(match) > 1:
                             kwargs[arg_name] = {name: dep_results[name] for name in match}
                         elif param.default is inspect.Parameter.empty:
-                            missing_deps.append(dep_name)
+                            missing_deps.extend(fnmatch.filter(self.vars, dep_name))
 
                     # Input variable passed from outside
                     elif annotation.startswith("input#"):
