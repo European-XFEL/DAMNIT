@@ -27,6 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 backend = [
     "EXtra-data",
+    "EXtra-proposal",
     "ipython",
     "kafka-python-ng",
     "kaleido",  # used in plotly to convert figures to images
