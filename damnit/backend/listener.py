@@ -5,6 +5,7 @@ import os
 import platform
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from socket import gethostname
 from threading import Thread
@@ -12,12 +13,13 @@ from threading import Thread
 from kafka import KafkaConsumer
 
 from ..context import RunData
-from .db import DamnitDB
+from ..api import find_proposal
+from .db import DamnitDB, KeyValueMapping, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
-# but the AMORE updates go via XFEL's test instance.
-CONSUMER_ID = 'xfel-da-amore-prototype-{}'
+# but the DAMNIT updates go via XFEL's test instance.
+CONSUMER_ID = 'xfel-da-damnit-{}'
 KAFKA_CONF = {
     'maxwell': {
         'brokers': ['exflwgs06:9091'],
@@ -32,12 +34,26 @@ KAFKA_CONF = {
 }
 READONLY_WAIT_REOPEN = 2  # Wait N seconds to reopen after read-only error
 
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS proposal_databases(proposal, db_dir UNIQUE, official);
+CREATE INDEX IF NOT EXISTS proposals ON proposal_databases (proposal);
+
+-- Settings for the listener
+CREATE TABLE IF NOT EXISTS settings(key PRIMARY KEY NOT NULL, value)
+"""
+
 log = logging.getLogger(__name__)
 
 # tracking number of local threads running in parallel
 # only relevant if slurm isn't available
 MAX_CONCURRENT_THREADS = min(os.cpu_count() // 2, 10)
 local_extraction_threads = []
+
+
+@dataclass
+class ProposalDBInfo:
+    db_dir: Path
+    official: bool
 
 
 def execute_direct(submitter, request):
@@ -54,38 +70,79 @@ def execute_direct(submitter, request):
     local_extraction_threads.append(extr)
     extr.start()
 
+class ListenerDB:
+    def __init__(self, db_dir):
+        self.conn = sqlite3.connect(db_dir.absolute() / "listener.sqlite")
+        self.conn.executescript(SCHEMA)
+        self._settings = KeyValueMapping(self.conn, "settings")
+
+        # To help prevent accidentally starting multiple listeners we default to
+        # putting it in static mode.
+        self.settings.setdefault("static_mode", True)
+        self.settings.setdefault("allow_local_processing", False)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.conn.close()
+
+    @property
+    def settings(self):
+        return self._settings
+
+    def all_proposals(self):
+        rows = self.conn.execute("SELECT proposal, db_dir, official FROM proposal_databases").fetchall()
+        result = { }
+        for proposal, db_dir, official in rows:
+            if proposal not in result:
+                result[proposal] = []
+            result[proposal].append(ProposalDBInfo(Path(db_dir), bool(official)))
+        return result
+
+    def proposal_db_dirs(self, proposal: int):
+        rows = self.conn.execute("SELECT db_dir from proposal_databases WHERE proposal=?",
+                                 (proposal,)).fetchall()
+        return [Path(row[0]) for row in rows]
+
+    def add_proposal_db(self, proposal: int, db_dir, official: bool):
+        with self.conn:
+            self.conn.execute("""
+                INSERT INTO proposal_databases (proposal, db_dir, official) VALUES (?, ?, ?)
+            """, (proposal, str(db_dir), official))
+
+    def remove_proposal_db(self, db_dir):
+        with self.conn:
+            self.conn.execute("DELETE FROM proposal_databases WHERE db_dir=?", (str(db_dir),))
 
 class EventProcessor:
+    def __init__(self, listener_dir: Path):
+        self._listener_dir = listener_dir
+        self.db = ListenerDB(listener_dir)
 
-    def __init__(self, context_dir=Path('.')):
-        self.context_dir = context_dir
-        self.db = DamnitDB.from_dir(context_dir)
-        self.submitter = ExtractionSubmitter(context_dir, self.db)
-        # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
-        self.db.conn.execute("pragma user_version=0;")
-        self.proposal = self.db.metameta['proposal']
-        log.info(f"Will watch for events from proposal {self.proposal}")
-
-        if gethostname().startswith('exflonc'):
+        hostname = gethostname()
+        if hostname.startswith('exflonc'):
             # running on the online cluster
             kafka_conf = KAFKA_CONF['onc']
         else:
             kafka_conf = KAFKA_CONF['maxwell']
 
-        consumer_id = CONSUMER_ID.format(self.db.metameta['db_id'])
+        group_id = CONSUMER_ID.format(str(listener_dir).replace("/", "_"))
+        client_id = CONSUMER_ID.format(f"{hostname}-{os.getpid()}")
         self.kafka_cns = KafkaConsumer(*kafka_conf['topics'],
                                        bootstrap_servers=kafka_conf['brokers'],
-                                       group_id=consumer_id,
+                                       group_id=group_id,
+                                       client_id=client_id,
                                        consumer_timeout_ms=600_000,
                                        )
         self.events = kafka_conf['events']
+        log.info("Started listener")
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.kafka_cns.close()
-        self.db.close()
         return False
 
     def run(self):
@@ -98,17 +155,12 @@ class EventProcessor:
                         log.error("SQLite database is read only. Pause, reopen, retry.")
                         self.db.close()
                         time.sleep(READONLY_WAIT_REOPEN)
-                        self.db = DamnitDB.from_dir(self.context_dir)
+                        self.db = ListenerDB(self._listener_dir)
                         self._process_kafka_event(record)
                     else:
                         log.error("Unexpected error handling Kafka event.", exc_info=True)
                 except Exception:
                     log.error("Unexpected error handling Kafka event.", exc_info=True)
-
-            # After 10 minutes with no messages, check if the listener should stop
-            if self.db.metameta.get('no_listener', 0):
-                log.info("Found no_listener flag in database, shutting down.")
-                return
 
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())
@@ -135,38 +187,56 @@ class EventProcessor:
         proposal = int(msg['proposal'])
         run = int(msg['run'])
 
-        if proposal != self.proposal:
-            return
-
-        self.db.ensure_run(proposal, run, record.timestamp / 1000)
-        log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
-
-        req = ExtractionRequest(run, proposal, run_data)
+        # If it's the first time we've seen this proposal and we're not in
+        # static mode, add it to the database.
         try:
-            self.submitter.submit(req)
+            official_path = find_proposal(proposal) / "usr/Shared/amore"
         except FileNotFoundError:
-            log.warning('Slurm not available, starting process locally.')
-            execute_direct(self.submitter, req)
-        except Exception:
-            log.error("Slurm job submission failed, starting process locally.", exc_info=True)
-            execute_direct(self.submitter, req)
+            log.warning(f"Could not find proposal directory for p{proposal}")
+            official_path = None
 
+        if official_path and db_path(official_path).is_file() and not self.db.settings["static_mode"]:
+            if official_path not in self.db.proposal_db_dirs(proposal):
+                self.db.add_proposal_db(proposal, official_path, True)
 
-def listen():
+        sandbox_args = self.db.settings.get("sandbox_args", "")
+        allow_local_processing = self.db.settings["allow_local_processing"]
+        for path in self.db.proposal_db_dirs(proposal):
+            try:
+                # Note that we don't explicitly close this connection because
+                # it's passed to the ExtractionSubmitter.
+                db = DamnitDB.from_dir(path)
+
+                # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
+                db.conn.execute("pragma user_version=0;")
+
+                db.ensure_run(proposal, run, record.timestamp / 1000)
+                log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
+
+                damnit_python = db.metameta["damnit_python"]
+                submitter = ExtractionSubmitter(db.path.parent, db)
+                req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
+                try:
+                    submitter.submit(req)
+                except Exception as e:
+                    if allow_local_processing:
+                        log.error("Slurm job submission failed, starting process locally.", exc_info=True)
+                        execute_direct(submitter, req)
+                    else:
+                        raise e
+            except Exception:
+                log.error(f"Processing p{proposal}, r{run} for {path} failed:", exc_info=True)
+
+def listen(db_dir):
     # Set up logging to a file
-    file_handler = logging.FileHandler("amore.log")
+    file_handler = logging.FileHandler("damnit.log")
     formatter = logging.root.handlers[0].formatter
     file_handler.setFormatter(formatter)
     logging.root.addHandler(file_handler)
 
-    # Ensure that the log file is writable by everyone (so that different users
-    # can start the backend).
-    if os.stat("amore.log").st_uid == os.getuid():
-        os.chmod("amore.log", 0o666)
-
     log.info(f"Running on {platform.node()} under user {getpass.getuser()}, PID {os.getpid()}")
     try:
-        with EventProcessor() as processor:
+        with EventProcessor(db_dir) as processor:
             processor.run()
     except KeyboardInterrupt:
         log.error("Stopping on Ctrl + C")

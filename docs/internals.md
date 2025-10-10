@@ -29,8 +29,8 @@ pip install '.[gui,backend]'
 If you only need the API there's no need to clone the repo, `pip install
 damnit` should be sufficient.
 
-## Deployment on Maxwell
-DAMNIT is deployed in a stable and beta module on Maxwell:
+## Maxwell modules
+DAMNIT is installed in a stable and beta module on Maxwell:
 ```bash
 $ module load exfel damnit  # The full module name is damnit/stable
 $ module load exfel damnit/beta
@@ -53,6 +53,80 @@ dependencies, run:
 $ module load exfel pixi
 $ pixi install
 ```
+## The listener
+The listener is a process running under [Supervisor](http://supervisord.org/). In
+a nutshell:
+
+- Supervisor will manage the listener using a configuration file named
+  `supervisord.conf` stored in the database directory. It's configured to listen
+  for commands over HTTP on a certain port with a certain
+  username/password. Supervisor will save its logs to `supervisord.log`.
+- It can be controlled with `supervisorctl` on any machine using the same config
+  file.
+
+As the name suggests, the listener listens for migration/calibration Kafka
+notifications for all proposals and launches processing jobs for them. To do
+this it needs to have access to all proposals, so on Maxwell it runs under the
+`xdamnprd` user. Jobs can optionally (currently disabled by default) be run
+inside a [sandbox](https://git.xfel.eu/dataAnalysis/proposal-sandbox) that
+executes the context file under the `xdamntst` user with dynamic privileges to
+only allow access to their proposal.
+
+So lets say the listener has been started. If you open a terminal and `cd` to the
+database directory you'll see:
+```bash
+$ cd /gpfs/path/to/listener-dir
+$ ls
+damnit.log listener.sqlite supervisord.conf supervisord.log
+```
+
+You can get the status of the listener with:
+```bash
+$ supervisorctl -c supervisord.conf status damnit
+damnit                           RUNNING   pid 3793870, uptime 0:00:20
+```
+
+And you can restart it with:
+```bash
+$ supervisorctl -c supervisord.conf restart damnit
+damnit: stopped
+damnit: started
+
+$ supervisorctl -c supervisord.conf status damnit
+damnit                           RUNNING   pid 3793880, uptime 0:00:04
+```
+
+When a new listener is started it initializes itself in _static mode_, which
+means that it will only process jobs for proposals that are already in its
+database to avoid conflicts with other listeners. To enable 'dynamic' mode and
+launch jobs for all proposals you can change the setting in its database:
+```bash
+$ damnit listener config static_mode 0
+```
+
+By default the listener will only submit slurm jobs, but you can allow falling
+back to executing jobs locally by setting the `allow_local_processing` setting
+to `1` (true).
+
+The databases being monitored can be managed through the CLI as well:
+```bash
+# Show all databases being managed
+$ damnit listener databases
+
+# Add a proposal database
+$ damnit listener add 1234
+
+# Add a database in a specific location
+$ damnit listener add 1234 /foo/bar
+
+# Remove a database
+$ damnit listener rm /foo/bar
+```
+
+!!! danger
+    Only one listener in should be running in dynamic mode at a time. Otherwise
+    multiple jobs may be launched for the same notification, which will cause
+    file corruption and weeping and gnashing of teeth.
 
 ## Kafka
 The GUI is updated by Kafka messages sent by the backend. Currently we use

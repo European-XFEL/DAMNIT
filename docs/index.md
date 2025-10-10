@@ -27,8 +27,9 @@ To fill up the table you see in the screenshot above, the backend executes what
 we call a *context file*, which is simply a Python file that contains *variable*
 definitions. A *variable* in DAMNIT is a 'thing' that you want to track during
 the experiment, and the values for each variable for each run can either be
-generated automatically [from the context file](backend.md), or entered manually
-[into the GUI](gui.md#adding-user-editable-variables).
+generated automatically [from the context
+file](configuration_and_management.md), or entered manually [into the
+GUI](gui.md#adding-user-editable-variables).
 
 When a new run is taken, the files are migrated from the online cluster to the
 offline cluster and this triggers the backend to execute any variables in the

@@ -11,6 +11,7 @@ import os
 import logging
 import pickle
 import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -171,7 +172,7 @@ class Extractor:
 
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
-                 match=(), variables=(), mock=False, uuid=None):
+                 match=(), variables=(), mock=False, uuid=None, sandbox_args=None):
         super().__init__()
         self.proposal = proposal
         self.run = run
@@ -181,6 +182,7 @@ class RunExtractor(Extractor):
         self.variables = variables
         self.mock = mock
         self.uuid = uuid or str(uuid4())
+        self.sandbox_args = sandbox_args
         self.running_msg = msg_dict(MsgKind.processing_state_set, {
             'processing_id': self.uuid,
             'proposal': proposal,
@@ -228,8 +230,13 @@ class RunExtractor(Extractor):
     def extract_in_subprocess(self):
         python_exe = self.db.metameta.get('context_python', '') or sys.executable
 
-        args = [python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
-                self.run_data.value, '--save', self.out_path]
+        args = []
+        if self.sandbox_args is not None:
+            args.extend(shlex.split(sandbox_args))
+            args.append(str(self.proposal))
+            args.append("--")
+        args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
+                     self.run_data.value, '--save', self.out_path])
         if self.cluster:
             args.append('--cluster-job')
         if self.mock:
@@ -327,6 +334,7 @@ def main(argv=None):
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     ap.add_argument('--processing-id', type=str)
+    ap.add_argument('--sandbox-args', type=str)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -335,6 +343,12 @@ def main(argv=None):
 
     username = getpass.getuser()
     hostname = socket.gethostname()
+
+    if args.sandbox_args is not None:
+        p = subprocess.run([*shlex.split(args.sandbox_args), str(args.proposal), "--", "whoami"],
+                           capture_output=True, check=True, text=True)
+        username = p.stdout.strip()
+
     print(f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {hostname} -----", file=sys.stderr)
     log.info(f"run_data={args.run_data}, match={args.match}")
     if args.mock:
@@ -349,7 +363,8 @@ def main(argv=None):
                         match=args.match,
                         variables=args.var,
                         mock=args.mock,
-                        uuid=args.processing_id)
+                        uuid=args.processing_id,
+                        sandbox_args=args.sandbox_args)
     if args.update_vars:
         extr.update_db_vars()
 
