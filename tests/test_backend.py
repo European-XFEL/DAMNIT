@@ -1350,3 +1350,19 @@ def test_pattern_matching_dependency(mock_run):
     """
     with pytest.raises(KeyError, match='bar*'):
         ctx = mkcontext(missing_dep_pattern)
+
+    single_match_pattern = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def foo(run, data: 'var#b?r'):
+        return data['bar']
+
+    @Variable()
+    def bar(run):
+        return 42
+    """
+    ctx = mkcontext(single_match_pattern)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    assert results.cells['foo'].data == 42

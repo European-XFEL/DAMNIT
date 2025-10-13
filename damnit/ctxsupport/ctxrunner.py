@@ -321,7 +321,7 @@ class ContextFile:
 
                         if len(match) == 1 and match[0] == dep_name:
                             kwargs[arg_name] = dep_results[dep_name]
-                        elif len(match) > 1:
+                        elif len(match) >= 1:
                             kwargs[arg_name] = {name: dep_results[name] for name in match}
                         elif param.default is inspect.Parameter.empty:
                             missing_deps.append(dep_name)
