@@ -19,26 +19,26 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Cache APT Packages
-      uses: awalsh128/cache-apt-pkgs-action@v1.4.3
+      uses: awalsh128/cache-apt-pkgs-action@v1.5.3
       with:
         packages: ${{ env.SYSTEM_PACKAGES }}
 
-    - uses: prefix-dev/setup-pixi@v0.8.14
+    - uses: prefix-dev/setup-pixi@v0.9.1
       with:
         pixi-version: v0.50.2
         cache: true
     - run: pixi run test
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         fail_ci_if_error: true
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -53,10 +53,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.10"
 
