@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import shutil
 import sqlite3
+import sys
 import struct
 from collections.abc import ItemsView, MutableMapping, ValuesView
 from dataclasses import asdict, dataclass
@@ -120,7 +122,7 @@ MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 class DamnitDB:
     def __init__(self, path=DB_NAME, allow_old=False):
-        self.path = path.absolute()
+        self._path = path.absolute()
 
         db_existed = path.exists()
         log.debug("Opening database at %s", path)
@@ -132,7 +134,7 @@ class DamnitDB:
         self.conn.execute("PRAGMA foreign_keys = ON;") 
 
         self.conn.row_factory = sqlite3.Row
-        self.metameta = MetametaMapping(self.conn)
+        self.metameta = KeyValueMapping(self.conn, "metameta")
 
         # Only execute the schema if we wouldn't overwrite a previous version
         can_apply_schema = True
@@ -153,6 +155,9 @@ class DamnitDB:
             self.metameta.setdefault('db_id', token_hex(20))
 
         self.metameta.setdefault("concurrent_jobs", 15)
+
+        # Use the Python environment the database was created under by default
+        self.metameta.setdefault("damnit_python", sys.executable)
 
         if not db_existed:
             # If this is a new database, set the latest current version
@@ -177,6 +182,10 @@ class DamnitDB:
     @property
     def kafka_topic(self):
         return UPDATE_TOPIC.format(self.metameta['db_id'])
+
+    @property
+    def path(self):
+        return self._path
 
     def upgrade_schema(self, from_version):
         log.info("Upgrading database format from v%d to v%d",
@@ -507,13 +516,21 @@ class DamnitDB:
             return [row[0] for row in cursor.fetchall()]
 
 
-class MetametaMapping(MutableMapping):
-    def __init__(self, conn):
+class KeyValueMapping(MutableMapping):
+    """
+    Simple class that represents a dictionary backed by a SQLite table.
+
+    Note that the `table` argument is assumed to come from a trusted source, it
+    isn't quoted into the internal SQL expressions.
+    """
+
+    def __init__(self, conn, table):
         self.conn = conn
+        self.table = table
 
     def __getitem__(self, key):
         row = self.conn.execute(
-            "SELECT value FROM metameta WHERE key=?", (key,)
+            f"SELECT value FROM {self.table} WHERE key=?", (key,)
         ).fetchone()
         if row is not None:
             return row[0]
@@ -522,7 +539,7 @@ class MetametaMapping(MutableMapping):
     def __setitem__(self, key, value):
         with self.conn:
             self.conn.execute(
-                "INSERT INTO metameta VALUES (:key, :value)"
+                f"INSERT INTO {self.table} VALUES (:key, :value)"
                 "ON CONFLICT (key) DO UPDATE SET value=:value",
                 {'key': key, 'value': value}
             )
@@ -534,28 +551,28 @@ class MetametaMapping(MutableMapping):
 
         with self.conn:
             self.conn.executemany(
-                "INSERT INTO metameta VALUES (:key, :value)"
+                f"INSERT INTO {self.table} VALUES (:key, :value)"
                 "ON CONFLICT (key) DO UPDATE SET value=:value",
                 [{'key': k, 'value': v} for (k, v) in d.items()]
             )
 
     def __delitem__(self, key):
         with self.conn:
-            c = self.conn.execute("DELETE FROM metameta WHERE key=?", (key,))
+            c = self.conn.execute(f"DELETE FROM {self.table} WHERE key=?", (key,))
             if c.rowcount == 0:
                 raise KeyError(key)
 
     def __iter__(self):
-        return (r[0] for r in self.conn.execute("SELECT key FROM metameta"))
+        return (r[0] for r in self.conn.execute(f"SELECT key FROM {self.table}"))
 
     def __len__(self):
-        return self.conn.execute("SELECT count(*) FROM metameta").fetchone()[0]
+        return self.conn.execute(f"SELECT count(*) FROM {self.table}").fetchone()[0]
 
     def setdefault(self, key, default=None):
         with self.conn:
             try:
                 self.conn.execute(
-                    "INSERT INTO metameta VALUES (:key, :value)",
+                    f"INSERT INTO {self.table} VALUES (:key, :value)",
                     {'key': key, 'value': default}
                 )
                 value = default
@@ -566,7 +583,7 @@ class MetametaMapping(MutableMapping):
         return value
 
     def to_dict(self):
-        return dict(self.conn.execute("SELECT * FROM metameta"))
+        return dict(self.conn.execute(f"SELECT * FROM {self.table}"))
 
     # Reimplement .values() and .items() to use just one query.
     def values(self):
@@ -595,6 +612,40 @@ class MsgKind(Enum):
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
 
+def initialize_proposal(root_path, proposal=None, context_file_src=None, user_vars_src=None):
+    # Ensure the directory exists
+    root_path.mkdir(parents=True, exist_ok=True)
+    if root_path.stat().st_uid == os.getuid():
+        os.chmod(root_path, 0o777)
+
+    # If the database doesn't exist, create it
+    if new_db := not db_path(root_path).is_file():
+        if proposal is None:
+            raise ValueError("Must pass a proposal number to `initialize_proposal()` if the database doesn't exist yet.")
+
+        # Initialize database
+        db = DamnitDB.from_dir(root_path)
+        db.metameta["proposal"] = proposal
+        db.metameta["context_python"] = "/gpfs/exfel/sw/software/euxfel-environment-management/environments/202502/.pixi/envs/default/bin/python"
+    else:
+        # Otherwise, load the proposal number
+        db = DamnitDB.from_dir(root_path)
+        proposal = db.metameta["proposal"]
+
+    context_path = root_path / "context.py"
+    # Copy initial context file if necessary
+    if not context_path.is_file():
+        if context_file_src is not None:
+            shutil.copyfile(context_file_src, context_path)
+        else:
+            context_path.touch()
+        os.chmod(context_path, 0o666)
+
+    # Copy user editable variables if requested
+    if new_db and (user_vars_src is not None):
+        prev_db = DamnitDB(user_vars_src)
+        for var in prev_db.get_user_variables().values():
+            db.add_user_variable(var)
 
 # Old schemas for reference and migration
 

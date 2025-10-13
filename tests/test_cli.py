@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import pytest
 from testpath import MockCommand
 
+from damnit.backend.listener import ListenerDB
 from damnit.cli import main, excepthook as ipython_excepthook
 
 
@@ -92,21 +93,57 @@ def test_listen(tmp_path, monkeypatch):
         main(["listen", "--test"])
         listen.assert_called_once()
 
-    # Should fail without an existing database
-    with (patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend,
-          pytest.raises(SystemExit)):
+    with patch(f"{pkg}.start_listener") as start_listener:
         main(["listen", "--daemonize"])
-        initialize_and_start_backend.assert_not_called()
-
-    # Should work with an existing database
-    (tmp_path / "runs.sqlite").touch()
-    with patch(f"{pkg}.initialize_and_start_backend") as initialize_and_start_backend:
-        main(["listen", "--daemonize"])
-        initialize_and_start_backend.assert_called_once()
+        start_listener.assert_called_once()
 
     # Can't pass both --test and --daemonize
     with pytest.raises(SystemExit):
         main(["listen", "--daemonize", "--test"])
+
+    listener_db_path = tmp_path / "listener.sqlite"
+    assert not listener_db_path.exists()
+    main(["listener", "config", "static-mode", "0"])
+    assert listener_db_path.exists()
+
+    db = ListenerDB(tmp_path)
+    assert db.settings["static_mode"] == False
+
+    # Helper function to check if a database directory is in the official location
+    def get_official(proposal):
+        row = db.conn.execute(
+            "SELECT official FROM proposal_databases WHERE proposal=?", (proposal,)
+        ).fetchone()
+        return row[0] == 1
+
+    mock_root = Path("/tmp/proposal")
+    with patch("damnit.cli.find_proposal", return_value=str(mock_root)):
+        # Test adding with official path
+        main(["listener", "add", "1234"])
+        official_dir = mock_root / "usr/Shared/amore"
+        dirs = db.proposal_db_dirs(1234)
+        assert dirs == [official_dir]
+        assert get_official(1234)
+
+        # Test removing the database
+        main(["listener", "rm", str(official_dir)])
+        assert db.proposal_db_dirs(1234) == []
+
+        # Test adding with custom path
+        custom_dir = Path("/tmp/foo")
+        main(["listener", "add", "5678", str(custom_dir)])
+        dirs = db.proposal_db_dirs(5678)
+        assert dirs == [custom_dir]
+        assert not get_official(5678)
+
+        # Test adding with custom path that matches official path
+        main(["listener", "add", "9999", str(official_dir)])
+        dirs = db.proposal_db_dirs(9999)
+        assert dirs == [official_dir]
+        assert get_official(9999)
+
+    # Smoke test
+    main(["listener", "databases"])
 
 def test_reprocess(mock_db_with_data, monkeypatch):
     db_dir, db = mock_db_with_data

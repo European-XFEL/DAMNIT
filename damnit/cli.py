@@ -1,6 +1,5 @@
 import inspect
 import logging
-import os
 import sys
 import textwrap
 import traceback
@@ -42,6 +41,34 @@ def excepthook(exc_type, value, tb):
     IPython.start_ipython(argv=[], display_banner=False,
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
 
+def handle_config_args(args, kv, converters={}):
+    key = args.key
+    if key:
+        key = key.replace('-', '_')
+    if args.value and key in converters:
+        args.value = converters[key](args.value)
+
+    if args.delete:
+        if not key:
+            sys.exit("Error: no key specified to delete")
+        del kv[key]
+    elif key and (args.value is not None):
+        if args.num:
+            try:
+                value = int(args.value)
+            except ValueError:
+                value = float(args.value)
+        else:
+            value = args.value
+        kv[key] = value
+    elif key:
+        try:
+            print(repr(kv[key]))
+        except KeyError:
+            sys.exit(f"Error: key {key} not found")
+    else:
+        for k, v in kv.items():
+            print(f"{k}={v!r}")
 
 def main(argv=None):
     # Check if script was called as amore-proto and show deprecation warning
@@ -75,6 +102,10 @@ def main(argv=None):
     )
     listen_args_grp = listen_ap.add_mutually_exclusive_group()
     listen_args_grp.add_argument(
+        "listener_dir", type=Path, default=Path.cwd(), nargs="?",
+        help="Path to the listener database directory"
+    )
+    listen_args_grp.add_argument(
         '--test', action='store_true',
         help="Manually enter 'migrated' runs for testing"
     )
@@ -82,9 +113,49 @@ def main(argv=None):
         '--daemonize', action='store_true',
         help="Start the listener under a separate process managed by supervisord."
     )
-    listen_ap.add_argument(
-        'context_dir', type=Path, nargs='?', default='.',
-        help="Directory to store summarised results"
+
+    listener_ap = subparsers.add_parser("listener", help="Manage the DAMNIT listener.")
+    listener_subparser = listener_ap.add_subparsers(dest="listener_subcmd", required=True)
+
+    listener_config_ap = listener_subparser.add_parser(
+        "config", help="See or change the config for the DAMNIT listener"
+    )
+    listener_config_ap.add_argument(
+        '-d', '--delete', action='store_true',
+        help="Delete the specified key",
+    )
+    listener_config_ap.add_argument(
+        '--num', action='store_true',
+        help="Set the given value as a number instead of a string"
+    )
+    listener_config_ap.add_argument(
+        'key', nargs='?',
+        help="The config key to see/change. If not given, list the whole configuration"
+    )
+    listener_config_ap.add_argument(
+        'value', nargs='?',
+        help="A new value for the given key"
+    )
+
+    add_grp = listener_subparser.add_parser("add", help="Add a database to monitor")
+    add_grp.add_argument(
+        "proposal", type=int,
+        help="Proposal number"
+    )
+    add_grp.add_argument(
+        "db_dir", type=Path, nargs='?',
+        help="Path to the database directory"
+    )
+
+    remove_grp = listener_subparser.add_parser("rm", help="Remove a database from being monitored")
+    remove_grp.add_argument(
+        "db_dir", type=Path,
+        help="Path to the database directory to remove"
+    )
+
+    databases_grp = listener_subparser.add_parser(
+        "databases",
+        help="Display the DAMNIT databases currently being monitored"
     )
 
     reprocess_ap = subparsers.add_parser(
@@ -211,22 +282,53 @@ def main(argv=None):
                        connect_to_kafka=not args.no_kafka)
 
     elif args.subcmd == 'listen':
-        from .backend.db import db_path
-        from .backend import initialize_and_start_backend
+        from .backend import start_listener
 
         if args.daemonize:
-            if not db_path(args.context_dir).is_file():
-                sys.exit("You must create a database with `damnit proposal` before starting the listener.")
-
-            return initialize_and_start_backend(args.context_dir)
+            return start_listener(args.listener_dir)
         else:
             if args.test:
                 from .backend.test_listener import listen
             else:
                 from .backend.listener import listen
 
-            os.chdir(args.context_dir)
-            return listen()
+            return listen(args.listener_dir)
+
+    elif args.subcmd == "listener":
+        from .backend.listener import ListenerDB
+
+        db = ListenerDB(Path.cwd())
+        if args.listener_subcmd == "config":
+            handle_config_args(args, db.settings,
+                               # Convert `static_mode` to a bool
+                               dict(static_mode=lambda x: bool(int(x))))
+        elif args.listener_subcmd == "add":
+            official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
+
+            if args.db_dir is None:
+                db_dir = official_dir
+                official = True
+            else:
+                db_dir = args.db_dir
+                official = db_dir == official_dir
+
+            db.add_proposal_db(args.proposal, db_dir, official=official)
+            print(f"Added proposal {args.proposal} at {db_dir}")
+        elif args.listener_subcmd == "rm":
+            db.remove_proposal_db(args.db_dir)
+            print(f"Removed database at {args.db_dir}")
+        elif args.listener_subcmd == "databases":
+            db = ListenerDB(Path.cwd())
+            all_proposals = db.all_proposals()
+            sorted_proposals = sorted(all_proposals.keys())
+            for p in sorted_proposals:
+                if len(all_proposals[p]) > 1:
+                    print(f"p{p}:")
+                    for x in all_proposals[p]:
+                        print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
+                else:
+                    x = all_proposals[p][0]
+                    print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
@@ -264,31 +366,8 @@ def main(argv=None):
     elif args.subcmd == 'db-config':
         from .backend.db import DamnitDB
 
-        if args.key:
-            args.key = args.key.replace('-', '_')
-
         db = DamnitDB()
-        if args.delete:
-            if not args.key:
-                sys.exit("Error: no key specified to delete")
-            del db.metameta[args.key]
-        elif args.key and (args.value is not None):
-            if args.num:
-                try:
-                    value = int(args.value)
-                except ValueError:
-                    value = float(args.value)
-            else:
-                value = args.value
-            db.metameta[args.key] = value
-        elif args.key:
-            try:
-                print(repr(db.metameta[args.key]))
-            except KeyError:
-                sys.exit(f"Error: key {args.key} not found")
-        else:
-            for k, v in db.metameta.items():
-                print(f"{k}={v!r}")
+        handle_config_args(args, db.metameta)
 
     elif args.subcmd == "migrate":
         from .backend.db import DamnitDB
