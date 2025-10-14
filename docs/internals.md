@@ -130,7 +130,7 @@ $ damnit listener rm /foo/bar
 A single listener in dynamic mode is deployed from the *beta module* on
 `max-exfl458.desy.de` under the `xdamnprd` user. To access it you can run:
 ```bash
-$ ssh xdamndprd@max-exfl458.desy.de
+$ ssh xdamnprd@max-exfl458.desy.de
 $ module load exfel damnit/beta
 $ cd ~/srv/damnit-listener
 $ damnit listener databases # Or whatever other command you want
