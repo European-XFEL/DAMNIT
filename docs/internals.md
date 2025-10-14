@@ -19,11 +19,8 @@ To install both the frontend and backend:
 git clone https://github.com/European-XFEL/DAMNIT.git
 cd DAMNIT
 
-# Make an environment for DAMNIT
-conda create -n damnit python
-
-conda activate damnit
-pip install '.[gui,backend]'
+# Install DAMNIT in a local environment
+pixi install
 ```
 
 If you only need the API there's no need to clone the repo, `pip install
@@ -41,7 +38,7 @@ To update a module:
 $ ssh xsoft@max-exfl.desy.de
 
 # Helper command to cd into the module directory and activate its environment
-$ damnitmod mid # This will activate the stable module, use `beta` for the beta module
+$ damnitmod stable # This will activate the stable module, use `beta` for the beta module
 $ git pull # Or whatever command is necessary to update the code
 ```
 
@@ -53,6 +50,7 @@ dependencies, run:
 $ module load exfel pixi
 $ pixi install
 ```
+
 ## The listener
 The listener is a process running under [Supervisor](http://supervisord.org/). In
 a nutshell:
@@ -127,6 +125,21 @@ $ damnit listener rm /foo/bar
     Only one listener in should be running in dynamic mode at a time. Otherwise
     multiple jobs may be launched for the same notification, which will cause
     file corruption and weeping and gnashing of teeth.
+
+### Deployment on Maxwell
+A single listener in dynamic mode is deployed from the *beta module* on
+`max-exfl458.desy.de` under the `xdamnprd` user. To access it you can run:
+```bash
+$ ssh xdamndprd@max-exfl458.desy.de
+$ module load exfel damnit/beta
+$ cd ~/srv/damnit-listener
+$ damnit listener databases # Or whatever other command you want
+```
+
+To update the listener you should:
+
+1. Update the beta module.
+2. Restart the listener with `supervisorctl -c supervisord.conf restart damnit`.
 
 ## Kafka
 The GUI is updated by Kafka messages sent by the backend. Currently we use
