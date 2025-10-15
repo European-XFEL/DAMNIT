@@ -1073,8 +1073,13 @@ def test_copy_ctx_and_user_vars(tmp_path, mock_db, mock_user_vars):
     assert db_file.is_file()
     assert set(DamnitDB(db_file).get_user_variables()) == set(mock_user_vars)
 
+
 def test_listener(mock_sandbox_out_file, tmp_path, caplog, monkeypatch):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
+    # ensure we don't use a real Slurm cluster
+    from damnit.backend.extraction_control import ExtractionSubmitter
+    monkeypatch.setattr(ExtractionSubmitter, '_slurm_shared_opts', lambda: ['--clusters', ''])
+    monkeypatch.setattr(ExtractionSubmitter, '_slurm_cluster_opts', lambda: ['--clusters', ''])
 
     # Create the processor and get it to run our mock sandbox script
     with patch('damnit.backend.listener.KafkaConsumer') as kcon:
