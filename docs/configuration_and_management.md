@@ -252,6 +252,7 @@ $ damnit db-config context_python /path/to/your/python
 The environment *must* have these dependencies installed for DAMNIT to work:
 
 - `extra_data`
+- `extra_proposal`
 - `pyyaml`
 - `requests`
 
