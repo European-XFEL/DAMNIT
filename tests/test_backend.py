@@ -1623,11 +1623,10 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert results.cells["child_group.step2"].data == 4
     assert results.cells["child_group2.step1"].data == 'overridden step1'
 
-    # Test Group composition
+    # Test Group references in dependencies
     code = """
     from damnit_ctx import Variable, Group
 
-    # Define some reusable, low-level groups
     @Group
     class XGMGroup:
         factor: float = 1.0
@@ -1637,112 +1636,106 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return 10 * self.factor
 
     @Group
-    class DetectorGroup:
+    class AGIPD4M:
         @Variable(title="Image", transient=True)
         def image(self, run):
             import numpy as np
             return np.ones((100, 100), dtype=np.uint8)
 
-        @Variable(summary="sum")
+        @Variable(summary="sum", title='Photon Count', tags=['photons'])
         def photon_count(self, run, image_data: "self#image"):
             # A mock calculation
             return image_data.sum()
 
-    # A mid-level group that composes the low-level ones
-    @Group
+    @Group(title="SCS Instrument", tags=["scs"])
     class InstrumentDiagnostics:
-        # Nested group instances
-        xgm = XGMGroup(title="XGM", factor=1.5)
-        detector = DetectorGroup(title="Detector", tags="detector")
+        # group instances reference
+        xgm: XGMGroup
+        det: AGIPD4M
 
         @Variable(title="Intensity per Photon")
         def intensity_per_photon(self, run,
                                  intensity: "self#xgm.intensity",
-                                 photons: "self#detector.photon_count"):
+                                 photons: "self#det.photon_count"):
             # This depends on variables from two different nested subgroups
             return intensity / photons
 
-    # A top-level group that nests the mid-level group (2 levels of nesting)
     @Group
     class Experiment:
-        instrument = InstrumentDiagnostics(title="SCS Instrument", tags=["scs"])
+        diagnostics: InstrumentDiagnostics
 
         @Variable(title="Experiment Quality")
-        def quality(self, run, ipp: "self#instrument.intensity_per_photon"):
+        def quality(self, run, ipp: "self#diagnostics.intensity_per_photon"):
             # Depends on a variable from a nested group
             return "good" if ipp > 1.0 else "bad"
         
         @Variable()
-        def deep_nested_access(run, data: "self#instrument.detector.image"):
+        def deep_nested_access(run, data: "self#diagnostics.det.image"):
             return data.mean()
 
-        @Variable()
-        def deep_nested_access_dunder(run, data: "self#instrument.detector.image"):
-            # This uses the dunder syntax instead of the dot
-            return data.mean()
+    xgm_upstream = XGMGroup(title="XGM", factor=1.5)
+    agipd4m = AGIPD4M(title="Detector", tags="detector")
+
+    diag = InstrumentDiagnostics(xgm=xgm_upstream, det=agipd4m)
 
     # Instantiate the top-level group
-    exp1 = Experiment(title="My Experiment")
+    exp1 = Experiment(title="My Experiment", diagnostics=diag)
 
     @Variable()
-    def nested_var_access(run, data: "var#exp1.instrument.detector.image"):
+    def nested_var_access(run, data: "var#agipd4m.image"):
         return data.mean()
     """
     ctx = mkcontext(code)
 
     # Check that all variables from the nested structure are present and named correctly
     expected_vars = {
-        "exp1.instrument.xgm.intensity",
-        "exp1.instrument.detector.image",
-        "exp1.instrument.detector.photon_count",
-        "exp1.instrument.intensity_per_photon",
+        "xgm_upstream.intensity",
+        "agipd4m.image",
+        "agipd4m.photon_count",
+        "diag.intensity_per_photon",
         "exp1.quality",
         "exp1.deep_nested_access",
         "nested_var_access",
-        "exp1.deep_nested_access_dunder",
     }
     assert set(ctx.vars.keys()) == expected_vars
 
     # Check title generation with multiple levels of nesting
-    assert ctx.vars["exp1.instrument.xgm.intensity"].title == "My Experiment/SCS Instrument/XGM/Intensity"
-    assert ctx.vars["exp1.instrument.detector.photon_count"].title == "My Experiment/SCS Instrument/Detector/photon_count"
-    assert ctx.vars["exp1.instrument.intensity_per_photon"].title == "My Experiment/SCS Instrument/Intensity per Photon"
+    assert ctx.vars["xgm_upstream.intensity"].title == "XGM/Intensity"
+    assert ctx.vars["agipd4m.image"].title == "Detector/Image"
+    assert ctx.vars["agipd4m.photon_count"].title == "Detector/Photon Count"
+    assert ctx.vars["diag.intensity_per_photon"].title == "SCS Instrument/Intensity per Photon"
     assert ctx.vars["exp1.quality"].title == "My Experiment/Experiment Quality"
 
-    # Check that tags are correctly inherited down the hierarchy
-    # 'detector' tag from DetectorGroup instance should be present
-    assert "detector" in ctx.vars["exp1.instrument.detector.photon_count"].tags
-    # 'scs' tag from InstrumentDiagnostics instance should be present on all its children
-    assert "scs" in ctx.vars["exp1.instrument.detector.photon_count"].tags
-    assert "scs" in ctx.vars["exp1.instrument.xgm.intensity"].tags
+    # Check that tags are correctly inherited
+    assert "detector" in ctx.vars["agipd4m.photon_count"].tags
+    assert "photons" in ctx.vars["agipd4m.photon_count"].tags
 
     # Check dependency resolution and execution order
     ordered_vars = ctx.ordered_vars()
     # Check dependencies within the deepest group
-    assert ordered_vars.index("exp1.instrument.detector.image") < ordered_vars.index("exp1.instrument.detector.photon_count")
+    assert ordered_vars.index("agipd4m.image") < ordered_vars.index("agipd4m.photon_count")
     # Check dependencies for the mid-level composer variable
-    assert ordered_vars.index("exp1.instrument.xgm.intensity") < ordered_vars.index("exp1.instrument.intensity_per_photon")
-    assert ordered_vars.index("exp1.instrument.detector.photon_count") < ordered_vars.index("exp1.instrument.intensity_per_photon")
+    assert ordered_vars.index("xgm_upstream.intensity") < ordered_vars.index("diag.intensity_per_photon")
+    assert ordered_vars.index("agipd4m.photon_count") < ordered_vars.index("diag.intensity_per_photon")
     # Check dependencies for the top-level composer variable
-    assert ordered_vars.index("exp1.instrument.intensity_per_photon") < ordered_vars.index("exp1.quality")
+    assert ordered_vars.index("diag.intensity_per_photon") < ordered_vars.index("exp1.quality")
 
     # Execute the context and verify the results
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
 
     # Verify intermediate and final calculations
-    assert results.cells["exp1.instrument.xgm.intensity"].data == 15.0  # 10 * 1.5
-    assert results.cells["exp1.instrument.detector.photon_count"].data == 10_000
-    assert results.cells["exp1.instrument.intensity_per_photon"].data == 15.0 / 10_000
+    assert results.cells["xgm_upstream.intensity"].data == 15.0  # 10 * 1.5
+    assert results.cells["agipd4m.photon_count"].data == 10_000
+    assert results.cells["diag.intensity_per_photon"].data == 15.0 / 10_000
     assert results.cells["exp1.quality"].data == "bad"
     assert results.cells["exp1.deep_nested_access"].data == 1.0
-    assert results.cells["exp1.deep_nested_access_dunder"].data == 1.0
 
     # Check that transient variables are not saved
     results_hdf5_path = tmp_path / "results.h5"
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         # The transient 'image' variable should not exist in the file
-        assert "exp1.instrument.detector.image" not in f
+        assert "agipd4m.image" not in f
         # A non-transient variable should exist
         assert "exp1.quality" in f
         assert f["exp1.quality/data"][()] == b"bad"
@@ -2118,10 +2111,10 @@ def test_variable_group(mock_run, tmp_path, caplog):
     @Group(title="Linking Group")
     class LinkingGroup:
         # holds the name of a SharedComponent instance.
-        source_name: str = None
+        source: SharedComponent
 
         @Variable(title="Processed Value")
-        def processed_value(self, run, data: "self#source_name.shared_value"):
+        def processed_value(self, run, data: "self#source.shared_value"):
             return data + 1
 
     # Define two separate, shared instances
@@ -2129,8 +2122,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
     shared2 = SharedComponent(base_value=200)
 
     # Link two different groups to the two different shared instances
-    linker_a = LinkingGroup(source_name="shared1")
-    linker_b = LinkingGroup(source_name="shared2")
+    linker_a = LinkingGroup(source=shared1)
+    linker_b = LinkingGroup(source=shared2)
     """
     ctx = mkcontext(code_linking)
 
@@ -2163,16 +2156,16 @@ def test_variable_group(mock_run, tmp_path, caplog):
 
     @Group(title="Linking Group")
     class LinkingGroup:
-        source_name: str = None
+        source: Group = None
 
         @Variable(title="Processed Value")
-        def processed_value(self, run, data: "self#source_name.some_var"):
+        def processed_value(self, run, data: "self#source.some_var"):
             return 1
 
-    # Instantiate the group WITHOUT providing the required 'source_name'
+    # Instantiate the group WITHOUT providing the required 'source'
     linker_a = LinkingGroup()
     """
-    with pytest.raises(KeyError, match="source_name"):
+    with pytest.raises(KeyError, match="source"):
         mkcontext(code_linking_missing)
 
 

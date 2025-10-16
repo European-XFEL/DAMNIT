@@ -173,7 +173,7 @@ def is_group_instance(obj) -> bool:
     return hasattr(type(obj), GROUP_MARKER_ATTR)
 
 
-def Group(cls: type = None, **kwargs) -> Callable | type:
+class Group:
     """A class decorator that transforms a class into a Group.
 
     Transforms a class into a Group 'dataclass'. Allow for creating reusable,
@@ -181,15 +181,22 @@ def Group(cls: type = None, **kwargs) -> Callable | type:
 
     - `@Group` for default behavior.
     - `@Group(title='...', ...)` to provide parameters.
-    """
-    def wrapper(wrapped_cls: type) -> type:
-        return _new_group(wrapped_cls, kwargs)
 
-    return wrapper if cls is None else wrapper(cls)
+    Args:
+        title (str, optional): The title of the group.
+        tags (list[str], optional): A list of tags to associate with the group.
+        sep (str, optional): Separator to use between group title and variable title.
+    """
+    def __new__(cls, decorated_cls: type = None, **kwargs) -> type:
+        def wrapper(wrapped_cls: type) -> type:
+            return _new_group(wrapped_cls, kwargs)
+
+        return wrapper if decorated_cls is None else wrapper(decorated_cls)
 
 
 @dataclass
 class _GroupBase:
+    prefix: str | None = field(default=None, kw_only=True, init=False)
     title: str | None = field(default=None, kw_only=True)
     tags: tuple[str] | None = field(default=None, kw_only=True)
     sep: str = field(default='/', kw_only=True)
@@ -250,21 +257,10 @@ class _GroupBase:
             except AttributeError:
                 continue
 
-    def _groups(self) -> Generator[tuple[str, '_GroupBase'], None, None]:
-        """Get all variable groups in this group"""
-        for attr_name in dir(self):
-            if attr_name.startswith('__'):
-                continue
-
-            try:
-                attr = getattr(self, attr_name)
-                if is_group_instance(attr):
-                    yield attr_name, attr
-            except AttributeError:
-                continue
-
     def variables(self, prefix: str) -> dict[str, Variable]:
         """Get all variables in this group"""
+        self.prefix = prefix
+
         _vars = {}
         for original_var in self._variables():
             var = self._init_group_variable(prefix, original_var)
@@ -282,18 +278,22 @@ class _GroupBase:
                             f"needed to resolve dependency {dep_name!r} of Variable {var.name!r}"
                         )
 
-                    attr = getattr(self, attr_name)
-                    if isinstance(attr, str):
-                        # The attribute is a string, referencing another
-                        # Variable or Group outside this Group.
-                        resolved_name = attr
-                        if attr_parts:
-                            resolved_name += f".{attr_parts}"
-                    else:
-                        # Dependency is in this instance -> prefix the dep_name
-                        resolved_name = f'{prefix}.{dep_name}'
+                    def _resolve_name(scope, name):
+                        attr, _, name = name.partition('.')
 
-                    annotations[arg_name] = f"var#{resolved_name}"
+                        attr = getattr(scope, attr)
+                        if is_group_instance(attr) and name:
+                            if '.' in name:
+                                return _resolve_name(attr, name)
+                            return f'{attr.prefix}.{name}'
+                        elif isinstance(attr, Variable):
+                            return f'{scope.prefix}.{attr.name}'
+
+                        raise KeyError(
+                            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}"
+                        )
+
+                    annotations[arg_name] = f"var#{_resolve_name(self, dep_name)}"
 
             # Create new signature with the modified annotations
             original_sig = inspect.signature(var.func)
@@ -314,15 +314,6 @@ class _GroupBase:
                 var, annotations=annotations, signature=new_sig)
 
             _vars[var.name] = var
-
-        # Add variables from nested groups
-        for group_name, group in self._groups():
-            group = copy(group)
-            group_prefix = f"{prefix}.{group_name}"
-            # update title and tags for the group
-            group.title = f"{self.title or prefix}{self.sep}{group.title or group_name}"
-            group.tags = self._merge_tags(group.tags)
-            _vars.update(group.variables(group_prefix))
 
         return _vars
 
