@@ -511,39 +511,18 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     mymdc_ctx = mkcontext(mymdc_code)
 
-    # Create some mock credentials and set the mock_run files to appear to be
-    # under `tmp_path`.
-    (tmp_path / "usr").mkdir()
-    with open(tmp_path / "usr/mymdc-credentials.yml", "w") as f:
-        yaml.dump({
-            "token": "foo",
-            "server": "https://out.xfel.eu/metadata"
-        }, f)
-    mock_run.files = [MagicMock(filename=tmp_path / "raw/r0001/RAW-R0004-DA03-S00000.h5")]
+    with (
+        pytest.MonkeyPatch.context() as mp,
+        patch("extra_proposal.proposal.find_proposal", return_value=tmp_path),
+    ):
+        from extra_proposal.proposal import RunReference
+        mp.setattr(RunReference, 'sample_name', lambda self: "mithril")
+        mp.setattr(RunReference, 'run_type', lambda self: "alchemy")
+        mp.setattr(RunReference, 'techniques', lambda self: [
+            {'identifier': 'PaNET01168', 'name': 'SFX'},
+            {'identifier': 'PaNET01188', 'name': 'SAXS'},
+        ])
 
-    # Helper function to mock requests.get() for different endpoints
-    def mock_get(url, headers, timeout):
-        assert headers["X-API-key"] == "foo"
-
-        if "proposals/by_number" in url:
-            result = dict(runs=[dict(id=1, sample_id=1, experiment_id=1)])
-        elif "samples" in url:
-            result = dict(name="mithril")
-        elif "experiments" in url:
-            result = dict(name="alchemy")
-        elif "/runs/" in url:
-            result = {'techniques': [
-                {'identifier': 'PaNET01168', 'name': 'SFX'},
-                {'identifier': 'PaNET01188', 'name': 'SAXS'},
-            ]}
-
-        response = MagicMock()
-        response.json.return_value = result
-        return response
-
-    # Execute the context file and check the results
-    with patch.object(requests, "get", side_effect=mock_get), \
-         patch.object(ed.read_machinery, "find_proposal", return_value=tmp_path):
         results = results_create(mymdc_ctx)
 
     assert results.cells["sample"].data == "mithril"
@@ -867,7 +846,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    ctxrunner_deps = ["extra_data", "matplotlib", "plotly", "pyyaml", "requests"]
+    ctxrunner_deps = ["extra_data", "extra_proposal", "matplotlib", "plotly"]
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.
@@ -1076,8 +1055,13 @@ def test_copy_ctx_and_user_vars(tmp_path, mock_db, mock_user_vars):
     assert db_file.is_file()
     assert set(DamnitDB(db_file).get_user_variables()) == set(mock_user_vars)
 
+
 def test_listener(mock_sandbox_out_file, tmp_path, caplog, monkeypatch):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
+    # ensure we don't use a real Slurm cluster
+    from damnit.backend.extraction_control import ExtractionSubmitter
+    monkeypatch.setattr(ExtractionSubmitter, '_slurm_shared_opts', lambda: ['--clusters', ''])
+    monkeypatch.setattr(ExtractionSubmitter, '_slurm_cluster_opts', lambda: ['--clusters', ''])
 
     # Create the processor and get it to run our mock sandbox script
     with patch('damnit.backend.listener.KafkaConsumer') as kcon:
