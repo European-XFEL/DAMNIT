@@ -17,19 +17,16 @@ import time
 import traceback
 from datetime import timezone
 from enum import Enum
-from functools import wraps
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock
 from contextlib import contextmanager
 
 import extra_data
+import extra_proposal
 import h5py
 import numpy as np
-import requests
 import xarray as xr
-import yaml
 
 from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
 
@@ -46,81 +43,6 @@ class DataType(Enum):
     Image = "image"
     Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
-
-
-class MyMetadataClient:
-    def __init__(self, proposal, timeout=10, init_server="https://exfldadev01.desy.de/zwop"):
-        self.proposal = proposal
-        self.timeout = timeout
-        self._cached_data = {}
-
-        proposal_path = Path(extra_data.read_machinery.find_proposal(f"p{proposal:06d}"))
-        credentials_path = proposal_path / "usr/mymdc-credentials.yml"
-        if not credentials_path.is_file():
-            params = {
-                "proposal_no": str(proposal),
-                "kinds": "mymdc",
-                "overwrite": "false",
-                "dry_run": "false"
-            }
-            response = requests.post(f"{init_server}/api/write_tokens", params=params, timeout=timeout)
-            response.raise_for_status()
-
-        with open(credentials_path) as f:
-            document = yaml.safe_load(f)
-            self.token = document["token"]
-            self.server = document["server"]
-
-        self._headers = { "X-API-key": self.token }
-
-    def _cache(func):
-        @wraps(func)
-        def wrapper(self, run):
-            key = (run, func.__name__)
-            if key in self._cached_data:
-                return self._cached_data[key]
-            self._cached_data[key] = func(self, run)
-            return self._cached_data[key]
-        return wrapper
-
-    @_cache
-    def _run_info(self, run: int) -> dict[str, Any]:
-        response = requests.get(f"{self.server}/api/mymdc/proposals/by_number/{self.proposal}/runs/{run}",
-                                headers=self._headers, timeout=self.timeout)
-        response.raise_for_status()
-        json = response.json()
-        if len(json["runs"]) == 0:
-            raise RuntimeError(f"Couldn't get run information from mymdc for p{self.proposal}, r{run}")
-
-        return json["runs"][0]
-
-    @_cache
-    def techniques(self, run: int) -> dict[str, Any]:
-        run_info = self._run_info(run)
-        response = requests.get(f'{self.server}/api/mymdc/runs/{run_info["id"]}',
-                                headers=self._headers, timeout=self.timeout)
-        response.raise_for_status()
-        return response.json()['techniques']
-
-    @_cache
-    def sample_name(self, run: int) -> str:
-        run_info = self._run_info(run)
-        sample_id = run_info["sample_id"]
-        response = requests.get(f"{self.server}/api/mymdc/samples/{sample_id}",
-                                headers=self._headers, timeout=self.timeout)
-        response.raise_for_status()
-
-        return response.json()["name"]
-
-    @_cache
-    def run_type(self, run: int) -> str:
-        run_info = self._run_info(run)
-        experiment_id = run_info["experiment_id"]
-        response = requests.get(f"{self.server}/api/mymdc/experiments/{experiment_id}",
-                                headers=self._headers, timeout=self.timeout)
-        response.raise_for_status()
-
-        return response.json()["name"]
 
 
 class ContextFileErrors(RuntimeError):
@@ -298,7 +220,7 @@ class ContextFile:
         dep_results = {'start_time': get_start_time(run_data)}
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
-        mymdc = None
+        metadata = None
 
         for name in self.ordered_vars():
             t0 = time.perf_counter()
@@ -336,10 +258,10 @@ class ContextFile:
 
                     # Mymdc fields
                     elif annotation.startswith("mymdc#"):
-                        if mymdc is None:
-                            mymdc = MyMetadataClient(proposal)
-                        metadata = annotation.removeprefix('mymdc#')
-                        kwargs[arg_name] = getattr(mymdc, metadata)(run_number)
+                        if metadata is None:
+                            metadata = extra_proposal.Proposal(proposal)[run_number]
+                        field = annotation.removeprefix('mymdc#')
+                        kwargs[arg_name] = getattr(metadata, field)()
 
                     elif annotation == "meta#run_number":
                         kwargs[arg_name] = run_number
