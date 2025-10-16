@@ -187,7 +187,7 @@ from damnit_ctx import Variable, Group
 @Group(title="XGM Diag", tags=["XGM"])
 class XGMDiagnostics:
     # parameters are defined as dataclass fields
-    device_name: str = None
+    device_name: str
     offset: float = 0.0
 
     @Variable(title="Pulse Energy", summary="mean")
@@ -206,9 +206,9 @@ xgm_hed = XGMDiagnostics(title="XGM HED", device_name="HED_XTD9_XGM/XGM/DOOCS", 
 ```
 
 ### Naming and Titles
-When you create an instance of a `Group` (e.g., `xgm_sa2`), the `Variable`s
-within it are automatically given prefixed names to avoid conflicts. The
-instance name (the Python variable name you assign it to) is used as the prefix.
+When you create an instance of a `Group` (e.g., `xgm_sa2`), all its `Variable`s
+are automatically given prefixed names to avoid conflicts. The instance name
+(the Python variable name you assign it to) is used as the prefix.
 
 - The **`Variable` name** is formed by joining the `Group`'s instance name and
   the method's name with a dot: `xgm_sa2.pulse_energy`.
@@ -216,8 +216,28 @@ instance name (the Python variable name you assign it to) is used as the prefix.
   `Group`'s title and the `Variable`'s title with a separator (default is `/`):
   `XGM SA2/Pulse Energy`.
 
-### Dependencies
 
+### `Group` attributes:
+`Group` attributes are a subset of `Variable` attributes and are applied to all
+its `Variables`:
+
+- `title`: Prefixes all `Variable`'s title in this `Group`.
+- `sep` (default `/`): Separates this title string to the next level title.
+- `tags`: Are added to all `Variable`s present in the group. In the example
+  above, the `XGM` tag from `XGMDiagnostics` will be applied to all variables
+  inside it. Tags defined at the `Variable` level inside a Group are merged with
+  the `Group` tags.
+- `cluster`, `data` and `transient`: These properties are **not** configurable
+  at `Group` level and must be defined directly on `Variable`s.
+
+Attributes defined in a `Group` decorator can always be overwritten for each
+instance:
+
+```python
+another_xgm = XGMDiagnostic(title='Another XGM', tags=['XGM!'])
+```
+
+### Dependencies
 - **Intra-group dependencies:** To depend on another variable within the same
   `Group` instance, you must replace the `var#` prefix with `self#` in the
   attribute annotation. This explicitly tells DAMNIT to look for the `Variable`
@@ -251,75 +271,9 @@ instance name (the Python variable name you assign it to) is used as the prefix.
   instance = MyGroup("Group")
   ```
 
-### Relating Groups
-You can create more complex analysis pipelines by relating groups to each
-other. DAMNIT supports two patterns for this:
-- Nesting `Group`s for building self-contained, hierarchical components
-- Linking `Group`s for connecting independent components.
-
-**Nesting (composition):**
-
-By adding `Group` instances as attributes of your `Group`, you create a tight,
-hierarchical relationship, as if the inner group is a sub-component of the outer
-one. This is useful for building a complex object out of smaller, dedicated
-parts.
-
-```python
-@Group(title="DET")
-class Detector:
-    name: str = "LPD"
-
-    @Variable(title="Photon Count")
-    def n_photons(self, run):
-        return run.alias[self.name]['photon-count'].xarray()
-
-# MIDDiagnostics composes XGMDiagnostics and Detector
-@Group(title="MID Diag", tags=["MID", "Diag"])
-class MIDDiagnostics:
-    # Nested instances of other groups
-    xgm: XGMDiagnostics = None
-    agipd = Detector(title="AGIPD", name="AGIPD1M")
-
-    # This variable can depend on children of the nested groups
-    @Variable(title="Photons per µJ")
-    def photons_per_microjoule(self, run,
-                               photons: "self#agipd.n_photons",
-                               energy: "self#xgm.corrected_energy"):
-        return photons / energy
-
-# Instantiate the top-level group
-mid = MIDDiagnostics(
-    xgm=XGM(
-        title="XGM SA2",
-        device_name="SA2_XTD6_XGM/XGM/DOOCS",
-        offset=1.1,
-        tags=["XGM", "SA2"]
-    ),
-)
-```
-
-When groups are nested:
-
-- **Naming and Titles:** Prefixes are applied recursively. The `n_photons`
-  `Variable` will have the final name `mid.agipd.n_photons` and the title
-  `MID Diag/AGIPD/Photon Count`.
-- **Dependencies:** To depend on a variable within the same instance (including
-  any nested groups), use `self#` followed by the path to the variable, using a
-  dot (`.`) to separate group instance names from the final variable name:
-  `self#agipd.n_photons`.
-
-- **Group Properties:**
-    - `title`: Prefixes all `Variable`'s title in this `Group` and member `Group`s.
-    - `sep` (default `/`): Separates this title string to the next level title.
-    - `tags`: Are propagated recursively. In the example above, the `Diag` tag
-      from `MIDDiagnostics` will be applied to all variables inside it, including
-      those from the nested `xgm` and `agipd` instances.
-    - `cluster`, `data` and `transient`: These properties are **not** configurable
-      at `Group` level and must be defined directly on `Variable`s.
-
-**Linking:**
-
-Alternatively, you can losely link independent `Group`s. This is useful for:
+### Linking Groups
+You can create more complex analysis pipelines by link independent `Group`s.
+This is useful for:
 
 - **Avoiding Duplication**: Link to a shared component (like an XGM diagnostic)
   from multiple other groups. The XGM analysis will run only once, and all
@@ -333,22 +287,21 @@ Alternatively, you can losely link independent `Group`s. This is useful for:
   allowing it to be connected to xgm_sa2 in one context and xgm_hed in another,
   simply by changing the string passed during instantiation.
 
-Define an attribute as a `str` and use it within a `self#` dependency path.
-DAMNIT will resolve this by using the string's value as the prefix for the
-dependency lookup.
+Define an field referencing an existing `Group` instance and use it within a
+`self#` dependency path. DAMNIT will resolve this by using the field name as the
+prefix for the dependency lookup.
 
 ```python
 @Group(title="MID Diagnostics", tags=["MID", "Diag"])
 class MIDDiagnostics:
-    # the name of an XGMDiagnostics instance, e.g. "xgm_sa2".
-    xgm_source: str
-    agipd = Detector(title="AGIPD", name="AGIPD1M")
+    xgm: XGMDiagnostics
+    detector: Detector
 
     @Variable(title="Photons per µJ")
     def photons_per_microjoule(self, run,
-                               photons: "self#agipd.n_photons",
-                               energy: "self#xgm_source.corrected_energy"):
-        # The system resolves `xgm_source` to its string value ("xgm_sa2")
+                               photons: "self#detector.n_photons",
+                               energy: "self#xgm.corrected_energy"):
+        # The system resolves `xgm` to its instance name ("xgm_sa2")
         # and looks up the final variable `xgm_sa2.corrected_energy`.
         return photons / energy
 
@@ -357,9 +310,11 @@ class MIDDiagnostics:
 xgm_sa2 = XGMDiagnostics(device_name="SA2_XTD6_XGM/XGM/DOOCS")
 xgm_hed = XGMDiagnostics(device_name="HED_XTD9_XGM/XGM/DOOCS")
 
+agipd = Detector(title="AGIPD", name="AGIPD1M")
+
 # 2. Instantiate the linking group and provide the name of the dependency.
-diag1 = MIDDiagnostics(xgm_source="xgm_sa2")
-diag2 = MIDDiagnostics(xgm_source="xgm_hed")
+diag1 = MIDDiagnostics(xgm=xgm_sa2, detector=agipd)
+diag2 = MIDDiagnostics(xgm=xgm_hed, detector=agipd)
 
 # Result: `diag1` depends on `xgm_sa2.corrected_energy`, and
 # `diag2` depends on `xgm_hed.corrected_energy`. No work is duplicated.
