@@ -87,22 +87,23 @@ class DamnitDB:
         self.conn.execute("PRAGMA foreign_keys = ON;") 
 
         self.conn.row_factory = sqlite3.Row
-
-        # Ensure metameta exists before we use the mapping
-        with self.conn:
-            self.conn.execute("CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);")
-
         self.metameta = KeyValueMapping(self.conn, "metameta")
-
-        # New DB bootstrap: mark as sentinel version to run baseline migration
         if not db_existed:
-            self.metameta.setdefault("data_format_version", -1)
-        # Read stored version (may not exist in very old DBs)
-        try:
-            data_format_version = int(self.metameta.get("data_format_version", 0))
-        except Exception:
-            # Fall back conservatively
-            data_format_version = 0
+            # Note: we use from_version=-1 to indicate a new database as v0 is
+            # used for the legacy schema.
+            self.upgrade_schema(from_version=-1, backup=False)
+        
+        data_format_version = int(self.metameta.get("data_format_version", 0))
+
+        # apply migrations if needed
+        if db_existed:
+            if not allow_old and data_format_version < MIN_OPENABLE_VERSION:
+                raise RuntimeError(
+                    f"Cannot open older (v{data_format_version}) database, please contact DA "
+                    "for help migrating"
+                )
+            elif MIN_OPENABLE_VERSION <= data_format_version < latest_version():
+                self.upgrade_schema(data_format_version)
 
         # A random ID for the update topic
         if 'db_id' not in self.metameta:
@@ -114,19 +115,6 @@ class DamnitDB:
 
         # Use the Python environment the database was created under by default
         self.metameta.setdefault("damnit_python", sys.executable)
-
-        # Apply upgrades
-        if data_format_version == -1:
-            # New DB: create baseline then step to latest
-            self.upgrade_schema(data_format_version, backup=False)
-        else:
-            if not allow_old and data_format_version < MIN_OPENABLE_VERSION:
-                raise RuntimeError(
-                    f"Cannot open older (v{data_format_version}) database, please contact DA "
-                    "for help migrating"
-                )
-            elif MIN_OPENABLE_VERSION <= data_format_version < latest_version():
-                self.upgrade_schema(data_format_version)
 
     @classmethod
     def from_dir(cls, path):
