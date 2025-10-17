@@ -10,8 +10,9 @@ How it works
 
 - The current schema version is stored in the `metameta` table under the key
   `data_format_version`.
-- New databases are created with the latest schema (see `V4_SCHEMA` in
-  `damnit/backend/db.py`) and the `data_format_version` is set accordingly.
+- New databases are bootstrapped with a sentinel version and then the baseline
+  migration (→ v1) plus subsequent steps are applied. The migration list in
+  `damnit/backend/db_migrations.py` is the single source of truth.
 - When opening an existing database, the code compares the stored version with
   the app’s required version. If upgrades are needed, it:
   - Creates a timestamped backup file next to `runs.sqlite`.
@@ -22,9 +23,7 @@ Where to add a migration
 
 1. Bump the target version in `damnit/backend/db.py`:
    - Update `DATA_FORMAT_VERSION` to the next integer.
-   - Update the base schema (`V4_SCHEMA`) if new installs should include your
-     changes out of the box. Keep it idempotent (use `IF NOT EXISTS` where
-     possible) and extend it rather than removing existing parts.
+   - No monolithic schema dump is used; instead, add a migration.
 
 2. Add a step in `damnit/backend/db_migrations.py`:
    - Create a function that applies the schema change using SQL which is safe
@@ -53,4 +52,3 @@ Advanced notes
   `damnit/backend/db.py`). Prefer upgrading when possible.
 - Keep migrations pragmatic and focused: prefer additive, idempotent changes;
   avoid risky table rewrites unless absolutely necessary.
-

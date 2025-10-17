@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 from typing import Callable, Iterable
@@ -23,6 +23,60 @@ class Migration:
     to_version: int
     description: str
     apply: Callable[[sqlite3.Connection], None]
+
+
+def _to_v1(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        dedent(
+            """
+            -- Core schema (baseline)
+            CREATE TABLE IF NOT EXISTS run_info(
+                proposal,
+                run,
+                start_time,
+                added_at
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
+
+            -- Long/narrow variables store (without attributes yet)
+            CREATE TABLE IF NOT EXISTS run_variables(
+                proposal,
+                run,
+                name,
+                version,
+                value,
+                timestamp,
+                max_diff,
+                provenance,
+                summary_type,
+                summary_method
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS variable_version
+                ON run_variables (proposal, run, name, version);
+
+            -- Dummy views are replaced by update_views() later
+            CREATE VIEW IF NOT EXISTS runs      AS SELECT * FROM run_info;
+            CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
+
+            -- Metadata tables
+            CREATE TABLE IF NOT EXISTS metameta(
+                key PRIMARY KEY NOT NULL,
+                value
+            );
+            CREATE TABLE IF NOT EXISTS variables(
+                name TEXT PRIMARY KEY NOT NULL,
+                type TEXT,
+                title TEXT,
+                description TEXT,
+                attributes TEXT
+            );
+            CREATE TABLE IF NOT EXISTS time_comments(
+                timestamp,
+                comment
+            );
+            """
+        )
+    )
 
 
 def _to_v2(conn: sqlite3.Connection) -> None:
@@ -75,6 +129,11 @@ def _to_v4(conn: sqlite3.Connection) -> None:
 
 MIGRATIONS: list[Migration] = [
     Migration(
+        to_version=1,
+        description="Baseline schema (core tables, views)",
+        apply=_to_v1,
+    ),
+    Migration(
         to_version=2,
         description="Add attributes column to run_variables",
         apply=_to_v2,
@@ -97,7 +156,7 @@ def create_backup(db_path: Path) -> Path:
     Create a timestamped backup copy of the SQLite database file next to it.
     Returns the backup path.
     """
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_path = db_path.with_suffix(db_path.suffix + f".bak.{ts}")
     shutil.copy2(db_path, backup_path)
     return backup_path
@@ -128,4 +187,3 @@ def apply_migrations(
             set_version(step.to_version)
         applied.append(step)
     return applied
-
