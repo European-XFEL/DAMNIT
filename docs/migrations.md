@@ -21,15 +21,14 @@ How it works
 Where to add a migration
 ------------------------
 
-1. Bump the target version in `damnit/backend/db.py`:
-   - Update `DATA_FORMAT_VERSION` to the next integer.
-   - No monolithic schema dump is used; instead, add a migration.
+1. Add the next migration step:
+   - In `damnit/backend/db_migrations.py`, create a function that applies the change and add a `Migration` entry with the next `to_version`.
+   - The application automatically targets the latest `to_version` in the list.
 
 2. Add a step in `damnit/backend/db_migrations.py`:
    - Create a function that applies the schema change using SQL which is safe
      to re-run (e.g. `ALTER TABLE ... ADD COLUMN` or `CREATE ... IF NOT EXISTS`).
-   - Add a new `Migration` entry to `MIGRATIONS` with the `to_version` value
-     matching `DATA_FORMAT_VERSION` and a concise `description`.
+   - Add a new `Migration` entry to `MIGRATIONS` with an incremented `to_version` and a concise `description`.
 
 3. Document it:
    - Add a short note to `docs/internals.md` under the versioned list, or edit

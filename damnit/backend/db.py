@@ -14,14 +14,13 @@ from secrets import token_hex
 from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
-from .db_migrations import apply_migrations, create_backup
+from .db_migrations import apply_migrations, create_backup, latest_version
 from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
 
 log = logging.getLogger(__name__)
 
-DATA_FORMAT_VERSION = 4
 MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 
@@ -126,7 +125,7 @@ class DamnitDB:
                     f"Cannot open older (v{data_format_version}) database, please contact DA "
                     "for help migrating"
                 )
-            elif data_format_version < DATA_FORMAT_VERSION:
+            elif data_format_version < latest_version():
                 self.upgrade_schema(data_format_version)
 
     @classmethod
@@ -148,11 +147,8 @@ class DamnitDB:
         self.metameta["data_format_version"] = int(version)
 
     def upgrade_schema(self, from_version):
-        log.info(
-            "Upgrading database format from v%d to v%d",
-            from_version,
-            DATA_FORMAT_VERSION,
-        )
+        to_version = latest_version()
+        log.info("Upgrading database format from v%d to v%d", from_version, to_version)
         # Make a quick backup for rollback if needed
         try:
             if self.path and Path(self.path).exists():
@@ -164,7 +160,7 @@ class DamnitDB:
         applied = apply_migrations(
             self.conn,
             from_version=from_version,
-            to_version=DATA_FORMAT_VERSION,
+            to_version=to_version,
             set_version=self._set_schema_version,
         )
         if applied:

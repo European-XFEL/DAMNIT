@@ -187,3 +187,8 @@ def apply_migrations(
             set_version(step.to_version)
         applied.append(step)
     return applied
+
+
+def latest_version() -> int:
+    """Return the highest schema version known to the application."""
+    return max((m.to_version for m in MIGRATIONS), default=0)
