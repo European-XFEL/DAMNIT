@@ -248,6 +248,6 @@ def test_min_openable_version_guard(tmp_path):
     with pytest.raises(RuntimeError):
         DamnitDB.from_dir(tmp_path)
 
-    # With allow_old=True, it should open and upgrade to latest
+    # With allow_old=True
     db = DamnitDB(Path(tmp_path, "runs.sqlite"), allow_old=True)
-    assert db.metameta["data_format_version"] == latest_version()
+    assert db.metameta["data_format_version"] == 0

@@ -154,16 +154,10 @@ MIGRATIONS: list[Migration] = [
 def create_backup(db_path: Path) -> Path:
     """
     Create a timestamped backup copy of the SQLite database file next to it.
-    Returns the backup path. Ensures uniqueness even within the same second.
+    Returns the backup path.
     """
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    for idx in range(1, 100):
-        suffix = f".bak.{ts}" if idx == 1 else f".bak.{ts}.{idx}"
-        backup_path = db_path.with_suffix(db_path.suffix + suffix)
-        if not backup_path.exists():
-            shutil.copy2(db_path, backup_path)
-            return backup_path
-    # Fallback overwrite (unlikely)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = db_path.with_suffix(db_path.suffix + f".bak.{ts}")
     shutil.copy2(db_path, backup_path)
     return backup_path
 

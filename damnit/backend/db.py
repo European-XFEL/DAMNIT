@@ -118,14 +118,14 @@ class DamnitDB:
         # Apply upgrades
         if data_format_version == -1:
             # New DB: create baseline then step to latest
-            self.upgrade_schema(data_format_version)
+            self.upgrade_schema(data_format_version, backup=False)
         else:
             if not allow_old and data_format_version < MIN_OPENABLE_VERSION:
                 raise RuntimeError(
                     f"Cannot open older (v{data_format_version}) database, please contact DA "
                     "for help migrating"
                 )
-            elif data_format_version < latest_version():
+            elif MIN_OPENABLE_VERSION <= data_format_version < latest_version():
                 self.upgrade_schema(data_format_version)
 
     @classmethod
@@ -146,12 +146,12 @@ class DamnitDB:
     def _set_schema_version(self, version: int):
         self.metameta["data_format_version"] = int(version)
 
-    def upgrade_schema(self, from_version):
+    def upgrade_schema(self, from_version, backup=True):
         to_version = latest_version()
         log.info("Upgrading database format from v%d to v%d", from_version, to_version)
         # Make a quick backup for rollback if needed
         try:
-            if self.path and Path(self.path).exists():
+            if backup and self.path and Path(self.path).exists():
                 create_backup(Path(self.path))
         except Exception:
             # Don't fail the migration just because backup failed
