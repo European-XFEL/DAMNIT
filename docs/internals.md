@@ -185,6 +185,8 @@ a proposal by default:
 The DAMNIT data format details the exact structure of the data in the database
 and HDF5 files.
 
+See also: docs/migrations.md for the pragmatic schema migration process.
+
 ### v4 (current)
 
 Adds a trigger to remove orphaned tags after their last reference is deleted

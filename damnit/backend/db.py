@@ -15,6 +15,7 @@ from textwrap import dedent
 from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
+from .db_migrations import apply_migrations, create_backup
 from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
@@ -187,50 +188,38 @@ class DamnitDB:
     def path(self):
         return self._path
 
+    def _set_schema_version(self, version: int):
+        self.conn.execute(
+            "UPDATE metameta SET value=? WHERE key='data_format_version'",
+            (version,),
+        )
+
     def upgrade_schema(self, from_version):
-        log.info("Upgrading database format from v%d to v%d",
-                 from_version, DATA_FORMAT_VERSION)
-        with self.conn:
-            if from_version < 2:
-                self.conn.execute("ALTER TABLE run_variables ADD COLUMN attributes")
-                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (2,))
-                self.conn.commit()
+        log.info(
+            "Upgrading database format from v%d to v%d",
+            from_version,
+            DATA_FORMAT_VERSION,
+        )
+        # Make a quick backup for rollback if needed
+        try:
+            if self.path and Path(self.path).exists():
+                create_backup(Path(self.path))
+        except Exception:
+            # Don't fail the migration just because backup failed
+            log.warning("Could not create DB backup before migration", exc_info=True)
 
-            if from_version < 3:
-                self.conn.executescript(dedent("""\
-                    -- Tags related tables
-                    CREATE TABLE IF NOT EXISTS tags(
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT UNIQUE NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS variable_tags(
-                        variable_name TEXT NOT NULL,
-                        tag_id INTEGER NOT NULL,
-                        FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
-                        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
-                        PRIMARY KEY (variable_name, tag_id)
-                    );"""))
-                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (3,))
-                self.conn.commit()
-
-            if from_version < 4:
-                self.conn.execute(dedent("""\
-                    -- Trigger to remove an orphaned tag after its last reference is deleted from variable_tags
-                    CREATE TRIGGER IF NOT EXISTS delete_orphan_tags_after_variable_tag_delete
-                    AFTER DELETE ON variable_tags
-                    FOR EACH ROW
-                    BEGIN
-                        -- Check if the tag_id from the deleted row (OLD.tag_id)
-                        -- no longer exists in any other row in variable_tags
-                        DELETE FROM tags
-                        WHERE id = OLD.tag_id
-                        AND NOT EXISTS (
-                            SELECT 1 FROM variable_tags
-                            WHERE tag_id = OLD.tag_id
-                        );
-                    END;"""))
-                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (4,))
-                self.conn.commit()
+        applied = apply_migrations(
+            self.conn,
+            from_version=from_version,
+            to_version=DATA_FORMAT_VERSION,
+            set_version=self._set_schema_version,
+        )
+        if applied:
+            log.info(
+                "Applied %d migration(s): %s",
+                len(applied),
+                ", ".join(f"→v{m.to_version}" for m in applied),
+            )
 
     def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
