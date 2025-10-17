@@ -1,6 +1,9 @@
 import pytest
 
 from damnit.backend.db import complex2blob, blob2complex, DamnitDB
+from damnit.backend.db_migrations import latest_version
+import sqlite3
+from pathlib import Path
 
 
 def test_metameta(mock_db):
@@ -177,3 +180,74 @@ def test_complex_blob_conversion(value):
     blob = complex2blob(value)
     result = blob2complex(blob)
     assert result == value
+
+
+def test_new_db_schema_is_latest(tmp_path):
+    db = DamnitDB.from_dir(tmp_path)
+
+    # Schema version should match the latest known migration
+    assert db.metameta["data_format_version"] == latest_version()
+
+    # run_variables should include the v2 column 'attributes'
+    cols = [row[1] for row in db.conn.execute("PRAGMA table_info('run_variables')").fetchall()]
+    assert "attributes" in cols
+
+    # v3 tables should exist
+    tables = {row[0] for row in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "tags" in tables and "variable_tags" in tables
+
+    # v4 trigger should exist
+    trig = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='trigger' AND name='delete_orphan_tags_after_variable_tag_delete'"
+    ).fetchone()
+    assert trig is not None
+
+
+def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
+    # Start with a fresh (latest) DB, then downgrade state to v2 (no tags tables, no trigger)
+    db = DamnitDB.from_dir(tmp_path)
+    with db.conn:
+        db.conn.execute("DROP TRIGGER IF EXISTS delete_orphan_tags_after_variable_tag_delete")
+        db.conn.execute("DROP TABLE IF EXISTS variable_tags")
+        db.conn.execute("DROP TABLE IF EXISTS tags")
+    db.metameta["data_format_version"] = 2
+    db.close()
+
+    # No backups yet
+    before = list(Path(tmp_path).glob("runs.sqlite.bak.*"))
+
+    # Reopen to trigger upgrade
+    db2 = DamnitDB.from_dir(tmp_path)
+
+    # Backup created
+    after = list(Path(tmp_path).glob("runs.sqlite.bak.*"))
+    assert len(after) == len(before) + 1
+
+    # Upgraded to latest
+    assert db2.metameta["data_format_version"] == latest_version()
+
+    # v3 tables and v4 trigger restored
+    tables = {row[0] for row in db2.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "tags" in tables and "variable_tags" in tables
+    trig = db2.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='trigger' AND name='delete_orphan_tags_after_variable_tag_delete'"
+    ).fetchone()
+    assert trig is not None
+
+
+def test_min_openable_version_guard(tmp_path):
+    # Create a legacy DB with version 0 (unsupported)
+    db_path = Path(tmp_path) / "runs.sqlite"
+    con = sqlite3.connect(db_path)
+    con.execute("CREATE TABLE metameta(key PRIMARY KEY NOT NULL, value)")
+    con.execute("INSERT INTO metameta VALUES('data_format_version', 0)")
+    con.commit()
+    con.close()
+
+    # By default, opening should raise
+    with pytest.raises(RuntimeError):
+        DamnitDB.from_dir(tmp_path)
+
+    # With allow_old=True, it should open and upgrade to latest
+    db = DamnitDB(Path(tmp_path, "runs.sqlite"), allow_old=True)
+    assert db.metameta["data_format_version"] == latest_version()
