@@ -14,7 +14,7 @@ from secrets import token_hex
 from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
-from .db_migrations import apply_migrations, create_backup, latest_version
+from .db_migrations import apply_migrations, latest_version
 from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
@@ -91,7 +91,7 @@ class DamnitDB:
         if not db_existed:
             # Note: we use from_version=-1 to indicate a new database as v0 is
             # used for the legacy schema.
-            self.upgrade_schema(from_version=-1, backup=False)
+            self.upgrade_schema(from_version=-1)
         
         data_format_version = int(self.metameta.get("data_format_version", 0))
 
@@ -134,16 +134,9 @@ class DamnitDB:
     def _set_schema_version(self, version: int):
         self.metameta["data_format_version"] = int(version)
 
-    def upgrade_schema(self, from_version, backup=True):
+    def upgrade_schema(self, from_version):
         to_version = latest_version()
         log.info("Upgrading database format from v%d to v%d", from_version, to_version)
-        # Make a quick backup for rollback if needed
-        try:
-            if backup and self.path and Path(self.path).exists():
-                create_backup(Path(self.path))
-        except Exception:
-            # Don't fail the migration just because backup failed
-            log.warning("Could not create DB backup before migration", exc_info=True)
 
         applied = apply_migrations(
             self.conn,

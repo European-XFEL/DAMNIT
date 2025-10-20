@@ -213,15 +213,8 @@ def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
     db.metameta["data_format_version"] = 2
     db.close()
 
-    # No backups yet
-    before = list(Path(tmp_path).glob("runs.sqlite.bak.*"))
-
     # Reopen to trigger upgrade
     db2 = DamnitDB.from_dir(tmp_path)
-
-    # Backup created
-    after = list(Path(tmp_path).glob("runs.sqlite.bak.*"))
-    assert len(after) == len(before) + 1
 
     # Upgraded to latest
     assert db2.metameta["data_format_version"] == latest_version()

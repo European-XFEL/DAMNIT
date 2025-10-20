@@ -149,17 +149,6 @@ MIGRATIONS: list[Migration] = [
 ]
 
 
-def create_backup(db_path: Path) -> Path:
-    """
-    Create a timestamped backup copy of the SQLite database file next to it.
-    Returns the backup path.
-    """
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = db_path.with_suffix(db_path.suffix + f".bak.{ts}")
-    shutil.copy2(db_path, backup_path)
-    return backup_path
-
-
 def pending_migrations(from_version: int, to_version: int) -> Iterable[Migration]:
     for m in MIGRATIONS:
         if from_version < m.to_version <= to_version:
