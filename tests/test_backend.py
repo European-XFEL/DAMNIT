@@ -8,19 +8,16 @@ import signal
 import stat
 import subprocess
 import textwrap
-from time import sleep, time
+from time import time
 from uuid import uuid4
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import extra_data as ed
 import h5py
 import numpy as np
 import plotly.express as px
 import pytest
-import requests
 import xarray as xr
-import yaml
 from PIL import Image
 from testpath import MockCommand
 
@@ -730,7 +727,8 @@ def test_add_to_db(mock_db):
         "string": "foo",
         "scalar": 42,
         "float": 31.7,
-        "image": b'\x89PNG\r\n\x1a\n...'  # Not a valid PNG, but good enough for this
+        "image": b'\x89PNG\r\n\x1a\n...',  # Not a valid PNG, but good enough for this
+        "nested.var": "Asdf",
     }
 
     reduced_objs = reduced_data_from_dict(reduced_data)
