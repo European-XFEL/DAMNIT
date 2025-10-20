@@ -99,8 +99,8 @@ class DamnitDB:
         if db_existed:
             if not allow_old and data_format_version < MIN_OPENABLE_VERSION:
                 raise RuntimeError(
-                    f"Cannot open older (v{data_format_version}) database, please contact DA "
-                    "for help migrating"
+                    f"Cannot open older (v{data_format_version}) database, please "
+                    "contact da-support@xfel.eu for help migrating"
                 )
             elif MIN_OPENABLE_VERSION <= data_format_version < latest_version():
                 self.upgrade_schema(data_format_version)
