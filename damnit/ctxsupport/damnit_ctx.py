@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields, is_dataclass, make_dataclass
 from enum import Enum
 from functools import wraps
 from keyword import iskeyword
-from typing import Callable, Generator
+from typing import Generator, Iterable
 
 import h5py
 import numpy as np
@@ -105,7 +105,7 @@ class Variable:
                 f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
             )
         if self.tags is not None:
-            if not isinstance(self.tags, Sequence) or not all(
+            if not isinstance(self.tags, Iterable) or not all(
                 isinstance(tag, str) and tag != "" for tag in self.tags
             ):
                 problems.append(
