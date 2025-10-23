@@ -2169,3 +2169,45 @@ def test_variable_group(mock_run, tmp_path, caplog):
     ctx = mkcontext(code_nodefault)
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
     assert results.cells["no_default.no_default_var"].data == 124
+
+    # test that a Group argument can be None
+    code_default_group_field = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class A:
+        @Variable
+        def var(self, run):
+            return 41
+
+    @Group
+    class B:
+        a: A = None
+
+        @Variable
+        def v1(self, run, a: 'self#a.var'):
+            return a + 1
+
+        @Variable
+        def v2(self, run, a: 'self#a.var' = 42):
+            return a + 1
+
+    a = A()
+    b1 = B(a=a)
+    b2 = B()  # a is None
+    """
+    ctx = mkcontext(code_default_group_field)
+
+    expected_vars = {
+        "a.var",
+        "b1.v1",
+        "b1.v2",
+        # b2.v1 is removed as it's group dependency is None
+        "b2.v2",  # group deps is None, but has a default argument
+    }
+    assert set(ctx.vars.keys()) == expected_vars
+
+    results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
+    assert results.cells["b1.v1"].data == 42
+    assert results.cells["b1.v2"].data == 42
+    assert results.cells["b2.v2"].data == 43

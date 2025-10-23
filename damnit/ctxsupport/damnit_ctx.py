@@ -267,16 +267,35 @@ class _GroupBase:
 
             # edit annotations to include the group prefix
             annotations = var.annotations().copy()
+            original_sig = inspect.signature(var.func)
+            skip_var = False
             for arg_name, annotation in annotations.items():
+                skip_resolution = False
                 if isinstance(annotation, str) and annotation.startswith('self#'):
                     dep_name = annotation.removeprefix('self#')
-                    attr_name, _, attr_parts = dep_name.partition('.')
+                    attr_name, _, _ = dep_name.partition('.')
 
                     if not hasattr(self, attr_name):
                         raise AttributeError(
                             f"Group instance {prefix!r} is missing attribute {attr_name!r} "
                             f"needed to resolve dependency {dep_name!r} of Variable {var.name!r}"
                         )
+
+                    if (field := next((f for f in fields(self) if is_group(f.type)), None)) is not None:
+                        if field.default is None and getattr(self, field.name) is None:
+                            # ref to other group missing
+                            param = original_sig.parameters.get(arg_name)
+                            has_default = (param is not None and param.default is not inspect._empty)
+                            print(f'{field.name=} {has_default=}')
+                            if has_default:
+                                # Keep variable but remove annotation such that
+                                # it doesn't fail finding dependency group
+                                annotations[arg_name] = inspect._empty
+                                skip_resolution = True
+                            else:
+                                # No default provided: skip this variable entirely
+                                skip_var = True
+                                break
 
                     def _resolve_name(scope, name):
                         attr, _, name = name.partition('.')
@@ -293,10 +312,13 @@ class _GroupBase:
                             f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}"
                         )
 
-                    annotations[arg_name] = f"var#{_resolve_name(self, dep_name)}"
+                    if not skip_resolution:
+                        annotations[arg_name] = f"var#{_resolve_name(self, dep_name)}"
+
+            if skip_var:
+                continue
 
             # Create new signature with the modified annotations
-            original_sig = inspect.signature(var.func)
             params = []
             for index, param in enumerate(original_sig.parameters.values()):
                 if index == 0 and param.name == 'self':
@@ -304,7 +326,7 @@ class _GroupBase:
                     continue
                 # Replace the parameter with the new annotation if it exists
                 if param.name in annotations:
-                    param = param.replace(annotation=annotations[param.name])                
+                    param = param.replace(annotation=annotations[param.name])
                 params.append(param)
 
             new_sig = original_sig.replace(parameters=params)
