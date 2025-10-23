@@ -8,7 +8,6 @@ possibly running in a different Python interpreter. It will run a context file
 import argparse
 import fnmatch
 import inspect
-import io
 import logging
 import os
 import pickle
@@ -16,7 +15,6 @@ import sys
 import time
 import traceback
 from datetime import timezone
-from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -29,20 +27,20 @@ import numpy as np
 import xarray as xr
 
 from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
+from damnit_writing import (
+    COMPRESSION_OPTS,
+    DataType,
+    figure2array,
+    figure2png,
+    generate_thumbnail,
+    is_png_data,
+    line_thumbnail,
+    plotly2png,
+)
 
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = 300 # px
-COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
-
-# More specific Python types beyond what HDF5/NetCDF4 know about, so we can
-# reconstruct Python objects when reading values back in.
-class DataType(Enum):
-    DataArray = "dataarray"
-    Dataset = "dataset"
-    Image = "image"
-    Timestamp = "timestamp"
-    PlotlyFigure = "PlotlyFigure"
 
 
 class ContextFileErrors(RuntimeError):
@@ -334,98 +332,6 @@ def get_start_time(xd_run):
     else:
         # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
         return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
-
-
-def figure2array(fig):
-    from matplotlib.backends.backend_agg import FigureCanvas
-
-    canvas = FigureCanvas(fig)
-    canvas.draw()
-    return np.asarray(canvas.buffer_rgba())
-
-
-class PNGData:
-    def __init__(self, data: bytes):
-        self.data = data
-
-
-def is_png_data(obj):
-    # insinstance(obj, PNGData) returns false if the PNGData object has been
-    # instantiated from the context file code, so we need to check the data
-    # attribute.
-    try:
-        return obj.data.startswith(b'\x89PNG\r\n\x1a\n')
-    except:
-        return False
-
-
-def figure2png(fig, dpi=None):
-    bio = io.BytesIO()
-    fig.savefig(bio, dpi=dpi, format='png')
-    return PNGData(bio.getvalue())
-
-
-def plotly2png(figure):
-    """Generate a png from a Plotly Figure
-
-    largest dimension set to THUMBNAIL_SIZE
-    """
-    from PIL import Image
-    png_data = figure.to_image(format='png')
-    # resize with PIL (scaling in plotly does not play well with text)
-    img = Image.open(io.BytesIO(png_data))
-    largest_dim = max(img.width, img.height)
-    width = int(img.width / largest_dim * THUMBNAIL_SIZE)
-    height = int(img.height / largest_dim * THUMBNAIL_SIZE)
-    img = img.resize((width, height), Image.Resampling.LANCZOS)
-    # convert to PNG
-    buff = io.BytesIO()
-    img.save(buff, format='PNG')
-    return PNGData(buff.getvalue())
-
-
-def generate_thumbnail(image):
-    from matplotlib.figure import Figure
-
-    # Create plot
-    fig = Figure(figsize=(1, 1))
-    ax = fig.add_subplot()
-    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-    vmin = np.nanquantile(image, 0.01)
-    vmax = np.nanquantile(image, 0.99)
-    if isinstance(image, np.ndarray):
-        ax.imshow(image, vmin=vmin, vmax=vmax)
-    else:
-        # Use DataArray's own plotting method
-        image.plot.imshow(ax=ax, vmin=vmin, vmax=vmax, add_colorbar=False)
-    ax.axis('tight')
-    ax.axis('off')
-    ax.margins(0, 0)
-
-    # The figure is 1 inch square, so setting the DPI to THUMBNAIL_SIZE will
-    # save a figure of size THUMBNAIL_SIZE x THUMBNAIL_SIZE.
-    return figure2png(fig, dpi=THUMBNAIL_SIZE)
-
-
-def line_thumbnail(arr):
-    from matplotlib.figure import Figure
-
-    # width = 3 * height; roughly fits table cells
-    fig = Figure(figsize=(2, 2/3))
-    ax = fig.add_subplot()
-    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-
-    if isinstance(arr, np.ndarray):
-        ax.plot(arr)
-    else:
-        # Use DataArray's own plotting method
-        arr.plot(ax=ax)
-
-    ax.axis('tight')
-    ax.axis('off')
-    ax.margins(0, 0)
-
-    return figure2png(fig, dpi=THUMBNAIL_SIZE)
 
 
 def extract_error_info(exc_type, e, tb):
