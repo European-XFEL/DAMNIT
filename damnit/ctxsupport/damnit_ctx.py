@@ -246,12 +246,13 @@ class _GroupBase:
 
     def _variables(self) -> Generator[Variable, None, None]:
         """Get all variables in this group"""
-        for attr_name in dir(self):
+        _class = type(self)
+        for attr_name in dir(_class):
             if attr_name.startswith('__'):
                 continue
 
             try:
-                attr = getattr(self, attr_name)
+                attr = getattr(_class, attr_name)
                 if isinstance(attr, Variable):
                     yield attr
             except AttributeError:
