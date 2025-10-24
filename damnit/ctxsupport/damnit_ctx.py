@@ -201,7 +201,7 @@ class Cell:
                     raise TypeError(
                         f"preview should be a 1D or 2D array (shape is {preview.shape})"
                     )
-                elif not np.issubdtype(preview.dtype, np.number):
+                elif not (np.issubdtype(preview.dtype, np.number) or preview.dtype == bool):
                     raise TypeError("preview array should be numeric")
             elif not (
                     isinstance_no_import(preview, 'matplotlib.figure', 'Figure') or

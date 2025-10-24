@@ -660,6 +660,10 @@ def test_results_preview(mock_run, tmp_path):
         fig, ax = plt.subplots()
         ax.plot(arr.mean())
         return Cell(arr, preview=fig)
+
+    @Variable
+    def var3(run):
+        return Cell('asdf', preview=np.ones(5, dtype=np.bool_))
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
@@ -670,6 +674,7 @@ def test_results_preview(mock_run, tmp_path):
         check_png(f['.reduced/var1'])  # Summary thumbnail made from preview
         check_rgba(f['.preview/var2'])
         check_png(f['.reduced/var2'])
+        assert f['.preview/var3'].dtype == bool
 
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000
