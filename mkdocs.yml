@@ -83,3 +83,6 @@ plugins:
 
 extra_css:
   - css/mkdocstrings.css
+
+extra_javascript:
+  - js/inject-header.js
