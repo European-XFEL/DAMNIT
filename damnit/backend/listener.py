@@ -213,7 +213,8 @@ class EventProcessor:
                 db.ensure_run(proposal, run, record.timestamp / 1000)
                 log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-                damnit_python = db.metameta["damnit_python"]
+                # Set the default to the stable DAMNIT module if not already set
+                damnit_python = db.metameta.setdefault("damnit_python", "/gpfs/exfel/sw/software/xfel_anaconda3/amore-mid/.pixi/envs/default/bin/python")
                 submitter = ExtractionSubmitter(db.path.parent, db)
                 req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
                 try:
