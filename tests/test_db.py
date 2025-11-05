@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from damnit.backend.db import complex2blob, blob2complex, DamnitDB
@@ -177,3 +179,14 @@ def test_complex_blob_conversion(value):
     blob = complex2blob(value)
     result = blob2complex(blob)
     assert result == value
+
+
+def test_open_readonly(tmp_path):
+    db = DamnitDB.from_dir(tmp_path)
+    # Delete a known recent addition to the schema that old databases will not have
+    del db.metameta["damnit_python"]
+    db.close()
+
+    os.chmod(tmp_path, 0o500)
+
+    assert "damnit_python" not in DamnitDB.from_dir(tmp_path).metameta
