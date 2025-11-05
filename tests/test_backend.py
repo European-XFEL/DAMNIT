@@ -870,7 +870,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
 
     pkg = "damnit.backend.extract_data"
 
-    with patch(f"{pkg}.KafkaProducer"), pytest.raises(ImportError):
+    with patch(f"{pkg}.KafkaProducer"), pytest.raises(RuntimeError, match="sfollow"):
         Extractor()
 
     # Set the context_python field in the database
