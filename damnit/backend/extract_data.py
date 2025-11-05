@@ -228,7 +228,7 @@ class RunExtractor(Extractor):
 
         args = []
         if self.sandbox_args is not None:
-            args.extend(shlex.split(sandbox_args))
+            args.extend(shlex.split(self.sandbox_args))
             args.append(str(self.proposal))
             args.append("--")
         args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),

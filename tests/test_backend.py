@@ -1079,7 +1079,9 @@ def test_listener(mock_sandbox_out_file, tmp_path, caplog, monkeypatch):
     def wait_and_count_jobs():
         wait_for_jobs()
         with mock_sandbox_out_file.open() as f:
-            return sum(1 for _ in f)
+            # each job invokes twice the sandbox:
+            # once to get the username and once to run the extractor
+            return sum(1 for _ in f) // 2
 
     kcon.assert_called_once()
     assert len(local_extraction_threads) == 0
