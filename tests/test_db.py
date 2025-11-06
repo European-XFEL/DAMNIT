@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from damnit.backend.db import complex2blob, blob2complex, DamnitDB
@@ -244,3 +246,14 @@ def test_min_openable_version_guard(tmp_path):
     # With allow_old=True
     db = DamnitDB(Path(tmp_path, "runs.sqlite"), allow_old=True)
     assert db.metameta["data_format_version"] == 0
+
+
+def test_open_readonly(tmp_path):
+    db = DamnitDB.from_dir(tmp_path)
+    # Delete a known recent addition to the schema that old databases will not have
+    del db.metameta["damnit_python"]
+    db.close()
+
+    os.chmod(tmp_path, 0o500)
+
+    assert "damnit_python" not in DamnitDB.from_dir(tmp_path).metameta

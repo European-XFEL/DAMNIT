@@ -112,9 +112,24 @@ class DamnitDB:
             self.metameta.setdefault('db_id', token_hex(20))
 
         self.metameta.setdefault("concurrent_jobs", 15)
-
         # Use the Python environment the database was created under by default
         self.metameta.setdefault("damnit_python", sys.executable)
+
+        if not db_existed:
+            # If this is a new database, set the latest current version
+            self.metameta["data_format_version"] = DATA_FORMAT_VERSION
+            # Use the Python environment the database was created under by default
+            self.metameta["damnit_python"] = sys.executable
+            self.metameta["concurrent_jobs"] = 15
+
+        if not allow_old:
+            if data_format_version < MIN_OPENABLE_VERSION:
+                raise RuntimeError(
+                    f"Cannot open older (v{data_format_version}) database, please contact DA "
+                    "for help migrating"
+                )
+            elif data_format_version < DATA_FORMAT_VERSION:
+                self.upgrade_schema(data_format_version)
 
     @classmethod
     def from_dir(cls, path):
