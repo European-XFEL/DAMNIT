@@ -1,18 +1,28 @@
 import io
+import json
 import os
+import socket
 from contextlib import contextmanager
 from enum import Enum
+from getpass import getuser
 from pathlib import Path
 from tempfile import mkstemp
 
 import h5py
 import numpy as np
+from kafka import KafkaProducer
 
 from damnit_ctx import Cell, isinstance_no_import
 
 OBJTYPE_ATTR = '_damnit_objtype'
 THUMBNAIL_SIZE = 300 # px
 COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
+KAFKA_TOPIC = "test.damnit.file_submissions"
+
+if "AMORE_BROKER" in os.environ:
+    UPDATE_BROKERS = [os.environ["AMORE_BROKER"]]
+else:
+    UPDATE_BROKERS = ['exflwgs06.desy.de:9091']
 
 
 def figure2array(fig):
@@ -156,6 +166,7 @@ def atomic_create_h5(dir, prefix):
         os.close(fd)
         final_path = tmp_path.removesuffix(".writing.h5") + ".ready.h5"
         with h5py.File(tmp_path, 'w') as f:
+            f.final_path = final_path
             yield f
 
         os.replace(tmp_path, final_path)
@@ -240,6 +251,23 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
         for name, (etype, msg) in errors.items():
             ds = f.create_dataset(f'.errors/{name}', data=msg)
             ds.attrs['type'] = etype
+
+    # Announce via Kafka that this file is ready to be combined
+    prod = KafkaProducer(
+        bootstrap_servers=UPDATE_BROKERS,
+        value_serializer=lambda d: json.dumps(d).encode('utf-8')
+    )
+    prod.send(KAFKA_TOPIC, {
+        'damnit_dir': damnit_dir,
+        'new_file': f.final_path,
+        'proposal': proposal,  # int
+        'run': run,  # int
+        'computed_by': {
+            'hostname': socket.gethostname(),
+            'username': getuser(),
+        }
+    })
+    prod.flush(timeout=10)
 
 
 if __name__ == '__main__':
