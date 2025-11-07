@@ -14,7 +14,7 @@ from secrets import token_hex
 from textwrap import dedent
 from typing import Any, Optional
 
-from ..definitions import UPDATE_TOPIC
+from ..definitions import UPDATE_TOPIC, DEFAULT_CONTEXT_PYTHON
 from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
@@ -624,7 +624,7 @@ def initialize_proposal(root_path, proposal=None, context_file_src=None, user_va
         # Initialize database
         db = DamnitDB.from_dir(root_path)
         db.metameta["proposal"] = proposal
-        db.metameta["context_python"] = "/gpfs/exfel/sw/software/euxfel-environment-management/environments/202502/.pixi/envs/default/bin/python"
+        db.metameta["context_python"] = DEFAULT_CONTEXT_PYTHON
     else:
         # Otherwise, load the proposal number
         db = DamnitDB.from_dir(root_path)

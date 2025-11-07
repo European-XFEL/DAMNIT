@@ -1,4 +1,5 @@
 import configparser
+import sys
 import graphlib
 import io
 import json
@@ -1091,6 +1092,9 @@ def test_listener(mock_sandbox_out_file, tmp_path, caplog, monkeypatch):
     proposal_dir.mkdir(parents=True)
     db_dir = proposal_dir / "usr/Shared/amore"
     initialize_proposal(db_dir, 1234)
+    # Ensure the extraction subprocess uses a Python executable available on CI
+    db = DamnitDB.from_dir(db_dir)
+    db.metameta["context_python"] = sys.executable
 
     # Reprocess a run. Because the listener is in static mode by default it
     # should not do anything.
@@ -1115,6 +1119,9 @@ def test_listener(mock_sandbox_out_file, tmp_path, caplog, monkeypatch):
     mock_sandbox_out_file.unlink()
     fake_db_dir = tmp_path / "fakedb"
     initialize_proposal(fake_db_dir, 1234)
+    # Ensure the extraction subprocess uses a Python executable available on CI
+    fake_db = DamnitDB.from_dir(fake_db_dir)
+    fake_db.metameta["context_python"] = sys.executable
     processor.db.add_proposal_db(1234, fake_db_dir, False)
     processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
     assert wait_and_count_jobs() == 2

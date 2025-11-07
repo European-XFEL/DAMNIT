@@ -13,6 +13,7 @@ from threading import Thread
 from kafka import KafkaConsumer
 
 from ..context import RunData
+from ..definitions import DEFAULT_DAMNIT_PYTHON
 from ..api import find_proposal
 from .db import DamnitDB, KeyValueMapping, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
@@ -217,7 +218,7 @@ class EventProcessor:
                 log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
                 # Set the default to the stable DAMNIT module if not already set
-                damnit_python = db.metameta.setdefault("damnit_python", "/gpfs/exfel/sw/software/xfel_anaconda3/amore-mid/.pixi/envs/default/bin/python")
+                damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
                 submitter = ExtractionSubmitter(db.path.parent, db)
                 req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
                 try:
