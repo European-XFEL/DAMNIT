@@ -66,10 +66,17 @@ def execute_direct(submitter, request):
         log.warning(f'Too many events processing ({MAX_CONCURRENT_THREADS}), '
                     f'skip event (p{request.proposal}, r{request.run}, {request.run_data.value})')
         return
+    
+    def _run():
+        try:
+            submitter.execute_direct(request)
+        except Exception:
+            log.error(f"Local extraction of p{request.proposal}, r{request.run} failed:", exc_info=True)
 
-    extr = Thread(target=submitter.execute_direct, args=(request, ))
+    extr = Thread(target=_run)
     local_extraction_threads.append(extr)
     extr.start()
+
 
 class ListenerDB:
     def __init__(self, db_dir):
