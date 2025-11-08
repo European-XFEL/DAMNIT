@@ -28,7 +28,7 @@ from testpath import MockCommand
 
 from damnit.backend import listener_is_running, initialize_proposal, start_listener
 from damnit.backend.db import DamnitDB
-from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data
+from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data, main as extract_data_main
 from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
@@ -1225,6 +1225,57 @@ def test_job_tracker():
 
     fake_squeue.assert_called()
     assert set(tracker.jobs) == set()
+
+
+def test_extract_data_sandbox(mock_db, tmp_path, monkeypatch):
+    """extract_data should invoke the sandbox for whoami and for exec payload.
+
+    We verify both invocations and that the wrapper forwards to the payload (so
+    processing completes) by creating a tiny sandbox script that logs and execs.
+    """
+    db_dir, db = mock_db
+    # Ensure context loads using an available interpreter
+    db.metameta["context_python"] = sys.executable
+    monkeypatch.chdir(db_dir)
+
+    # Create a logging + forwarding sandbox script
+    log_path = tmp_path / "sandbox_calls.log"
+    script_path = tmp_path / "sandbox.sh"
+    script_path.write_text("""\
+#! /usr/bin/env bash
+log="$1"; shift
+(
+  flock -x 200
+  echo "$@" >> "$log"
+) 200>"$log.lock"
+# Skip arguments until the separator then exec the payload
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+if [ "$1" = "--" ]; then shift; fi
+exec "$@"
+"""
+    )
+    script_path.chmod(0o755)
+
+    # Run extract_data.main with sandbox args
+    pkg = "damnit.backend.extract_data"
+    with patch(f"{pkg}.KafkaProducer"):
+        extract_data_main([
+            "1234", "1", "all",
+            "--mock",
+            "--sandbox-args", f"{script_path} {log_path}",
+        ])
+
+    # Check that sandbox was called twice: once for whoami, once for exec
+    lines = log_path.read_text().splitlines()
+    assert len(lines) >= 2
+    # First invocation should be the whoami probe
+    assert lines[0].endswith("whoami")
+    # Second invocation should run ctxrunner exec for the requested proposal/run
+    assert " ctxrunner " in lines[1]
+    assert " exec " in lines[1]
+    assert " 1234 " in lines[1]
+    assert " 1 " in lines[1]
+
 
 def test_transient_variables(mock_run, mock_db, tmp_path):
     db_dir, db = mock_db
