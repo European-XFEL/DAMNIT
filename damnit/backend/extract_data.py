@@ -56,15 +56,21 @@ class ContextFileUnpickler(pickle.Unpickler):
             return super().find_class(module, name)
 
 
-def get_context_file(ctx_path: Path, context_python=None):
+def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, sandbox_proposal=None):
     ctx_path = ctx_path.absolute()
     db_dir = ctx_path.parent
     context_python = context_python or sys.executable
 
     with TemporaryDirectory() as d:
         out_file = Path(d) / "context.pickle"
-        subprocess.run([context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)],
-                        cwd=db_dir, env=prepare_env(), check=True)
+        # Build command to evaluate the context in a sandbox if requested
+        cmd = [context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)]
+        if sandbox_args is not None:
+            # Wrap with sandbox: <sandbox> <proposal> -- <python> -m ctxrunner ctx ...
+            wrapper = shlex.split(sandbox_args)
+            proposal_arg = str(sandbox_proposal) if sandbox_proposal is not None else "0"
+            cmd = [*wrapper, proposal_arg, "--", *cmd]
+        subprocess.run(cmd, cwd=db_dir, env=prepare_env(), check=True)
 
         with out_file.open("rb") as f:
             unpickler = ContextFileUnpickler(f)
@@ -146,14 +152,19 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
 class Extractor:
     _proposal = None
 
-    def __init__(self):
+    def __init__(self, sandbox_args=None):
         self.db = DamnitDB()
         self.kafka_prd = KafkaProducer(
             bootstrap_servers=UPDATE_BROKERS,
             value_serializer=lambda d: pickle.dumps(d),
         )
         context_python = self.db.metameta.get("context_python")
-        self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
+        self.ctx_whole, error_info = get_context_file(
+            Path('context.py'),
+            context_python=context_python,
+            sandbox_args=sandbox_args,
+            sandbox_proposal=self.db.metameta.get('proposal')
+        )
         if error_info is not None:
             raise RuntimeError(f"Error loading context file:\n{error_info[0]}")
 
@@ -169,7 +180,7 @@ class Extractor:
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
                  match=(), variables=(), mock=False, uuid=None, sandbox_args=None):
-        super().__init__()
+        super().__init__(sandbox_args=sandbox_args)
         self.proposal = proposal
         self.run = run
         self.cluster = cluster

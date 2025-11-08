@@ -1148,7 +1148,7 @@ def test_listener_local(tmp_path, caplog, monkeypatch):
             state['peak'] = max(state['peak'], state['active'])
         try:
             jobs.append((req.proposal, req.run, req.run_data.value))
-            sleep(0.2)
+            sleep(1)
         finally:
             with lock:
                 state['active'] -= 1
@@ -1236,6 +1236,7 @@ def test_extract_data_sandbox(mock_db, tmp_path, monkeypatch):
     db_dir, db = mock_db
     # Ensure context loads using an available interpreter
     db.metameta["context_python"] = sys.executable
+    db.metameta["proposal"] = 1234
     monkeypatch.chdir(db_dir)
 
     # Create a logging + forwarding sandbox script
@@ -1265,16 +1266,20 @@ exec "$@"
             "--sandbox-args", f"{script_path} {log_path}",
         ])
 
-    # Check that sandbox was called twice: once for whoami, once for exec
+    # Check that sandbox was called for whoami, then ctx (context inspection), and exec
     lines = log_path.read_text().splitlines()
-    assert len(lines) >= 2
+    assert len(lines) >= 3
     # First invocation should be the whoami probe
     assert lines[0].endswith("whoami")
-    # Second invocation should run ctxrunner exec for the requested proposal/run
+    # Second invocation should run ctxrunner ctx for the requested proposal/run
     assert " ctxrunner " in lines[1]
-    assert " exec " in lines[1]
-    assert " 1234 " in lines[1]
-    assert " 1 " in lines[1]
+    assert " ctx " in lines[1]
+    assert "1234" in lines[1]
+    # Third invocation should run ctxrunner exec for the requested proposal/run
+    assert " ctxrunner " in lines[2]
+    assert " exec " in lines[2]
+    assert " 1234 " in lines[2]
+    assert " 1 " in lines[2]
 
 
 def test_transient_variables(mock_run, mock_db, tmp_path):
