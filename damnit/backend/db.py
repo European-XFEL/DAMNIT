@@ -11,61 +11,17 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from secrets import token_hex
-from textwrap import dedent
 from typing import Any, Optional
 
 from ..definitions import UPDATE_TOPIC
+from .db_migrations import apply_migrations, latest_version
 from .user_variables import UserEditableVariable
 
 DB_NAME = Path('runs.sqlite')
 
 log = logging.getLogger(__name__)
 
-V4_SCHEMA = """
-CREATE TABLE IF NOT EXISTS run_info(proposal, run, start_time, added_at);
-CREATE UNIQUE INDEX IF NOT EXISTS proposal_run ON run_info (proposal, run);
-
--- attributes column is new in v2
-CREATE TABLE IF NOT EXISTS run_variables(proposal, run, name, version, value, timestamp, max_diff, provenance, summary_type, summary_method, attributes);
-CREATE UNIQUE INDEX IF NOT EXISTS variable_version ON run_variables (proposal, run, name, version);
-
--- These are dummy views that will be overwritten later, but they should at least
--- exist on startup.
-CREATE VIEW IF NOT EXISTS runs      AS SELECT * FROM run_info;
-CREATE VIEW IF NOT EXISTS max_diffs AS SELECT proposal, run FROM run_info;
-
-CREATE TABLE IF NOT EXISTS metameta(key PRIMARY KEY NOT NULL, value);
-CREATE TABLE IF NOT EXISTS variables(name TEXT PRIMARY KEY NOT NULL, type TEXT, title TEXT, description TEXT, attributes TEXT);
-CREATE TABLE IF NOT EXISTS time_comments(timestamp, comment);
-
--- Tags related tables
-CREATE TABLE IF NOT EXISTS tags(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL
-);
-CREATE TABLE IF NOT EXISTS variable_tags(
-    variable_name TEXT NOT NULL,
-    tag_id INTEGER NOT NULL,
-    FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (variable_name, tag_id)
-);
-
--- Trigger to remove an orphaned tag after its last reference is deleted from variable_tags
-CREATE TRIGGER IF NOT EXISTS delete_orphan_tags_after_variable_tag_delete
-AFTER DELETE ON variable_tags
-FOR EACH ROW
-BEGIN
-    -- Check if the tag_id from the deleted row (OLD.tag_id)
-    -- no longer exists in any other row in variable_tags
-    DELETE FROM tags
-    WHERE id = OLD.tag_id
-    AND NOT EXISTS (
-        SELECT 1 FROM variable_tags
-        WHERE tag_id = OLD.tag_id
-    );
-END;
-"""
+MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 
 class SummaryType(Enum):
@@ -117,9 +73,6 @@ def blob2complex(data: bytes) -> complex:
 def db_path(root_path: Path):
     return root_path / DB_NAME
 
-DATA_FORMAT_VERSION = 4
-MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
-
 class DamnitDB:
     def __init__(self, path=DB_NAME, allow_old=False):
         self._path = path.absolute()
@@ -135,40 +88,31 @@ class DamnitDB:
 
         self.conn.row_factory = sqlite3.Row
         self.metameta = KeyValueMapping(self.conn, "metameta")
+        if not db_existed:
+            # Note: we use from_version=-1 to indicate a new database as v0 is
+            # used for the legacy schema.
+            self.upgrade_schema(from_version=-1)
+            # Use the Python environment the database was created under by default
+            self.metameta.setdefault("damnit_python", sys.executable)
+            self.metameta.setdefault("concurrent_jobs", 15)
+        
+        data_format_version = int(self.metameta.get("data_format_version", 0))
 
-        # Only execute the schema if we wouldn't overwrite a previous version
-        can_apply_schema = True
+        # apply migrations if needed
         if db_existed:
-            data_format_version = self.metameta.get("data_format_version", 0)
-            if data_format_version < DATA_FORMAT_VERSION:
-                can_apply_schema = False
-        else:
-            data_format_version = DATA_FORMAT_VERSION
-
-        if can_apply_schema:
-            self.conn.executescript(V4_SCHEMA)
+            if not allow_old and data_format_version < MIN_OPENABLE_VERSION:
+                raise RuntimeError(
+                    f"Cannot open older (v{data_format_version}) database, please "
+                    "contact da-support@xfel.eu for help migrating"
+                )
+            elif MIN_OPENABLE_VERSION <= data_format_version < latest_version():
+                self.upgrade_schema(data_format_version)
 
         # A random ID for the update topic
         if 'db_id' not in self.metameta:
             # The ID is not a secret and doesn't need to be cryptographically
             # secure, but the secrets module is convenient to get a random string.
             self.metameta.setdefault('db_id', token_hex(20))
-
-        if not db_existed:
-            # If this is a new database, set the latest current version
-            self.metameta["data_format_version"] = DATA_FORMAT_VERSION
-            # Use the Python environment the database was created under by default
-            self.metameta["damnit_python"] = sys.executable
-            self.metameta["concurrent_jobs"] = 15
-
-        if not allow_old:
-            if data_format_version < MIN_OPENABLE_VERSION:
-                raise RuntimeError(
-                    f"Cannot open older (v{data_format_version}) database, please contact DA "
-                    "for help migrating"
-                )
-            elif data_format_version < DATA_FORMAT_VERSION:
-                self.upgrade_schema(data_format_version)
 
     @classmethod
     def from_dir(cls, path):
@@ -185,50 +129,32 @@ class DamnitDB:
     def path(self):
         return self._path
 
-    def upgrade_schema(self, from_version):
-        log.info("Upgrading database format from v%d to v%d",
-                 from_version, DATA_FORMAT_VERSION)
-        with self.conn:
-            if from_version < 2:
-                self.conn.execute("ALTER TABLE run_variables ADD COLUMN attributes")
-                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (2,))
-                self.conn.commit()
+    def _set_schema_version(self, version: int):
+        self.metameta["data_format_version"] = version
 
-            if from_version < 3:
-                self.conn.executescript(dedent("""\
-                    -- Tags related tables
-                    CREATE TABLE IF NOT EXISTS tags(
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT UNIQUE NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS variable_tags(
-                        variable_name TEXT NOT NULL,
-                        tag_id INTEGER NOT NULL,
-                        FOREIGN KEY (variable_name) REFERENCES variables(name) ON DELETE CASCADE,
-                        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
-                        PRIMARY KEY (variable_name, tag_id)
-                    );"""))
-                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (3,))
-                self.conn.commit()
+    def upgrade_schema(self, from_version: int):
+        to_version = latest_version()
 
-            if from_version < 4:
-                self.conn.execute(dedent("""\
-                    -- Trigger to remove an orphaned tag after its last reference is deleted from variable_tags
-                    CREATE TRIGGER IF NOT EXISTS delete_orphan_tags_after_variable_tag_delete
-                    AFTER DELETE ON variable_tags
-                    FOR EACH ROW
-                    BEGIN
-                        -- Check if the tag_id from the deleted row (OLD.tag_id)
-                        -- no longer exists in any other row in variable_tags
-                        DELETE FROM tags
-                        WHERE id = OLD.tag_id
-                        AND NOT EXISTS (
-                            SELECT 1 FROM variable_tags
-                            WHERE tag_id = OLD.tag_id
-                        );
-                    END;"""))
-                self.conn.execute("UPDATE metameta SET value=? WHERE key='data_format_version'", (4,))
-                self.conn.commit()
+        if from_version == 0:
+            raise RuntimeError(
+                "Database is at legacy format v0, please contact da-support@xfel.eu for help migrating")
+        elif from_version < 0:
+            log.info("Creating new database at %s with format v%d", self._path, to_version)
+        else:
+            log.info("Upgrading database format from v%d to v%d", from_version, to_version)
+
+        applied = apply_migrations(
+            self.conn,
+            from_version=from_version,
+            to_version=to_version,
+            set_version=self._set_schema_version,
+        )
+        if applied:
+            log.info(
+                "Applied %d migration(s): %s",
+                len(applied),
+                ", ".join(f"→v{m.to_version}" for m in applied),
+            )
 
     def add_standalone_comment(self, ts: float, comment: str):
         """Add a comment not associated with a specific run, return its ID."""
