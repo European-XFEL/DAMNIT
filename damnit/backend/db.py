@@ -130,11 +130,18 @@ class DamnitDB:
         return self._path
 
     def _set_schema_version(self, version: int):
-        self.metameta["data_format_version"] = int(version)
+        self.metameta["data_format_version"] = version
 
-    def upgrade_schema(self, from_version):
+    def upgrade_schema(self, from_version: int):
         to_version = latest_version()
-        log.info("Upgrading database format from v%d to v%d", from_version, to_version)
+
+        if from_version == 0:
+            raise RuntimeError(
+                "Database is at legacy format v0, please contact da-support@xfel.eu for help migrating")
+        elif from_version < 0:
+            log.info("Creating new database at %s with format v%d", self._path, to_version)
+        else:
+            log.info("Upgrading database format from v%d to v%d", from_version, to_version)
 
         applied = apply_migrations(
             self.conn,
