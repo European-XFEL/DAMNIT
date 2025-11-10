@@ -185,7 +185,7 @@ a proposal by default:
 The DAMNIT data format details the exact structure of the data in the database
 and HDF5 files.
 
-### database schema update
+### Database schema updates
 
 The current schema version is stored in the `metameta` table under the key
 `data_format_version`. When opening an existing database, the code compares the
@@ -193,9 +193,8 @@ stored version with the app’s required version. If upgrades are needed, it
 applies each migration step in order, updating the version after each step.
 
 To add database changes:
-1. In `damnit/backend/db_migrations.py`, create a function that applies the
-   change and add a `Migration` entry with the next `to_version` and a short
-   description.
+1. In `damnit/backend/db_migrations.py`, make a call to `migration_step` to
+   register a new migration. See the other migrations in the file for reference.
 
 2. Add a short note to `docs/internals.md` to keep a brief changelog.
 
