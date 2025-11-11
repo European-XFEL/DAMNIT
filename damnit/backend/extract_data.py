@@ -68,8 +68,9 @@ def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, san
         if sandbox_args is not None:
             # Wrap with sandbox: <sandbox> <proposal> -- <python> -m ctxrunner ctx ...
             wrapper = shlex.split(sandbox_args)
-            proposal_arg = str(sandbox_proposal) if sandbox_proposal is not None else "0"
-            cmd = [*wrapper, proposal_arg, "--", *cmd]
+            if sandbox_proposal is None:
+                raise ValueError("sandbox_proposal must be provided when using sandbox")
+            cmd = [*wrapper, str(sandbox_proposal), "--", *cmd]
         subprocess.run(cmd, cwd=db_dir, env=prepare_env(), check=True)
 
         with out_file.open("rb") as f:
@@ -163,7 +164,7 @@ class Extractor:
             Path('context.py'),
             context_python=context_python,
             sandbox_args=sandbox_args,
-            sandbox_proposal=self.db.metameta.get('proposal')
+            sandbox_proposal=self.db.metameta['proposal']
         )
         if error_info is not None:
             raise RuntimeError(f"Error loading context file:\n{error_info[0]}")
