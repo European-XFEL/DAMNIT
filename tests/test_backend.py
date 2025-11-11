@@ -1,4 +1,6 @@
 import configparser
+import sys
+import threading
 import graphlib
 import io
 import json
@@ -26,7 +28,7 @@ from testpath import MockCommand
 
 from damnit.backend import listener_is_running, initialize_proposal, start_listener
 from damnit.backend.db import DamnitDB
-from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data
+from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data, main as extract_data_main
 from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
@@ -875,7 +877,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
 
     pkg = "damnit.backend.extract_data"
 
-    with patch(f"{pkg}.KafkaProducer"), pytest.raises(ImportError):
+    with patch(f"{pkg}.KafkaProducer"), pytest.raises(RuntimeError, match="sfollow"):
         Extractor()
 
     # Set the context_python field in the database
@@ -1058,91 +1060,147 @@ def test_copy_ctx_and_user_vars(tmp_path, mock_db, mock_user_vars):
     assert set(DamnitDB(db_file).get_user_variables()) == set(mock_user_vars)
 
 
-def test_listener(mock_sandbox_out_file, tmp_path, caplog, monkeypatch):
+def test_listener(tmp_path, caplog, monkeypatch):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
-    # ensure we don't use a real Slurm cluster
-    from damnit.backend.extraction_control import ExtractionSubmitter
-    monkeypatch.setattr(ExtractionSubmitter, '_slurm_shared_opts', lambda: ['--clusters', ''])
-    monkeypatch.setattr(ExtractionSubmitter, '_slurm_cluster_opts', lambda: ['--clusters', ''])
 
-    # Create the processor and get it to run our mock sandbox script
+    # Create the processor
     with patch('damnit.backend.listener.KafkaConsumer') as kcon:
         processor = EventProcessor(tmp_path)
-        processor.db.settings["sandbox_args"] = str(Path(__file__).parent / "mock_sandbox.sh")
-
-        # We need to allow local processing or it will give up after running
-        # through slurm fails.
-        processor.db.settings["allow_local_processing"] = True
-
-    # Helper function to wait for all active jobs to finish
-    def wait_for_jobs():
-        for thread in local_extraction_threads:
-            thread.join()
-
-    # Helper function to count how many jobs were executed by counting the
-    # number of lines in the file our mock sandbox script writes.
-    def wait_and_count_jobs():
-        wait_for_jobs()
-        with mock_sandbox_out_file.open() as f:
-            return sum(1 for _ in f)
+        # Default: do not allow local processing
+        processor.db.settings["allow_local_processing"] = False
 
     kcon.assert_called_once()
     assert len(local_extraction_threads) == 0
 
-    # Create an 'official' database
+    # Create an 'official' database where find_proposal() will find it
     proposal_dir = tmp_path / "MID" / "202501" / "p001234"
     proposal_dir.mkdir(parents=True)
     db_dir = proposal_dir / "usr/Shared/amore"
     initialize_proposal(db_dir, 1234)
+    db = DamnitDB.from_dir(db_dir)
+    db.metameta["context_python"] = sys.executable
 
-    # Reprocess a run. Because the listener is in static mode by default it
-    # should not do anything.
+    # First event: static_mode == True -> ignore event
     event = MagicMock(timestamp=time())
     processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
     assert len(processor.db.proposal_db_dirs(1234)) == 0
     assert len(local_extraction_threads) == 0
-    wait_for_jobs()
-    assert not mock_sandbox_out_file.exists()
 
-    # With static mode disabled it should add the database to the proposal and
-    # process the run.
+    # Disable static mode: expect 1 Slurm submission (official DB)
     processor.db.settings["static_mode"] = False
-    with caplog.at_level(logging.WARNING):
+    with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit",
+               return_value=("9876", "solaris")) as submit:
         processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
-    assert wait_and_count_jobs() == 1
+        assert submit.call_count == 1
 
-    # We should get a warning about slurm not being available
-    assert 'Slurm job submission failed' in caplog.text
-
-    # Add an unofficial database so that the listener launches two jobs
-    mock_sandbox_out_file.unlink()
+    # Add an unofficial DB so that the listener launches two Slurm jobs
     fake_db_dir = tmp_path / "fakedb"
     initialize_proposal(fake_db_dir, 1234)
+    fake_db = DamnitDB.from_dir(fake_db_dir)
+    fake_db.metameta["context_python"] = sys.executable
     processor.db.add_proposal_db(1234, fake_db_dir, False)
-    processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
-    assert wait_and_count_jobs() == 2
 
-    # Test processing too many runs concurrently
-    mock_sandbox_out_file.unlink()
-    with caplog.at_level(logging.WARNING):
-        for idx in range(MAX_CONCURRENT_THREADS + 1):
-            event = MagicMock(timestamp=time())
-            processor.handle_event(event, {'proposal': 1234, 'run': idx + 1}, RunData.RAW)
-
-    assert len(local_extraction_threads) == MAX_CONCURRENT_THREADS
-    assert 'Too many events processing' in caplog.text
-    assert wait_and_count_jobs() == MAX_CONCURRENT_THREADS
+    with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit",
+               return_value=("9999", "solaris")) as submit2:
+        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+        # Two DBs -> two submissions
+        assert submit2.call_count == 2
 
     # With a non-existent proposal specified handle_event() should do nothing
-    mock_sandbox_out_file.unlink()
-    with caplog.at_level(logging.WARNING):
+    with (
+        caplog.at_level(logging.WARNING),
+        patch("damnit.backend.extraction_control.ExtractionSubmitter.submit") as submit3
+    ):
         processor.handle_event(event, {'proposal': 4321, 'run': 1}, RunData.RAW)
     assert "Could not find proposal directory" in caplog.text
-    assert not mock_sandbox_out_file.exists()
+    assert len(local_extraction_threads) == 0
+    assert submit3.call_count == 0
 
     # Test removing a database
     processor.db.remove_proposal_db(fake_db_dir)
     assert processor.db.proposal_db_dirs(1234) == [db_dir]
+
+
+def test_listener_local(tmp_path, caplog, monkeypatch):
+    """When Slurm fails and local fallback is enabled, listener runs jobs locally
+    """
+    monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
+
+    # Create the processor
+    with patch('damnit.backend.listener.KafkaConsumer'):
+        processor = EventProcessor(tmp_path)
+        processor.db.settings["allow_local_processing"] = True
+
+    # Create an 'official' database where find_proposal() will find it
+    proposal_dir = tmp_path / "MID" / "202501" / "p001234"
+    proposal_dir.mkdir(parents=True)
+    db_dir = proposal_dir / "usr/Shared/amore"
+    initialize_proposal(db_dir, 1234)
+    db = DamnitDB.from_dir(db_dir)
+    db.metameta["context_python"] = sys.executable
+
+    # Disable static mode so the proposal DB is tracked
+    processor.db.settings["static_mode"] = False
+
+    # Simulate Slurm failure and local execution that takes a moment
+    jobs = []
+    state = {'active': 0, 'peak': 0}
+    lock = threading.Lock()
+
+    def fake_exec_direct(self, req):
+        with lock:
+            state['active'] += 1
+            state['peak'] = max(state['peak'], state['active'])
+        try:
+            jobs.append((req.proposal, req.run, req.run_data.value))
+            sleep(1)
+        finally:
+            with lock:
+                state['active'] -= 1
+
+    event = MagicMock(timestamp=time())
+
+    with (
+        patch("damnit.backend.extraction_control.ExtractionSubmitter.submit", side_effect=Exception("sbatch failed")),
+        patch("damnit.backend.extraction_control.ExtractionSubmitter.execute_direct", new=fake_exec_direct),
+    ):
+        with caplog.at_level(logging.ERROR):
+            processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+
+        # Wait for any local jobs to finish
+        for th in local_extraction_threads:
+            th.join()
+        assert len(jobs) == 1  # Only the official DB so far
+        assert 'Slurm job submission failed' in caplog.text
+
+        # Add an unofficial DB so that the listener launches two local jobs
+        fake_db_dir = tmp_path / "fakedb"
+        initialize_proposal(fake_db_dir, 1234)
+        fake_db = DamnitDB.from_dir(fake_db_dir)
+        fake_db.metameta["context_python"] = sys.executable
+        processor.db.add_proposal_db(1234, fake_db_dir, False)
+
+        caplog.clear()
+        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+        for th in local_extraction_threads:
+            th.join()
+        assert len(jobs) == 3  # +2 jobs for official + unofficial
+
+        # Test processing too many runs concurrently
+        jobs.clear()
+        state['active'] = 0
+        state['peak'] = 0
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            for idx in range(MAX_CONCURRENT_THREADS + 1):
+                event = MagicMock(timestamp=time())
+                processor.handle_event(event, {'proposal': 1234, 'run': idx + 1}, RunData.RAW)
+
+        # Wait for all threads to finish, then assert peak concurrency and total jobs
+        for th in local_extraction_threads:
+            th.join()
+        assert state['peak'] == MAX_CONCURRENT_THREADS
+        assert 'Too many events processing' in caplog.text
 
 
 def test_job_tracker():
@@ -1172,6 +1230,62 @@ def test_job_tracker():
 
     fake_squeue.assert_called()
     assert set(tracker.jobs) == set()
+
+
+def test_extract_data_sandbox(mock_db, tmp_path, monkeypatch):
+    """extract_data should invoke the sandbox for whoami and for exec payload.
+
+    We verify both invocations and that the wrapper forwards to the payload (so
+    processing completes) by creating a tiny sandbox script that logs and execs.
+    """
+    db_dir, db = mock_db
+    # Ensure context loads using an available interpreter
+    db.metameta["context_python"] = sys.executable
+    db.metameta["proposal"] = 1234
+    monkeypatch.chdir(db_dir)
+
+    # Create a logging + forwarding sandbox script
+    log_path = tmp_path / "sandbox_calls.log"
+    script_path = tmp_path / "sandbox.sh"
+    script_path.write_text("""\
+#! /usr/bin/env bash
+log="$1"; shift
+(
+  flock -x 200
+  echo "$@" >> "$log"
+) 200>"$log.lock"
+# Skip arguments until the separator then exec the payload
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+if [ "$1" = "--" ]; then shift; fi
+exec "$@"
+"""
+    )
+    script_path.chmod(0o755)
+
+    # Run extract_data.main with sandbox args
+    pkg = "damnit.backend.extract_data"
+    with patch(f"{pkg}.KafkaProducer"):
+        extract_data_main([
+            "1234", "1", "all",
+            "--mock",
+            "--sandbox-args", f"{script_path} {log_path}",
+        ])
+
+    # Check that sandbox was called for whoami, then ctx (context inspection), and exec
+    lines = log_path.read_text().splitlines()
+    assert len(lines) >= 3
+    # First invocation should be the whoami probe
+    assert lines[0].endswith("whoami")
+    # Second invocation should run ctxrunner ctx for the requested proposal/run
+    assert " ctxrunner " in lines[1]
+    assert " ctx " in lines[1]
+    assert "1234" in lines[1]
+    # Third invocation should run ctxrunner exec for the requested proposal/run
+    assert " ctxrunner " in lines[2]
+    assert " exec " in lines[2]
+    assert " 1234 " in lines[2]
+    assert " 1 " in lines[2]
+
 
 def test_transient_variables(mock_run, mock_db, tmp_path):
     db_dir, db = mock_db

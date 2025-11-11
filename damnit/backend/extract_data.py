@@ -55,28 +55,30 @@ class ContextFileUnpickler(pickle.Unpickler):
         else:
             return super().find_class(module, name)
 
-def get_context_file(ctx_path: Path, context_python=None):
+
+def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, sandbox_proposal=None):
     ctx_path = ctx_path.absolute()
     db_dir = ctx_path.parent
+    context_python = context_python or sys.executable
 
-    if context_python is None:
-        db = DamnitDB.from_dir(ctx_path.parent)
-        with db.conn:
-            ctx = ContextFile.from_py_file(ctx_path)
+    with TemporaryDirectory() as d:
+        out_file = Path(d) / "context.pickle"
+        # Build command to evaluate the context in a sandbox if requested
+        cmd = [context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)]
+        if sandbox_args is not None:
+            # Wrap with sandbox: <sandbox> <proposal> -- <python> -m ctxrunner ctx ...
+            wrapper = shlex.split(sandbox_args)
+            if sandbox_proposal is None:
+                raise ValueError("sandbox_proposal must be provided when using sandbox")
+            cmd = [*wrapper, str(sandbox_proposal), "--", *cmd]
+        subprocess.run(cmd, cwd=db_dir, env=prepare_env(), check=True)
 
-        db.close()
-        return ctx, None
-    else:
-        with TemporaryDirectory() as d:
-            out_file = Path(d) / "context.pickle"
-            subprocess.run([context_python, "-m", "ctxrunner", "ctx", str(ctx_path), str(out_file)],
-                            cwd=db_dir, env=prepare_env(), check=True)
+        with out_file.open("rb") as f:
+            unpickler = ContextFileUnpickler(f)
+            ctx, error_info = unpickler.load()
 
-            with out_file.open("rb") as f:
-                unpickler = ContextFileUnpickler(f)
-                ctx, error_info = unpickler.load()
+            return ctx, error_info
 
-                return ctx, error_info
 
 def load_reduced_data(h5_path):
     def get_dset_value(ds):
@@ -151,15 +153,21 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
 class Extractor:
     _proposal = None
 
-    def __init__(self):
+    def __init__(self, sandbox_args=None):
         self.db = DamnitDB()
         self.kafka_prd = KafkaProducer(
             bootstrap_servers=UPDATE_BROKERS,
             value_serializer=lambda d: pickle.dumps(d),
         )
         context_python = self.db.metameta.get("context_python")
-        self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
-        assert error_info is None, error_info
+        self.ctx_whole, error_info = get_context_file(
+            Path('context.py'),
+            context_python=context_python,
+            sandbox_args=sandbox_args,
+            sandbox_proposal=self.db.metameta['proposal']
+        )
+        if error_info is not None:
+            raise RuntimeError(f"Error loading context file:\n{error_info[0]}")
 
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
@@ -173,7 +181,7 @@ class Extractor:
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
                  match=(), variables=(), mock=False, uuid=None, sandbox_args=None):
-        super().__init__()
+        super().__init__(sandbox_args=sandbox_args)
         self.proposal = proposal
         self.run = run
         self.cluster = cluster
@@ -232,7 +240,7 @@ class RunExtractor(Extractor):
 
         args = []
         if self.sandbox_args is not None:
-            args.extend(shlex.split(sandbox_args))
+            args.extend(shlex.split(self.sandbox_args))
             args.append(str(self.proposal))
             args.append("--")
         args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
