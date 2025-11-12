@@ -4,21 +4,28 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import inspect
 import logging
 import re
 import sys
 from collections.abc import Sequence
+from copy import copy
+from dataclasses import dataclass, field, fields, is_dataclass, make_dataclass
 from enum import Enum
+from functools import wraps
+from keyword import iskeyword
+from typing import Generator, Iterable
 
 import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["RunData", "Variable", "Cell"]
+__all__ = ["Cell", "Group", "is_group", "is_group_instance", "RunData", "Variable"]
 
 log = logging.getLogger(__name__)
 
 
+GROUP_MARKER_ATTR = "__damnit_group__"
 THUMBNAIL_SIZE = 300 # px
 
 
@@ -29,6 +36,26 @@ def isinstance_no_import(obj, mod: str, cls: str):
         return False
 
     return isinstance(obj, getattr(m, cls))
+
+
+def is_valid_variable_name(name: str) -> bool:
+    """Check if the name is a valid Variable name."""
+    # must be a string
+    if not isinstance(name, str):
+        return False
+
+    for part in name.split('.'):
+        # must be a non-empty string
+        if not part:
+            return False
+        # prevent using a Python keyword
+        if iskeyword(part):
+            return False
+        # must be a valid Python identifier
+        if not part.isidentifier():
+            return False
+
+    return True
 
 
 class RunData(Enum):
@@ -69,16 +96,16 @@ class Variable:
 
     def check(self):
         problems = []
-        if not self.name.isidentifier():
+        if not is_valid_variable_name(self.name):
             problems.append(
-                f"The variable name {self.name!r} is not a valid Python identifier"
+                f"The name {self.name!r} is not a valid Variable name."
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(
                 f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
             )
         if self.tags is not None:
-            if not isinstance(self.tags, Sequence) or not all(
+            if not isinstance(self.tags, Iterable) or not all(
                 isinstance(tag, str) and tag != "" for tag in self.tags
             ):
                 problems.append(
@@ -100,9 +127,11 @@ class Variable:
         Get all direct dependencies of this Variable with a certain
         type/prefix. Returns a dict of argument name to variable name.
         """
-        return { arg_name: annotation.removeprefix(prefix)
-                 for arg_name, annotation in self.annotations().items()
-                 if annotation.startswith(prefix) }
+        return {
+            arg_name: annotation.removeprefix(prefix)
+            for arg_name, annotation in self.annotations().items()
+            if isinstance(annotation, str) and annotation.startswith(prefix)
+        }
 
     def annotations(self):
         """
@@ -127,6 +156,239 @@ class Variable:
                 cell.summary = self.summary
 
         return cell
+
+    def copy(self):
+        return copy(self)
+
+
+def is_group(obj) -> bool:
+    """Return True if obj is a Group class or an instance of a Group class."""
+    cls = obj if isinstance(obj, type) else type(obj)
+    return hasattr(cls, GROUP_MARKER_ATTR)
+
+
+def is_group_instance(obj) -> bool:
+    """Return True if obj is an instance of a Group class.
+    """
+    return hasattr(type(obj), GROUP_MARKER_ATTR)
+
+
+class Group:
+    """A class decorator that transforms a class into a Group.
+
+    Transforms a class into a Group 'dataclass'. Allow for creating reusable,
+    configurable, and nestable sets of related Variables.
+
+    - `@Group` for default behavior.
+    - `@Group(title='...', ...)` to provide parameters.
+
+    Args:
+        title (str, optional): The title of the group.
+        tags (list[str], optional): A list of tags to associate with the group.
+        sep (str, optional): Separator to use between group title and variable title.
+    """
+    def __new__(cls, decorated_cls: type = None, **kwargs) -> type:
+        def wrapper(wrapped_cls: type) -> type:
+            return _new_group(wrapped_cls, kwargs)
+
+        return wrapper if decorated_cls is None else wrapper(decorated_cls)
+
+
+@dataclass
+class _GroupBase:
+    prefix: str | None = field(default=None, kw_only=True, init=False)
+    title: str | None = field(default=None, kw_only=True)
+    tags: tuple[str] | None = field(default=None, kw_only=True)
+    sep: str = field(default='/', kw_only=True)
+
+    def __post_init__(self):
+        """Post-initialization to ensure tags are always a tuple."""
+        if isinstance(self.tags, str):
+            self.tags = (self.tags,)
+
+    def _merge_tags(self, original_tags):
+        """Merge original tags with group tags"""
+        if self.tags is None:
+            return original_tags
+        if original_tags is None:
+            return self.tags
+        return set(self.tags) | set(original_tags)
+
+    def _init_group_variable(self, prefix, original_var: Variable) -> Variable:
+        """Create a new Variable instance for this group"""
+        new_var = original_var.copy()
+
+        new_var.name = f'{prefix}.{new_var.name}'
+        new_var.title = f"{self.title or prefix}{self.sep}{new_var.title}"
+        new_var.tags = self._merge_tags(new_var.tags)
+
+        return new_var
+
+    def _create_wrapper_function(self, var, annotations, signature):
+        """Create a wrapper function that provides group context"""
+        func = var.func
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            args_in_func = inspect.signature(func).parameters
+
+            # Call the original function with group context
+            if next(iter(args_in_func)) == 'self':
+                return func(self, *args, **kwargs)
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = var.name
+        wrapper.__annotations__ = annotations
+        wrapper.__signature__ = signature
+        wrapper.__doc__ = func.__doc__
+
+        return wrapper
+
+    def _variables(self) -> Generator[Variable, None, None]:
+        """Get all variables in this group"""
+        _class = type(self)
+        for attr_name in dir(_class):
+            if attr_name.startswith('__'):
+                continue
+
+            try:
+                attr = getattr(_class, attr_name)
+                if isinstance(attr, Variable):
+                    yield attr
+            except AttributeError:
+                continue
+
+    def variables(self, prefix: str) -> dict[str, Variable]:
+        """Get all variables in this group"""
+        self.prefix = prefix
+
+        _vars = {}
+        for original_var in self._variables():
+            var = self._init_group_variable(prefix, original_var)
+
+            # edit annotations to include the group prefix
+            annotations = var.annotations().copy()
+            original_sig = inspect.signature(var.func)
+            skip_var = False
+            for arg_name, annotation in annotations.items():
+                skip_resolution = False
+                if isinstance(annotation, str) and annotation.startswith('self#'):
+                    dep_name = annotation.removeprefix('self#')
+                    attr_name, _, _ = dep_name.partition('.')
+
+                    if not hasattr(self, attr_name):
+                        raise AttributeError(
+                            f"Group instance {prefix!r} is missing attribute {attr_name!r} "
+                            f"needed to resolve dependency {dep_name!r} of Variable {var.name!r}"
+                        )
+
+                    if (field := next((f for f in fields(self) if is_group(f.type)), None)) is not None:
+                        if field.default is None and getattr(self, field.name) is None:
+                            # ref to other group missing
+                            param = original_sig.parameters.get(arg_name)
+                            has_default = (param is not None and param.default is not inspect._empty)
+                            print(f'{field.name=} {has_default=}')
+                            if has_default:
+                                # Keep variable but remove annotation such that
+                                # it doesn't fail finding dependency group
+                                annotations[arg_name] = inspect._empty
+                                skip_resolution = True
+                            else:
+                                # No default provided: skip this variable entirely
+                                skip_var = True
+                                break
+
+                    def _resolve_name(scope, name):
+                        attr, _, name = name.partition('.')
+
+                        attr = getattr(scope, attr)
+                        if is_group_instance(attr) and name:
+                            if '.' in name:
+                                return _resolve_name(attr, name)
+                            return f'{attr.prefix}.{name}'
+                        elif isinstance(attr, Variable):
+                            return f'{scope.prefix}.{attr.name}'
+
+                        raise KeyError(
+                            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}"
+                        )
+
+                    if not skip_resolution:
+                        annotations[arg_name] = f"var#{_resolve_name(self, dep_name)}"
+
+            if skip_var:
+                continue
+
+            # Create new signature with the modified annotations
+            params = []
+            for index, param in enumerate(original_sig.parameters.values()):
+                if index == 0 and param.name == 'self':
+                    # Skip the 'self' parameter for instance methods
+                    continue
+                # Replace the parameter with the new annotation if it exists
+                if param.name in annotations:
+                    param = param.replace(annotation=annotations[param.name])
+                params.append(param)
+
+            new_sig = original_sig.replace(parameters=params)
+
+            # wrap the original function with the new signature and instance kwargs
+            var.func = self._create_wrapper_function(
+                var, annotations=annotations, signature=new_sig)
+
+            _vars[var.name] = var
+
+        return _vars
+
+
+GROUP_FIELD_NAMES = {f.name for f in fields(_GroupBase)}
+
+
+def _new_group(cls: type, decorator_kwargs: dict) -> type:
+    """Transform a class into a Group-based dataclass."""
+    if invalid_args := set(decorator_kwargs.keys()).difference(GROUP_FIELD_NAMES):
+        raise TypeError(f"Invalid Group arguments: {invalid_args}")
+
+    cls_annotations = cls.__dict__.get('__annotations__', {})
+
+    if is_group(cls):
+        # Subclass of another Group class
+        parent_fields = {
+            f.name
+            for base in cls.__mro__[1:] if is_dataclass(base)
+            for f in fields(base)
+        }
+        if redefined := parent_fields.intersection(cls_annotations):
+            raise TypeError(f"Parent fields redefined with new annotations: {redefined}")
+
+        dataclass_cls = dataclass(cls)
+    else:
+        # New Group class, not subclassing another Group
+        if redefined := GROUP_FIELD_NAMES.intersection(cls_annotations):
+            raise TypeError(f"Group fields {redefined} redefined in class {cls.__name__!r}")
+
+        attrs = {k: v for k, v in cls.__dict__.items() if k not in ('__dict__', '__weakref__')}
+        new_cls = type(cls.__name__, (cls, _GroupBase), attrs)
+        dataclass_cls = dataclass(new_cls)
+
+    setattr(dataclass_cls, GROUP_MARKER_ATTR, True)
+
+    if not decorator_kwargs:
+        return dataclass_cls
+
+    original_init = dataclass_cls.__init__
+    init_sig = inspect.signature(original_init)
+
+    # Allow the _GroupBase parameters to be given defaults by the decorator
+    @wraps(original_init)
+    def new_init(self, *args, **kwargs):
+        bound_args = init_sig.bind_partial(self, *args, **kwargs)
+        user_provided_args = bound_args.arguments
+        user_provided_args.pop('self', None)
+        original_init(self, **(decorator_kwargs | user_provided_args))
+
+    dataclass_cls.__init__ = new_init
+    return dataclass_cls
 
 
 class _DummyCell:
