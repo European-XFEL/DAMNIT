@@ -187,6 +187,8 @@ class Group:
         tags (list[str], optional): A list of tags to associate with the group.
         sep (str, optional): Separator to use between group title and variable title.
     """
+    _REGISTRY: dict[str, 'Group'] = {}
+
     def __new__(cls, decorated_cls: type = None, **kwargs) -> type:
         def wrapper(wrapped_cls: type) -> type:
             return _new_group(wrapped_cls, kwargs)
@@ -196,7 +198,7 @@ class Group:
 
 @dataclass
 class _GroupBase:
-    prefix: str | None = field(default=None, kw_only=True, init=False)
+    name: str | None = field(default=None, kw_only=True)
     title: str | None = field(default=None, kw_only=True)
     tags: tuple[str] | None = field(default=None, kw_only=True)
     sep: str = field(default='/', kw_only=True)
@@ -206,6 +208,22 @@ class _GroupBase:
         if isinstance(self.tags, str):
             self.tags = (self.tags,)
 
+        # register group instance
+        if self.name is None:
+            self.name = self.__class__.__name__
+            if self.name in Group._REGISTRY:
+                raise KeyError(f'Group name already exists: {self.name}')
+            Group._REGISTRY[self.name] = self
+
+        if self.title is None:
+            self.title = self.name
+
+        # Modify variables with group context
+        self._morph_vars()
+
+    def __hash__(self):
+        return hash(self.name)
+
     def _merge_tags(self, original_tags):
         """Merge original tags with group tags"""
         if self.tags is None:
@@ -214,12 +232,12 @@ class _GroupBase:
             return self.tags
         return set(self.tags) | set(original_tags)
 
-    def _init_group_variable(self, prefix, original_var: Variable) -> Variable:
+    def _init_group_variable(self, original_var: Variable) -> Variable:
         """Create a new Variable instance for this group"""
         new_var = original_var.copy()
 
-        new_var.name = f'{prefix}.{new_var.name}'
-        new_var.title = f"{self.title or prefix}{self.sep}{new_var.title}"
+        new_var.name = f"{self.name}.{new_var.name}"
+        new_var.title = f"{self.title}{self.sep}{new_var.title}"
         new_var.tags = self._merge_tags(new_var.tags)
 
         return new_var
@@ -246,26 +264,27 @@ class _GroupBase:
 
     def _variables(self) -> Generator[Variable, None, None]:
         """Get all variables in this group"""
-        _class = type(self)
-        for attr_name in dir(_class):
+        for attr_name in dir(self):
             if attr_name.startswith('__'):
                 continue
 
             try:
-                attr = getattr(_class, attr_name)
+                # doesn't resolve descriptors and avoid listing Variables linked
+                # as a field.
+                attr = getattr(type(self), attr_name)
+
                 if isinstance(attr, Variable):
-                    yield attr
+                    yield attr_name, getattr(self, attr_name)
             except AttributeError:
                 continue
 
-    def variables(self, prefix: str) -> dict[str, Variable]:
+    def _morph_vars(self) -> None:
         """Get all variables in this group"""
-        self.prefix = prefix
+        for og_var_name, original_var in self._variables():
+            var = self._init_group_variable(original_var)
+            setattr(self, og_var_name, var)
 
-        _vars = {}
-        for original_var in self._variables():
-            var = self._init_group_variable(prefix, original_var)
-
+        for _, var in self.variables().items():
             # edit annotations to include the group prefix
             annotations = var.annotations().copy()
             original_sig = inspect.signature(var.func)
@@ -278,36 +297,44 @@ class _GroupBase:
 
                     if not hasattr(self, attr_name):
                         raise AttributeError(
-                            f"Group instance {prefix!r} is missing attribute {attr_name!r} "
+                            f"Group instance {self.name!r} is missing attribute {attr_name!r} "
                             f"needed to resolve dependency {dep_name!r} of Variable {var.name!r}"
                         )
 
-                    if (field := next((f for f in fields(self) if is_group(f.type)), None)) is not None:
-                        if field.default is None and getattr(self, field.name) is None:
-                            # ref to other group missing
-                            param = original_sig.parameters.get(arg_name)
-                            has_default = (param is not None and param.default is not inspect._empty)
-                            print(f'{field.name=} {has_default=}')
-                            if has_default:
-                                # Keep variable but remove annotation such that
-                                # it doesn't fail finding dependency group
-                                annotations[arg_name] = inspect._empty
-                                skip_resolution = True
-                            else:
-                                # No default provided: skip this variable entirely
-                                skip_var = True
-                                break
+                    # If this is a reference into a nested Group
+                    # (self#<field>.*), and that Group field is None on this
+                    # instance, we either drop the variable (no default) or keep
+                    # it using the parameter default by clearing the annotation.
+                    # Find the matching dataclass field by name
+                    field = next(
+                        (
+                            f for f in fields(self)
+                            if f.name == attr_name and (is_group(f.type) or f.type is Variable)
+                        ),
+                        None
+                    )
+                    if field.default is None and getattr(self, field.name) is None:
+                        # reference to other Group/Variable is missing
+                        param = original_sig.parameters.get(arg_name)
+                        has_default = (param is not None and param.default is not inspect._empty)
+                        if has_default:
+                            # Keep variable but remove annotation such that it
+                            # doesn't fail finding dependency group
+                            annotations[arg_name] = inspect._empty
+                            skip_resolution = True
+                        else:
+                            # No default provided: skip this variable entirely
+                            skip_var = True
+                            break
 
-                    def _resolve_name(scope, name):
-                        attr, _, name = name.partition('.')
+                    def _resolve_name(group, name):
+                        attr_name, _, name = name.partition('.')
 
-                        attr = getattr(scope, attr)
+                        attr = getattr(group, attr_name)
                         if is_group_instance(attr) and name:
-                            if '.' in name:
-                                return _resolve_name(attr, name)
-                            return f'{attr.prefix}.{name}'
+                            return _resolve_name(attr, name)
                         elif isinstance(attr, Variable):
-                            return f'{scope.prefix}.{attr.name}'
+                            return attr.name
 
                         raise KeyError(
                             f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}"
@@ -336,9 +363,8 @@ class _GroupBase:
             var.func = self._create_wrapper_function(
                 var, annotations=annotations, signature=new_sig)
 
-            _vars[var.name] = var
-
-        return _vars
+    def variables(self):
+        return {v.name: v for _, v in self._variables()}
 
 
 GROUP_FIELD_NAMES = {f.name for f in fields(_GroupBase)}

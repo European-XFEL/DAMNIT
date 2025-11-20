@@ -170,7 +170,7 @@ class ContextFile:
             if isinstance(value, Variable):
                 vars[value.name] = value
             if is_group_instance(value):
-                vars |= value.variables(prefix=key)
+                vars |= value.variables()
 
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)

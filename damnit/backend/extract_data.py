@@ -161,7 +161,8 @@ class Extractor:
         )
         context_python = self.db.metameta.get("context_python")
         self.ctx_whole, error_info = get_context_file(Path('context.py'), context_python=context_python)
-        assert error_info is None, error_info
+        if error_info is not None:
+            raise RuntimeError(f"Failed to load context file:\n{error_info[0]}")
 
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
