@@ -1392,8 +1392,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return self.test_value + offset + self._some_value()
 
     # Instantiate the group
-    my_group = TestGroup(title="My Test Group", calibration_factor=1.5, test_value=5, tags="test_group")
-    your_group = TestGroup(2.0, 10)
+    my_group = TestGroup(name='my_group', title="My Test Group", calibration_factor=1.5, test_value=5, tags="test_group")
+    your_group = TestGroup(2.0, 10, name='your_group')
     """
     ctx = mkcontext(code)
 
@@ -1451,10 +1451,10 @@ def test_variable_group(mock_run, tmp_path, caplog):
     # Check that an error was logged for bad_var
     assert caplog.records[0].levelname == "ERROR"
 
-    assert "error_group.good_var" not in results_err.cells
-    assert "error_group.good_var" not in results_err.errors
+    assert "ErrorGroup.good_var" not in results_err.cells
+    assert "ErrorGroup.good_var" not in results_err.errors
     # The error itself should be recorded
-    assert "error_group.bad_var" in results_err.errors
+    assert "ErrorGroup.bad_var" in results_err.errors
 
     code = """
     from damnit_ctx import Variable, Group
@@ -1482,8 +1482,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
             # This variable has an intra-group dependency
             return s1_data * 2 + base + self.offset
 
-    proc_b = ProcessingGroup(title="Processor B", offset=-3)
-    proc_a = ProcessingGroup(title="Processor A")
+    proc_b = ProcessingGroup(name='proc_b', title="Processor B", offset=-3)
+    proc_a = ProcessingGroup(name='proc_a', title="Processor A")
 
     # A variable that depends on outputs from both group instances
     @Variable(title="A vs B")
@@ -1558,12 +1558,12 @@ def test_variable_group(mock_run, tmp_path, caplog):
     from damnit_ctx import Variable, Group
 
     @Group
-    class BadRootGroup:
+    class BadRootGroupLocal:
         @Variable()
         def step1(self, run, base: "self#missing_local"):
             return 1
 
-    bad_group = BadRootGroup(title="Bad Group")
+    bad_group = BadRootGroupLocal(title="Bad Group")
     """
     with pytest.raises(AttributeError, match="missing_local"):
         mkcontext(bad_root_code)
@@ -1595,15 +1595,15 @@ def test_variable_group(mock_run, tmp_path, caplog):
     child_group2 = ChildGroup2(title="Child Group 2")
     """
     ctx = mkcontext(code)
-    assert set(ctx.vars) == {"base_group.step1", "child_group2.step1", "child_group.step1", "child_group.step2"}
+    assert set(ctx.vars) == {"BaseGroup.step1", "ChildGroup2.step1", "ChildGroup.step1", "ChildGroup.step2"}
 
-    assert ctx.vars["base_group.step1"].tags is None
-    assert set(ctx.vars["child_group.step1"].tags) == {"Child", "other tag"}
-    assert set(ctx.vars["child_group.step2"].tags) == {"Child", "other tag"}
+    assert ctx.vars["BaseGroup.step1"].tags is None
+    assert set(ctx.vars["ChildGroup.step1"].tags) == {"Child", "other tag"}
+    assert set(ctx.vars["ChildGroup.step2"].tags) == {"Child", "other tag"}
 
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
-    assert results.cells["child_group.step2"].data == 4
-    assert results.cells["child_group2.step1"].data == 'overridden step1'
+    assert results.cells["ChildGroup.step2"].data == 4
+    assert results.cells["ChildGroup2.step1"].data == 'overridden step1'
 
     # Test Group references in dependencies
     code = """
@@ -1655,13 +1655,13 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def deep_nested_access(run, data: "self#diagnostics.det.image"):
             return data.mean()
 
-    xgm_upstream = XGMGroup(title="XGM", factor=1.5)
-    agipd4m = AGIPD4M(title="Detector", tags="detector")
+    xgm_upstream = XGMGroup(name="xgm_upstream", title="XGM", factor=1.5)
+    agipd4m = AGIPD4M(name="agipd4m", title="Detector", tags="detector")
 
-    diag = InstrumentDiagnostics(xgm=xgm_upstream, det=agipd4m)
+    diag = InstrumentDiagnostics(name="diag", xgm=xgm_upstream, det=agipd4m)
 
     # Instantiate the top-level group
-    exp1 = Experiment(title="My Experiment", diagnostics=diag)
+    exp1 = Experiment(name="exp1", title="My Experiment", diagnostics=diag)
 
     @Variable()
     def nested_var_access(run, data: "var#agipd4m.image"):
@@ -1762,13 +1762,13 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def dd_var2(self, run, data: 'self#dd_var'):
             return data + 2
 
-    a = A()
-    aa = A(title='AA', tags='AA')
-    b = B()
-    c = C()
-    d = D()
-    dd = DD()
-    dd2 = DD(title='DD2', tags='DD2')
+    a = A(name='a')
+    aa = A(name='aa', title='AA', tags='AA')
+    b = B(name='b')
+    c = C(name='c')
+    d = D(name='d')
+    dd = DD(name='dd')
+    dd2 = DD(name='dd2', title='DD2', tags='DD2')
     """
     ctx = mkcontext(code_group_settings)
 
@@ -1896,6 +1896,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return self.field10 + self.field9
 
     fields_group = FieldsGroup(
+        name='fields_group',
         title="Fields Group",
         field1=10,
         field2="test",
@@ -1906,8 +1907,8 @@ def test_variable_group(mock_run, tmp_path, caplog):
         field7=(4, 5),
         field8={6, 7}
     )
-    child_group = ChildGroup()
-    child_group2 = ChildGroup2(title="Child Group 2", tags=['c2'], field1=0)
+    child_group = ChildGroup(name='child_group')
+    child_group2 = ChildGroup2(name='child_group2', title="Child Group 2", tags=['c2'], field1=0)
     """
     ctx = mkcontext(code_fields)    
     # Check that all fields are correctly initialized and variables are created
@@ -1954,9 +1955,14 @@ def test_variable_group(mock_run, tmp_path, caplog):
     @Group
     class DerivedGroup(BaseGroup):
         field1: int = 20  # Redefine field1
+
+    base = BaseGroup(name='base')
+    derived = DerivedGroup(name='derived')
+
+    assert base.field1 == 10
+    assert derived.field1 == 20
     """
-    with pytest.raises(TypeError, match="field1"):
-        ctx = mkcontext(redefined_field_code)
+    ctx = mkcontext(redefined_field_code)
     
     code_tags = """
     from damnit_ctx import Variable, Group
@@ -1988,18 +1994,18 @@ def test_variable_group(mock_run, tmp_path, caplog):
     class F(A):
         pass
 
-    a = A()
-    b = B()
-    c = C()
-    d = D()
-    e = E()
-    f = F()
-    aa = A(title='A Group', tags=['group_a'])
-    bb = B(title='B Group', tags=['group_b'])
-    cc = C(title='C Group', tags=['group_c'])
-    dd = D(title='D Group', tags=['group_d'])
-    ee = E(title='E Group', tags=['group_e'])
-    ff = F(title='F', tags=['group_f'])
+    a = A(name='a')
+    b = B(name='b')
+    c = C(name='c')
+    d = D(name='d')
+    e = E(name='e')
+    f = F(name='f')
+    aa = A(name='aa', title='A Group', tags=['group_a'])
+    bb = B(name='bb', title='B Group', tags=['group_b'])
+    cc = C(name='cc', title='C Group', tags=['group_c'])
+    dd = D(name='dd', title='D Group', tags=['group_d'])
+    ee = E(name='ee', title='E Group', tags=['group_e'])
+    ff = F(name='ff', title='F', tags=['group_f'])
     """
     ctx = mkcontext(code_tags)
 
@@ -2041,7 +2047,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def step1(self, run):
             return 1
 
-    my_group = CustomSepGroup()
+    my_group = CustomSepGroup(name='my_group')
     """
     ctx = mkcontext(code_custom_sep)
     assert ctx.vars["my_group.step1"].title == "My Analysis -> Step 1"
@@ -2100,12 +2106,12 @@ def test_variable_group(mock_run, tmp_path, caplog):
             return data + 1
 
     # Define two separate, shared instances
-    shared1 = SharedComponent(base_value=100)
-    shared2 = SharedComponent(base_value=200)
+    shared1 = SharedComponent(name='shared1', base_value=100)
+    shared2 = SharedComponent(name='shared2', base_value=200)
 
     # Link two different groups to the two different shared instances
-    linker_a = LinkingGroup(source=shared1)
-    linker_b = LinkingGroup(source=shared2)
+    linker_a = LinkingGroup(name='linker_a', source=shared1)
+    linker_b = LinkingGroup(name='linker_b', source=shared2)
     """
     ctx = mkcontext(code_linking)
 
@@ -2132,7 +2138,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     assert results.cells["linker_b.processed_value"].data == 201
 
 
-    # test KeyError is raised if the linking attribute is missing
+    # test Group variables are dropped if optional dependency is missing
     code_linking_missing = """
     from damnit_ctx import Variable, Group
 
@@ -2144,11 +2150,15 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def processed_value(self, run, data: "self#source.some_var"):
             return 1
 
+        @Variable
+        def another_processed_value(self, run):
+            return 'the answer'
+
     # Instantiate the group WITHOUT providing the required 'source'
     linker_a = LinkingGroup()
     """
-    with pytest.raises(KeyError, match="source"):
-        mkcontext(code_linking_missing)
+    ctx = mkcontext(code_linking_missing)
+    assert set(ctx.vars.keys()) == {'LinkingGroup.another_processed_value'}
 
 
     # test fields with no default argument
@@ -2168,7 +2178,7 @@ def test_variable_group(mock_run, tmp_path, caplog):
     """
     ctx = mkcontext(code_nodefault)
     results = run_ctx_helper(ctx, mock_run, 1000, 1234, caplog)
-    assert results.cells["no_default.no_default_var"].data == 124
+    assert results.cells["NoDefaultGroup.no_default_var"].data == 124
 
     # test that a Group argument can be None
     code_default_group_field = """
@@ -2192,9 +2202,9 @@ def test_variable_group(mock_run, tmp_path, caplog):
         def v2(self, run, a: 'self#a.var' = 42):
             return a + 1
 
-    a = A()
-    b1 = B(a=a)
-    b2 = B()  # a is None
+    a = A(name='a')
+    b1 = B(name='b1', a=a)
+    b2 = B(name='b2')  # a is None
     """
     ctx = mkcontext(code_default_group_field)
 

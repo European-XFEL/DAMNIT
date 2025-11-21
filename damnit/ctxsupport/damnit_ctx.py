@@ -10,11 +10,12 @@ import re
 import sys
 from collections.abc import Sequence
 from copy import copy
-from dataclasses import dataclass, field, fields, is_dataclass, make_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from functools import wraps
 from keyword import iskeyword
 from typing import Generator, Iterable
+from weakref import WeakValueDictionary
 
 import h5py
 import numpy as np
@@ -187,7 +188,7 @@ class Group:
         tags (list[str], optional): A list of tags to associate with the group.
         sep (str, optional): Separator to use between group title and variable title.
     """
-    _REGISTRY: dict[str, 'Group'] = {}
+    # _REGISTRY: WeakValueDictionary[str, 'Group'] = WeakValueDictionary()
 
     def __new__(cls, decorated_cls: type = None, **kwargs) -> type:
         def wrapper(wrapped_cls: type) -> type:
@@ -211,9 +212,9 @@ class _GroupBase:
         # register group instance
         if self.name is None:
             self.name = self.__class__.__name__
-            if self.name in Group._REGISTRY:
-                raise KeyError(f'Group name already exists: {self.name}')
-            Group._REGISTRY[self.name] = self
+            # if self.name in Group._REGISTRY:
+            #     raise KeyError(f'Group name already exists: {self.name}')
+            # Group._REGISTRY[self.name] = self
 
         if self.title is None:
             self.title = self.name
@@ -264,31 +265,59 @@ class _GroupBase:
 
     def _variables(self) -> Generator[Variable, None, None]:
         """Get all variables in this group"""
-        for attr_name in dir(self):
-            if attr_name.startswith('__'):
-                continue
-
-            try:
-                # doesn't resolve descriptors and avoid listing Variables linked
-                # as a field.
-                attr = getattr(type(self), attr_name)
-
-                if isinstance(attr, Variable):
-                    yield attr_name, getattr(self, attr_name)
-            except AttributeError:
-                continue
+        for name in dir(type(self)):
+            attr = getattr(type(self), name)
+            if isinstance(attr, Variable):
+                yield name, attr
 
     def _morph_vars(self) -> None:
         """Get all variables in this group"""
+
+        # first we replace the Class defined Variable with instance ones,
+        # updating name, title and tags.
         for og_var_name, original_var in self._variables():
             var = self._init_group_variable(original_var)
             setattr(self, og_var_name, var)
 
-        for _, var in self.variables().items():
+        # then we remove Variables fow which optional field dependency is None
+        for var_name, var in self._variables():
+            annotations = var.annotations()
+            signature = inspect.signature(var.func)
+
+            for arg_name, annotation in annotations.items():
+                if not isinstance(annotation, str):
+                    continue
+                if not annotation.startswith('self#'):
+                    continue
+
+                dep_path = annotation.removeprefix('self#')
+                dep_attr, _, _ = dep_path.partition('.')
+
+                if not hasattr(self, dep_attr):
+                    raise AttributeError(
+                        f"Group instance {self.name!r} is missing attribute {dep_path!r} "
+                        f"needed to resolve dependency {dep_attr!r} of Variable {var.name!r}"
+                    )
+                
+                if dep_attr in self.__dict__:
+                    attr = self.__dict__[dep_attr]
+                    if attr is not None:
+                        continue
+
+                    # reference to other Group/Variable is missing
+                    param = signature.parameters.get(arg_name)
+                    has_default = (param is not None and param.default is not inspect._empty)
+
+                    if not has_default:
+                        del self.__dict__[var_name]
+                        break
+                
+
+        # finally we wrap the Varaible's func and update annotations
+        for var_name, var in self.variables().items():
             # edit annotations to include the group prefix
             annotations = var.annotations().copy()
             original_sig = inspect.signature(var.func)
-            skip_var = False
             for arg_name, annotation in annotations.items():
                 skip_resolution = False
                 if isinstance(annotation, str) and annotation.startswith('self#'):
@@ -313,7 +342,7 @@ class _GroupBase:
                         ),
                         None
                     )
-                    if field.default is None and getattr(self, field.name) is None:
+                    if field is not None and field.default is None and getattr(self, field.name) is None:
                         # reference to other Group/Variable is missing
                         param = original_sig.parameters.get(arg_name)
                         has_default = (param is not None and param.default is not inspect._empty)
@@ -322,10 +351,6 @@ class _GroupBase:
                             # doesn't fail finding dependency group
                             annotations[arg_name] = inspect._empty
                             skip_resolution = True
-                        else:
-                            # No default provided: skip this variable entirely
-                            skip_var = True
-                            break
 
                     def _resolve_name(group, name):
                         attr_name, _, name = name.partition('.')
@@ -337,14 +362,11 @@ class _GroupBase:
                             return attr.name
 
                         raise KeyError(
-                            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}"
+                            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}, group={self.name}"
                         )
 
                     if not skip_resolution:
                         annotations[arg_name] = f"var#{_resolve_name(self, dep_name)}"
-
-            if skip_var:
-                continue
 
             # Create new signature with the modified annotations
             params = []
@@ -364,7 +386,7 @@ class _GroupBase:
                 var, annotations=annotations, signature=new_sig)
 
     def variables(self):
-        return {v.name: v for _, v in self._variables()}
+        return {v.name: v for v in self.__dict__.values() if isinstance(v, Variable)}
 
 
 GROUP_FIELD_NAMES = {f.name for f in fields(_GroupBase)}
@@ -379,14 +401,6 @@ def _new_group(cls: type, decorator_kwargs: dict) -> type:
 
     if is_group(cls):
         # Subclass of another Group class
-        parent_fields = {
-            f.name
-            for base in cls.__mro__[1:] if is_dataclass(base)
-            for f in fields(base)
-        }
-        if redefined := parent_fields.intersection(cls_annotations):
-            raise TypeError(f"Parent fields redefined with new annotations: {redefined}")
-
         dataclass_cls = dataclass(cls)
     else:
         # New Group class, not subclassing another Group
