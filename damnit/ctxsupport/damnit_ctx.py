@@ -273,117 +273,131 @@ class _GroupBase:
     def _morph_vars(self) -> None:
         """Get all variables in this group"""
 
-        # first we replace the Class defined Variable with instance ones,
-        # updating name, title and tags.
+        self._instantiate_group_variables()
+        self._remove_variables_with_missing_dependencies()
+        self._wrap_variable_functions()
+
+    def _instantiate_group_variables(self):
+        """Replace class-level Variables with instance-scoped copies."""
         for og_var_name, original_var in self._variables():
             var = self._init_group_variable(original_var)
             setattr(self, og_var_name, var)
 
-        # then we remove Variables fow which optional field dependency is None
+    def _remove_variables_with_missing_dependencies(self):
+        """Drop Variables that reference optional fields that are unset."""
         for var_name, var in self._variables():
-            annotations = var.annotations()
-            signature = inspect.signature(var.func)
+            if self._variable_requires_missing_dependency(var):
+                del self.__dict__[var_name]
 
-            for arg_name, annotation in annotations.items():
-                if not isinstance(annotation, str):
-                    continue
-                if not annotation.startswith('self#'):
-                    continue
+    def _variable_requires_missing_dependency(self, var: Variable) -> bool:
+        annotations = var.annotations()
+        signature = inspect.signature(var.func)
 
-                dep_path = annotation.removeprefix('self#')
-                dep_attr, _, _ = dep_path.partition('.')
+        for arg_name, annotation in annotations.items():
+            if not self._is_self_reference(annotation):
+                continue
 
-                if not hasattr(self, dep_attr):
-                    raise AttributeError(
-                        f"Group instance {self.name!r} is missing attribute {dep_path!r} "
-                        f"needed to resolve dependency {dep_attr!r} of Variable {var.name!r}"
-                    )
-                
-                if dep_attr in self.__dict__:
-                    attr = self.__dict__[dep_attr]
-                    if attr is not None:
-                        continue
+            dep_path = annotation.removeprefix('self#')
+            dep_attr, _, _ = dep_path.partition('.')
+            self._ensure_group_attribute(dep_attr, dep_path, dep_attr, var)
 
-                    # reference to other Group/Variable is missing
-                    param = signature.parameters.get(arg_name)
-                    has_default = (param is not None and param.default is not inspect._empty)
+            if dep_attr not in self.__dict__:
+                continue
 
-                    if not has_default:
-                        del self.__dict__[var_name]
-                        break
-                
+            attr = self.__dict__[dep_attr]
+            if attr is not None:
+                continue
 
-        # finally we wrap the Varaible's func and update annotations
-        for var_name, var in self.variables().items():
-            # edit annotations to include the group prefix
+            if not self._parameter_has_default(signature, arg_name):
+                return True
+
+        return False
+
+    def _wrap_variable_functions(self):
+        """Wrap Variable callables with group-aware signatures/annotations."""
+        for _, var in self.variables().items():
             annotations = var.annotations().copy()
             original_sig = inspect.signature(var.func)
+
             for arg_name, annotation in annotations.items():
-                skip_resolution = False
-                if isinstance(annotation, str) and annotation.startswith('self#'):
-                    dep_name = annotation.removeprefix('self#')
-                    attr_name, _, _ = dep_name.partition('.')
-
-                    if not hasattr(self, attr_name):
-                        raise AttributeError(
-                            f"Group instance {self.name!r} is missing attribute {attr_name!r} "
-                            f"needed to resolve dependency {dep_name!r} of Variable {var.name!r}"
-                        )
-
-                    # If this is a reference into a nested Group
-                    # (self#<field>.*), and that Group field is None on this
-                    # instance, we either drop the variable (no default) or keep
-                    # it using the parameter default by clearing the annotation.
-                    # Find the matching dataclass field by name
-                    field = next(
-                        (
-                            f for f in fields(self)
-                            if f.name == attr_name and (is_group(f.type) or f.type is Variable)
-                        ),
-                        None
-                    )
-                    if field is not None and field.default is None and getattr(self, field.name) is None:
-                        # reference to other Group/Variable is missing
-                        param = original_sig.parameters.get(arg_name)
-                        has_default = (param is not None and param.default is not inspect._empty)
-                        if has_default:
-                            # Keep variable but remove annotation such that it
-                            # doesn't fail finding dependency group
-                            annotations[arg_name] = inspect._empty
-                            skip_resolution = True
-
-                    def _resolve_name(group, name):
-                        attr_name, _, name = name.partition('.')
-
-                        attr = getattr(group, attr_name)
-                        if is_group_instance(attr) and name:
-                            return _resolve_name(attr, name)
-                        elif isinstance(attr, Variable):
-                            return attr.name
-
-                        raise KeyError(
-                            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}, group={self.name}"
-                        )
-
-                    if not skip_resolution:
-                        annotations[arg_name] = f"var#{_resolve_name(self, dep_name)}"
-
-            # Create new signature with the modified annotations
-            params = []
-            for index, param in enumerate(original_sig.parameters.values()):
-                if index == 0 and param.name == 'self':
-                    # Skip the 'self' parameter for instance methods
+                if not self._is_self_reference(annotation):
                     continue
-                # Replace the parameter with the new annotation if it exists
-                if param.name in annotations:
-                    param = param.replace(annotation=annotations[param.name])
-                params.append(param)
 
-            new_sig = original_sig.replace(parameters=params)
+                dep_name = annotation.removeprefix('self#')
+                attr_name, _, _ = dep_name.partition('.')
+                self._ensure_group_attribute(attr_name, attr_name, dep_name, var)
 
-            # wrap the original function with the new signature and instance kwargs
-            var.func = self._create_wrapper_function(
-                var, annotations=annotations, signature=new_sig)
+                field = self._matching_group_field(attr_name)
+                if self._should_skip_dependency_resolution(field, arg_name, original_sig):
+                    annotations[arg_name] = inspect._empty
+                    continue
+
+                resolved_name = self._resolve_dependency_name(self, dep_name, var)
+                annotations[arg_name] = f"var#{resolved_name}"
+
+            new_sig = self._signature_without_self(original_sig, annotations)
+            var.func = self._create_wrapper_function(var, annotations, new_sig)
+
+    def _matching_group_field(self, attr_name):
+        return next(
+            (
+                f for f in fields(self)
+                if f.name == attr_name and (is_group(f.type) or f.type is Variable)
+            ),
+            None
+        )
+
+    @staticmethod
+    def _is_self_reference(annotation) -> bool:
+        return isinstance(annotation, str) and annotation.startswith('self#')
+
+    def _ensure_group_attribute(self, attr_name, missing_attr_label, dependency_label, var):
+        if not hasattr(self, attr_name):
+            raise AttributeError(
+                f"Group instance {self.name!r} is missing attribute {missing_attr_label!r} "
+                f"needed to resolve dependency {dependency_label!r} of Variable {var.name!r}"
+            )
+
+    def _should_skip_dependency_resolution(self, field, arg_name, original_sig):
+        if field is None or field.default is not None:
+            return False
+
+        if getattr(self, field.name) is not None:
+            return False
+
+        return self._parameter_has_default(original_sig, arg_name)
+
+    @staticmethod
+    def _parameter_has_default(signature, arg_name):
+        param = signature.parameters.get(arg_name)
+        return param is not None and param.default is not inspect._empty
+
+    def _resolve_dependency_name(self, group, dep_name, var):
+        attr_name, _, remainder = dep_name.partition('.')
+        attr = getattr(group, attr_name)
+
+        if is_group_instance(attr) and remainder:
+            return self._resolve_dependency_name(attr, remainder, var)
+
+        if isinstance(attr, Variable):
+            return attr.name
+
+        raise KeyError(
+            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}, group={self.name}"
+        )
+
+    def _signature_without_self(self, original_sig, annotations):
+        params = []
+        for index, param in enumerate(original_sig.parameters.values()):
+            if index == 0 and param.name == 'self':
+                continue
+
+            if param.name in annotations:
+                param = param.replace(annotation=annotations[param.name])
+
+            params.append(param)
+
+        return original_sig.replace(parameters=params)
 
     def variables(self):
         return {v.name: v for v in self.__dict__.values() if isinstance(v, Variable)}
