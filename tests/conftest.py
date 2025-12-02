@@ -95,14 +95,6 @@ def mock_ctx():
 
 
 @pytest.fixture
-def mock_sandbox_out_file():
-    path = Path(__file__).parent / "1234"
-
-    yield path
-    path.unlink(missing_ok=True)
-
-
-@pytest.fixture
 def mock_user_vars():
 
     user_variables = {}
@@ -177,6 +169,7 @@ def mock_run():
 @pytest.fixture
 def mock_db(tmp_path, mock_ctx, monkeypatch):
     db = DamnitDB.from_dir(tmp_path)
+    db.metameta['proposal'] = 1234
 
     (tmp_path / "context.py").write_text(mock_ctx.code)
 

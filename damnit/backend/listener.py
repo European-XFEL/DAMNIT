@@ -13,6 +13,7 @@ from threading import Thread
 from kafka import KafkaConsumer
 
 from ..context import RunData
+from ..definitions import DEFAULT_DAMNIT_PYTHON
 from ..api import find_proposal
 from .db import DamnitDB, KeyValueMapping, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
@@ -65,10 +66,17 @@ def execute_direct(submitter, request):
         log.warning(f'Too many events processing ({MAX_CONCURRENT_THREADS}), '
                     f'skip event (p{request.proposal}, r{request.run}, {request.run_data.value})')
         return
+    
+    def _run():
+        try:
+            submitter.execute_direct(request)
+        except Exception:
+            log.error(f"Local extraction of p{request.proposal}, r{request.run} failed:", exc_info=True)
 
-    extr = Thread(target=submitter.execute_direct, args=(request, ))
+    extr = Thread(target=_run)
     local_extraction_threads.append(extr)
     extr.start()
+
 
 class ListenerDB:
     def __init__(self, db_dir):
@@ -85,6 +93,9 @@ class ListenerDB:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
         self.conn.close()
 
     @property
@@ -214,7 +225,7 @@ class EventProcessor:
                 log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
                 # Set the default to the stable DAMNIT module if not already set
-                damnit_python = db.metameta.setdefault("damnit_python", "/gpfs/exfel/sw/software/xfel_anaconda3/amore-mid/.pixi/envs/default/bin/python")
+                damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
                 submitter = ExtractionSubmitter(db.path.parent, db)
                 req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
                 try:
