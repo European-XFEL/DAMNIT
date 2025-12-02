@@ -214,7 +214,7 @@ class VariableData:
                 if arr.ndim != 0 and (np.issubdtype(arr.dtype, np.number) or arr.dtype == bool):
                     return arr
 
-            elif np.issubdtype(dset.dtype, np.number) and (
+            elif (np.issubdtype(dset.dtype, np.number) or dset.dtype == bool) and (
                     dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4))
             ):
                 value = dset[()]

@@ -209,7 +209,7 @@ class ExtractionSubmitter:
         out = []
 
         if limit_running == -1:
-            limit_running = self.db.metameta["concurrent_jobs"]
+            limit_running = self.db.metameta.setdefault("concurrent_jobs", 15)
 
         assert len({r.cluster for r in reqs}) <= 1  # Don't mix cluster/non-cluster
 

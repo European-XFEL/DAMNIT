@@ -94,6 +94,7 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     # Insert a DataSet variable
     dataset_code = """
     from damnit_ctx import Cell, Variable
+    import numpy as np
     import xarray as xr
 
     @Variable(title="Dataset")
@@ -107,6 +108,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     @Variable(title="Summary only")
     def summary_only(run):
         return Cell(None, summary_value=7)
+
+    @Variable
+    def bool_array(run):
+        return Cell(np.zeros(10, dtype=np.bool_))
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -164,6 +169,9 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     assert isinstance(fig, PlotlyFigure)
 
     assert rv["summary_only"].summary() == 7
+
+    np.testing.assert_array_equal(rv['bool_array'].preview_data(), np.zeros(10, dtype=np.bool_))
+
 
 def test_api_dependencies(venv):
     package_path = Path(__file__).parent.parent
