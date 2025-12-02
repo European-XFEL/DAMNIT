@@ -170,6 +170,9 @@ class ContextFile:
             if isinstance(value, Variable):
                 vars[value.name] = value
             if is_group_instance(value):
+                # check for group duplicates
+                if any(v.startswith(f'{value.name}.') for v in vars):
+                    raise KeyError(f"Multiple Groups have the same name: {value.name!r}")
                 vars |= value.variables()
 
         log.debug("Loaded %d variables", len(vars))

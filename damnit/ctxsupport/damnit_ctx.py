@@ -203,6 +203,8 @@ class _GroupBase:
     title: str | None = field(default=None, kw_only=True)
     tags: tuple[str] | None = field(default=None, kw_only=True)
     sep: str = field(default='/', kw_only=True)
+    # set of vars that were removed due to missing dependencies
+    _removed_vars: set[str] = field(default_factory=set, init=False)
 
     def __post_init__(self):
         """Post-initialization to ensure tags are always a tuple."""
@@ -212,9 +214,6 @@ class _GroupBase:
         # register group instance
         if self.name is None:
             self.name = self.__class__.__name__
-            # if self.name in Group._REGISTRY:
-            #     raise KeyError(f'Group name already exists: {self.name}')
-            # Group._REGISTRY[self.name] = self
 
         if self.title is None:
             self.title = self.name
@@ -224,6 +223,15 @@ class _GroupBase:
 
     def __hash__(self):
         return hash(self.name)
+
+    def __getattribute__(self, item):
+        removed_vars = super().__getattribute__('_removed_vars')
+        if item in removed_vars:
+            raise AttributeError(
+                f"Variable {item!r} was removed from group "
+                f"{super().__getattribute__('name')!r} due to missing dependencies"
+            )
+        return super().__getattribute__(item)
 
     def _merge_tags(self, original_tags):
         """Merge original tags with group tags"""
@@ -288,6 +296,7 @@ class _GroupBase:
         for var_name, var in self._variables():
             if self._variable_requires_missing_dependency(var):
                 del self.__dict__[var_name]
+                self._removed_vars.add(var.name)
 
     def _variable_requires_missing_dependency(self, var: Variable) -> bool:
         annotations = var.annotations()
