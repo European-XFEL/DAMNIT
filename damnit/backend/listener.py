@@ -66,7 +66,7 @@ def execute_direct(submitter, request):
         log.warning(f'Too many events processing ({MAX_CONCURRENT_THREADS}), '
                     f'skip event (p{request.proposal}, r{request.run}, {request.run_data.value})')
         return
-    
+
     def _run():
         try:
             submitter.execute_direct(request)

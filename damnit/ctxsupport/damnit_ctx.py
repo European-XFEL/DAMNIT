@@ -4,21 +4,28 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import inspect
 import logging
 import re
 import sys
 from collections.abc import Sequence
+from copy import copy
+from dataclasses import dataclass, field, fields
 from enum import Enum
+from functools import wraps
+from keyword import iskeyword
+from typing import Generator, Iterable
 
 import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["RunData", "Variable", "Cell"]
+__all__ = ["Cell", "Group", "is_group", "is_group_instance", "RunData", "Variable"]
 
 log = logging.getLogger(__name__)
 
 
+GROUP_MARKER_ATTR = "__damnit_group__"
 THUMBNAIL_SIZE = 300 # px
 
 
@@ -29,6 +36,26 @@ def isinstance_no_import(obj, mod: str, cls: str):
         return False
 
     return isinstance(obj, getattr(m, cls))
+
+
+def is_valid_variable_name(name: str) -> bool:
+    """Check if the name is a valid Variable name."""
+    # must be a string
+    if not isinstance(name, str):
+        return False
+
+    for part in name.split('.'):
+        # must be a non-empty string
+        if not part:
+            return False
+        # prevent using a Python keyword
+        if iskeyword(part):
+            return False
+        # must be a valid Python identifier
+        if not part.isidentifier():
+            return False
+
+    return True
 
 
 class RunData(Enum):
@@ -69,16 +96,16 @@ class Variable:
 
     def check(self):
         problems = []
-        if not self.name.isidentifier():
+        if not is_valid_variable_name(self.name):
             problems.append(
-                f"The variable name {self.name!r} is not a valid Python identifier"
+                f"The name {self.name!r} is not a valid Variable name."
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(
                 f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
             )
         if self.tags is not None:
-            if not isinstance(self.tags, Sequence) or not all(
+            if not isinstance(self.tags, Iterable) or not all(
                 isinstance(tag, str) and tag != "" for tag in self.tags
             ):
                 problems.append(
@@ -100,9 +127,11 @@ class Variable:
         Get all direct dependencies of this Variable with a certain
         type/prefix. Returns a dict of argument name to variable name.
         """
-        return { arg_name: annotation.removeprefix(prefix)
-                 for arg_name, annotation in self.annotations().items()
-                 if annotation.startswith(prefix) }
+        return {
+            arg_name: annotation.removeprefix(prefix)
+            for arg_name, annotation in self.annotations().items()
+            if isinstance(annotation, str) and annotation.startswith(prefix)
+        }
 
     def annotations(self):
         """
@@ -127,6 +156,301 @@ class Variable:
                 cell.summary = self.summary
 
         return cell
+
+    def copy(self):
+        return copy(self)
+
+
+def is_group(obj) -> bool:
+    """Return True if obj is a Group class or an instance of a Group class."""
+    cls = obj if isinstance(obj, type) else type(obj)
+    return hasattr(cls, GROUP_MARKER_ATTR)
+
+
+def is_group_instance(obj) -> bool:
+    """Return True if obj is an instance of a Group class.
+    """
+    return hasattr(type(obj), GROUP_MARKER_ATTR)
+
+
+class Group:
+    """A class decorator that transforms a class into a Group.
+
+    Transforms a class into a Group 'dataclass'. Allow for creating reusable,
+    configurable, and nestable sets of related Variables.
+
+    - `@Group` for default behavior.
+    - `@Group(title='...', ...)` to provide parameters.
+
+    Args:
+        title (str, optional): The title of the group.
+        tags (list[str], optional): A list of tags to associate with the group.
+        sep (str, optional): Separator to use between group title and variable title.
+    """
+    # _REGISTRY: WeakValueDictionary[str, 'Group'] = WeakValueDictionary()
+
+    def __new__(cls, decorated_cls: type = None, **kwargs) -> type:
+        def wrapper(wrapped_cls: type) -> type:
+            return _new_group(wrapped_cls, kwargs)
+
+        return wrapper if decorated_cls is None else wrapper(decorated_cls)
+
+
+@dataclass
+class _GroupBase:
+    name: str | None = field(default=None, kw_only=True)
+    title: str | None = field(default=None, kw_only=True)
+    tags: tuple[str] | None = field(default=None, kw_only=True)
+    sep: str = field(default='/', kw_only=True)
+    # set of vars that were removed due to missing dependencies
+    _removed_vars: set[str] = field(default_factory=set, init=False)
+
+    def __post_init__(self):
+        """Post-initialization to ensure tags are always a tuple."""
+        if isinstance(self.tags, str):
+            self.tags = (self.tags,)
+
+        # register group instance
+        if self.name is None:
+            self.name = self.__class__.__name__
+
+        if self.title is None:
+            self.title = self.name
+
+        # Modify variables with group context
+        self._morph_vars()
+
+    def __hash__(self):
+        return hash(self.name)
+
+    def __getattribute__(self, item):
+        removed_vars = super().__getattribute__('_removed_vars')
+        if item in removed_vars:
+            raise AttributeError(
+                f"Variable {item!r} was removed from group "
+                f"{super().__getattribute__('name')!r} due to missing dependencies"
+            )
+        return super().__getattribute__(item)
+
+    def _merge_tags(self, original_tags):
+        """Merge original tags with group tags"""
+        if self.tags is None:
+            return original_tags
+        if original_tags is None:
+            return self.tags
+        return set(self.tags) | set(original_tags)
+
+    def _init_group_variable(self, original_var: Variable) -> Variable:
+        """Create a new Variable instance for this group"""
+        new_var = original_var.copy()
+
+        new_var.name = f"{self.name}.{new_var.name}"
+        new_var.title = f"{self.title}{self.sep}{new_var.title}"
+        new_var.tags = self._merge_tags(new_var.tags)
+
+        return new_var
+
+    def _create_wrapper_function(self, var, annotations, signature):
+        """Create a wrapper function that provides group context"""
+        func = var.func
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            args_in_func = inspect.signature(func).parameters
+
+            # Call the original function with group context
+            if next(iter(args_in_func)) == 'self':
+                return func(self, *args, **kwargs)
+            return func(*args, **kwargs)
+
+        wrapper.__name__ = var.name
+        wrapper.__annotations__ = annotations
+        wrapper.__signature__ = signature
+        wrapper.__doc__ = func.__doc__
+
+        return wrapper
+
+    def _variables(self) -> Generator[Variable, None, None]:
+        """Get all variables in this group"""
+        for name in dir(type(self)):
+            attr = getattr(type(self), name)
+            if isinstance(attr, Variable):
+                yield name, attr
+
+    def _morph_vars(self) -> None:
+        """Get all variables in this group"""
+
+        self._instantiate_group_variables()
+        self._remove_variables_with_missing_dependencies()
+        self._wrap_variable_functions()
+
+    def _instantiate_group_variables(self):
+        """Replace class-level Variables with instance-scoped copies."""
+        for og_var_name, original_var in self._variables():
+            var = self._init_group_variable(original_var)
+            setattr(self, og_var_name, var)
+
+    def _remove_variables_with_missing_dependencies(self):
+        """Drop Variables that reference optional fields that are unset."""
+        for var_name, var in self._variables():
+            if self._variable_requires_missing_dependency(var):
+                del self.__dict__[var_name]
+                self._removed_vars.add(var.name)
+
+    def _variable_requires_missing_dependency(self, var: Variable) -> bool:
+        annotations = var.annotations()
+        signature = inspect.signature(var.func)
+
+        for arg_name, annotation in annotations.items():
+            if not self._is_self_reference(annotation):
+                continue
+
+            dep_path = annotation.removeprefix('self#')
+            dep_attr, _, _ = dep_path.partition('.')
+            self._ensure_group_attribute(dep_attr, dep_path, dep_attr, var)
+
+            if dep_attr not in self.__dict__:
+                continue
+
+            attr = self.__dict__[dep_attr]
+            if attr is not None:
+                continue
+
+            if not self._parameter_has_default(signature, arg_name):
+                return True
+
+        return False
+
+    def _wrap_variable_functions(self):
+        """Wrap Variable callables with group-aware signatures/annotations."""
+        for _, var in self.variables().items():
+            annotations = var.annotations().copy()
+            original_sig = inspect.signature(var.func)
+
+            for arg_name, annotation in annotations.items():
+                if not self._is_self_reference(annotation):
+                    continue
+
+                dep_name = annotation.removeprefix('self#')
+                attr_name, _, _ = dep_name.partition('.')
+                self._ensure_group_attribute(attr_name, attr_name, dep_name, var)
+
+                field = self._matching_group_field(attr_name)
+                if self._should_skip_dependency_resolution(field, arg_name, original_sig):
+                    annotations[arg_name] = inspect._empty
+                    continue
+
+                resolved_name = self._resolve_dependency_name(self, dep_name, var)
+                annotations[arg_name] = f"var#{resolved_name}"
+
+            new_sig = self._signature_without_self(original_sig, annotations)
+            var.func = self._create_wrapper_function(var, annotations, new_sig)
+
+    def _matching_group_field(self, attr_name):
+        return next(
+            (
+                f for f in fields(self)
+                if f.name == attr_name and (is_group(f.type) or f.type is Variable)
+            ),
+            None
+        )
+
+    @staticmethod
+    def _is_self_reference(annotation) -> bool:
+        return isinstance(annotation, str) and annotation.startswith('self#')
+
+    def _ensure_group_attribute(self, attr_name, missing_attr_label, dependency_label, var):
+        if not hasattr(self, attr_name):
+            raise AttributeError(
+                f"Group instance {self.name!r} is missing attribute {missing_attr_label!r} "
+                f"needed to resolve dependency {dependency_label!r} of Variable {var.name!r}"
+            )
+
+    def _should_skip_dependency_resolution(self, field, arg_name, original_sig):
+        if field is None or field.default is not None:
+            return False
+
+        if getattr(self, field.name) is not None:
+            return False
+
+        return self._parameter_has_default(original_sig, arg_name)
+
+    @staticmethod
+    def _parameter_has_default(signature, arg_name):
+        param = signature.parameters.get(arg_name)
+        return param is not None and param.default is not inspect._empty
+
+    def _resolve_dependency_name(self, group, dep_name, var):
+        attr_name, _, remainder = dep_name.partition('.')
+        attr = getattr(group, attr_name)
+
+        if is_group_instance(attr) and remainder:
+            return self._resolve_dependency_name(attr, remainder, var)
+
+        if isinstance(attr, Variable):
+            return attr.name
+
+        raise KeyError(
+            f"Cannot resolve dependency {dep_name!r} of Variable {var.name!r}, group={self.name}"
+        )
+
+    def _signature_without_self(self, original_sig, annotations):
+        params = []
+        for index, param in enumerate(original_sig.parameters.values()):
+            if index == 0 and param.name == 'self':
+                continue
+
+            if param.name in annotations:
+                param = param.replace(annotation=annotations[param.name])
+
+            params.append(param)
+
+        return original_sig.replace(parameters=params)
+
+    def variables(self):
+        return {v.name: v for v in self.__dict__.values() if isinstance(v, Variable)}
+
+
+GROUP_FIELD_NAMES = {f.name for f in fields(_GroupBase)}
+
+
+def _new_group(cls: type, decorator_kwargs: dict) -> type:
+    """Transform a class into a Group-based dataclass."""
+    if invalid_args := set(decorator_kwargs.keys()).difference(GROUP_FIELD_NAMES):
+        raise TypeError(f"Invalid Group arguments: {invalid_args}")
+
+    cls_annotations = cls.__dict__.get('__annotations__', {})
+
+    if is_group(cls):
+        # Subclass of another Group class
+        dataclass_cls = dataclass(cls)
+    else:
+        # New Group class, not subclassing another Group
+        if redefined := GROUP_FIELD_NAMES.intersection(cls_annotations):
+            raise TypeError(f"Group fields {redefined} redefined in class {cls.__name__!r}")
+
+        attrs = {k: v for k, v in cls.__dict__.items() if k not in ('__dict__', '__weakref__')}
+        new_cls = type(cls.__name__, (cls, _GroupBase), attrs)
+        dataclass_cls = dataclass(new_cls)
+
+    setattr(dataclass_cls, GROUP_MARKER_ATTR, True)
+
+    if not decorator_kwargs:
+        return dataclass_cls
+
+    original_init = dataclass_cls.__init__
+    init_sig = inspect.signature(original_init)
+
+    # Allow the _GroupBase parameters to be given defaults by the decorator
+    @wraps(original_init)
+    def new_init(self, *args, **kwargs):
+        bound_args = init_sig.bind_partial(self, *args, **kwargs)
+        user_provided_args = bound_args.arguments
+        user_provided_args.pop('self', None)
+        original_init(self, **(decorator_kwargs | user_provided_args))
+
+    dataclass_cls.__init__ = new_init
+    return dataclass_cls
 
 
 class _DummyCell:
