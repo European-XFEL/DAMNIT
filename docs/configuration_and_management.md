@@ -200,41 +200,50 @@ class XGMDiagnostics:
         # This has an intra-group dependency on the 'pulse_energy' variable
         return energy + self.offset
 
-# Instantiate the group in your context file, providing parameters values
-xgm_sa2 = XGMDiagnostics(title="XGM SA2", device_name="SA2_XTD6_XGM/XGM/DOOCS", offset=1.1)
-xgm_hed = XGMDiagnostics(title="XGM HED", device_name="HED_XTD9_XGM/XGM/DOOCS", offset=0.9)
+# Instantiate the group in your context file, providing parameter values
+xgm_sa2 = XGMDiagnostics(
+    name="xgm_sa2",
+    title="XGM SA2",
+    device_name="SA2_XTD6_XGM/XGM/DOOCS",
+    offset=1.1,
+)
+xgm_hed = XGMDiagnostics(
+    name="xgm_hed",
+    title="XGM HED",
+    device_name="HED_XTD9_XGM/XGM/DOOCS",
+    offset=0.9,
+)
 ```
 
 ### Naming and Titles
-When you create an instance of a `Group` (e.g., `xgm_sa2`), all its `Variable`s
-are automatically given prefixed names to avoid conflicts. The instance name
-(the Python variable name you assign it to) is used as the prefix.
+Each `Group` instance has a `name` attribute that becomes the prefix for every
+`Variable` inside it. Pass a unique `name=` when you instantiate the group (or
+let it default to the class name). Sn error is raised if two groups end up with
+the same name.
 
-- The **`Variable` name** is formed by joining the `Group`'s instance name and
-  the method's name with a dot: `xgm_sa2.pulse_energy`.
+- The **`Variable` name** is formed by joining the `Group`'s `name` and the
+  method's name with a dot: `xgm_sa2.pulse_energy`.
 - The **variable title** (for display in the GUI) is formed by joining the
   `Group`'s title and the `Variable`'s title with a separator (default is `/`):
   `XGM SA2/Pulse Energy`.
 
-
 ### `Group` attributes:
-`Group` attributes are a subset of `Variable` attributes and are applied to all
-its `Variables`:
+`@Group` injects a few dataclass fields that automatically apply to the group's
+`Variable`s:
 
-- `title`: Prefixes all `Variable`'s title in this `Group`.
-- `sep` (default `/`): Separates this title string to the next level title.
-- `tags`: Are added to all `Variable`s present in the group. In the example
-  above, the `XGM` tag from `XGMDiagnostics` will be applied to all variables
-  inside it. Tags defined at the `Variable` level inside a Group are merged with
-  the `Group` tags.
-- `cluster`, `data` and `transient`: These properties are **not** configurable
-  at `Group` level and must be defined directly on `Variable`s.
+- `name`: Machine-readable identifier and prefix. Must be unique; defaults to
+  the class name if not provided.
+- `title`: Prefixes every `Variable` title within the `Group`.
+- `sep` (default `/`): Separator between the group title and the variable title.
+- `tags`: Added to every `Variable` in the group and merged with per-variable
+  tags.
+- `cluster`, `data` and `transient`: These properties remain per-`Variable` and
+  cannot be configured on the group itself.
 
-Attributes defined in a `Group` decorator can always be overwritten for each
-instance:
+Decorator defaults can be overridden per instance:
 
 ```python
-another_xgm = XGMDiagnostic(title='Another XGM', tags=['XGM!'])
+another_xgm = XGMDiagnostics(name="another_xgm", title="Another XGM", tags=["XGM!"])
 ```
 
 ### Dependencies
@@ -268,11 +277,11 @@ another_xgm = XGMDiagnostic(title='Another XGM', tags=['XGM!'])
           # Correctly depends on a variable from another group instance
           return xgm_energy * 2
 
-  instance = MyGroup("Group")
+  instance = MyGroup(name="analysis", title="Group")
   ```
 
 ### Linking Groups
-You can create more complex analysis pipelines by link independent `Group`s.
+You can create more complex analysis pipelines by linking independent `Group`s.
 This is useful for:
 
 - **Avoiding Duplication**: Link to a shared component (like an XGM diagnostic)
@@ -283,13 +292,15 @@ This is useful for:
   groups and then linked together by a higher-level analysis, without mixing
   their internal logic.
 - **No Hardcoding**: Avoid hardcoding variable names like
-  "var#xgm_sa2.intensity". By linking, you make your group configurable,
-  allowing it to be connected to xgm_sa2 in one context and xgm_hed in another,
-  simply by changing the string passed during instantiation.
+  `var#xgm_sa2.intensity`. By linking, you make your group configurable,
+  allowing it to be connected to `xgm_sa2` in one context and `xgm_hed` in
+  another by passing different group instances.
 
-Define an field referencing an existing `Group` instance and use it within a
-`self#` dependency path. DAMNIT will resolve this by using the field name as the
-prefix for the dependency lookup.
+Declare dataclass fields typed as other `Group`s and assign concrete instances
+when you instantiate the outer group. A `self#` dependency such as
+`self#xgm.corrected_energy` follows the attribute path, resolves the nested
+instance, and uses that instance's `name` (e.g. `xgm_sa2`) to build the final
+dependency (`xgm_sa2.corrected_energy`).
 
 ```python
 @Group(title="MID Diagnostics", tags=["MID", "Diag"])
@@ -301,23 +312,59 @@ class MIDDiagnostics:
     def photons_per_microjoule(self, run,
                                photons: "self#detector.n_photons",
                                energy: "self#xgm.corrected_energy"):
-        # The system resolves `xgm` to its instance name ("xgm_sa2")
+        # The system resolves `xgm` to the linked instance named "xgm_sa2"
         # and looks up the final variable `xgm_sa2.corrected_energy`.
         return photons / energy
 
-# 1. Define the shared, top-level instances. Their Python variable
-#    names ("xgm_sa2", "xgm_hed") are their public identifiers.
-xgm_sa2 = XGMDiagnostics(device_name="SA2_XTD6_XGM/XGM/DOOCS")
-xgm_hed = XGMDiagnostics(device_name="HED_XTD9_XGM/XGM/DOOCS")
+# 1. Define the shared, top-level instances. Their `name` values
+#    ("xgm_sa2", "xgm_hed") are their public identifiers.
+xgm_sa2 = XGMDiagnostics(name="xgm_sa2", device_name="SA2_XTD6_XGM/XGM/DOOCS")
+xgm_hed = XGMDiagnostics(name="xgm_hed", device_name="HED_XTD9_XGM/XGM/DOOCS")
 
-agipd = Detector(title="AGIPD", name="AGIPD1M")
+agipd = Detector(name="agipd", title="AGIPD")
 
-# 2. Instantiate the linking group and provide the name of the dependency.
-diag1 = MIDDiagnostics(xgm=xgm_sa2, detector=agipd)
-diag2 = MIDDiagnostics(xgm=xgm_hed, detector=agipd)
+# 2. Instantiate the linking group and provide the dependency objects.
+diag1 = MIDDiagnostics(name="mid_diag_sa2", xgm=xgm_sa2, detector=agipd)
+diag2 = MIDDiagnostics(name="mid_diag_hed", xgm=xgm_hed, detector=agipd)
 
 # Result: `diag1` depends on `xgm_sa2.corrected_energy`, and
 # `diag2` depends on `xgm_hed.corrected_energy`. No work is duplicated.
+```
+
+### Optional components and defaults
+Sometimes a group depends on sub-components that are not always present. Declare
+those fields with a default of `None` and annotate dependencies with `self#`. If
+the referenced attribute is `None` and the variable argument has no default,
+DAMNIT removes that variable during instantiation so it never runs with missing
+inputs (any later attribute access raises an `AttributeError`).
+
+Provide a default argument to keep the variable around and fall back to that
+value when the dependency is absent:
+
+```python
+@Group
+class A:
+    @Variable
+    def var(self, run):
+        return 41
+
+@Group
+class B:
+    upstream: A | None = None
+
+    @Variable
+    def needs_upstream(self, run, value: "self#upstream.var"):
+        return value + 1
+
+    @Variable
+    def optional_upstream(self, run, value: "self#upstream.var" = 42):
+        return value + 1
+
+a = A(name="a")
+b_full = B(name="b_full", upstream=a)
+b_partial = B(name="b_partial")  # upstream defaults to None
+# b_full exposes both variables. b_partial drops needs_upstream but keeps
+# optional_upstream, which receives the default value (42) at runtime.
 ```
 
 ### Inheritance
@@ -346,7 +393,7 @@ class DetectorAnalysisAlt(BaseAnalysis):
     ...
 
 # This instance will have two variables: detector.n_trains and detector.photon_count
-detector = DetectorAnalysis("Detector")
+detector = DetectorAnalysis(name="detector", title="Detector")
 ```
 
 ## Cell
