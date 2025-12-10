@@ -84,7 +84,7 @@ class DamnitDB:
         if os.stat(path).st_uid == os.getuid():
             os.chmod(path, 0o666)
         # Enable foreign key enforcement for this connection
-        self.conn.execute("PRAGMA foreign_keys = ON;") 
+        self.conn.execute("PRAGMA foreign_keys = ON;")
 
         self.conn.row_factory = sqlite3.Row
         self.metameta = KeyValueMapping(self.conn, "metameta")
@@ -95,7 +95,7 @@ class DamnitDB:
             # Use the Python environment the database was created under by default
             self.metameta.setdefault("damnit_python", sys.executable)
             self.metameta.setdefault("concurrent_jobs", 15)
-        
+
         data_format_version = int(self.metameta.get("data_format_version", 0))
 
         # apply migrations if needed
@@ -290,7 +290,7 @@ class DamnitDB:
     def update_views(self):
         variables = self.variable_names()
 
-        col_select_sql = "max(CASE WHEN name='{var}' THEN {col} END) AS {var}"
+        col_select_sql = "max(CASE WHEN name='{var}' THEN {col} END) AS '{var}'"
         runs_cols = ", ".join([col_select_sql.format(var=var, col="value")
                                for var in variables])
         max_diff_cols = ", ".join([col_select_sql.format(var=var, col="max_diff")
