@@ -13,10 +13,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPalette, QPixmap
-from PyQt5.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLineEdit,
-                             QMessageBox, QStyledItemDelegate)
+from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
+                             QLineEdit, QMessageBox, QStyledItemDelegate)
 
 import damnit
 from damnit.backend.db import DamnitDB, ReducedData
@@ -27,9 +28,11 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
+from damnit.gui.table import FilterHeaderView
 from damnit.gui.table_filter import (CategoricalFilter,
-                                     CategoricalFilterWidget, ThumbnailFilterWidget, FilterMenu,
-                                     NumericFilter, NumericFilterWidget, ThumbnailFilter)
+                                     CategoricalFilterWidget, FilterMenu,
+                                     NumericFilter, NumericFilterWidget,
+                                     ThumbnailFilter, ThumbnailFilterWidget)
 from damnit.gui.theme import Theme
 from damnit.gui.web_viewer import PlotlyPlot
 from damnit.gui.zulip_messenger import ZulipConfig
@@ -1513,3 +1516,52 @@ def test_logview_reappear_file(log_view_window, qtbot):
     assert window.text_edit.toPlainText() == reappeared_content
     assert window._last_size == new_stat.st_size
     assert window._last_mtime == new_stat.st_mtime
+
+
+def test_header_groups(qtbot):
+    # Build a QTableView whose header has the provided titles
+    headers = ["Trigger/Open", "Trigger/Rep", "Trigger/Rotor", "A/B/C", "D"]
+    model = QtGui.QStandardItemModel(0, len(headers))
+    for idx, title in enumerate(headers):
+        item = QtGui.QStandardItem()
+        item.setText(title)
+        model.setHorizontalHeaderItem(idx, item)
+
+    view = QtWidgets.QTableView()
+    qtbot.addWidget(view)
+    view.setModel(model)
+    header = FilterHeaderView(view)
+    view.setHorizontalHeader(header)
+    view.resize(600, 200)
+    view.show()
+    qtbot.waitExposed(view)
+    header._rebuild_hierarchy()
+
+    widths = [70, 80, 90, 100, 110]
+    for idx, width in enumerate(widths):
+        header.resizeSection(idx, width)
+    qtbot.waitUntil(lambda: header.sectionSize(4) == widths[4])
+
+    header._rebuild_hierarchy()
+
+    header.update_filtered_columns({1})
+    QApplication.processEvents()
+
+    # test max levels
+    assert header._max_levels == 3
+    assert header._levels_by_section[0] == ["Trigger", "Open"]
+    assert header._levels_by_section[1] == ["Trigger", "Rep"]
+    assert header._levels_by_section[2] == ["Trigger", "Rotor"]
+    assert header._levels_by_section[3] == ["A", "B", "C"]
+    assert header._levels_by_section[4] == ["D"]
+
+    # test geometry
+    assert header._group_span_columns(0, 0) == 3  # Trigger
+
+    total = sum(widths[0:3])
+    start0, width0 = header._group_geometry(0, 0)
+    start2, width2 = header._group_geometry(2, 0)
+
+    assert width0 == total
+    assert width2 == total
+    assert start0 == start2 == header.sectionViewportPosition(0)
