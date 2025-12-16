@@ -30,35 +30,293 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         super().__init__(Qt.Horizontal, parent)
         self.filtered_columns = set()
         self.filter_icon = icon(FA6S.filter)
+        # Cache split titles per section so we only parse once per repaint
+        self._levels_by_section = {}
+        self._max_levels = 1
+        self._bound_model = None
+        base_size = super().sizeHint().height()
+        self._base_section_height = base_size if base_size > 0 else ROW_HEIGHT
+
+    def setModel(self, model):
+        if self._bound_model is not None:
+            try:
+                self._bound_model.headerDataChanged.disconnect(self._handle_header_change)
+                self._bound_model.columnsInserted.disconnect(self._handle_model_change)
+                self._bound_model.columnsRemoved.disconnect(self._handle_model_change)
+                self._bound_model.modelReset.disconnect(self._handle_model_change)
+            except TypeError:
+                pass
+
+        super().setModel(model)
+        self._bound_model = model
+
+        if model is not None:
+            model.headerDataChanged.connect(self._handle_header_change)
+            model.columnsInserted.connect(self._handle_model_change)
+            model.columnsRemoved.connect(self._handle_model_change)
+            model.modelReset.connect(self._handle_model_change)
+
+        self._rebuild_hierarchy()
+
+    def sizeHint(self):
+        size = super().sizeHint()
+        base = self._base_section_height or size.height()
+        size.setHeight(base * max(1, self._max_levels))
+        return size
 
     def paintSection(self, painter, rect, logicalIndex):
+        if not rect.isValid():
+            return
+
         painter.save()
-        
-        # Draw the default header section
-        super().paintSection(painter, rect, logicalIndex)
-        
-        # If column is filtered, draw the icon
+
+        # paint the section, keeping styles/themes intact
+        option = QtWidgets.QStyleOptionHeader()
+        self.initStyleOption(option)
+        option.rect = rect
+        option.text = ""
+        option.section = logicalIndex
+
+        self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
+
         if logicalIndex in self.filtered_columns:
-            # Calculate icon position
             icon_size = 16
             padding = 4
             icon_rect = QtCore.QRect(
-                rect.right() - icon_size - padding,
-                rect.center().y() - icon_size//2,
+                rect.left() + rect.width() - icon_size - padding,
+                rect.top() + rect.height() - icon_size - padding,
                 icon_size,
-                icon_size
+                icon_size,
             )
-            # Draw the icon using QPainter's drawIcon
-            painter.setClipRect(rect)
             painter.drawPixmap(icon_rect, self.filter_icon.pixmap(icon_size))
-            painter.setClipRect(rect)
 
         painter.restore()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        if not self._levels_by_section and self.model() is not None:
+            self._rebuild_hierarchy()
+
+        # Second pass overlays the text so parent bands can span multiple columns
+        painter = QtGui.QPainter(self.viewport())
+        painter.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
+        painter.setPen(self.palette().color(QtGui.QPalette.ButtonText))
+
+        header_rect = self.viewport().rect()
+        row_tops, row_heights = self._row_positions(header_rect)
+
+        for logical_index in range(self.count()):
+            if self.isSectionHidden(logical_index):
+                continue
+
+            levels = self._levels_by_section.get(logical_index)
+            if levels is None:
+                title = self.model().headerData(logical_index, Qt.Horizontal, Qt.DisplayRole)
+                levels = self._split_title(title)
+                self._levels_by_section[logical_index] = levels
+            for level_idx, text in enumerate(levels):
+                if not text:
+                    continue
+
+                span_rows = self._row_span(levels, level_idx)
+                top = row_tops[level_idx]
+                height = sum(row_heights[level_idx: level_idx + span_rows])
+                if height <= 0:
+                    continue
+
+                span_columns = self._group_span_columns(logical_index, level_idx)
+                is_group = span_columns > 1
+                if is_group and not self._is_group_lead(logical_index, level_idx):
+                    continue
+
+                if is_group:
+                    left, width = self._group_geometry(logical_index, level_idx)
+                else:
+                    left = self.sectionViewportPosition(logical_index)
+                    width = self.sectionSize(logical_index)
+
+                group_rect = QtCore.QRect(left, top, width, height)
+                visible_rect = group_rect.intersected(header_rect)
+                if not visible_rect.isValid() or visible_rect.width() <= 0:
+                    continue
+
+                if is_group:
+                    self._paint_group_background(painter, visible_rect)
+
+                text_rect = visible_rect.adjusted(4, 0, -4, 0)
+                if text_rect.width() <= 0:
+                    continue
+
+                painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignHCenter | Qt.TextWordWrap, text)
 
     def update_filtered_columns(self, filtered_cols):
         """Update the set of filtered columns and trigger repaint"""
         self.filtered_columns = set(filtered_cols)
         self.viewport().update()
+
+    def _handle_header_change(self, orientation, _first, _last):
+        if orientation == Qt.Horizontal:
+            self._rebuild_hierarchy()
+
+    def _handle_model_change(self, *args, **kwargs):
+        self._rebuild_hierarchy()
+
+    def _rebuild_hierarchy(self):
+        model = self.model()
+        self._levels_by_section = {}
+        max_levels = 1
+        if model is None:
+            self._max_levels = 1
+            self.viewport().update()
+            self.updateGeometry()
+            return
+
+        section_count = self.count()
+        for index in range(section_count):
+            title = model.headerData(index, Qt.Horizontal, Qt.DisplayRole)
+            levels = self._split_title(title)
+            self._levels_by_section[index] = levels
+            max_levels = max(max_levels, len(levels))
+
+        self._max_levels = max(1, max_levels)
+        self.updateGeometry()
+        self.viewport().update()
+
+    def _split_title(self, title):
+        if title is None:
+            return [""]
+        title_str = str(title)
+        parts = [part.strip() for part in title_str.split('/') if part.strip()]
+        return parts or [title_str]
+
+    def _row_positions(self, rect):
+        levels = max(1, self._max_levels)
+        total_height = max(1, rect.height())
+        base = total_height // levels
+        extra = total_height % levels
+        heights = []
+        for idx in range(levels):
+            heights.append(base + (1 if idx < extra else 0))
+        tops = []
+        running = rect.top()
+        for height in heights:
+            tops.append(running)
+            running += height
+        return tops, heights
+
+    def _row_span(self, levels, level_idx):
+        if level_idx >= len(levels):
+            return 0
+        if level_idx == len(levels) - 1:
+            return max(1, self._max_levels - level_idx)
+        return 1
+
+    def _is_group_lead(self, logical_index, level_idx):
+        prefix = self._prefix(logical_index, level_idx)
+        if prefix is None:
+            return False
+
+        visual = self.visualIndex(logical_index)
+        if visual <= 0:
+            return True
+
+        for vi in range(visual - 1, -1, -1):
+            prev_logical = self.logicalIndex(vi)
+            if prev_logical < 0 or self.isSectionHidden(prev_logical):
+                continue
+            return self._prefix(prev_logical, level_idx) != prefix
+        return True
+
+    def _prefix(self, logical_index, level_idx):
+        levels = self._levels_by_section.get(logical_index)
+        if not levels or level_idx >= len(levels):
+            return None
+        return tuple(levels[: level_idx + 1])
+
+    def _group_geometry(self, logical_index, level_idx):
+        if self.isSectionHidden(logical_index):
+            return 0, 0
+
+        prefix = self._prefix(logical_index, level_idx)
+        if prefix is None:
+            return 0, 0
+
+        # Start drawing from the visual leader so the merged rect covers all siblings
+        lead_index = self._group_lead_index(logical_index, level_idx)
+        start = self.sectionViewportPosition(lead_index)
+        if start < 0:
+            return 0, 0
+
+        width = 0
+        visual = self.visualIndex(lead_index)
+        count = self.count()
+        for vi in range(visual, count):
+            next_logical = self.logicalIndex(vi)
+            if next_logical < 0 or self.isSectionHidden(next_logical):
+                continue
+            if self._prefix(next_logical, level_idx) != prefix:
+                break
+            width += self.sectionSize(next_logical)
+
+        return start, width
+
+    def _group_span_columns(self, logical_index, level_idx):
+        if self.isSectionHidden(logical_index):
+            return 0
+
+        prefix = self._prefix(logical_index, level_idx)
+        if prefix is None:
+            return 1
+
+        lead_index = self._group_lead_index(logical_index, level_idx)
+        visual = self.visualIndex(lead_index)
+        if visual < 0:
+            return 1
+
+        span = 0
+        count = self.count()
+        for vi in range(visual, count):
+            next_logical = self.logicalIndex(vi)
+            if next_logical < 0 or self.isSectionHidden(next_logical):
+                continue
+            if self._prefix(next_logical, level_idx) != prefix:
+                break
+            span += 1
+
+        return max(1, span)
+
+    def _group_lead_index(self, logical_index, level_idx):
+        if self.isSectionHidden(logical_index):
+            return logical_index
+
+        prefix = self._prefix(logical_index, level_idx)
+        if prefix is None:
+            return logical_index
+
+        visual = self.visualIndex(logical_index)
+        if visual < 0:
+            return logical_index
+
+        lead = logical_index
+        for vi in range(visual - 1, -1, -1):
+            prev_logical = self.logicalIndex(vi)
+            if prev_logical < 0 or self.isSectionHidden(prev_logical):
+                continue
+            if self._prefix(prev_logical, level_idx) != prefix:
+                break
+            lead = prev_logical
+        return lead
+
+    def _paint_group_background(self, painter, rect):
+        # Ask the style engine for a header section so merged cells keep theme gradients/borders
+        option = QtWidgets.QStyleOptionHeader()
+        self.initStyleOption(option)
+        option.rect = rect
+        option.text = ""
+        option.state |= QtWidgets.QStyle.State_Raised
+        option.state &= ~(QtWidgets.QStyle.State_Sunken | QtWidgets.QStyle.State_On)
+        self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
 
 
 class TableView(QtWidgets.QTableView):
