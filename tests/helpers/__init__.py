@@ -1,14 +1,11 @@
 import textwrap
 from unittest.mock import patch
 
-import numpy as np
-import xarray as xr
-from matplotlib.figure import Figure
 
-from damnit.cli import main
-from damnit.context import ContextFile, RunData
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import ReducedData, RunExtractor
+from damnit.cli import main
+from damnit.context import ContextFile
 
 
 def reduced_data_from_dict(input_dict):
