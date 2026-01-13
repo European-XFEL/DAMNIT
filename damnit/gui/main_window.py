@@ -20,7 +20,7 @@ from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
 
-from ..api import DataType, RunVariables
+from ..api import RunVariables
 from ..backend import initialize_proposal
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
@@ -47,6 +47,8 @@ log = logging.getLogger(__name__)
 class Settings(Enum):
     COLUMNS = "columns"
     THEME = "theme"
+    HIERARCHICAL_HEADER = "hierarchical_header"
+
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -81,8 +83,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_theme = self._load_theme()
         self.apply_theme(self.current_theme)
 
-        self._create_menu_bar()
-
         self._view_widget = QtWidgets.QWidget(self)
         self._editor = Editor()
         self._error_widget = QsciScintilla()
@@ -106,6 +106,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.zulip_messenger = None
 
         self._create_view()
+        self._create_menu_bar()
         self.configure_editor()
         self.center_window()
 
@@ -226,7 +227,8 @@ da-dev@xfel.eu"""
         with shelve.open(str(self._settings_db_path)) as db:
             settings = {
                 Settings.COLUMNS.value: self.table_view.get_column_states(),
-                Settings.THEME.value: self.current_theme.value
+                Settings.THEME.value: self.current_theme.value,
+                Settings.HIERARCHICAL_HEADER.value: self.table_view.hierarchical_header_enabled,
             }
             db[str(self._context_path)] = settings
 
@@ -252,16 +254,24 @@ da-dev@xfel.eu"""
         self.reload_context()
 
         # Load the users settings
-        col_settings = { }
+        col_settings = {}
+        hierarchical_header = self.table_view.hierarchical_header_enabled
         if self._settings_db_path.parent.is_dir():
             with shelve.open(str(self._settings_db_path)) as db:
                 key = str(self._context_path)
                 if key in db:
-                    col_settings = db[key][Settings.COLUMNS.value]
+                    stored_settings = db[key]
+                    col_settings = stored_settings.get(Settings.COLUMNS.value, {})
+                    hierarchical_header = stored_settings.get(
+                        Settings.HIERARCHICAL_HEADER.value,
+                        hierarchical_header,
+                    )
 
         if self.table is not None:
             self.table.deleteLater()
         self.table = self._create_table_model(self.db, col_settings)
+        self.table_view.set_hierarchical_header_enabled(hierarchical_header, emit_signal=False)
+        self._set_hierarchical_action_checked(self.table_view.hierarchical_header_enabled)
         self.table_view.setModel(self.table)
         self.table_view.sortByColumn(self.table.find_column("Timestamp", by_title=True),
                                      Qt.SortOrder.AscendingOrder)
@@ -440,11 +450,25 @@ da-dev@xfel.eu"""
         self.action_autoscroll.setCheckable(True)
         action_precreate_runs = QtWidgets.QAction("Pre-create new runs", self)
         action_precreate_runs.triggered.connect(self.precreate_runs_dialog)
-        tableMenu = menu_bar.addMenu("Table")
+        self.action_toggle_hierarchical_header = QtWidgets.QAction(
+            "Show hierarchical headers", self
+        )
+        self.action_toggle_hierarchical_header.setCheckable(True)
+        self.action_toggle_hierarchical_header.setChecked(
+            self.table_view.hierarchical_header_enabled
+        )
+        self.action_toggle_hierarchical_header.toggled.connect(
+            self.table_view.set_hierarchical_header_enabled
+        )
+        self.table_view.hierarchical_header_changed.connect(
+            self._set_hierarchical_action_checked
+        )
 
+        tableMenu = menu_bar.addMenu("Table")
         tableMenu.addAction(action_columns)
         tableMenu.addAction(self.action_autoscroll)
         tableMenu.addAction(action_precreate_runs)
+        tableMenu.addAction(self.action_toggle_hierarchical_header)
 
         #jump to run
         menu_bar_right = QtWidgets.QMenuBar(self)
@@ -471,6 +495,14 @@ da-dev@xfel.eu"""
         self.dark_mode_action.setShortcut("Ctrl+Shift+D")
         self.dark_mode_action.triggered.connect(self._toggle_theme)
         view_menu.addAction(self.dark_mode_action)
+
+    def _set_hierarchical_action_checked(self, checked: bool):
+        action = self.action_toggle_hierarchical_header
+        if action is None:
+            return
+        blocked = action.blockSignals(True)
+        action.setChecked(bool(checked))
+        action.blockSignals(blocked)
 
     def scroll_to_run(self, run):
         try:

@@ -34,18 +34,16 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         self._levels_by_section = {}
         self._max_levels = 1
         self._bound_model = None
+        self._hierarchy_enabled = True
         base_size = super().sizeHint().height()
         self._base_section_height = base_size if base_size > 0 else ROW_HEIGHT
 
     def setModel(self, model):
         if self._bound_model is not None:
-            try:
-                self._bound_model.headerDataChanged.disconnect(self._handle_header_change)
-                self._bound_model.columnsInserted.disconnect(self._handle_model_change)
-                self._bound_model.columnsRemoved.disconnect(self._handle_model_change)
-                self._bound_model.modelReset.disconnect(self._handle_model_change)
-            except TypeError:
-                pass
+            self._bound_model.headerDataChanged.disconnect(self._handle_header_change)
+            self._bound_model.columnsInserted.disconnect(self._handle_model_change)
+            self._bound_model.columnsRemoved.disconnect(self._handle_model_change)
+            self._bound_model.modelReset.disconnect(self._handle_model_change)
 
         super().setModel(model)
         self._bound_model = model
@@ -61,11 +59,33 @@ class FilterHeaderView(QtWidgets.QHeaderView):
     def sizeHint(self):
         size = super().sizeHint()
         base = self._base_section_height or size.height()
-        size.setHeight(base * max(1, self._max_levels))
+        levels = self._max_levels if self._hierarchy_enabled else 1
+        size.setHeight(base * max(1, levels))
         return size
+
+    def _draw_filter_hint(self, painter, rect):
+        icon_size = 16
+        padding = 4
+        icon_rect = QtCore.QRect(
+            rect.left() + rect.width() - icon_size - padding,
+            rect.top() + rect.height() - icon_size - padding,
+            icon_size,
+            icon_size,
+        )
+        painter.save()
+        painter.drawPixmap(icon_rect, self.filter_icon.pixmap(icon_size))
+        painter.restore()
 
     def paintSection(self, painter, rect, logicalIndex):
         if not rect.isValid():
+            return
+
+        if not self._hierarchy_enabled:
+            painter.save()
+            super().paintSection(painter, rect, logicalIndex)
+            painter.restore()
+            if logicalIndex in self.filtered_columns:
+                self._draw_filter_hint(painter, rect)
             return
 
         painter.save()
@@ -80,20 +100,15 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
 
         if logicalIndex in self.filtered_columns:
-            icon_size = 16
-            padding = 4
-            icon_rect = QtCore.QRect(
-                rect.left() + rect.width() - icon_size - padding,
-                rect.top() + rect.height() - icon_size - padding,
-                icon_size,
-                icon_size,
-            )
-            painter.drawPixmap(icon_rect, self.filter_icon.pixmap(icon_size))
+            self._draw_filter_hint(painter, rect)
 
         painter.restore()
 
     def paintEvent(self, event):
         super().paintEvent(event)
+
+        if not self._hierarchy_enabled:
+            return
 
         if not self._levels_by_section and self.model() is not None:
             self._rebuild_hierarchy()
@@ -318,15 +333,33 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         option.state &= ~(QtWidgets.QStyle.State_Sunken | QtWidgets.QStyle.State_On)
         self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
 
+    def set_hierarchical_enabled(self, enabled: bool):
+        if self._hierarchy_enabled == enabled:
+            return
+        self._hierarchy_enabled = enabled
+        if enabled:
+            self._rebuild_hierarchy()
+        else:
+            self._levels_by_section.clear()
+            self._max_levels = 1
+
+        parent = self.parent()
+        if parent is not None:
+            if hasattr(parent, "updateGeometries"):
+                parent.updateGeometries()
+            parent.viewport().update()
+
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
     model_updated = QtCore.pyqtSignal()
+    hierarchical_header_changed = QtCore.pyqtSignal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAlternatingRowColors(False)
+        self.hierarchical_header_enabled = True
 
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
@@ -388,6 +421,7 @@ class TableView(QtWidgets.QTableView):
         # different visual indices, to show the columns as in the model.
         self.setHorizontalHeader(FilterHeaderView(self))
         header = self.horizontalHeader()
+        header.set_hierarchical_enabled(self.hierarchical_header_enabled)
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.show_horizontal_header_menu)
         # header.setSectionsMovable(True)  # TODO need to update variable order in the table / emit settings_changed
@@ -688,6 +722,18 @@ class TableView(QtWidgets.QTableView):
         filter_action.triggered.connect(lambda: FilterMenu(index, self.model(), self).popup(pos))
 
         menu.exec_(pos)
+
+    def set_hierarchical_header_enabled(self, enabled: bool, emit_signal=True):
+        enabled = bool(enabled)
+        if self.hierarchical_header_enabled == enabled:
+            return
+        self.hierarchical_header_enabled = enabled
+        header = self.horizontalHeader()
+        if isinstance(header, FilterHeaderView):
+            header.set_hierarchical_enabled(enabled)
+        if emit_signal:
+            self.hierarchical_header_changed.emit(enabled)
+            self.settings_changed.emit()
 
 
 class DamnitTableModel(QtGui.QStandardItemModel):
