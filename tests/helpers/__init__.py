@@ -1,11 +1,13 @@
 import textwrap
 from unittest.mock import patch
 
+from PyQt5 import QtGui, QtWidgets
 
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import ReducedData, RunExtractor
 from damnit.cli import main
 from damnit.context import ContextFile
+from damnit.gui.table import FilterHeaderView, TableView
 
 
 def reduced_data_from_dict(input_dict):
@@ -40,3 +42,24 @@ def extract_mock_run(run_num: int, match=()):
 
 def mkcontext(code):
     return ContextFile.from_str(textwrap.dedent(code))
+
+
+def make_table_with_headers(qtbot, headers):
+    """Return a QTableView whose header has the provided titles (used for layout tests)."""
+    model = QtGui.QStandardItemModel(0, len(headers))
+    for idx, title in enumerate(headers):
+        item = QtGui.QStandardItem()
+        item.setText(title)
+        model.setHorizontalHeaderItem(idx, item)
+
+    view = TableView()
+    qtbot.addWidget(view)
+    view.setModel(model)
+    header = FilterHeaderView(view)
+    view.setHorizontalHeader(header)
+    view.resize(600, 200)
+    view.show()
+    qtbot.waitExposed(view)
+    header._rebuild_hierarchy()
+    return view, header
+

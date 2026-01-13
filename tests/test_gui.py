@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPalette, QPixmap
 from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
@@ -28,7 +27,6 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
-from damnit.gui.table import FilterHeaderView
 from damnit.gui.table_filter import (CategoricalFilter,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
@@ -37,7 +35,8 @@ from damnit.gui.theme import Theme
 from damnit.gui.web_viewer import PlotlyPlot
 from damnit.gui.zulip_messenger import ZulipConfig
 
-from .helpers import extract_mock_run, mkcontext, reduced_data_from_dict
+from .helpers import (
+    extract_mock_run, mkcontext, reduced_data_from_dict, make_table_with_headers)
 
 
 # Check if a PID exists by using `kill -0`
@@ -1519,23 +1518,9 @@ def test_logview_reappear_file(log_view_window, qtbot):
 
 
 def test_header_groups(qtbot):
-    # Build a QTableView whose header has the provided titles
-    headers = ["Trigger/Open", "Trigger/Rep", "Trigger/Rotor", "A/B/C", "D"]
-    model = QtGui.QStandardItemModel(0, len(headers))
-    for idx, title in enumerate(headers):
-        item = QtGui.QStandardItem()
-        item.setText(title)
-        model.setHorizontalHeaderItem(idx, item)
-
-    view = QtWidgets.QTableView()
-    qtbot.addWidget(view)
-    view.setModel(model)
-    header = FilterHeaderView(view)
-    view.setHorizontalHeader(header)
-    view.resize(600, 200)
-    view.show()
-    qtbot.waitExposed(view)
-    header._rebuild_hierarchy()
+    _, header = make_table_with_headers(
+        qtbot, ["Trigger/Open", "Trigger/Rep", "Trigger/Rotor", "A/B/C", "D"]
+    )
 
     widths = [70, 80, 90, 100, 110]
     for idx, width in enumerate(widths):
@@ -1565,3 +1550,39 @@ def test_header_groups(qtbot):
     assert width0 == total
     assert width2 == total
     assert start0 == start2 == header.sectionViewportPosition(0)
+
+
+def test_header_groups_toggle_resets_state(qtbot):
+    _, header = make_table_with_headers(qtbot, ["Trigger/Open", "Trigger/Rep"])
+
+    assert header._hierarchy_enabled is True
+    assert header._max_levels == 2
+    assert header._levels_by_section[0] == ["Trigger", "Open"]
+
+    header.set_hierarchical_enabled(False)
+    assert header._hierarchy_enabled is False
+    assert header._max_levels == 1
+    assert header._levels_by_section == {}
+
+    header.set_hierarchical_enabled(True)
+    assert header._hierarchy_enabled is True
+    assert header._levels_by_section[0] == ["Trigger", "Open"]
+
+
+def test_header_group_toggle_emits_signals(qtbot):
+    table_view, header = make_table_with_headers(qtbot, ["Trigger/Open"])
+
+    assert table_view.hierarchical_header_enabled is True
+    assert header._hierarchy_enabled is True
+
+    with qtbot.waitSignal(table_view.hierarchical_header_changed):
+        table_view.set_hierarchical_header_enabled(False)
+
+    assert table_view.hierarchical_header_enabled is False
+    assert header._hierarchy_enabled is False
+
+    with qtbot.waitSignal(table_view.hierarchical_header_changed):
+        table_view.set_hierarchical_header_enabled(True)
+
+    assert table_view.hierarchical_header_enabled is True
+    assert header._hierarchy_enabled is True
