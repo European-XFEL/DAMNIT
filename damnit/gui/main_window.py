@@ -301,7 +301,10 @@ da-dev@xfel.eu"""
         proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.ForwardedChannels)
         proc.finished.connect(proc.deleteLater)
         proc.setWorkingDirectory(str(self.context_dir))
-        proc.start(sys.executable, ['-m', 'damnit.cli', 'read-context'])
+        read_context_args = ['-m', 'damnit.cli', 'read-context']
+        if not self._connect_to_kafka:
+            read_context_args.append("--no-kafka")
+        proc.start(sys.executable, read_context_args)
         proc.closeWriteChannel()
         # The subprocess will send updates for any changes: see .handle_update()
 

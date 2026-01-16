@@ -198,6 +198,10 @@ def main(argv=None):
         'read-context',
         help="Re-read the context file and update variables in the database"
     )
+    readctx_ap.add_argument(
+        '--no-kafka', action='store_true',
+        help="Don't try connecting to XFEL's Kafka broker"
+    )
 
     proposal_ap = subparsers.add_parser(
         'proposal',
@@ -342,7 +346,7 @@ def main(argv=None):
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor
-        Extractor().update_db_vars()
+        Extractor(connect_to_kafka=not args.no_kafka).update_db_vars()
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB
