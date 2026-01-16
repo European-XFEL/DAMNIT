@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased]
+
+Added:
+
+- GUI: Run-table headers can now display hierarchical view for slash-separated
+  titles (!520).
+- Core: Introduced a migrations framework to apply future schema changes
+  predictably (!510).
+
+Fixed:
+
+- GUI: Preview render boolean arrays correctly (!513).
+
+[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.2.1...HEAD)
+
+## [0.2.1]
+
+Added:
+
+- DB: Each proposal now stores a `damnit_python` setting to pin the interpreter
+  that executes the context file (!394).
+- GUI: Copy user-editable variables from another proposal to bootstrap new
+  databases faster (!475).
+- Variables: Dependency annotations accept Unix shell-style glob patterns (e.g.
+  `var#detector_*`) (!480).
+- Variables: The `@Variable` decorator can be used without parentheses when no
+  arguments are needed (!481).
+
+Changed:
+
+- Backend listener revamped to support centralized deployments (!394).
+- MyMDC lookups now go through `extra-proposal` (!509).
+
+Fixed:
+
+- GUI: Empty table cells remain read-only and `Cell(data=None)` or `None`
+  summaries no longer crash rendering (!448) (!458) (!459).
+- Core: Variable execution flushes stdout immediately (!455).
+- DB: Orphaned variable tags are removed (!461).
+- GUI: Opening databases in read-only locations works again (!515).
+
+[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.2...0.2.1)
+
 ## [0.2]
 
 Added:
@@ -201,6 +244,7 @@ Fixed:
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/commits/0.1)
 
 
+[0.2.1]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2.1
 [0.2]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2
 [0.1.4]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.1.4
 [0.1.3]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.1.3
