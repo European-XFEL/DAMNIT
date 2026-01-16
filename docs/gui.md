@@ -43,6 +43,12 @@ hidden or shown with the checkboxes on the right.
 
 Features:
 
+- Hierarchical column headers are shown automatically when a variable title
+  contains `/` separators (e.g. `Trigger/Open`). You can toggle the view at any
+  time via `Table` >> `Show hierarchical headers`, which lets you fall back
+  to the previous single-row header if needed:
+  ![](static/hierarchical-header.png)
+
 - Hide/show and move columns using the settings under `Table` >> `Select, delete, &
   reorder columns`:
   ![](static/columns.gif)

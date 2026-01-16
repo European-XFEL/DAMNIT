@@ -33,7 +33,9 @@ Functions in the context file can be decorated with `@Variable` to denote that
 these are variables to be executed for each run. The `@Variable` decorator takes
 these arguments:
 
-- `title` (string): title displayed for the variable's column.
+- `title` (string): title displayed for the variable's column. Titles can
+  include `/` separators to build hierarchical column headers in the
+  [GUI](gui.md#exploring-variables).
 - `tags` (string or list of strings): tags to categorize and filter variables.
   Tags can be used to group related variables and filter the table view:
   ```python
