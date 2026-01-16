@@ -153,12 +153,16 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
 class Extractor:
     _proposal = None
 
-    def __init__(self, sandbox_args=None):
+    def __init__(self, sandbox_args=None, connect_to_kafka=True):
         self.db = DamnitDB()
-        self.kafka_prd = KafkaProducer(
-            bootstrap_servers=UPDATE_BROKERS,
-            value_serializer=lambda d: pickle.dumps(d),
-        )
+        if connect_to_kafka:
+            self.kafka_prd = KafkaProducer(
+                bootstrap_servers=UPDATE_BROKERS,
+                value_serializer=lambda d: pickle.dumps(d),
+            )
+        else:
+            self.kafka_prd = None
+
         context_python = self.db.metameta.get("context_python")
         self.ctx_whole, error_info = get_context_file(
             Path('context.py'),
@@ -172,11 +176,12 @@ class Extractor:
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
 
-        for name, var in updates.items():
-            self.kafka_prd.send(self.db.kafka_topic, msg_dict(
-                MsgKind.variable_set, {'name': name} | var
-            ))
-        self.kafka_prd.flush()
+        if self.kafka_prd is not None:
+            for name, var in updates.items():
+                self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+                    MsgKind.variable_set, {'name': name} | var
+                ))
+            self.kafka_prd.flush()
 
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
