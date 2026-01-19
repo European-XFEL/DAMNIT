@@ -14,7 +14,7 @@ import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["RunData", "Variable", "Cell"]
+__all__ = ["RunData", "Variable", "Selection", "Cell"]
 
 log = logging.getLogger(__name__)
 
@@ -37,12 +37,41 @@ class RunData(Enum):
     ALL = "all"
 
 
+class Selection:
+    """Decorator to define reusable run subsets for Variables."""
+
+    def __init__(self, func=None):
+        self.func = func
+        self.name = None
+        self._data = None
+        if callable(func):
+            self(func)
+
+    def __call__(self, func):
+        self.func = func
+        self.name = func.__name__
+        return self
+
+    def data(self, run_data):
+        if self._data is None:
+            self._data = self.func(run_data)
+        return self._data
+
+    def check(self):
+        problems = []
+        if not self.name or not self.name.isidentifier():
+            problems.append(
+                f"Selection name {self.name!r} is not a valid Python identifier"
+            )
+        return problems
+
+
 class Variable:
     _name = None
 
     def __init__(
             self, title=None, description=None, summary=None, data=None,
-            cluster=False, tags=None, transient=False
+            cluster=False, tags=None, transient=False, selection=None
     ):
         self.tags = (tags,) if isinstance(tags, str) else tags
         self.description = description
@@ -50,6 +79,7 @@ class Variable:
         self.cluster = cluster
         self.transient = transient
         self._data = data
+        self.selection = selection
 
         if callable(title):
             # @Variable called without parenthesis
@@ -85,6 +115,11 @@ class Variable:
                     f"tags={self.tags!r} for variable {self.name} "
                     "(must be a non-empty string or an iterable of strings)"
                 )
+        if self.selection is not None and not isinstance(self.selection, str):
+            problems.append(
+                f"selection={self.selection!r} for variable {self.name} "
+                "(must be the name of a @Selection)"
+            )
 
         return problems
 

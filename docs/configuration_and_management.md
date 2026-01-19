@@ -173,6 +173,31 @@ $ damnit db-config noncluster_cpus 8
 $ damnit db-config noncluster_mem 50G
 ```
 
+### Selections
+
+Some Variables only need a filtered view of the `DataCollection`. You can
+factor these filters out using the `@Selection` decorator and then reference the
+selection by name from any `@Variable`:
+
+```python
+from damnit.context import Selection, Variable
+from extra.components import PPU
+
+@Selection
+def ppu_trigger(run):
+    return PPU(run).trigger()  # returns a DataCollection subset
+
+@Variable(selection='ppu_trigger')
+def subset_of_run(run):
+    # ``run`` is now the subset returned by ppu_trigger()
+    return run.train_ids.size
+
+@Variable
+def full_run(run):
+    # ``run`` is still the original DataCollection (no selection applied)
+    return run.train_ids.size
+```
+
 ### Cell
 
 The `Cell` object is a versatile container that allows customizing how data is

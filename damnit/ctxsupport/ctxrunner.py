@@ -28,7 +28,7 @@ import h5py
 import numpy as np
 import xarray as xr
 
-from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
+from damnit_ctx import RunData, Variable, Selection, Cell, Skip, isinstance_no_import
 
 log = logging.getLogger(__name__)
 
@@ -55,9 +55,10 @@ class ContextFileErrors(RuntimeError):
 
 class ContextFile:
 
-    def __init__(self, vars, code):
+    def __init__(self, vars, code, selections=None):
         self.vars = vars
         self.code = code
+        self.selections = selections or {}
 
         # Check for cycles
         try:
@@ -78,8 +79,15 @@ class ContextFile:
 
     def check(self):
         problems = []
+        for name, selection in self.selections.items():
+            problems.extend(selection.check())
+
         for name, var in self.vars.items():
             problems.extend(var.check())
+            if var.selection is not None and var.selection not in self.selections:
+                problems.append(
+                    f"Variable {name} references unknown selection {var.selection!r}"
+                )
             if var.data != RunData.RAW:
                 continue
             proc_dependencies = [dep for dep in self.all_dependencies(var)
@@ -165,8 +173,9 @@ class ContextFile:
         codeobj = compile(code, path, 'exec')
         exec(codeobj, d)
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
+        sels = {s.name: s for s in d.values() if isinstance(s, Selection)}
         log.debug("Loaded %d variables", len(vars))
-        return cls(vars, code)
+        return cls(vars, code, sels)
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
@@ -214,7 +223,7 @@ class ContextFile:
         # Add back any dependencies of the selected variables
         new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
-        return ContextFile(new_vars, self.code)
+        return ContextFile(new_vars, self.code, self.selections)
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
         dep_results = {'start_time': get_start_time(run_data)}
@@ -286,7 +295,12 @@ class ContextFile:
                     log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
                     continue
 
-                cell = var.evaluate(run_data, kwargs)
+                # Get the appropriate run selection for this variable
+                if var.selection is not None:
+                    data = self.selections[var.selection].data(run_data)
+                else:
+                    data = run_data
+                cell = var.evaluate(data, kwargs)
             except Exception as e:
                 sys.stdout.flush()  # As in the else block
                 if isinstance(e, Skip):
@@ -781,6 +795,8 @@ def main(argv=None):
             # pickled.
             for var in ctx.vars.values():
                 var.func = None
+            for selection in ctx.selections.values():
+                selection.func = None
         except:
             ctx = None
             error_info = extract_error_info(*sys.exc_info())

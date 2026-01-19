@@ -1484,3 +1484,49 @@ def test_pattern_matching_dependency(mock_run):
     results = ctx.execute(mock_run, 1000, 123, {})
 
     assert results.cells['foo'].data == 42
+
+
+def test_run_data_selection(mock_run, caplog):
+    # test_variable_selection
+    code_selection = """
+    from damnit.context import Selection, Variable
+
+    selection_calls = {'count': 0}
+
+    @Selection
+    def trimmed(run):
+        selection_calls['count'] += 1
+        return {'value': selection_calls['count']}
+
+    @Variable(selection='trimmed')
+    def uses_selection(run):
+        return isinstance(run, dict)
+
+    @Variable(selection='trimmed')
+    def selection_count(run):
+        return run['value']
+
+    @Variable(selection='trimmed')
+    def selection_count_again(run):
+        return run['value']
+    """
+    ctx = mkcontext(code_selection)
+    ctx.check()
+
+    res = run_ctx_helper(ctx, mock_run, 1, 1, caplog)
+    assert res.cells["uses_selection"].data == True
+    assert res.cells["selection_count"].data == 1
+    assert res.cells["selection_count_again"].data == 1
+
+
+    # test missing selection raises
+    code = """
+    from damnit.context import Variable
+
+    @Variable(selection='missing')
+    def foo(run):
+        return 0
+    """
+    ctx = mkcontext(code)
+    with pytest.raises(ContextFileErrors, match="unknown selection"):
+        ctx.check()
