@@ -216,9 +216,16 @@ def foo(run):
     return 42
 ```
 
-This should work out-of-the-box with no other configuration needed. By default
-DAMNIT will figure out an appropriate partition that user has access to, but
-that can be overridden by explicitly setting a partition or reservation:
+This should work out-of-the-box with no other configuration needed. The default
+timeout for Slurm jobs is 2 hours, which can be customized through the
+`slurm_time` setting:
+```bash
+# Set a time limit of 5 hours
+$ damnit db-config slurm_time 05:00:00
+```
+
+By default DAMNIT will figure out an appropriate partition that user has access
+to, but that can be overridden by explicitly setting a partition or reservation:
 ```bash
 # Set a reservation
 $ damnit db-config slurm_reservation upex_001234
