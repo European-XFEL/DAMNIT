@@ -1,6 +1,13 @@
 # GUI
 
 ## Open the GUI
+
+!!! tip "The web interface"
+    We're in the process of replacing the Qt desktop GUI with a web interface to
+    make it easier for folks to use DAMNIT. It's not feature complete yet, but
+    if you'd like to give it a try you can check it out here:
+    https://damnit.xfel.eu
+
 1. Start by opening a [FastX](https://max-exfl-display.desy.de:3389) XFCE
    session. You can also SSH to `max-exfl-display.desy.de` with X forwarding
    enabled but that's not recommended because it can be slow.
