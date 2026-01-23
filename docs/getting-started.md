@@ -1,4 +1,4 @@
-# GUI
+# Getting started
 
 ## Open the GUI
 
@@ -7,6 +7,8 @@
     make it easier for folks to use DAMNIT. It's not feature complete yet, but
     if you'd like to give it a try you can check it out here:
     https://damnit.xfel.eu
+
+    ![](static/damnit-web.png)
 
 1. Start by opening a [FastX](https://max-exfl-display.desy.de:3389) XFCE
    session. You can also SSH to `max-exfl-display.desy.de` with X forwarding
@@ -173,13 +175,3 @@ All the data in the run table can be exported to an Excel/CSV file, with the
 caveat that images will not be exported (they'll be replaced with an `<image>`
 string):
 ![](static/export.gif)
-
-## Experimental: the web interface
-To make accessing the GUI easier we're working on a web interface to replace the
-current PyQt GUI. This is still very much in beta, but if you're feeling brave
-you can try it out through this link: https://damnit-dev.xfel.eu/
-![](static/damnit-web.png)
-
-Currently it can only be accessed within our internal network so you'll need to
-have a VPN or proxy set up. Note that not all features have been ported from the
-PyQt GUI yet.

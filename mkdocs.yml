@@ -54,7 +54,7 @@ markdown_extensions:
 # Navigation menu order
 nav:
   - index.md
-  - gui.md
+  - getting-started.md
   - configuration_and_management.md
   - api.md
   - internals.md
