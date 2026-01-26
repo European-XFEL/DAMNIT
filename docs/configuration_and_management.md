@@ -35,7 +35,7 @@ these arguments:
 
 - `title` (string): title displayed for the variable's column. Titles can
   include `/` separators to build hierarchical column headers in the
-  [GUI](gui.md#exploring-variables).
+  [GUI](getting-started.md#exploring-variables).
 - `tags` (string or list of strings): tags to categorize and filter variables.
   Tags can be used to group related variables and filter the table view:
   ```python
