@@ -471,7 +471,7 @@ packages:
   requires_python: '>=3.8'
 - pypi: ./
   name: damnit
-  version: 0.2.0
+  version: 0.2.1
   sha256: 565c52c3be811cb26814e78ee2cefc8bda657878db3a8788331b103e901b60fc
   requires_dist:
   - h5netcdf>=1.4.1

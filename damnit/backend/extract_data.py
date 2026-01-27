@@ -26,6 +26,7 @@ import numpy as np
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
+from ..ctxsupport.damnit_ctx import is_valid_variable_name
 from ..definitions import UPDATE_BROKERS
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
@@ -132,7 +133,8 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
     # We're going to be formatting column names as strings into SQL code,
     # so check that they are simple identifiers before we get there.
     for name in reduced_data:
-        assert re.match(r'[a-zA-Z][a-zA-Z0-9_]*$', name), f"Bad field name {name}"
+        if not is_valid_variable_name(name):
+            raise ValueError(f"Invalid variable name: {name}")
 
     # Make a deepcopy before making modifications to the dictionary, such as
     # removing `start_time` and pickling non-{array, scalar} values.
