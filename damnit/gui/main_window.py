@@ -46,6 +46,7 @@ log = logging.getLogger(__name__)
 
 class Settings(Enum):
     COLUMNS = "columns"
+    COLUMN_WIDTHS = "column_widths"
     THEME = "theme"
     HIERARCHICAL_HEADER = "hierarchical_header"
 
@@ -227,6 +228,7 @@ da-dev@xfel.eu"""
         with shelve.open(str(self._settings_db_path)) as db:
             settings = {
                 Settings.COLUMNS.value: self.table_view.get_column_states(),
+                Settings.COLUMN_WIDTHS.value: self.table_view.get_column_widths(),
                 Settings.THEME.value: self.current_theme.value,
                 Settings.HIERARCHICAL_HEADER.value: self.table_view.hierarchical_header_enabled,
             }
@@ -255,6 +257,7 @@ da-dev@xfel.eu"""
 
         # Load the users settings
         col_settings = {}
+        column_widths = {}
         hierarchical_header = self.table_view.hierarchical_header_enabled
         if self._settings_db_path.parent.is_dir():
             with shelve.open(str(self._settings_db_path)) as db:
@@ -262,6 +265,9 @@ da-dev@xfel.eu"""
                 if key in db:
                     stored_settings = db[key]
                     col_settings = stored_settings.get(Settings.COLUMNS.value, {})
+                    column_widths = stored_settings.get(Settings.COLUMN_WIDTHS.value, {})
+                    if not isinstance(column_widths, dict):
+                        column_widths = {}
                     hierarchical_header = stored_settings.get(
                         Settings.HIERARCHICAL_HEADER.value,
                         hierarchical_header,
@@ -282,6 +288,7 @@ da-dev@xfel.eu"""
             column_index = self.table.find_column(column, by_title=True)
             header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
         header.setVisible(True)
+        self.table_view.apply_column_widths(column_widths)
 
         # Update the column widget and plotting controls with the new columns
         titles = self.table.column_titles
