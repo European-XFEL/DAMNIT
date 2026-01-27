@@ -266,8 +266,6 @@ da-dev@xfel.eu"""
                     stored_settings = db[key]
                     col_settings = stored_settings.get(Settings.COLUMNS.value, {})
                     column_widths = stored_settings.get(Settings.COLUMN_WIDTHS.value, {})
-                    if not isinstance(column_widths, dict):
-                        column_widths = {}
                     hierarchical_header = stored_settings.get(
                         Settings.HIERARCHICAL_HEADER.value,
                         hierarchical_header,
