@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 
 ROW_HEIGHT = 30
 THUMBNAIL_SIZE = (100, 35)  # w, h (pixels)
+STATIC_COLUMNS = ["Status", "Proposal", "Run", "Timestamp", "Comment"]
 
 
 class FilterHeaderView(QtWidgets.QHeaderView):
@@ -360,6 +361,7 @@ class TableView(QtWidgets.QTableView):
         super().__init__(parent)
         self.setAlternatingRowColors(False)
         self.hierarchical_header_enabled = True
+        self._restoring_column_widths = False
 
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
@@ -424,6 +426,7 @@ class TableView(QtWidgets.QTableView):
         header.set_hierarchical_enabled(self.hierarchical_header_enabled)
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.show_horizontal_header_menu)
+        header.sectionResized.connect(self._on_section_resized)
         # header.setSectionsMovable(True)  # TODO need to update variable order in the table / emit settings_changed
 
         if model is not None:
@@ -437,6 +440,20 @@ class TableView(QtWidgets.QTableView):
         self.selectionModel().selectionChanged.connect(self.selection_changed)
 
         self.model_updated.emit()
+
+    def _on_section_resized(self, logical_index, old_size, new_size):
+        if self._restoring_column_widths:
+            return
+        if old_size == new_size:
+            return
+        header = self.horizontalHeader()
+        if header.sectionResizeMode(logical_index) == QtWidgets.QHeaderView.ResizeToContents:
+            return
+        self._queue_settings_changed()
+
+    @qthrottled(timeout=200, leading=False)
+    def _queue_settings_changed(self):
+        self.settings_changed.emit()
 
     def selected_rows(self):
         """Get indices of selected rows in the DamnitTableModel"""
@@ -486,6 +503,24 @@ class TableView(QtWidgets.QTableView):
                 item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
         elif save_settings:
             self.settings_changed.emit()
+
+    def apply_column_widths(self, column_widths):
+        if not column_widths or not hasattr(self, "damnit_model") or self.damnit_model is None:
+            return
+        header = self.horizontalHeader()
+        self._restoring_column_widths = True
+        try:
+            for logical_idx, title in enumerate(self.damnit_model.column_titles):
+                width = column_widths.get(title)
+                if not isinstance(width, (int, float)) or isinstance(width, bool):
+                    continue
+                if width <= 0:
+                    continue
+                if header.sectionResizeMode(logical_idx) == QtWidgets.QHeaderView.ResizeToContents:
+                    continue
+                self.setColumnWidth(logical_idx, int(width))
+        finally:
+            self._restoring_column_widths = False
 
     def item_moved(self, parent, start, end, destination, row):
         # Take account of the static columns
@@ -558,9 +593,8 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.clear()
         self._static_columns_widget.clear()
 
-        static_columns = ["Status", "Proposal", "Run", "Timestamp", "Comment"]
         for column, status in zip(columns, statuses):
-            if column in static_columns:
+            if column in STATIC_COLUMNS:
                 item = QtWidgets.QListWidgetItem(column)
                 self._static_columns_widget.addItem(item)
                 item.setCheckState(Qt.Checked if status else Qt.Unchecked)
@@ -571,7 +605,7 @@ class TableView(QtWidgets.QTableView):
         new_columns = []
         new_statuses = []
         for col, status in zip(columns, statuses):
-            if col in static_columns:
+            if col in STATIC_COLUMNS:
                 continue
             new_columns.append(col)
             new_statuses.append(status)
@@ -590,6 +624,17 @@ class TableView(QtWidgets.QTableView):
         add_column_states(self._columns_widget)
 
         return column_states
+
+    def get_column_widths(self):
+        if not hasattr(self, "damnit_model") or self.damnit_model is None:
+            return {}
+        header = self.horizontalHeader()
+        widths = {}
+        for logical_idx, title in enumerate(self.damnit_model.column_titles):
+            width = header.sectionSize(logical_idx)
+            if width > 0:
+                widths[title] = int(width)
+        return widths
 
     def resize_new_rows(self, parent, first, last):
         for row in range(first, last + 1):
