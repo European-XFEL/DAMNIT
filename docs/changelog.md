@@ -8,6 +8,7 @@ Added:
   titles (!520).
 - Core: Introduced a migrations framework to apply future schema changes
   predictably (!510).
+- GUI: save/restore column widths setting (!526).
 
 Fixed:
 
