@@ -178,11 +178,10 @@ def atomic_create_h5(dir, prefix):
 def save_dataset_netcdf(f: h5py.File, group: str, dset):
     import h5netcdf
     from xarray.backends import H5NetCDFStore
-    from xarray.backends.api import dump_to_store
 
     with h5netcdf.File(f, 'a') as nf:
         store = H5NetCDFStore(nf, group=group, mode='w')
-        dump_to_store(dset, store, encoding={k: COMPRESSION_OPTS for k in dset})
+        dset.dump_to_store(store, encoding={k: COMPRESSION_OPTS for k in dset})
 
 
 def save_dataarray_netcdf(f: h5py.File, group: str, darr):
