@@ -27,6 +27,7 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
+from damnit.gui.table import STATIC_COLUMNS
 from damnit.gui.table_filter import (CategoricalFilter,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
@@ -189,6 +190,11 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
                    if not header.isSectionHidden(i)]
         return headers
 
+    # Helper function to get the width of a column by its title
+    def column_width(title):
+        logical_index = win.table.find_column(title, by_title=True)
+        return win.table_view.horizontalHeader().sectionSize(logical_index)
+
     # Helper function to move a column from `from_idx` to `to_idx`. Column moves
     # are triggered by the user drag-and-dropping items in a QListWidget, but
     # unfortunately it seems well-nigh impossible to either simulate a
@@ -217,6 +223,16 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     # settings directory should now exist.
     settings_db_path = tmp_path / ".local/state/damnit/settings.db"
     assert settings_db_path.parent.is_dir()
+
+    # Resize a column and ensure its width is persisted
+    resize_col = next(col for col in visible_headers() if col not in STATIC_COLUMNS)
+    resize_logical = win.table.find_column(resize_col, by_title=True)
+    original_width = column_width(resize_col)
+    target_width = 240 if original_width != 240 else 260
+    win.table_view.setColumnWidth(resize_logical, target_width)
+    qtbot.wait(300)
+    win.autoconfigure(db_dir)
+    assert column_width(resize_col) == target_width
 
     columns_widget = win.table_view._columns_widget
     static_columns_widget = win.table_view._static_columns_widget
