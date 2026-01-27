@@ -512,7 +512,7 @@ class TableView(QtWidgets.QTableView):
         try:
             for logical_idx, title in enumerate(self.damnit_model.column_titles):
                 width = column_widths.get(title)
-                if not isinstance(width, (int, float)) or isinstance(width, bool):
+                if not isinstance(width, int):
                     continue
                 if width <= 0:
                     continue
