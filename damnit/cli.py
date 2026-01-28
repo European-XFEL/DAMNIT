@@ -346,43 +346,43 @@ def main(argv=None):
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor
-        Extractor(connect_to_kafka=not args.no_kafka).update_db_vars()
+        with Extractor(connect_to_kafka=not args.no_kafka) as extr:
+            extr.update_db_vars()
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB
-        db = DamnitDB()
-        currently_set = db.metameta.get('proposal', None)
-        if args.proposal is None:
-            print("Current proposal number:", currently_set)
-        elif args.proposal == currently_set:
-            print(f"No change - proposal {currently_set} already set")
-        else:
-            db.metameta['proposal'] = args.proposal
-            print(f"Changed proposal to {args.proposal} (was {currently_set})")
+        with DamnitDB() as db:
+            currently_set = db.metameta.get('proposal', None)
+            if args.proposal is None:
+                print("Current proposal number:", currently_set)
+            elif args.proposal == currently_set:
+                print(f"No change - proposal {currently_set} already set")
+            else:
+                db.metameta['proposal'] = args.proposal
+                print(f"Changed proposal to {args.proposal} (was {currently_set})")
 
     elif args.subcmd == 'new-id':
         from secrets import token_hex
         from .backend.db import DamnitDB
 
-        db = DamnitDB.from_dir(args.db_dir)
-        db.metameta["db_id"] = token_hex(20)
+        with DamnitDB.from_dir(args.db_dir) as db:
+            db.metameta["db_id"] = token_hex(20)
 
     elif args.subcmd == 'db-config':
         from .backend.db import DamnitDB
 
-        db = DamnitDB()
-        handle_config_args(args, db.metameta)
+        with DamnitDB() as db:
+            handle_config_args(args, db.metameta)
 
     elif args.subcmd == "migrate":
         from .backend.db import DamnitDB
         from .migrations import migrate_intermediate_v1, migrate_v0_to_v1
 
-        db = DamnitDB(allow_old=True)
-
-        if args.migrate_subcmd == "v0-to-v1":
-            migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
-        elif args.migrate_subcmd == "intermediate-v1":
-            migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
+        with DamnitDB(allow_old=True) as db:
+            if args.migrate_subcmd == "v0-to-v1":
+                migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
+            elif args.migrate_subcmd == "intermediate-v1":
+                migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
 
 if __name__ == '__main__':
     sys.exit(main())
