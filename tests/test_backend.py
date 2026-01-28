@@ -850,7 +850,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db
     monkeypatch.chdir(db_dir)
 
-    ctxrunner_deps = ["extra_data", "extra_proposal", "matplotlib", "plotly"]
+    ctxrunner_deps = ["extra_data", "extra_proposal", "matplotlib", "plotly", "kafka-python-ng"]
 
     # Install dependencies for ctxrunner and a light-weight package (sfollow)
     # that isn't in our current environment.
