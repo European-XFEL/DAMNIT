@@ -121,6 +121,12 @@ class DamnitDB:
     def close(self):
         self.conn.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     @property
     def kafka_topic(self):
         return UPDATE_TOPIC.format(self.metameta['db_id'])

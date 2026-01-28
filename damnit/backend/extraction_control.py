@@ -146,6 +146,12 @@ class ExtractionSubmitter:
         self.context_dir = context_dir
         self.db = db or DamnitDB.from_dir(context_dir)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.db.close()
+
     _proposal = None
 
     @property
@@ -327,71 +333,71 @@ class ExtractionSubmitter:
 
 def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=-1):
     """Called by the 'damnit reprocess' subcommand"""
-    submitter = ExtractionSubmitter(Path.cwd())
-    if proposal is None:
-        proposal = submitter.proposal
+    with ExtractionSubmitter(Path.cwd()) as submitter:
+        if proposal is None:
+            proposal = submitter.proposal
 
-    if runs == ['all']:
-        rows = submitter.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
+        if runs == ['all']:
+            rows = submitter.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
 
-        # Dictionary of proposal numbers to sets of available runs
-        available_runs = {}
-        # Lists of (proposal, run) tuples
-        props_runs = []
-        unavailable_runs = []
+            # Dictionary of proposal numbers to sets of available runs
+            available_runs = {}
+            # Lists of (proposal, run) tuples
+            props_runs = []
+            unavailable_runs = []
 
-        if mock:
-            props_runs = rows
+            if mock:
+                props_runs = rows
+            else:
+                for proposal, run in rows:
+                    if proposal not in available_runs:
+                        available_runs[proposal] = proposal_runs(proposal)
+
+                    if run in available_runs[proposal]:
+                        props_runs.append((proposal, run))
+                    else:
+                        unavailable_runs.append((proposal, run))
+
+            props_runs.sort()
+            print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
         else:
-            for proposal, run in rows:
-                if proposal not in available_runs:
-                    available_runs[proposal] = proposal_runs(proposal)
+            try:
+                runs = set([int(r) for r in runs])
+            except ValueError as e:
+                sys.exit(f"Run numbers must be integers ({e})")
 
-                if run in available_runs[proposal]:
-                    props_runs.append((proposal, run))
-                else:
-                    unavailable_runs.append((proposal, run))
+            if mock:
+                available_runs = runs
+            else:
+                available_runs = proposal_runs(proposal)
 
-        props_runs.sort()
-        print(f"Reprocessing {len(props_runs)} runs already recorded, skipping {len(unavailable_runs)}...")
-    else:
-        try:
-            runs = set([int(r) for r in runs])
-        except ValueError as e:
-            sys.exit(f"Run numbers must be integers ({e})")
+            unavailable_runs = runs - available_runs
+            if len(unavailable_runs) > 0:
+                # Note that we print unavailable_runs as a list so it's enclosed
+                # in [] brackets, which is more recognizable than the {} braces
+                # that sets are enclosed in.
+                print(
+                    f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
 
-        if mock:
-            available_runs = runs
+            props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
+
+        reqs = [
+            ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
+            for prop, run in props_runs
+        ]
+        # To reduce DB write contention, only update the computed variables in the
+        # first job when we're submitting a whole bunch.
+        for req in reqs[1:]:
+            req.update_vars = False
+
+        if direct:
+            for req in reqs:
+                submitter.execute_direct(req)
+        elif watch:
+            for req in reqs:
+                submitter.execute_in_slurm(req)
         else:
-            available_runs = proposal_runs(proposal)
-
-        unavailable_runs = runs - available_runs
-        if len(unavailable_runs) > 0:
-            # Note that we print unavailable_runs as a list so it's enclosed
-            # in [] brackets, which is more recognizable than the {} braces
-            # that sets are enclosed in.
-            print(
-                f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
-
-        props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
-
-    reqs = [
-        ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
-        for prop, run in props_runs
-    ]
-    # To reduce DB write contention, only update the computed variables in the
-    # first job when we're submitting a whole bunch.
-    for req in reqs[1:]:
-        req.update_vars = False
-
-    if direct:
-        for req in reqs:
-            submitter.execute_direct(req)
-    elif watch:
-        for req in reqs:
-            submitter.execute_in_slurm(req)
-    else:
-        submitter.submit_multi(reqs, limit_running=limit_running)
+            submitter.submit_multi(reqs, limit_running=limit_running)
 
 
 class ExtractionJobTracker:

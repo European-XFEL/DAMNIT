@@ -173,6 +173,12 @@ class Extractor:
         if error_info is not None:
             raise RuntimeError(f"Error loading context file:\n{error_info[0]}")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.db.close()
+
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
 
@@ -378,11 +384,12 @@ def main(argv=None):
                         mock=args.mock,
                         uuid=args.processing_id,
                         sandbox_args=args.sandbox_args)
-    if args.update_vars:
-        extr.update_db_vars()
+    with extr:
+        if args.update_vars:
+            extr.update_db_vars()
 
-    extr.extract_and_ingest()
-    extr.kafka_prd.flush(timeout=10)
+        extr.extract_and_ingest()
+        extr.kafka_prd.flush(timeout=10)
 
 
 if __name__ == '__main__':
