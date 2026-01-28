@@ -301,38 +301,38 @@ def main(argv=None):
     elif args.subcmd == "listener":
         from .backend.listener import ListenerDB
 
-        db = ListenerDB(Path.cwd())
-        if args.listener_subcmd == "config":
-            handle_config_args(args, db.settings,
-                               # Convert `static_mode` to a bool
-                               dict(static_mode=lambda x: bool(int(x))))
-        elif args.listener_subcmd == "add":
-            official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
+        with ListenerDB(Path.cwd()) as db:
+            if args.listener_subcmd == "config":
+                handle_config_args(args, db.settings,
+                                   # Convert `static_mode` to a bool
+                                   dict(static_mode=lambda x: bool(int(x))))
+            elif args.listener_subcmd == "add":
+                official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
 
-            if args.db_dir is None:
-                db_dir = official_dir
-                official = True
-            else:
-                db_dir = args.db_dir
-                official = db_dir == official_dir
-
-            db.add_proposal_db(args.proposal, db_dir, official=official)
-            print(f"Added proposal {args.proposal} at {db_dir}")
-        elif args.listener_subcmd == "rm":
-            db.remove_proposal_db(args.db_dir)
-            print(f"Removed database at {args.db_dir}")
-        elif args.listener_subcmd == "databases":
-            db = ListenerDB(Path.cwd())
-            all_proposals = db.all_proposals()
-            sorted_proposals = sorted(all_proposals.keys())
-            for p in sorted_proposals:
-                if len(all_proposals[p]) > 1:
-                    print(f"p{p}:")
-                    for x in all_proposals[p]:
-                        print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
+                if args.db_dir is None:
+                    db_dir = official_dir
+                    official = True
                 else:
-                    x = all_proposals[p][0]
-                    print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
+                    db_dir = args.db_dir
+                    official = db_dir == official_dir
+
+                db.add_proposal_db(args.proposal, db_dir, official=official)
+                print(f"Added proposal {args.proposal} at {db_dir}")
+            elif args.listener_subcmd == "rm":
+                db.remove_proposal_db(args.db_dir)
+                print(f"Removed database at {args.db_dir}")
+            elif args.listener_subcmd == "databases":
+                db = ListenerDB(Path.cwd())
+                all_proposals = db.all_proposals()
+                sorted_proposals = sorted(all_proposals.keys())
+                for p in sorted_proposals:
+                    if len(all_proposals[p]) > 1:
+                        print(f"p{p}:")
+                        for x in all_proposals[p]:
+                            print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
+                    else:
+                        x = all_proposals[p][0]
+                        print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
