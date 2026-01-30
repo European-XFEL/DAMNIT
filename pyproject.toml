@@ -82,6 +82,9 @@ damnit = "damnit.cli:main"
 [tool.pytest.ini_options]
 timeout = 120
 norecursedirs = "tests/helpers"
+filterwarnings = [
+    "ignore:unclosed database in <sqlite3:ResourceWarning",
+]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
