@@ -158,6 +158,10 @@ def main(argv=None):
         help="Display the DAMNIT databases currently being monitored"
     )
 
+    combiner_ap = subparsers.add_parser("combiner", help="Manage the DAMNIT combiner.")
+    combiner_subparser = combiner_ap.add_subparsers(dest="combiner_subcmd", required=True)
+    combiner_start_grp = combiner_subparser.add_parser("run", help="Run the DAMNIT combiner")
+
     reprocess_ap = subparsers.add_parser(
         'reprocess',
         help="Extract data from specified runs. This does not send live updates yet."
@@ -333,6 +337,10 @@ def main(argv=None):
                 else:
                     x = all_proposals[p][0]
                     print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
+
+    elif args.subcmd == "combiner":
+        from .backend.combine import main
+        return main()
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
