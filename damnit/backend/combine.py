@@ -2,13 +2,13 @@
 import json
 import logging
 import re
-import sys
+import signal
 from pathlib import Path
 
 import h5py
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 
-from .db import DamnitDB
+from .db import DamnitDB, MsgKind, msg_dict
 from ..definitions import UPDATE_BROKERS
 from .extract_data import load_reduced_data, add_to_db
 
@@ -44,39 +44,70 @@ def combine(src: Path, dst: Path):
 
     src.unlink()
 
+
+class FileSubmissionProcessor:
+    def __init__(self):
+        self.consumer = KafkaConsumer(
+            KAFKA_TOPIC,
+            bootstrap_servers=UPDATE_BROKERS,
+            consumer_timeout_ms=600_000,
+        )
+        self.producer = KafkaProducer(
+            bootstrap_servers=UPDATE_BROKERS,
+            value_serializer=lambda d: json.dumps(d).encode('utf-8')
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
+    def shutdown(self):
+        self.consumer.close()
+        self.producer.flush(timeout=10)
+        self.producer.close(timeout=10)
+
+    def run(self):
+        while True:
+            for record in self.consumer:
+                try:
+                    msg = json.loads(record.value.decode())
+                    self.process_file_submission_msg(msg)
+                except Exception:
+                    log.error(
+                        "Unexpected error processing file submission message",
+                        exc_info=True,
+                    )
+
+    def process_file_submission_msg(self, d: dict):
+        """Handle a notification from Kafka"""
+        damnit_dir = Path(d['damnit_dir'])
+        db = DamnitDB.from_dir(damnit_dir)
+        h5_dir = damnit_dir / "extracted_data"
+        src = Path(d['new_file'])
+        dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
+        log.info(f"Combining %r into %r", src, dst)
+
+        prop, run = d['proposal'], d['run']
+
+        new_data = load_reduced_data(src)
+        add_to_db(new_data, db, prop, run)
+        self.send_update(new_data, db.kafka_topic, prop, run)
+        combine(src, dst)
+
+    def send_update(self, reduced_data, topic, proposal, run):
+        update_msg = msg_dict(MsgKind.run_values_updated, {
+            'run': run, 'proposal': proposal, 'values': {
+                name: reduced.value for name, reduced in reduced_data.items()
+            }
+        })
+        self.producer.send(topic, update_msg)
+
+
 def update_db(db: DamnitDB, proposal: int, run: int, src: Path):
     new_data = load_reduced_data(src)
     add_to_db(new_data, db, proposal, run)
-
-
-def process_file_submission_msg(d: dict):
-    """Handle a notification from Kafka"""
-    damnit_dir = Path(d['damnit_dir'])
-    db = DamnitDB.from_dir(damnit_dir)
-    h5_dir = damnit_dir / "extracted_data"
-    src = Path(d['new_file'])
-    dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
-    log.info(f"Combining %r into %r", src, dst)
-
-    update_db(db, d['proposal'], d['run'], src)
-    combine(src, dst)
-
-
-def listen_and_process():
-    cons = KafkaConsumer(
-        KAFKA_TOPIC,
-        bootstrap_servers=UPDATE_BROKERS,
-        consumer_timeout_ms=600_000,
-    )
-    while True:
-        for record in cons:
-            try:
-                msg = json.loads(record.value.decode())
-                process_file_submission_msg(msg)
-            except Exception:
-                log.error(
-                    "Unexpected error processing file submission message", exc_info=True
-                )
 
 
 def gather_all_fragments(damnit_dir: Path):
@@ -93,5 +124,25 @@ def gather_all_fragments(damnit_dir: Path):
         update_db(db, proposal, run, p)
         combine(p, dst)
 
+
+def interrupted(signum, frame):
+    raise KeyboardInterrupt
+
+
+def main():
+    # Treat SIGTERM like SIGINT (Ctrl-C) & do a clean shutdown
+    signal.signal(signal.SIGTERM, interrupted)
+
+    with FileSubmissionProcessor() as processor:
+        try:
+            log.info("Waiting for file submission messages")
+            processor.run()
+        except KeyboardInterrupt:
+            log.info("Stopping on Ctrl + C")
+        except Exception:
+            log.error("Stopping on unexpected error", exc_info=True)
+            raise
+
+
 if __name__ == "__main__":
-    gather_all_fragments(Path(sys.argv[1]))
+    main()
