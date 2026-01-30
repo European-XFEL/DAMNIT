@@ -257,7 +257,7 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
         value_serializer=lambda d: json.dumps(d).encode('utf-8')
     )
     prod.send(KAFKA_TOPIC, {
-        'damnit_dir': damnit_dir,
+        'damnit_dir': str(damnit_dir.absolute()),
         'new_file': f.final_path,
         'proposal': proposal,  # int
         'run': run,  # int
