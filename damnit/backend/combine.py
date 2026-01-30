@@ -27,6 +27,7 @@ def combine(src: Path, dst: Path):
         pass
     else:
         src.unlink()
+        log.debug("Created %r by renaming", dst)
         return
 
     with h5py.File(src) as fsrc, h5py.File(dst, 'r+') as fdst:
@@ -55,6 +56,7 @@ def process_file_submission_msg(d: dict):
     h5_dir = damnit_dir / "extracted_data"
     src = Path(d['new_file'])
     dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
+    log.info(f"Combining %r into %r", src, dst)
 
     update_db(db, d['proposal'], d['run'], src)
     combine(src, dst)
@@ -66,14 +68,15 @@ def listen_and_process():
         bootstrap_servers=UPDATE_BROKERS,
         consumer_timeout_ms=600_000,
     )
-    for record in cons:
-        try:
-            msg = json.loads(record.value.decode())
-            process_file_submission_msg(msg)
-        except Exception:
-            log.error(
-                "Unexpected error processing file submission message", exc_info=True
-            )
+    while True:
+        for record in cons:
+            try:
+                msg = json.loads(record.value.decode())
+                process_file_submission_msg(msg)
+            except Exception:
+                log.error(
+                    "Unexpected error processing file submission message", exc_info=True
+                )
 
 
 def gather_all_fragments(damnit_dir: Path):
