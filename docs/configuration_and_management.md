@@ -173,6 +173,271 @@ $ damnit db-config noncluster_cpus 8
 $ damnit db-config noncluster_mem 50G
 ```
 
+## `@Group`
+For more complex or reusable sets of analyses, you can group related variables
+together using a class decorated with `@Group`. This allows you to create
+self-contained, configurable components that can be instantiated multiple times.
+
+A `Group` is a standard Python class containing methods decorated with
+`@Variable`. The class itself is decorated with `@Group`, which transforms it
+into a configurable, `dataclass` object.
+
+```python title="context.py"
+from extra.components import XGM
+from damnit_ctx import Variable, Group
+
+@Group(tags=["XGM"])
+class XGMDiagnostics:
+    # parameters are defined as dataclass fields
+    device_name: str
+    offset: float = 0.0
+
+    @Variable(title="Pulse Energy", summary="mean")
+    def pulse_energy(self, run):
+        # Use instance attributes for configuration
+        return XGM(run, self.device_name).pulse_energy()
+
+    @Variable(title="Corrected Energy", summary="mean")
+    def corrected_energy(self, run, energy: "self#pulse_energy"):
+        # This has an intra-group dependency on the 'pulse_energy' variable
+        return energy + self.offset
+
+# Instantiate the group in your context file, providing parameter values
+xgm_sa2 = XGMDiagnostics(
+    name="xgm_sa2",
+    title="XGM SA2",
+    device_name="SA2_XTD6_XGM/XGM/DOOCS",
+    offset=1.1,
+)
+xgm_hed = XGMDiagnostics(
+    name="xgm_hed",
+    title="XGM HED",
+    device_name="HED_XTD9_XGM/XGM/DOOCS",
+    offset=0.9,
+)
+```
+
+### Naming and Titles
+Each `Group` instance has a `name` attribute that becomes the prefix for every
+`Variable` inside it. Pass a unique, non-empty `name=` when you instantiate the
+group, or assign the instance to a name in the context file (e.g.
+`xgm = XGMDiagnostics()`); in that case, the variable name becomes the group
+name. If `name` is still unset after the context is processed, DAMNIT raises an
+error. An error is also raised if two groups end up with the same name, or if a
+single group instance is assigned to multiple names without an explicit
+`name=`.
+
+- The **`Variable` name** is formed by joining the `Group`'s `name` and the
+  method's name with a dot: `xgm_sa2.pulse_energy`.
+- The **variable title** (for display in the GUI) is formed by joining the
+  `Group`'s title and the `Variable`'s title with a separator (default is `/`):
+  `XGM SA2/Pulse Energy`. If a group instance has no title, it defaults to the
+  group name.
+
+### `Group` attributes:
+`@Group` injects a few dataclass fields that automatically apply to the group's
+`Variable`s:
+
+- `name`: Machine-readable identifier and prefix. Must be unique; defaults to
+  `None`. If left unset, it is inferred from the variable name in the context
+  file when the instance is assigned.
+- `title`: Prefixes every `Variable` title within the `Group`.
+- `sep` (default `/`): Separator between the group title and the variable title.
+- `tags`: Added to every `Variable` in the group and merged with per-variable
+  tags.
+- `cluster`, `data` and `transient`: These properties remain per-`Variable` and
+  cannot be configured on the group itself.
+
+`@Group` only accepts `tags=...` as a decorator argument; `name`, `title`, and
+`sep` are per-instance fields.
+
+Decorator tag defaults can be overridden per instance:
+
+```python
+another_xgm = XGMDiagnostics(name="another_xgm", title="Another XGM", tags=["XGM!"])
+```
+
+> Note: Group classes cannot define or override the reserved fields `name`,
+> `title`, `sep`, or `tags`. These are injected by `@Group`.
+
+### Dependencies
+- **Intra-group dependencies:** To depend on another variable within the same
+  `Group` instance, you must replace the `var#` prefix with `self#` in the
+  attribute annotation. This explicitly tells DAMNIT to look for the `Variable`
+  within the current `Group`'s scope.
+  ```python
+  @Variable()
+  def corrected_energy(self, run, energy: "self#pulse_energy"):
+      ...
+  ```
+- **Global and Cross-Group Dependencies:** To depend on any variable outside the
+  current group's scope, you use the standard `var#` prefix with the variable's
+  final, fully-qualified name.
+  ```python
+  @Variable(title="Global Offset")
+  def global_offset(run):
+      return 42
+
+  @Group
+  class MyGroup:
+
+      @Variable()
+      def local_var(self, run, offset: "var#global_offset"):
+          # Correctly depends on the top-level global_offset
+          return 10 + offset
+
+      @Variable()
+      def another_var(self, run, xgm_energy: "var#xgm_hed.corrected_energy"):
+          # Correctly depends on a variable from another group instance
+          return xgm_energy * 2
+
+  instance = MyGroup(name="analysis", title="Group")
+  ```
+
+### Linking Variable fields
+Group fields can point to `Variable` instances (including variables within other
+group instances). A `self#` dependency can reference those fields directly, and
+DAMNIT resolves the final variable name.
+
+```python
+@Variable
+def base(run):
+    return 1
+
+@Group
+class A:
+    v: Variable
+
+    @Variable
+    def asdf(self, run, data: "self#v"):
+        return data + 1
+
+a1 = A(name="a1", v=base)
+a2 = A(name="a2", v=a1.asdf)
+# a1.asdf depends on base; a2.asdf depends on a1.asdf
+```
+
+### Linking Groups
+You can create more complex analysis pipelines by linking independent `Group`s.
+This is useful for:
+
+- **Avoiding Duplication**: Link to a shared component (like an XGM diagnostic)
+  from multiple other groups. The XGM analysis will run only once, and all
+  dependent groups will use its result.
+- **Logical Separation**: Keep different analysis domains separate. For example,
+  detector diagnostics and beamline diagnostics can be defined in independent
+  groups and then linked together by a higher-level analysis, without mixing
+  their internal logic.
+- **No Hardcoding**: Avoid hardcoding variable names like
+  `var#xgm_sa2.intensity`. By linking, you make your group configurable,
+  allowing it to be connected to `xgm_sa2` in one context and `xgm_hed` in
+  another by passing different group instances.
+
+Declare dataclass fields typed as other `Group`s and assign concrete instances
+when you instantiate the outer group. A `self#` dependency such as
+`self#xgm.corrected_energy` follows the attribute path, resolves the nested
+instance, and uses that instance's `name` (e.g. `xgm_sa2`) to build the final
+dependency (`xgm_sa2.corrected_energy`).
+
+```python
+@Group(tags=["MID", "Diag"])
+class MIDDiagnostics:
+    xgm: XGMDiagnostics
+    detector: Detector
+
+    @Variable(title="Photons per µJ")
+    def photons_per_microjoule(self, run,
+                               photons: "self#detector.n_photons",
+                               energy: "self#xgm.corrected_energy"):
+        # The system resolves `xgm` to the linked instance named "xgm_sa2"
+        # and looks up the final variable `xgm_sa2.corrected_energy`.
+        return photons / energy
+
+# 1. Define the shared, top-level instances. Their `name` values
+#    ("xgm_sa2", "xgm_hed") are their public identifiers.
+xgm_sa2 = XGMDiagnostics(name="xgm_sa2", device_name="SA2_XTD6_XGM/XGM/DOOCS")
+xgm_hed = XGMDiagnostics(name="xgm_hed", device_name="HED_XTD9_XGM/XGM/DOOCS")
+
+agipd = Detector(name="agipd", title="AGIPD")
+
+# 2. Instantiate the linking group and provide the dependency objects.
+diag1 = MIDDiagnostics(name="mid_diag_sa2", title="MID Diagnostics", xgm=xgm_sa2, detector=agipd)
+diag2 = MIDDiagnostics(name="mid_diag_hed", title="MID Diagnostics", xgm=xgm_hed, detector=agipd)
+
+# Result: `diag1` depends on `xgm_sa2.corrected_energy`, and
+# `diag2` depends on `xgm_hed.corrected_energy`. No work is duplicated.
+```
+
+### Optional components and defaults
+Sometimes a group depends on sub-components that are not always present. Declare
+those fields with a default of `None` and annotate dependencies with `self#`. If
+the referenced attribute is `None` and the variable argument has no default,
+DAMNIT removes that variable during instantiation so it never runs with missing
+inputs. If the argument has a default, the dependency is omitted and the default
+value is used at runtime.
+
+Provide a default argument to keep the variable around and fall back to that
+value when the dependency is absent:
+
+```python
+@Group
+class A:
+    @Variable
+    def var(self, run):
+        return 41
+
+@Group
+class B:
+    upstream: A | None = None
+
+    @Variable
+    def needs_upstream(self, run, value: "self#upstream.var"):
+        return value + 1
+
+    @Variable
+    def optional_upstream(self, run, value: "self#upstream.var" = 42):
+        return value + 1
+
+a = A(name="a")
+b_full = B(name="b_full", upstream=a)
+b_partial = B(name="b_partial")  # upstream defaults to None
+# b_full exposes both variables. b_partial drops needs_upstream but keeps
+# optional_upstream, which receives the default value (42) at runtime.
+```
+
+### Inheritance
+`Group` supports standard Python class inheritance, similar to dataclasses.
+Subclasses should also be decorated with `@Group` so their dataclass fields are
+processed. A decorated subclass automatically includes all `@Variable` methods
+from its parent(s). `tags` defined in a `@group` decorator are inherited unless
+redefined in the subclass.
+
+```python
+@Group(tags=['Analysis'])
+class BaseAnalysis:
+    @Variable(title="Train Count")
+    def n_trains(self, run):
+        return len(run.train_ids)
+
+@Group
+class DetectorAnalysis(BaseAnalysis):
+    # Inherits n_trains Variable
+    # Inherits tags=['Analysis']
+
+    @Variable(title="Photon Count", data="proc")
+    def photon_count(self, run, n_trains: "self#n_trains"):
+        # Depends on an inherited variable
+        return 1e6 / n_trains
+
+@Group(tags=["Alt"])
+class DetectorAnalysisAlt(BaseAnalysis):
+    # Group tags are overwritten in this subclass.
+    ...
+
+# This instance will have two variables: detector.n_trains and detector.photon_count
+detector = DetectorAnalysis(name="detector", title="Detector")
+```
+
 ### Cell
 
 The `Cell` object is a versatile container that allows customizing how data is

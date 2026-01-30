@@ -132,7 +132,8 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
     # We're going to be formatting column names as strings into SQL code,
     # so check that they are simple identifiers before we get there.
     for name in reduced_data:
-        assert re.match(r'[a-zA-Z][a-zA-Z0-9_]*$', name), f"Bad field name {name}"
+        if not all(part.isidentifier() for part in name.split(".")):
+            raise ValueError(f"Invalid Variable name {name}")
 
     # Make a deepcopy before making modifications to the dictionary, such as
     # removing `start_time` and pickling non-{array, scalar} values.

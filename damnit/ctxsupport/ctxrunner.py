@@ -15,22 +15,22 @@ import pickle
 import sys
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from unittest.mock import MagicMock
-from contextlib import contextmanager
 
 import extra_data
 import extra_proposal
 import h5py
 import numpy as np
 import xarray as xr
+from damnit_ctx import (Cell, RunData, Skip, Variable, expand_groups,
+                        isinstance_no_import)
 
-from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
-
-log = logging.getLogger(__name__)
+log = logging.getLogger("ctxrunner")
 
 THUMBNAIL_SIZE = 300 # px
 COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
@@ -165,6 +165,7 @@ class ContextFile:
         codeobj = compile(code, path, 'exec')
         exec(codeobj, d)
         vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
+        vars.update(expand_groups(d, vars))
         log.debug("Loaded %d variables", len(vars))
         return cls(vars, code)
 
@@ -231,8 +232,9 @@ class ContextFile:
                 missing_deps = []
                 missing_input = []
 
+                annotations = var.annotations()
                 for arg_name, param in inspect.signature(var.func).parameters.items():
-                    annotation = param.annotation
+                    annotation = annotations.get(arg_name, inspect.Parameter.empty)
                     if not isinstance(annotation, str):
                         continue
 

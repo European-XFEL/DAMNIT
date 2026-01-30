@@ -1,20 +1,32 @@
-"""This module is made available by manipulating sys.path
+"""Core DAMNIT context types and helpers.
+
+This module is made available by manipulating sys.path
 
 We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import inspect
 import logging
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from copy import copy
+from dataclasses import dataclass, field
 from enum import Enum
 
 import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["RunData", "Variable", "Cell"]
+__all__ = [
+    "Cell",
+    "Group",
+    "GroupError",
+    "RunData",
+    "Skip",
+    "Variable"
+]
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +62,7 @@ class Variable:
         self.cluster = cluster
         self.transient = transient
         self._data = data
+        self._annotation_overrides = None
 
         if callable(title):
             # @Variable called without parenthesis
@@ -67,18 +80,26 @@ class Variable:
             self.title = self.name
         return self
 
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        if is_group_instance(instance):
+            # Return a proxy that resolves the group name lazily after context exec.
+            return GroupBoundVariable(instance, self)
+        return self
+
     def check(self):
         problems = []
-        if not self.name.isidentifier():
+        if not all(part.isidentifier() for part in self.name.split(".")):
             problems.append(
-                f"The variable name {self.name!r} is not a valid Python identifier"
+                f"The variable name {self.name!r} is not a valid Python identifier or dotted name"
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(
                 f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
             )
         if self.tags is not None:
-            if not isinstance(self.tags, Sequence) or not all(
+            if not isinstance(self.tags, Iterable) or not all(
                 isinstance(tag, str) and tag != "" for tag in self.tags
             ):
                 problems.append(
@@ -111,6 +132,8 @@ class Variable:
 
         Returns a dict of argument names to their annotations.
         """
+        if self._annotation_overrides is not None:
+            return self._annotation_overrides
         return getattr(self.func, '__annotations__', {})
 
     def evaluate(self, run_data, kwargs):
@@ -268,3 +291,428 @@ class Cell:
 
 class Skip(Exception):
     pass
+
+
+# TODO: split module?
+
+
+class GroupError(Exception):
+    pass
+
+
+def _normalize_group_tags(tags):
+    if tags is None:
+        return None
+    if isinstance(tags, str):
+        return (tags,)
+    return tuple(tags)
+
+
+def _merge_tags(group_tags, var_tags):
+    if not group_tags and not var_tags:
+        return None
+    if not group_tags:
+        return set(var_tags)
+    if not var_tags:
+        return set(group_tags)
+
+    return set(group_tags) | set(var_tags)
+
+
+def _inherit_group_config(cls):
+    for base in cls.mro()[1:]:
+        config = base.__dict__.get("__damnit_group_config__")
+        if config is not None:
+            return config
+    return {}
+
+
+def Group(
+        _cls=None,
+        *,
+        tags: Iterable[str] | str | None = None,
+):
+    """Decorate a class to define a reusable group of Variables.
+
+    Group instances are dataclasses, therefore a Group subclass must also be
+    decorated with @Group. Instantiate them in the context file and access group
+    variables as "<group>.<var>" names. Use "self#..." in Variable annotations
+    to link to other group values or nested groups.
+
+    A group has 4 default parameters, they must be set at instantiation (except
+    for `tags`):
+        name: str | None = None
+            The group `name`. If None, the Group instance name assigned in the
+            context file will be used.
+        title: str | None = None
+            The group `title`. If None, the group `name` will be used as title.
+        tags: Iterable[str] | str | None = None
+            Tags to merge into each variable's tags.
+        sep: str = "/"
+            The separator between group title and variable title when generating
+            variable titles.
+
+    A Group decorator can define the default value of the Group instance `tags`.
+    `Tags` will be inherited from parent Group classes unless explicitly
+    overridden.
+    """
+    RESERVED_GROUP_FIELDS = {
+        "name": None,
+        "title": None,
+        "tags": None,
+        "sep": "/",
+    }
+
+    def wrap(cls):
+        # Prevent Group classes from shadowing internal config fields.
+        reserved_fields = set(RESERVED_GROUP_FIELDS)
+        defined_fields = set(getattr(cls, "__annotations__", {}))
+        conflicts = sorted(reserved_fields & defined_fields)
+        if conflicts:
+            raise GroupError(
+                "Group classes cannot define reserved fields: "
+                f"{', '.join(conflicts)}"
+            )
+        explicit_attrs = reserved_fields & set(cls.__dict__)
+        if explicit_attrs:
+            conflicts = ", ".join(sorted(explicit_attrs))
+            raise GroupError(
+                "Group classes cannot override reserved attributes: "
+                f"{conflicts}"
+            )
+
+        # inherit parents' Group tags if not redefined
+        parent_config = _inherit_group_config(cls)
+        nonlocal tags
+        if tags is None:
+            tags = parent_config.get("tags")
+        tags = _normalize_group_tags(tags)
+
+        cls.__damnit_group__ = True
+        cls.__damnit_group_config__ = RESERVED_GROUP_FIELDS.copy()
+        cls.__damnit_group_config__["tags"] = tags
+
+        annotations = dict(getattr(cls, "__annotations__", {}))
+        for field_name in reserved_fields:
+            annotations.pop(field_name, None)
+        annotations.update({
+            "name": str | None,
+            "title": str | None,
+            "tags": Iterable[str] | str | None,
+            "sep": str,
+        })
+        cls.__annotations__ = annotations
+
+        cls.name = field(default=RESERVED_GROUP_FIELDS["name"], kw_only=True)
+        cls.title = field(default=RESERVED_GROUP_FIELDS["title"], kw_only=True)
+        cls.sep = field(default=RESERVED_GROUP_FIELDS["sep"], kw_only=True)
+        cls.tags = field(default=tags, kw_only=True)
+
+        original_post_init = getattr(cls, "__post_init__", None)
+
+        def __post_init__(self):
+            self.tags = _normalize_group_tags(self.tags)
+            if self.title is None:
+                self.title = self.name
+
+            if original_post_init is not None:
+                original_post_init(self)
+
+        cls.__post_init__ = __post_init__
+
+        return dataclass(cls)
+
+    if _cls is None:
+        return wrap
+    return wrap(_cls)
+
+
+def is_group_instance(obj):
+    """Return True if obj is an instance of a Group class."""
+    return hasattr(type(obj), "__damnit_group__")
+
+
+def _group_name(group):
+    name = group.name
+    if isinstance(name, str) and name:
+        return name
+    if name is None:
+        raise GroupError(
+            f"Group instance of {type(group).__name__!r} has no name. "
+            "Provide name=... or assign it to a variable in the context file."
+        )
+    raise GroupError(
+        f"Group instance of {type(group).__name__!r} has invalid name {name!r}. "
+        "Provide a non-empty string name."
+    )
+
+
+def _assign_group_names(context):
+    # Group names can be assigned by context variable names after execution.
+    # e.g.: mygroup = MyGroup() -> since MyGroup(name=...) wasn't set, 'mygroup'
+    # becomes the name when the context is processed.
+    group_refs = {}
+    for var_name, value in context.items():
+        if var_name.startswith("__"):
+            continue
+        if is_group_instance(value):
+            entry = group_refs.setdefault(id(value), {"obj": value, "names": []})
+            entry["names"].append(var_name)
+
+    for entry in group_refs.values():
+        group = entry["obj"]
+        if group.name is None:
+            names = sorted(entry["names"])
+            if len(names) == 1:
+                group.name = names[0]
+            else:
+                raise GroupError(
+                    f"Group instance of {type(group).__name__!r} is assigned "
+                    f"to multiple names {names} without an explicit name."
+                )
+        if group.title is None:
+            group.title = group.name
+
+
+def _collect_group_instances(objects):
+    pending = [obj for obj in objects if is_group_instance(obj)]
+    groups = []
+    seen_ids = set()
+
+    while pending:
+        group = pending.pop()
+        group_id = id(group)
+        if group_id in seen_ids:
+            continue
+        seen_ids.add(group_id)
+        groups.append(group)
+
+        for value in vars(group).values():
+            if is_group_instance(value):
+                pending.append(value)
+
+    return groups
+
+
+def _collect_group_variables(group):
+    vars_by_name = {}
+    for cls in reversed(type(group).mro()):
+        for name, value in cls.__dict__.items():
+            if isinstance(value, Variable):
+                vars_by_name[name] = value
+    return vars_by_name
+
+
+def _resolve_self_dependency(group, path):
+    if not path:
+        raise GroupError("Empty self# dependency")
+
+    target = group
+    parts = path.split(".")
+    for attr in parts[:-1]:
+        if not hasattr(target, attr):
+            raise GroupError(
+                f"Group {type(group).__name__!r} has no attribute {attr!r}"
+            )
+        target = getattr(target, attr)
+        if target is None:
+            return None, None, True
+        if not is_group_instance(target):
+            raise GroupError(
+                f"Attribute {attr!r} on group {type(group).__name__!r} "
+                "does not reference a Group instance"
+            )
+
+    return target, parts[-1], False
+
+
+class _MissingDependency(Enum):
+    REQUIRED = "required"
+    OPTIONAL = "optional"
+
+
+def _resolve_group_attr_variable_name(group, dep_name, param):
+    """Resolve a group attribute to a Variable name or missing sentinel."""
+    attr = getattr(group, dep_name, None)
+    if attr is None:
+        if param.default is inspect.Parameter.empty:
+            return _MissingDependency.REQUIRED
+        return _MissingDependency.OPTIONAL
+    if isinstance(attr, (Variable, GroupBoundVariable)):
+        return attr.name
+    raise GroupError(
+        f"Group {type(group).__name__!r} attribute {dep_name!r} is not a Variable"
+    )
+
+
+def _resolve_self_annotation(group, var_defs, arg_name, annotation, param):
+    """Resolve a self# annotation into a var# annotation + dependency metadata.
+
+    Returns (resolved_annotation, internal_dep, drop_var, skip_annotation):
+    - resolved_annotation: string or None
+    - internal_dep: (arg_name, dep_name, required) tuple or None
+    - drop_var: True if the variable should be removed entirely
+    - skip_annotation: True if the argument should keep its default
+    """
+    target_group, dep_name, missing = _resolve_self_dependency(
+        group, annotation.removeprefix("self#")
+    )
+    if missing:
+        if param.default is inspect.Parameter.empty:
+            return None, None, True, False
+        return None, None, False, True
+
+    if target_group is group and dep_name in var_defs:
+        # Reference to another method-defined variable in this group.
+        resolved = f"{_group_name(target_group)}.{dep_name}"
+        required = param.default is inspect.Parameter.empty
+        return f"var#{resolved}", (arg_name, dep_name, required), False, False
+
+    if target_group is group:
+        # Reference to a Variable field (or bound variable) on this group.
+        resolved = _resolve_group_attr_variable_name(group, dep_name, param)
+    else:
+        # Reference to a Variable field on a nested group instance.
+        resolved = _resolve_group_attr_variable_name(target_group, dep_name, param)
+
+    if resolved is _MissingDependency.REQUIRED:
+        return None, None, True, False
+    if resolved is _MissingDependency.OPTIONAL:
+        return None, None, False, True
+    return f"var#{resolved}", None, False, False
+
+
+def _expand_group(group):
+    """Build Variables for a group instance, resolving "self#" dependencies.
+
+    This binds each @Variable to the group instance, namespaces names and
+    titles, and rewrites annotations to "var#..." dependencies. Group-internal
+    dependencies are tracked so variables with missing required inputs are
+    dropped, and optional dependencies are removed from annotations.
+    """
+    group_name = _group_name(group)
+    if group.title is None:
+        group.title = group_name
+
+    var_defs = _collect_group_variables(group)
+    var_infos = {}
+
+    for method_name, var_def in var_defs.items():
+        # Create a per-instance Variable copy so name/title/annotations can be
+        # rewritten without mutating the class definition.
+        bound_func = var_def.func.__get__(group, type(group))
+        new_var = copy(var_def)
+        new_var(bound_func)
+        new_var.name = f"{group_name}.{var_def.name}"
+        new_var.title = f"{group.title}{group.sep}{var_def.title}"
+
+        annotations = {}
+        internal_deps = []
+        drop_var = False
+        sig = inspect.signature(bound_func)
+        original_annotations = getattr(var_def.func, "__annotations__", {})
+        for arg_name, param in sig.parameters.items():
+            annotation = original_annotations.get(arg_name, param.annotation)
+            if not isinstance(annotation, str):
+                continue
+            if annotation.startswith("self#"):
+                # Resolve group-relative dependencies, possibly across nested groups.
+                resolved, internal_dep, drop, skip = _resolve_self_annotation(
+                    group, var_defs, arg_name, annotation, param
+                )
+                if drop:
+                    drop_var = True
+                    break
+                if skip:
+                    continue
+                annotations[arg_name] = resolved
+                if internal_dep is not None:
+                    internal_deps.append(internal_dep)
+            else:
+                annotations[arg_name] = annotation
+
+        if drop_var:
+            continue
+
+        new_var.tags = _merge_tags(group.tags, new_var.tags)
+        var_infos[method_name] = {
+            "var": new_var,
+            "annotations": annotations,
+            "internal_deps": internal_deps,
+        }
+
+    active = set(var_infos)
+    changed = True
+    while changed:
+        changed = False
+        for method_name in list(active):
+            info = var_infos[method_name]
+            remaining_deps = []
+            for arg_name, dep_name, required in info["internal_deps"]:
+                if dep_name not in active:
+                    # Drop variables that depend on missing required internal vars;
+                    # otherwise remove the dependency and let defaults apply.
+                    if required:
+                        active.remove(method_name)
+                        changed = True
+                        remaining_deps = []
+                        break
+                    info["annotations"].pop(arg_name, None)
+                else:
+                    remaining_deps.append((arg_name, dep_name, required))
+            info["internal_deps"] = remaining_deps
+
+    expanded = {}
+    for method_name in active:
+        info = var_infos[method_name]
+        info["var"]._annotation_overrides = info["annotations"]
+        expanded[info["var"].name] = info["var"]
+
+    return expanded
+
+
+def expand_groups(context, existing_vars=None):
+    """Return Variables generated from Group instances in a context file."""
+    _assign_group_names(context)
+    groups = _collect_group_instances(context.values())
+    if not groups:
+        return {}
+
+    existing_names = set(existing_vars or {})
+    seen_group_names = {}
+    for group in groups:
+        name = _group_name(group)
+        group_id = id(group)
+        if name in seen_group_names and seen_group_names[name] != group_id:
+            raise GroupError(
+                f"Group name {name!r} is used by multiple group instances"
+            )
+        seen_group_names[name] = group_id
+
+    expanded = {}
+    for group in groups:
+        group_vars = _expand_group(group)
+        for var_name in group_vars:
+            if var_name in existing_names or var_name in expanded:
+                raise GroupError(
+                    f"Duplicate variable name {var_name!r} from group "
+                    f"{_group_name(group)!r}"
+                )
+        expanded.update(group_vars)
+
+    return expanded
+
+
+class GroupBoundVariable:
+    __damnit_group_bound__ = True
+
+    def __init__(self, group, var_def):
+        self._group = group
+        self._var_def = var_def
+
+    @property
+    def name(self):
+        return f"{_group_name(self._group)}.{self._var_def.name}"
+
+    def __getattr__(self, attr):
+        return getattr(self._var_def, attr)
