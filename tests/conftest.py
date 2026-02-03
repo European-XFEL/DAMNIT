@@ -89,6 +89,11 @@ def mock_ctx():
     def plotly_preview(run):
         fig = px.bar(x=["a", "b", "c"], y=[1, 3, 2])
         return Cell(np.zeros(4), preview=fig)
+
+    @Variable(title="Trendline")
+    def trendline(run):
+        data = np.arange(10000)
+        return data
     """
 
     return mkcontext(code)

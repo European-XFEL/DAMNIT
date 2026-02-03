@@ -112,6 +112,10 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     @Variable
     def bool_array(run):
         return Cell(np.zeros(10, dtype=np.bool_))
+
+    @Variable(title="Line")
+    def line(run):
+        return np.linspace(0, 1, 15000)
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -171,6 +175,14 @@ def test_variable_data(mock_db_with_data, monkeypatch):
     assert rv["summary_only"].summary() == 7
 
     np.testing.assert_array_equal(rv['bool_array'].preview_data(), np.zeros(10, dtype=np.bool_))
+
+    line_summary = rv["line"].summary()
+    assert isinstance(line_summary, np.ndarray)
+    assert line_summary.shape[0] == 2
+    summary_type = db.conn.execute(
+        "SELECT summary_type FROM run_variables WHERE name='line' AND run=1"
+    ).fetchone()[0]
+    assert summary_type == "trendline"
 
 
 def test_api_dependencies(venv):
