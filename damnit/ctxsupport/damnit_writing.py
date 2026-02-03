@@ -128,11 +128,13 @@ class DataType(Enum):
 
 
 def summary_to_store(summary):
+    """Convert the summary value to what we'll store in HDF5"""
     if isinstance(summary, bytes):  # PNG thumbnail
         return np.frombuffer(summary, dtype=np.uint8)
     return summary
 
 def preview_to_store(obj):
+    """Convert the preview data to what we'll store in HDF5 (object, attrs)"""
     if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
         return figure2array(obj), {OBJTYPE_ATTR: DataType.Image.value}
     elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
@@ -143,6 +145,7 @@ def preview_to_store(obj):
     return obj, {}  # Numpy/xarray array
 
 def data_to_store(obj):
+    """Convert the main data to what we'll store in HDF5 (object, attrs)"""
     if isinstance_no_import(obj, 'xarray', 'DataArray'):
         return obj, {OBJTYPE_ATTR: DataType.DataArray.value}
     elif isinstance_no_import(obj, 'xarray', 'Dataset'):
@@ -161,11 +164,14 @@ def data_to_store(obj):
 
 @contextmanager
 def atomic_create_h5(dir, prefix):
+    """Write to a new HDF5 file, renaming it when finished."""
     fd, tmp_path = mkstemp(dir=dir, prefix=prefix, suffix=".writing.h5")
     try:
         os.close(fd)
         final_path = tmp_path.removesuffix(".writing.h5") + ".ready.h5"
         with h5py.File(tmp_path, 'w') as f:
+            # Minor hack: attach the path it will be renamed to to the h5py
+            # File object so the caller can get it.
             f.final_path = final_path
             yield f
 
@@ -176,6 +182,7 @@ def atomic_create_h5(dir, prefix):
 
 
 def save_dataset_netcdf(f: h5py.File, group: str, dset):
+    """Save an xarray DataSet in NetCDF4 format without reopening the file"""
     import h5netcdf
     from xarray.backends import H5NetCDFStore
 
@@ -185,6 +192,7 @@ def save_dataset_netcdf(f: h5py.File, group: str, dset):
 
 
 def save_dataarray_netcdf(f: h5py.File, group: str, darr):
+    """Save an xarray DataArray in NetCDF4 format without reopening the file"""
     # ----------------
     # This block of code is from xarray.DataArray.to_netcdf
     # Copyright 2014-2024 xarray Developers
@@ -209,6 +217,7 @@ def save_dataarray_netcdf(f: h5py.File, group: str, darr):
 
 def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
            errors: dict[str, tuple]):
+    """Add one or more results into a DAMNIT store"""
     results_dir = damnit_dir / "extracted_data"
     with atomic_create_h5(dir=results_dir, prefix=f"p{proposal}_r{run}.") as f:
         f.require_group('.reduced')  # Summaries
