@@ -97,7 +97,7 @@ def load_reduced_data(h5_path):
     def get_attrs(ds):
         d = {}
         for name, value in ds.attrs.items():
-            if name in {"max_diff", "summary_method"}:
+            if name in {"max_diff", "summary_method", "summary_type"}:
                 continue  # These are stored separately
 
             if isinstance(value, np.ndarray):
@@ -113,6 +113,7 @@ def load_reduced_data(h5_path):
                 get_dset_value(dset),
                 max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
                 summary_method=dset.attrs.get("summary_method", ""),
+                summary_type=dset.attrs.get("summary_type"),
                 attributes=get_attrs(dset),
             )
             for name, dset in f['.reduced'].items()
@@ -123,6 +124,7 @@ def load_reduced_data(h5_path):
             })
             for name, dset in f['.errors'].items()
         }
+
 
 def add_to_db(reduced_data, db: DamnitDB, proposal, run):
     db.ensure_run(proposal, run)
@@ -144,7 +146,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         db.ensure_run(proposal, run, start_time=start_time.value)
 
     for name, reduced in reduced_data.items():
-        if not isinstance(reduced.value, (int, float, str, bytes, complex, type(None))):
+        if not isinstance(reduced.value, (int, float, str, bytes, complex, np.ndarray, type(None))):
             raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
 
         db.set_variable(proposal, run, name, reduced)
