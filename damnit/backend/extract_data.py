@@ -294,21 +294,11 @@ class RunExtractor(Extractor):
         add_to_db(reduced_data, self.db, self.proposal, self.run)
 
         # Send all the updates for scalars
-        image_values = { name: reduced for name, reduced in reduced_data.items()
-                         if isinstance(reduced.value, bytes) }
         update_msg = msg_dict(MsgKind.run_values_updated, {
             'run': self.run, 'proposal': self.proposal, 'values': {
-                name: reduced.value for name, reduced in reduced_data.items()
-                if name not in image_values
-            }
-        })
+                name: None for name, _ in reduced_data.items()
+            }})
         self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
-
-        # And each image update separately so we don't hit any size limits
-        for name, reduced in image_values.items():
-            update_msg = msg_dict(MsgKind.run_values_updated, {
-                'run': self.run, 'proposal': self.proposal, 'values': { name: reduced.value }})
-            self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
 
         log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
 

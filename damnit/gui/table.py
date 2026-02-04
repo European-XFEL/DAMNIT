@@ -4,6 +4,7 @@ import time
 from base64 import b64encode
 from itertools import groupby
 
+import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QProcess, Qt
@@ -12,10 +13,11 @@ from PyQt5.QtWidgets import QAction, QMenu, QMessageBox
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
-from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex
+from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex, blob2numpy
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import timestamp2str
+from .roles import LINE_DATA_ROLE
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
 from .util import delete_variable, StatusbarStylesheet
 
@@ -351,6 +353,75 @@ class FilterHeaderView(QtWidgets.QHeaderView):
             parent.viewport().update()
 
 
+class SparklineDelegate(QtWidgets.QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        arr = index.data(LINE_DATA_ROLE)
+        if arr is None:
+            return super().paint(painter, option, index)
+
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+
+        style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        rect = opt.rect.adjusted(2, 2, -2, -2)
+        if rect.width() < 4 or rect.height() < 4:
+            return
+
+        if arr.ndim != 2 or arr.shape[0] != 2 or arr.shape[1] < 2:
+            return
+
+        x = np.asarray(arr[0], dtype=np.float64)
+        y = np.asarray(arr[1], dtype=np.float64)
+
+        finite = np.isfinite(x) & np.isfinite(y)
+        if not finite.any():
+            return
+        x = x[finite]
+        y = y[finite]
+        if x.size < 2:
+            return
+
+        x_min = float(np.nanmin(x))
+        x_max = float(np.nanmax(x))
+        y_min = float(np.nanmin(y))
+        y_max = float(np.nanmax(y))
+
+        span_x = x_max - x_min
+        span_y = y_max - y_min
+
+        if span_x == 0:
+            x_norm = np.linspace(0, 1, x.size)
+        else:
+            x_norm = (x - x_min) / span_x
+
+        if span_y == 0:
+            y_norm = np.full_like(y, 0.5)
+        else:
+            y_norm = (y - y_min) / span_y
+
+        x_pix = rect.left() + x_norm * (rect.width() - 1)
+        y_pix = rect.top() + (1 - y_norm) * (rect.height() - 1)
+
+        poly = QtGui.QPolygonF()
+        for xi, yi in zip(x_pix, y_pix):
+            poly.append(QtCore.QPointF(float(xi), float(yi)))
+
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        if opt.state & QtWidgets.QStyle.State_Selected:
+            color = opt.palette.color(QtGui.QPalette.HighlightedText)
+        else:
+            color = opt.palette.color(QtGui.QPalette.Text)
+        pen = QtGui.QPen(color)
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawPolyline(poly)
+        painter.restore()
+
+
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
@@ -368,6 +439,7 @@ class TableView(QtWidgets.QTableView):
         )
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
+        self.setItemDelegate(SparklineDelegate(self))
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
@@ -893,6 +965,23 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         )
         return item
 
+    def line_item(self, line_data: np.ndarray):
+        item = self.itemPrototype().clone()
+        item.setData(line_data, role=LINE_DATA_ROLE)
+        item.setData("", role=Qt.ItemDataRole.DisplayRole)
+        try:
+            y = np.asarray(line_data)[1]
+            finite = np.isfinite(y)
+            if finite.any():
+                y_min = np.nanmin(y[finite])
+                y_max = np.nanmax(y[finite])
+                item.setToolTip(
+                    f"Trendline: min={prettify_notation(y_min)}, max={prettify_notation(y_max)}"
+                )
+        except Exception:
+            pass
+        return item
+
     def comment_item(self, text):
         item = self.text_item(text)
         item.setToolTip(text)
@@ -915,7 +1004,12 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
         return item
 
-    def new_item(self, value, column_id, max_diff, attrs):
+    def new_item(self, value, column_id, max_diff, attrs, summary_type=None):
+        if summary_type == "trendline":
+            return self.line_item(blob2numpy(value))
+        if summary_type == "numpy":
+            arr = blob2numpy(value)
+            return self.text_item(f"{arr.dtype}: {arr.shape}")
         if is_png_bytes(value):
             return self.image_item(value)
         elif column_id == 'comment':
@@ -963,7 +1057,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 if summary_type == "complex":
                     value = blob2complex(value)
                 attrs = json.loads(attr_json) if attr_json else {}
-                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
+                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs, summary_type))
 
         self.setVerticalHeaderLabels(row_headers)
         t1 = time.perf_counter()
@@ -1049,16 +1143,21 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
 
-    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict):
+    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict, summary_types: dict = None):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
         status_item.setCheckState(Qt.Checked)
         row = [status_item, self.text_item(proposal), self.text_item(run)]
 
+        summary_types = summary_types or {}
         for column_id in self.column_ids[3:]:
             if (value := contents.get(column_id, None)) is not None:
                 item = self.new_item(
-                    value, column_id, max_diffs.get(column_id) or 0, attrs.get(column_id) or {}
+                    value,
+                    column_id,
+                    max_diffs.get(column_id) or 0,
+                    attrs.get(column_id) or {},
+                    summary_types.get(column_id),
                 )
             elif column_id in self.editable_columns:
                 item = QtGui.QStandardItem()  # Editable by default
@@ -1086,25 +1185,33 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         except KeyError:
             row_ix = None
 
+        data = {}
         max_diffs = {}
         attrs = {}
-        for name, max_diff, attr_json in self.db.conn.execute("""
-            SELECT name, max_diff, attributes FROM run_variables WHERE proposal=? AND run=?
+        summary_types = {}
+        for name, value, max_diff, summary_type, attr_json in self.db.conn.execute("""
+            SELECT name, value, max_diff, summary_type, attributes FROM run_variables WHERE proposal=? AND run=?
         """, (proposal, run)):
+            data[name] = value
             max_diffs[name] = max_diff
+            summary_types[name] = summary_type
             attrs[name] = json.loads(attr_json) if attr_json else {}
 
         col_id_to_ix = {c: i for (i, c) in enumerate(self.column_ids)}
 
         if row_ix is not None:
             log.debug("Update existing row %s for run %s", row_ix, run)
-            for column_id, value in values.items():
+            for column_id in values:
                 col_ix = col_id_to_ix[column_id]
                 self.setItem(row_ix, col_ix, self.new_item(
-                    value, column_id, max_diffs.get(column_id) or 0, attrs.get(column_id) or {}
+                    data.get(column_id),
+                    column_id,
+                    max_diffs.get(column_id) or 0,
+                    attrs.get(column_id) or {},
+                    summary_types.get(column_id),
                 ))
         else:
-            self.insert_run_row(proposal, run, values, max_diffs, attrs)
+            self.insert_run_row(proposal, run, data, max_diffs, attrs, summary_types)
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
@@ -1316,6 +1423,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                     val = item and item.data(Qt.UserRole)
                     if val is None and item and item.data(Qt.DecorationRole):
                         val = "<image>"
+                    if val is None and item and item.data(LINE_DATA_ROLE) is not None:
+                        val = "<trendline>"
 
                 values.append(val)
                 for i, pytype in enumerate(value_types):
@@ -1385,3 +1494,6 @@ def prettify_notation(value):
 
 def is_png_bytes(obj):
     return isinstance(obj, bytes) and BlobTypes.identify(obj) is BlobTypes.png
+
+def is_numpy_bytes(obj):
+    return isinstance(obj, bytes) and BlobTypes.identify(obj) is BlobTypes.numpy

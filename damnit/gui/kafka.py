@@ -42,13 +42,13 @@ class UpdateAgent(QtCore.QObject):
 
                     self.message.emit(unpickled_msg)
 
-    def run_values_updated(self, proposal, run, name, value):
+    def run_values_updated(self, proposal, run, name):
         message = msg_dict(MsgKind.run_values_updated,
                            {
                                "proposal": proposal,
                                "run": run,
                                "values": {
-                                   name: value
+                                   name: None
                                }
                            })
 

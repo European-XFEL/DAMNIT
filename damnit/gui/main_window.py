@@ -578,21 +578,6 @@ da-dev@xfel.eu"""
                 f"Getting updates ({self.db_id})"
             )
 
-        if 'msg_kind' not in message:
-            # Old message format. Temporarily handled so GUIs with new code can
-            # work with listeners with older code, but can be removed soon.
-            message = message.copy()
-            proposal = message.pop("Proposal")
-            run = message.pop("Run")
-            message = {
-                'msg_kind': MsgKind.run_values_updated.value,
-                'data': {
-                    'proposal': proposal,
-                    'run': run,
-                    'values': message
-                }
-            }
-
         msg_kind = MsgKind(message['msg_kind'])
         data = message['data']
         if msg_kind == MsgKind.run_values_updated:
@@ -972,7 +957,7 @@ da-dev@xfel.eu"""
         log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
         self.db.set_variable(prop, run, name, ReducedData(value))
         if self._connect_to_kafka:
-            self.update_agent.run_values_updated(prop, run, name, value)
+            self.update_agent.run_values_updated(prop, run, name)
 
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
