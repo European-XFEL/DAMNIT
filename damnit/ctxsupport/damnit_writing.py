@@ -157,8 +157,10 @@ def data_to_store(obj):
         # so we need to convert the data to array of uint8
         a = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
         return a, {OBJTYPE_ATTR: DataType.PlotlyFigure.value}
-    elif isinstance(obj, str) or obj is None:
-        return obj, {}
+    elif isinstance(obj, str):
+        return np.asarray(obj, dtype=h5py.string_dtype()), {}
+    elif obj is None:
+        return None, {}
     return np.asarray(obj), {}
 
 
