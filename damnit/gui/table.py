@@ -411,14 +411,72 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        if opt.state & QtWidgets.QStyle.State_Selected:
-            color = opt.palette.color(QtGui.QPalette.HighlightedText)
-        else:
-            color = opt.palette.color(QtGui.QPalette.Text)
-        pen = QtGui.QPen(color)
+        line_color = QtGui.QColor(0, 120, 215)    # blue
+        hover_line_color = QtGui.QColor(0, 0, 0)  # black
+        text_color = QtGui.QColor(0, 0, 0)        # black
+        dot_color = QtGui.QColor(220, 0, 0)       # red
+        pen = QtGui.QPen(line_color)
         pen.setWidth(1)
         painter.setPen(pen)
         painter.drawPolyline(poly)
+
+        view = opt.widget
+        hover_index = view._sparkline_hover_index
+        hover_t = view._sparkline_hover_t
+        if hover_index is not None and hover_t is not None and hover_index == index:
+            x_line = rect.left() + hover_t * (rect.width() - 1)
+            painter.setPen(QtGui.QPen(hover_line_color))
+            painter.drawLine(QtCore.QPointF(x_line, rect.top()),
+                             QtCore.QPointF(x_line, rect.bottom()))
+
+            try:
+                if span_x == 0:
+                    y_val = float(np.nanmean(y))
+                else:
+                    x_target = x_min + hover_t * span_x
+                    order = np.argsort(x)
+                    x_sorted = x[order]
+                    y_sorted = y[order]
+                    y_val = float(np.interp(x_target, x_sorted, y_sorted))
+            except Exception:
+                y_val = None
+
+            if y_val is not None and np.isfinite(y_val):
+                if span_y == 0:
+                    y_norm_val = 0.5
+                else:
+                    y_norm_val = (y_val - y_min) / span_y
+                y_norm_val = max(0.0, min(1.0, float(y_norm_val)))
+                y_marker = rect.top() + (1 - y_norm_val) * (rect.height() - 1)
+                painter.save()
+                painter.setBrush(dot_color)
+                painter.setPen(QtGui.QPen(dot_color))
+                painter.drawEllipse(QtCore.QPointF(x_line, y_marker), 2.5, 2.5)
+                painter.restore()
+
+            if y_val is not None and np.isfinite(y_val):
+                text = prettify_notation(y_val)
+                metrics = painter.fontMetrics()
+                text_w = metrics.horizontalAdvance(text)
+                text_h = metrics.height()
+                box_w = text_w + 6
+                box_h = text_h + 4
+                text_left = x_line + 4
+                if text_left + box_w > rect.right():
+                    text_left = x_line - box_w - 4
+                text_left = max(rect.left(), min(text_left, rect.right() - box_w))
+                text_top = rect.top() + 2
+                if text_top + box_h > rect.bottom():
+                    text_top = rect.bottom() - box_h - 2
+                box_rect = QtCore.QRectF(text_left, text_top, box_w, box_h)
+                bg = QtGui.QColor(255, 255, 255, 210)
+                painter.fillRect(box_rect, bg)
+                painter.setPen(text_color)
+                painter.drawText(
+                    box_rect.adjusted(3, 2, -3, -2),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    text,
+                )
         painter.restore()
 
 
@@ -433,6 +491,8 @@ class TableView(QtWidgets.QTableView):
         self.setAlternatingRowColors(False)
         self.hierarchical_header_enabled = True
         self._restoring_column_widths = False
+        self._sparkline_hover_index = QtCore.QModelIndex()
+        self._sparkline_hover_t = None
 
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
@@ -440,6 +500,7 @@ class TableView(QtWidgets.QTableView):
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
         self.setItemDelegate(SparklineDelegate(self))
+        self.setMouseTracking(True)
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
@@ -512,6 +573,46 @@ class TableView(QtWidgets.QTableView):
         self.selectionModel().selectionChanged.connect(self.selection_changed)
 
         self.model_updated.emit()
+
+    def _set_sparkline_hover(self, index, t):
+        old_index = self._sparkline_hover_index
+        old_t = self._sparkline_hover_t
+        if old_index == index and old_t == t:
+            return
+        self._sparkline_hover_index = index
+        self._sparkline_hover_t = t
+        if old_index.isValid():
+            self.viewport().update(self.visualRect(old_index))
+        if index.isValid():
+            self.viewport().update(self.visualRect(index))
+
+    def _clear_sparkline_hover(self):
+        if not self._sparkline_hover_index.isValid():
+            self._sparkline_hover_t = None
+            return
+        old_index = self._sparkline_hover_index
+        self._sparkline_hover_index = QtCore.QModelIndex()
+        self._sparkline_hover_t = None
+        if old_index.isValid():
+            self.viewport().update(self.visualRect(old_index))
+
+    def mouseMoveEvent(self, event):
+        index = self.indexAt(event.pos())
+        if index.isValid() and index.data(LINE_DATA_ROLE) is not None:
+            rect = self.visualRect(index)
+            if rect.width() > 1:
+                t = (event.pos().x() - rect.left()) / (rect.width() - 1)
+            else:
+                t = 0.0
+            t = max(0.0, min(1.0, float(t)))
+            self._set_sparkline_hover(index, t)
+        else:
+            self._clear_sparkline_hover()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._clear_sparkline_hover()
+        super().leaveEvent(event)
 
     def _on_section_resized(self, logical_index, old_size, new_size):
         if self._restoring_column_widths:
