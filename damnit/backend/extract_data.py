@@ -252,7 +252,7 @@ class RunExtractor(Extractor):
             args.append(str(self.proposal))
             args.append("--")
         args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
-                     self.run_data.value, '--save', self.out_path])
+                     self.run_data.value, '--damnit-dir', os.getcwd()])
         if self.cluster:
             args.append('--cluster-job')
         if self.mock:
@@ -264,25 +264,17 @@ class RunExtractor(Extractor):
             for m in self.match:
                 args.extend(['--match', m])
 
-        with TemporaryDirectory() as td:
-            # Save a separate copy of the reduced data, so we can send an update
-            # with only the variables that we've extracted.
-            reduced_out_path = Path(td, 'reduced.h5')
-            args.extend(['--save-reduced', str(reduced_out_path)])
+        p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
 
-            p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
+        while True:
+            try:
+                retcode = p.wait(timeout=10)
+                break
+            except subprocess.TimeoutExpired:
+                self._notify_running()
 
-            while True:
-                try:
-                    retcode = p.wait(timeout=10)
-                    break
-                except subprocess.TimeoutExpired:
-                    self._notify_running()
-
-            if retcode:
-                raise subprocess.CalledProcessError(retcode, p.args)
-
-            return load_reduced_data(reduced_out_path)
+        if retcode:
+            raise subprocess.CalledProcessError(retcode, p.args)
 
     def extract_and_ingest(self):
         self._notify_running()
@@ -290,18 +282,7 @@ class RunExtractor(Extractor):
         if self.out_path.parent.stat().st_uid == os.getuid():
             os.chmod(self.out_path.parent, 0o777)
 
-        reduced_data = self.extract_in_subprocess()
-        log.info("Reduced data has %d fields", len(reduced_data))
-        add_to_db(reduced_data, self.db, self.proposal, self.run)
-
-        # Send all the updates for scalars
-        update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': self.run, 'proposal': self.proposal, 'values': {
-                name: None for name, _ in reduced_data.items()
-            }})
-        self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
-
-        log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
+        self.extract_in_subprocess()
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         if not self.cluster:

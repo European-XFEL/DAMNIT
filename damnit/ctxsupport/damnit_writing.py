@@ -219,6 +219,10 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
            errors: dict[str, tuple]):
     """Add one or more results into a DAMNIT store"""
     results_dir = damnit_dir / "extracted_data"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    if results_dir.stat().st_uid == os.getuid():
+        os.chmod(results_dir, 0o777)
+
     with atomic_create_h5(dir=results_dir, prefix=f"p{proposal}_r{run}.") as f:
         f.require_group('.reduced')  # Summaries
         f.require_group('.preview')
@@ -227,7 +231,11 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
         for name, cell in vars.items():
             if (summary := summary_to_store(cell.get_summary())) is not None:
                 ds = f.create_dataset(f".reduced/{name}", data=summary)
-                ds.attrs.update(cell.summary_attrs())
+                summary_attrs = cell.summary_attrs()
+                if isinstance(summary, np.ndarray):
+                    if summary.ndim == 2 and summary.shape[0] == 2:
+                        summary_attrs["summary_type"] = "trendline"
+                ds.attrs.update(summary_attrs)
 
             preview, attrs = preview_to_store(cell.preview)
             if attrs.get(OBJTYPE_ATTR) == DataType.DataArray.value:
@@ -260,6 +268,11 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
             ds = f.create_dataset(f'.errors/{name}', data=msg)
             ds.attrs['type'] = etype
 
+    if os.environ.get("DAMNIT_KAFKA", "1") != "0":
+        notify_new_file(damnit_dir, proposal, run, f.final_path)
+
+
+def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
     # Announce via Kafka that this file is ready to be combined
     prod = KafkaProducer(
         bootstrap_servers=UPDATE_BROKERS,
@@ -267,7 +280,7 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
     )
     prod.send(KAFKA_TOPIC, {
         'damnit_dir': str(damnit_dir.absolute()),
-        'new_file': f.final_path,
+        'new_file': file_path,
         'proposal': proposal,  # int
         'run': run,  # int
         'computed_by': {

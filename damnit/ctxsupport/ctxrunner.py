@@ -36,13 +36,11 @@ from damnit_ctx import (
 )
 from damnit_writing import (
     COMPRESSION_OPTS,
-    DataType,
-    figure2array,
     figure2png,
     generate_thumbnail,
-    is_png_data,
     line_thumbnail,
     plotly2png,
+    submit,
 )
 
 log = logging.getLogger("ctxrunner")
@@ -780,132 +778,8 @@ class Results:
 
         return None
 
-    def save_hdf5(self, hdf5_path, reduced_only=False):
-        xarray_dsets = []
-        dsets = []
-        obj_type_hints = {}
-
-        for name, cell in self.cells.items():
-            summary_val = self.summarise(name)
-            summary_attrs = cell.summary_attrs()
-            if isinstance(summary_val, np.ndarray):
-                if summary_val.ndim == 2 and summary_val.shape[0] == 2:
-                    summary_attrs["summary_type"] = "trendline"
-            dsets.append((f'.reduced/{name}', summary_val, summary_attrs))
-            dsets.append((f'.errors/{name}', None, {}))  # Delete any previous error
-            if not reduced_only:
-                obj = cell.data
-                if isinstance(obj, (xr.DataArray, xr.Dataset)):
-                    xarray_dsets.append((name, obj))
-                    obj_type_hints[name] = (
-                        DataType.DataArray if isinstance(obj, xr.DataArray)
-                        else DataType.Dataset
-                    )
-                else:
-                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
-                        value = figure2array(obj)
-                        obj_type_hints[name] = DataType.Image
-                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-                        # we want to compress plotly figures in HDF5 files
-                        # so we need to convert the data to array of uint8
-                        value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-                        obj_type_hints[name] = DataType.PlotlyFigure
-                    elif isinstance(obj, str):
-                        value = obj
-                    elif obj is None:
-                        value = None  # Will delete any previous data in file
-                    else:
-                        value = np.asarray(obj)
-
-                    dsets.append((f'{name}/data', value, {}))
-
-                if (obj := cell.preview) is None:
-                    # Delete any previous preview
-                    dsets.append((f'.preview/{name}', None, {}))
-                elif isinstance(obj, xr.DataArray):
-                    xarray_dsets.append((f'.preview/{name}', obj))
-                else:
-                    attrs = {}
-                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
-                        obj = figure2array(obj)
-                        attrs['_damnit_objtype'] = DataType.Image.value
-                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-                        obj = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-                        attrs['_damnit_objtype'] = DataType.PlotlyFigure.value
-                    dsets.append((f'.preview/{name}', obj, attrs))
-
-        for name, exc in self.errors.items():
-            dsets.append((f'.errors/{name}', str(exc), {'type': type(exc).__name__}))
-
-        log.info("Writing %d variables to %s",
-                 len(self.cells), hdf5_path)
-
-        # We need to open the files in append mode so that when proc Variable's
-        # are processed after raw ones, the raw ones won't be lost.
-        with add_to_h5_file(hdf5_path) as f:
-            # Delete whole groups for the Variables we're modifying
-            for name in self.cells.keys():
-                if name in f:
-                    del f[name]
-
-            for grp_name, hint in obj_type_hints.items():
-                f.require_group(grp_name).attrs['_damnit_objtype'] = hint.value
-
-            f.require_group('.reduced')
-            f.require_group('.errors')
-
-            # Create datasets before filling them, so metadata goes near the
-            # start of the file.
-            for path, obj, attrs in dsets:
-                # Delete the existing datasets so we can overwrite them
-                if path in f:
-                    del f[path]
-
-                if obj is None:
-                    continue  # Deleted without replacement
-                elif isinstance(obj, str):
-                    f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
-                elif is_png_data(obj):  # Thumbnail
-                    f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
-                elif obj.ndim > 0 and (
-                        np.issubdtype(obj.dtype, np.number) or
-                        np.issubdtype(obj.dtype, np.bool_)):
-                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype, **COMPRESSION_OPTS)
-                else:
-                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
-
-                f[path].attrs.update(attrs)
-
-            # Fill with data
-            for path, obj, _ in dsets:
-                if obj is None:
-                    continue  # Deleted dataset
-                elif is_png_data(obj):
-                    f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
-                else:
-                    f[path][()] = obj
-
-        for name, obj in xarray_dsets:
-            if isinstance(obj, xr.DataArray):
-                # HDF5 doesn't allow slashes in names :(
-                if obj.name is not None and "/" in obj.name:
-                    obj.name = obj.name.replace("/", "_")
-                obj = _set_encoding(obj)
-            elif isinstance(obj, xr.Dataset):
-                vars_names = {}
-                for var_name, dataarray in obj.items():
-                    if var_name is not None and "/" in var_name:
-                        vars_names[var_name] = var_name.replace("/", "_")
-                    dataarray = _set_encoding(dataarray)
-                obj = obj.rename_vars(vars_names)
-
-            obj.to_netcdf(
-                hdf5_path,
-                mode="a",
-                format="NETCDF4",
-                group=name,
-                engine="h5netcdf",
-            )
+    def save(self, damnit_dir: Path, proposal: int, run: int):
+        submit(damnit_dir, proposal, run, self.cells, self.errors)
 
 
 def mock_run():
@@ -939,8 +813,7 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
-    exec_ap.add_argument('--save', action='append', default=[])
-    exec_ap.add_argument('--save-reduced', action='append', default=[])
+    exec_ap.add_argument('--damnit-dir')
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -990,10 +863,7 @@ def main(argv=None):
 
         res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
-        for path in args.save:
-            res.save_hdf5(path)
-        for path in args.save_reduced:
-            res.save_hdf5(path, reduced_only=True)
+        res.save(args.damnit_dir, args.proposal, args.run)
     elif args.subcmd == "ctx":
         error_info = None
 

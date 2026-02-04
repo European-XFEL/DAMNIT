@@ -1,8 +1,11 @@
+import os
 import textwrap
+from pathlib import Path
 from unittest.mock import patch
 
 from PyQt5 import QtGui, QtWidgets
 
+from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import ReducedData, RunExtractor
 from damnit.cli import main
@@ -32,12 +35,21 @@ def amore_proto(args):
 
 def extract_mock_run(run_num: int, match=()):
     """Run the context file in the CWD on the specified run"""
-    with patch("damnit.backend.extract_data.KafkaProducer"):
+    env_prev = os.environ.get('DAMNIT_KAFKA')
+    os.environ['DAMNIT_KAFKA'] = '0'
+    try:
         db = DamnitDB()
         prop = db.metameta['proposal']
         extr = RunExtractor(prop, run_num, match=match, mock=True)
         extr.update_db_vars()
         extr.extract_and_ingest()
+    finally:
+        if env_prev is None:
+            del os.environ['DAMNIT_KAFKA']
+        else:
+            os.environ['DAMNIT_KAFKA'] = env_prev
+
+    gather_all_fragments(Path.cwd())
 
 
 def mkcontext(code):
@@ -62,4 +74,3 @@ def make_table_with_headers(qtbot, headers):
     qtbot.waitExposed(view)
     header._rebuild_hierarchy()
     return view, header
-
