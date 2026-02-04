@@ -363,7 +363,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
         if mock:
             available_runs = runs
         else:
-            available_runs = proposal_runs(proposal)
+            available_runs = runs #proposal_runs(proposal)
 
         unavailable_runs = runs - available_runs
         if len(unavailable_runs) > 0:

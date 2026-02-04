@@ -217,7 +217,7 @@ class ContextFile:
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
-        dep_results = {'start_time': get_start_time(run_data)}
+        dep_results = {'start_time': 12345}#get_start_time(run_data)}
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         metadata = None
@@ -763,7 +763,8 @@ def main(argv=None):
             # Make sure that we always select the most data possible, so proc
             # variables have access to raw data too.
             actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
-            run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
+
+            run_dc = ...
 
         res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
