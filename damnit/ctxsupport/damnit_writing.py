@@ -129,8 +129,10 @@ class DataType(Enum):
 
 def summary_to_store(summary):
     """Convert the summary value to what we'll store in HDF5"""
-    if isinstance(summary, bytes):  # PNG thumbnail
-        return np.frombuffer(summary, dtype=np.uint8)
+    if isinstance(summary, PNGData):  # PNG thumbnail
+        return np.frombuffer(summary.data, dtype=np.uint8)
+    if isinstance(summary, str):
+        return np.asarray(summary, dtype=h5py.string_dtype())
     return summary
 
 def preview_to_store(obj):
