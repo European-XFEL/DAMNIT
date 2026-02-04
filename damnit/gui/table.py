@@ -1182,16 +1182,30 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
         try:
             row_ix = self.find_row(proposal, run)
+            if not values:
+                # No need to update anything else
+                return
+            placeholders = ", ".join(["?"] * len(values))
+            query = (
+                "SELECT name, value, max_diff, summary_type, attributes "
+                "FROM run_variables WHERE proposal=? AND run=? "
+                f"AND name IN ({placeholders})"
+            )
+            params = (proposal, run, *values.keys())
         except KeyError:
             row_ix = None
+            query = (
+                "SELECT name, value, max_diff, summary_type, attributes "
+                "FROM run_variables WHERE proposal=? AND run=?"
+            )
+            params = (proposal, run)
 
         data = {}
         max_diffs = {}
         attrs = {}
         summary_types = {}
-        for name, value, max_diff, summary_type, attr_json in self.db.conn.execute("""
-            SELECT name, value, max_diff, summary_type, attributes FROM run_variables WHERE proposal=? AND run=?
-        """, (proposal, run)):
+
+        for name, value, max_diff, summary_type, attr_json in self.db.conn.execute(query, params):
             data[name] = value
             max_diffs[name] = max_diff
             summary_types[name] = summary_type
