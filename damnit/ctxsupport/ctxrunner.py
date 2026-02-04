@@ -813,7 +813,7 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
-    exec_ap.add_argument('--damnit-dir')
+    exec_ap.add_argument('--damnit-dir', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
