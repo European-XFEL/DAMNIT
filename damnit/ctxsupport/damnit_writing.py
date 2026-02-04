@@ -190,6 +190,13 @@ def save_dataset_netcdf(f: h5py.File, group: str, dset):
     import h5netcdf
     from xarray.backends import H5NetCDFStore
 
+    # HDF5 doesn't allow slashes in names :(
+    vars_names = {}
+    for var_name, dataarray in dset.items():
+        if var_name is not None and "/" in var_name:
+            vars_names[var_name] = var_name.replace("/", "_")
+    dset = dset.rename_vars(vars_names)
+
     with h5netcdf.File(f, 'a') as nf:
         store = H5NetCDFStore(nf, group=group, mode='w')
         dset.dump_to_store(store, encoding={k: COMPRESSION_OPTS for k in dset})
