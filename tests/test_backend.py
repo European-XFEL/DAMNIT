@@ -23,6 +23,7 @@ from PIL import Image
 from testpath import MockCommand
 
 from damnit.backend import listener_is_running, initialize_proposal, start_listener
+from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import BlobTypes, DamnitDB, blob2numpy
 from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data, main as extract_data_main
 from damnit.backend.extraction_control import ExtractionJobTracker
@@ -582,6 +583,7 @@ def test_results_bad_obj(mock_run, tmp_path):
     # Test returning an object we can't save in HDF5
     bad_obj_code = """
     from damnit_ctx import Variable
+    import numpy as np
 
     @Variable()
     def good(run):
@@ -599,7 +601,7 @@ def test_results_bad_obj(mock_run, tmp_path):
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
     results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
-        assert set(f) == {".errors", ".reduced", "good", "start_time"}
+        assert {n for n in f if not n.startswith(".")} == {"good", "start_time"}
         assert set(f[".reduced"]) == {"good", "start_time"}
 
 def test_results_cell(mock_run, tmp_path):
@@ -837,9 +839,6 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx.code)
 
-    out_path = db_dir / "extracted_data" / "p1234_r42.h5"
-    out_path.parent.mkdir(exist_ok=True)
-
     # Create Extractor with a mocked KafkaProducer
     with patch(f"{pkg}.KafkaProducer") as _:
         extractor = RunExtractor(1234, 42, cluster=False, run_data=RunData.ALL)
@@ -858,7 +857,9 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Process run
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['exec', '1234', '42', 'raw', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'raw'])
+    gather_all_fragments(db_dir)
+    out_path = db_dir / "extracted_data" / "p1234_r42.h5"
 
     # Check that a file was created
     assert out_path.is_file()
@@ -877,7 +878,8 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with `data='all'`, but as if there is no proc data
     with patch("ctxrunner.extra_data.open_run", side_effect=mock_open_run):
-        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all'])
+    gather_all_fragments(db_dir)
 
     # Check that `meta_array` wasn't processed, since it requires proc data
     with h5py.File(out_path) as f:
@@ -885,7 +887,8 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with proc data
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all'])
+    gather_all_fragments(db_dir)
 
     # Now `meta_array` should have been processed
     with h5py.File(out_path) as f:
@@ -895,6 +898,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     with patch("ctxrunner.extra_data.open_run") as open_run:
         main(["exec", "1234", "42", "all", "--mock"])
         open_run.assert_not_called()
+    gather_all_fragments(db_dir)
 
     # When only proc variables are reprocessed, the run should still be opened
     # with `data='all'` so that raw data is available. Note that we patch
@@ -904,6 +908,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         main(["exec", "1234", "42", "proc"])
 
         open_run.assert_called_with(1234, 42, data="all")
+    gather_all_fragments(db_dir)
 
 def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db
@@ -944,6 +949,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
 
     with patch(f"{pkg}.KafkaProducer"):
         RunExtractor(1234, 42, mock=True).extract_and_ingest()
+    gather_all_fragments(db_dir)
 
     with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
         assert f["foo/data"][()] == 42

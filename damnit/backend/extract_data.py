@@ -252,7 +252,7 @@ class RunExtractor(Extractor):
             args.append(str(self.proposal))
             args.append("--")
         args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
-                     self.run_data.value, '--damnit-dir', os.getcwd()])
+                     self.run_data.value])
         if self.cluster:
             args.append('--cluster-job')
         if self.mock:

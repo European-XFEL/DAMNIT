@@ -816,7 +816,6 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
-    exec_ap.add_argument('--damnit-dir', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -866,7 +865,7 @@ def main(argv=None):
 
         res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
-        res.save(args.damnit_dir, args.proposal, args.run)
+        res.save(Path.cwd(), args.proposal, args.run)
     elif args.subcmd == "ctx":
         error_info = None
 
