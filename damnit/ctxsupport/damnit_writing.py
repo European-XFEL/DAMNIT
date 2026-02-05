@@ -227,7 +227,7 @@ def save_dataarray_netcdf(f: h5py.File, group: str, darr):
 
 
 def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
-           errors: dict[str, tuple]):
+           errors: dict[str, Exception]):
     """Add one or more results into a DAMNIT store"""
     results_dir = damnit_dir / "extracted_data"
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -274,9 +274,9 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
                     kwargs = {}
                 grp.create_dataset("data", data=data, **kwargs)
 
-        for name, (etype, msg) in errors.items():
-            ds = f.create_dataset(f'.errors/{name}', data=msg)
-            ds.attrs['type'] = etype
+        for name, exc in errors.items():
+            ds = f.create_dataset(f'.errors/{name}', data=str(exc))
+            ds.attrs['type'] = type(exc).__name__
 
     if os.environ.get("DAMNIT_KAFKA", "1") != "0":
         notify_new_file(damnit_dir, proposal, run, f.final_path)
@@ -307,6 +307,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import plotly.express as px
     import xarray as xr
+    from extra_data import SourceNameError
 
     results_folder = Path("test/extracted_data")
     results_folder.mkdir(parents=True, exist_ok=True)
@@ -321,5 +322,5 @@ if __name__ == '__main__':
         'mpl': Cell(fig),
         'plotly': Cell(px.bar(x=['a', 'b', 'c'], y=[1, 3, 2]))
     }, errors={
-        'sourceerr': ('SourceNameError', "No source named FOO/BAR/BAZ in this data")
+        'sourceerr': SourceNameError("No source named FOO/BAR/BAZ in this data"),
     })
