@@ -588,50 +588,6 @@ def get_start_time(xd_run):
         return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
-def downsample_line(data):
-    from fpcs import downsample
-
-    if isinstance(data, xr.DataArray):
-        y = data.values
-        x = None
-        if data.dims:
-            dim = data.dims[0]
-            if dim in data.coords:
-                x = data.coords[dim].values
-        if x is None or np.shape(x) != np.shape(y):
-            x = np.arange(y.size)
-    else:
-        y = np.asarray(data)
-        x = np.arange(y.size)
-
-    if not np.issubdtype(x.dtype, np.number):
-        if np.issubdtype(x.dtype, np.datetime64):
-            x = x.astype("datetime64[ns]").astype("int64") / 1e9
-        else:
-            x = np.arange(y.shape[0])
-
-    x = x.astype(np.float64, copy=False)
-    y = y.astype(np.float64, copy=False)
-
-    if x.size == 0:
-        return np.empty((2, 0), dtype=np.float64)
-
-    # ensure we have a monotonic increasing coordinates
-    if x.size > 1:
-        diffs = np.diff(x)
-        if not np.all(diffs >= 0):
-            order = np.argsort(x, kind="stable")
-            x = x[order]
-            y = y[order]
-
-    # We aim to retain ~150 samples
-    # (TODO: rather save a ratio of the data with upper bound?)
-    # the fpcs algorithm retain ~1.25 point per sampling window
-    ratio = max(1, int(x.size / (0.8 * 150)))
-    xd, yd = downsample(x, y, ratio=ratio)
-    return np.vstack((xd, yd))
-
-
 def extract_error_info(exc_type, e, tb):
     lineno = -1
     offset = 0
@@ -700,88 +656,8 @@ class Results:
         self.cells = cells
         self.errors = errors
         self.ctx = ctx
-        self._reduced = None
-
-    @property
-    def reduced(self):
-        if self._reduced is None:
-            r = {}
-            for name in self.cells:
-                v = self.summarise(name)
-                if v is not None:
-                    r[name] = v
-            self._reduced = r
-        return self._reduced
-
-    def summarise(self, name):
-        cell = self.cells[name]
-
-        if (summary_val := cell.get_summary()) is not None:
-            return summary_val
-
-        # If a summary wasn't specified, try some default fallbacks
-        data = cell.preview if (cell.preview is not None) else cell.data
-        if isinstance(data, str):
-            return data
-        elif isinstance(data, xr.Dataset):
-            size = data.nbytes / 1e6
-            return f"Dataset ({size:.2f}MB)"
-        elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
-            # For the sake of space and memory we downsample images to a
-            # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
-            image_shape = data.get_size_inches() * data.dpi
-            zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-            try:
-                return figure2png(data, dpi=(data.dpi * zoom_ratio))
-            except:
-                logging.error("Error generating thumbnail for %s", name, exc_info=True)
-                return "<thumbnail error>"
-        elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
-            return plotly2png(data)
-
-        elif isinstance(data, (np.ndarray, xr.DataArray)):
-            if data.ndim == 0:
-                return data
-            elif data.ndim == 1:
-                try:
-                    return downsample_line(data)
-                except ModuleNotFoundError:
-                    logging.warning(
-                        'Downsampling library not found for trendline generation'
-                        ', falling back to thumbnail generation for %s', name
-                    )
-                    try:
-                        # fall back to generating thumbnail
-                        return line_thumbnail(data)
-                    except:
-                        logging.error(
-                            "Error generating thumbnail for %s", name, exc_info=True)
-                        return "<thumbnail error>"
-                except:
-                    logging.error(
-                        "Error generating trendline for %s", name, exc_info=True)
-                    return "<trendline error>"
-            elif data.ndim == 2:
-                if isinstance(data, np.ndarray):
-                    data = np.nan_to_num(data)
-                else:
-                    data = data.fillna(0)
-
-                try:
-                    return generate_thumbnail(data)
-                except:
-                    logging.error("Error generating thumbnail for %s", name, exc_info=True)
-                    return "<thumbnail error>"
-            else:
-                # Describe the full data (cell.data), not the preview data
-                return f"{cell.data.dtype}: {cell.data.shape}"
-
-        return None
 
     def save(self, damnit_dir: Path, proposal: int, run: int):
-        for name, cell in self.cells.items():
-            if cell.summary_value is None and cell.data is not None:
-                cell.summary_value = self.summarise(name)
         return submit(damnit_dir, proposal, run, self.cells, self.errors)
 
 

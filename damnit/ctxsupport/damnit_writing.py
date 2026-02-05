@@ -117,6 +117,50 @@ def line_thumbnail(arr):
     return figure2png(fig, dpi=THUMBNAIL_SIZE)
 
 
+def downsample_line(data):
+    from fpcs import downsample
+
+    if isinstance(data, xr.DataArray):
+        y = data.values
+        x = None
+        if data.dims:
+            dim = data.dims[0]
+            if dim in data.coords:
+                x = data.coords[dim].values
+        if x is None or np.shape(x) != np.shape(y):
+            x = np.arange(y.size)
+    else:
+        y = np.asarray(data)
+        x = np.arange(y.size)
+
+    if not np.issubdtype(x.dtype, np.number):
+        if np.issubdtype(x.dtype, np.datetime64):
+            x = x.astype("datetime64[ns]").astype("int64") / 1e9
+        else:
+            x = np.arange(y.shape[0])
+
+    x = x.astype(np.float64, copy=False)
+    y = y.astype(np.float64, copy=False)
+
+    if x.size == 0:
+        return np.empty((2, 0), dtype=np.float64)
+
+    # ensure we have a monotonic increasing coordinates
+    if x.size > 1:
+        diffs = np.diff(x)
+        if not np.all(diffs >= 0):
+            order = np.argsort(x, kind="stable")
+            x = x[order]
+            y = y[order]
+
+    # We aim to retain ~150 samples
+    # (TODO: rather save a ratio of the data with upper bound?)
+    # the fpcs algorithm retain ~1.25 point per sampling window
+    ratio = max(1, int(x.size / (0.8 * 150)))
+    xd, yd = downsample(x, y, ratio=ratio)
+    return np.vstack((xd, yd))
+
+
 # More specific Python types beyond what HDF5/NetCDF4 know about, so we can
 # reconstruct Python objects when reading values back in.
 class DataType(Enum):
