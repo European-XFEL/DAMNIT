@@ -6,9 +6,13 @@ import signal
 from pathlib import Path
 
 import h5py
+import h5netcdf
+import xarray as xr
 from kafka import KafkaConsumer, KafkaProducer
+from xarray.backends import H5NetCDFStore
 
 from .db import DamnitDB, MsgKind, msg_dict
+from ..context import DataType
 from ..definitions import UPDATE_BROKERS
 from .extract_data import load_reduced_data, add_to_db
 
@@ -17,6 +21,27 @@ KAFKA_TOPIC = "test.damnit.file_submissions"
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
 
 log = logging.getLogger(__name__)
+
+
+# HDF5's copy function (H5Ocopy) doesn't work correctly with dimension scales,
+# which are used on NetCDF4 data (saved xarray objects). We work around that by
+# reading such objects back to an xarray dataset and saving them again.
+# https://github.com/HDFGroup/hdf5/issues/6200
+def copy_h5_obj(fsrc: h5py.File, fdst: h5py.File, path: str):
+    fdst.pop(path, None)
+
+    objtype = fsrc[path].attrs.get('_damnit_objtype', '')
+    if objtype in (DataType.DataArray.value, DataType.Dataset.value):
+        with h5netcdf.File(fsrc) as nf:
+            with H5NetCDFStore(nf, path, mode='r') as store:
+                xobj = xr.load_dataset(store)
+
+        with h5netcdf.File(fdst, 'a') as nf:
+            with H5NetCDFStore(nf, path, mode='a') as store:
+                xobj.dump_to_store(store)
+    else:
+        fsrc.copy(path, fdst, path, expand_refs=True)
+
 
 def combine(src: Path, dst: Path):
     """Combine the the contents of src (an HDF5 file) into dst"""
@@ -33,14 +58,11 @@ def combine(src: Path, dst: Path):
     with h5py.File(src) as fsrc, h5py.File(dst, 'r+') as fdst:
         for grp in fsrc:
             if not grp.startswith("."):
-                fdst.pop(grp, None)
-                fsrc.copy(grp, fdst, grp)
+                copy_h5_obj(fsrc, fdst, grp)
 
         for special_grp in [".reduced", ".preview", ".errors"]:
             for k in fsrc[special_grp]:
-                path = f"{special_grp}/{k}"
-                fdst.pop(path, None)
-                fsrc.copy(path, fdst, path)
+                copy_h5_obj(fsrc, fdst, f"{special_grp}/{k}")
 
     src.unlink()
 
