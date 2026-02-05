@@ -782,7 +782,7 @@ class Results:
         for name, cell in self.cells.items():
             if cell.summary_value is None and cell.data is not None:
                 cell.summary_value = self.summarise(name)
-        submit(damnit_dir, proposal, run, self.cells, self.errors)
+        return submit(damnit_dir, proposal, run, self.cells, self.errors)
 
 
 def mock_run():

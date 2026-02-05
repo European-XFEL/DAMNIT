@@ -281,6 +281,8 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
     if os.environ.get("DAMNIT_KAFKA", "1") != "0":
         notify_new_file(damnit_dir, proposal, run, f.final_path)
 
+    return Path(f.final_path)
+
 
 def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
     # Announce via Kafka that this file is ready to be combined

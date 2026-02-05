@@ -62,6 +62,11 @@ def check_trendline(dset):
     assert dset.shape[0] == 2
     assert np.issubdtype(dset.dtype, np.floating)
 
+@pytest.fixture(autouse=True)
+def suppress_kafka(monkeypatch):
+    monkeypatch.setenv("DAMNIT_KAFKA", "0")
+
+
 def test_add_to_h5_file(tmp_path):
     path = tmp_path / "foo.h5"
     good_file_mode = "-rw-rw-rw-"
@@ -379,7 +384,6 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     # Test that the backend completely updates all datasets belonging to a
     # variable during reprocessing. e.g. if it had a trainId dataset but now
     # doesn't, the trainId dataset should be deleted from the HDF5 file.
-    results_hdf5_path = tmp_path / "results.hdf5"
     with_coords_code = """
     import xarray as xr
     from damnit.context import Variable
@@ -394,7 +398,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     with_coords_ctx = mkcontext(with_coords_code)
     results = results_create(with_coords_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     # This time there should be a trainId dataset saved
     with h5py.File(results_hdf5_path) as f:
@@ -412,7 +416,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     without_coords_ctx = mkcontext(without_coords_code)
     results = results_create(without_coords_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     # But now it should be deleted from the file
     with h5py.File(results_hdf5_path) as f:
@@ -456,7 +460,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     assert isinstance(results.reduced["axes"], PNGData)
 
     results_hdf5_path.unlink()
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
     with h5py.File(results_hdf5_path) as f:
         # The plots should be saved as 3D RGBA arrays
         check_rgba(f["figure/data"])
@@ -484,7 +488,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     dataset_ctx = mkcontext(dataset_code)
     results = results_create(dataset_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     dataset = xr.load_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
     assert "foo" in dataset
@@ -510,7 +514,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     complex_ctx = mkcontext(complex_code)
     results = results_create(complex_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     dataset = xr.load_dataset(results_hdf5_path, group="complex_dataset", engine="h5netcdf")
     assert "foo" in dataset
@@ -567,8 +571,7 @@ def test_return_bool(mock_run, tmp_path):
     ctx = mkcontext(code)
     results = ctx.execute(mock_run, 1000, 123, {})
 
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         assert f['bool/data'][()] == True
@@ -594,8 +597,7 @@ def test_results_bad_obj(mock_run, tmp_path):
     """
     bad_obj_ctx = mkcontext(bad_obj_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
         assert set(f) == {".errors", ".reduced", "good", "start_time"}
         assert set(f[".reduced"]) == {"good", "start_time"}
@@ -619,8 +621,7 @@ def test_results_cell(mock_run, tmp_path):
     """
     bad_obj_ctx = mkcontext(ctx_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
         assert f['.reduced/var2'][()] == 45
         assert f['.reduced/var2'].attrs['bold'] == False
@@ -644,7 +645,7 @@ def test_results_empty_array(mock_run, tmp_path, caplog):
     ctx = mkcontext(empty_array)
     with caplog.at_level(logging.ERROR):
         results = ctx.execute(mock_run, 1000, 123, {})
-        results.save_hdf5(tmp_path / 'results.h5', reduced_only=True)
+        results.save(tmp_path, 1000, 123)
 
         # One warning about foo should have been logged
         assert len(caplog.records) == 1
@@ -696,8 +697,7 @@ def test_results_preview(mock_run, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
         np.testing.assert_array_equal(f['.preview/var1'][()], np.ones(5))
         check_trendline(f['.reduced/var1'])
@@ -1369,8 +1369,7 @@ def test_transient_variables(mock_run, mock_db, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         assert '.reduced/var1' in f
@@ -1425,8 +1424,7 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         for i in [1, 2, 4]:
