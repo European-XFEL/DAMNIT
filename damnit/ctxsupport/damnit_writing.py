@@ -171,45 +171,6 @@ class DataType(Enum):
     PlotlyFigure = "PlotlyFigure"
 
 
-def summary_to_store(summary):
-    """Convert the summary value to what we'll store in HDF5"""
-    if isinstance(summary, PNGData):  # PNG thumbnail
-        return np.frombuffer(summary.data, dtype=np.uint8)
-    if isinstance(summary, str):
-        return np.asarray(summary, dtype=h5py.string_dtype())
-    return summary
-
-def preview_to_store(obj):
-    """Convert the preview data to what we'll store in HDF5 (object, attrs)"""
-    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
-        return figure2array(obj), {OBJTYPE_ATTR: DataType.Image.value}
-    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-        a = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-        return a, {OBJTYPE_ATTR: DataType.PlotlyFigure.value}
-    elif isinstance_no_import(obj, 'xarray', 'DataArray'):
-        return obj, {OBJTYPE_ATTR: DataType.DataArray.value}
-    return obj, {}  # Numpy/xarray array
-
-def data_to_store(obj):
-    """Convert the main data to what we'll store in HDF5 (object, attrs)"""
-    if isinstance_no_import(obj, 'xarray', 'DataArray'):
-        return obj, {OBJTYPE_ATTR: DataType.DataArray.value}
-    elif isinstance_no_import(obj, 'xarray', 'Dataset'):
-        return obj, {OBJTYPE_ATTR: DataType.Dataset.value}
-    elif isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
-        return figure2array(obj), {OBJTYPE_ATTR: DataType.Image.value}
-    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-        # we want to compress plotly figures in HDF5 files
-        # so we need to convert the data to array of uint8
-        a = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-        return a, {OBJTYPE_ATTR: DataType.PlotlyFigure.value}
-    elif isinstance(obj, str):
-        return np.asarray(obj, dtype=h5py.string_dtype()), {}
-    elif obj is None:
-        return None, {}
-    return np.asarray(obj), {}
-
-
 @contextmanager
 def atomic_create_h5(dir, prefix):
     """Write to a new HDF5 file, renaming it when finished."""
@@ -270,6 +231,69 @@ def save_dataarray_netcdf(f: h5py.File, group: str, darr):
     save_dataset_netcdf(f, group, dataset)
 
 
+class DamnitFileWriter:
+    def __init__(self, file: h5py.File):
+        self.file = file
+        file.require_group('.reduced')  # Summaries
+        file.require_group('.preview')
+        file.require_group('.errors')
+
+    def store_summary(self, name, obj, attrs):
+        if isinstance(obj, PNGData):  # PNG thumbnail
+            obj = np.frombuffer(obj.data, dtype=np.uint8)
+        ds = self.file.create_dataset(f'.reduced/{name}', data=obj)
+        ds.attrs.update(attrs)
+
+    def store_preview(self, name, obj):
+        """Convert the preview data to what we'll store in HDF5 (object, attrs)"""
+        path = f'.preview/{name}'
+
+        if isinstance_no_import(obj, 'xarray', 'DataArray'):
+            attrs = {OBJTYPE_ATTR: DataType.DataArray.value}
+            save_dataarray_netcdf(self.file, path, obj)
+        else:
+            if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
+                attrs = {OBJTYPE_ATTR: DataType.Image.value}
+                obj = figure2array(obj)
+            elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+                attrs = {OBJTYPE_ATTR: DataType.PlotlyFigure.value}
+                obj = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
+            else:
+                attrs = {}
+
+            self.file[path] = obj
+
+        self.file[path].attrs.update(attrs)
+
+    def store_data(self, name, obj):
+        grp = self.file.create_group(name)
+        if isinstance_no_import(obj, 'xarray', 'DataArray'):
+            attrs = {OBJTYPE_ATTR: DataType.DataArray.value}
+            save_dataarray_netcdf(self.file, name, obj)
+        elif isinstance_no_import(obj, 'xarray', 'Dataset'):
+            attrs = {OBJTYPE_ATTR: DataType.Dataset.value}
+            save_dataset_netcdf(self.file, name, obj)
+        else:
+            if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
+                attrs = {OBJTYPE_ATTR: DataType.Image.value}
+                obj = figure2array(obj), {OBJTYPE_ATTR: DataType.Image.value}
+            elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
+                attrs = {OBJTYPE_ATTR: DataType.PlotlyFigure.value}
+                # we want to compress plotly figures in HDF5 files
+                # so we need to convert the data to array of uint8
+                obj = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
+            else:
+                attrs = {}
+
+            grp['data'] = obj
+
+        grp.attrs.update(attrs)
+
+    def store_error(self, name, exc: Exception):
+        ds = self.file.create_dataset(f'.errors/{name}', data=str(exc))
+        ds.attrs['type'] = type(exc).__name__
+
+
 def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
            errors: dict[str, Exception]):
     """Add one or more results into a DAMNIT store"""
@@ -279,48 +303,23 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
         os.chmod(results_dir, 0o777)
 
     with atomic_create_h5(dir=results_dir, prefix=f"p{proposal}_r{run}.") as f:
-        f.require_group('.reduced')  # Summaries
-        f.require_group('.preview')
-        f.require_group('.errors')
-
+        writer = DamnitFileWriter(f)
         for name, cell in vars.items():
-            if (summary := summary_to_store(cell.get_summary())) is not None:
-                ds = f.create_dataset(f".reduced/{name}", data=summary)
+            if (summary := cell.get_summary()) is not None:
                 summary_attrs = cell.summary_attrs()
                 if isinstance(summary, np.ndarray):
                     if summary.ndim == 2 and summary.shape[0] == 2:
                         summary_attrs["summary_type"] = "trendline"
-                ds.attrs.update(summary_attrs)
+                writer.store_summary(name, summary, summary_attrs)
 
-            preview, attrs = preview_to_store(cell.preview)
-            if attrs.get(OBJTYPE_ATTR) == DataType.DataArray.value:
-                f.require_group(f".preview/{name}").attrs.update(attrs)
-                save_dataarray_netcdf(f, f".preview/{name}", preview)
-            elif preview is not None:
-                ds = f.create_dataset(f".preview/{name}", data=preview)
-                ds.attrs.update(attrs)
+            if cell.preview is not None:
+                writer.store_preview(name, cell.preview)
 
-            data, attrs = data_to_store(cell.data)
-            objtype = attrs.get(OBJTYPE_ATTR)
-            grp = f.require_group(name)
-            grp.attrs.update(attrs)
-            if objtype == DataType.DataArray.value:
-                save_dataarray_netcdf(f, name, data)
-            elif objtype == DataType.Dataset.value:
-                save_dataset_netcdf(f, name, data)
-            elif data is not None:
-                if data.ndim > 0 and (
-                    np.issubdtype(data.dtype, np.number) or
-                    np.issubdtype(data.dtype, np.bool_)
-                ):
-                    kwargs = COMPRESSION_OPTS
-                else:
-                    kwargs = {}
-                grp.create_dataset("data", data=data, **kwargs)
+            if cell.data is not None:
+                writer.store_data(name, cell.data)
 
         for name, exc in errors.items():
-            ds = f.create_dataset(f'.errors/{name}', data=str(exc))
-            ds.attrs['type'] = type(exc).__name__
+            writer.store_error(name, exc)
 
     if os.environ.get("DAMNIT_KAFKA", "1") != "0":
         notify_new_file(damnit_dir, proposal, run, f.final_path)
@@ -352,6 +351,7 @@ if __name__ == '__main__':
     import plotly.express as px
     import xarray as xr
     from extra_data import SourceNameError
+    from damnit_ctx import Cell
 
     results_folder = Path("test/extracted_data")
     results_folder.mkdir(parents=True, exist_ok=True)
