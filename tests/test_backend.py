@@ -301,7 +301,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     # Check that the summary of a DataArray is a single number
     assert isinstance(results.cells["meta_array"].data, xr.DataArray)
-    assert results.reduced["meta_array"].ndim == 0
+    assert results.cells["meta_array"].get_summary().ndim == 0
 
     # Check the result values
     assert results.cells["scalar1"].data == 42
@@ -375,7 +375,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     default_value_ctx = mkcontext(default_value_code)
     results = results_create(default_value_ctx)
-    assert results.reduced["bar"].item() == 42
+    assert results.cells["bar"].get_summary().item() == 42
 
     # Test that the backend completely updates all datasets belonging to a
     # variable during reprocessing. e.g. if it had a trainId dataset but now
@@ -452,8 +452,8 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     figure_ctx = mkcontext(figure_code)
     results = results_create(figure_ctx)
-    assert isinstance(results.reduced["figure"], PNGData)
-    assert isinstance(results.reduced["axes"], PNGData)
+    assert isinstance(results.cells["figure"].get_summary(), PNGData)
+    assert isinstance(results.cells["axes"].get_summary(), PNGData)
 
     results_hdf5_path.unlink()
     results_hdf5_path = results.save(tmp_path, proposal, run_number)
@@ -647,7 +647,7 @@ def test_results_empty_array(mock_run, tmp_path, caplog):
         # One warning about foo should have been logged
         assert len(caplog.records) == 1
         assert caplog.records[0].levelname == "ERROR"
-        assert caplog.records[0].msg == "Failed to produce summary data"
+        assert caplog.records[0].msg.startswith("Failed to produce summary data")
 
 
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
