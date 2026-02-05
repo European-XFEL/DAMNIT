@@ -5,7 +5,7 @@ __version__ = '0.2.1'
 from .api import Damnit, RunVariables, VariableData
 
 
-def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception], damnit_dir=None):
+def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception] =None, damnit_dir=None):
     """Add some results into DAMNIT's store
 
     Args:
@@ -29,5 +29,6 @@ def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception], 
 
     variables = {k: (v if isinstance(v, Cell) else Cell(v))
                  for (k, v) in variables.items()}
+    errors = errors or {}
 
     inner_submit(damnit_dir, proposal, run, variables, errors)
