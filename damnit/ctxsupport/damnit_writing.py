@@ -276,7 +276,7 @@ class DamnitFileWriter:
         else:
             if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
                 attrs = {OBJTYPE_ATTR: DataType.Image.value}
-                obj = figure2array(obj), {OBJTYPE_ATTR: DataType.Image.value}
+                obj = figure2array(obj)
             elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
                 attrs = {OBJTYPE_ATTR: DataType.PlotlyFigure.value}
                 # we want to compress plotly figures in HDF5 files
