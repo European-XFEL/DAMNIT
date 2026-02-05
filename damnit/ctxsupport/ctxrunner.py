@@ -456,6 +456,14 @@ def downsample_line(data):
     if x.size == 0:
         return np.empty((2, 0), dtype=np.float64)
 
+    # ensure we have a monotonic increasing coordinates
+    if x.size > 1:
+        diffs = np.diff(x)
+        if not np.all(diffs >= 0):
+            order = np.argsort(x, kind="stable")
+            x = x[order]
+            y = y[order]
+
     # We aim to retain ~150 samples
     # (TODO: rather save a ratio of the data with upper bound?)
     # the fpcs algorithm retain ~1.25 point per sampling window
