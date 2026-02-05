@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                              QLineEdit, QMessageBox, QStyledItemDelegate)
 
 import damnit
-from damnit.backend.db import DamnitDB, ReducedData
+from damnit.backend.db import DamnitDB, MsgKind, ReducedData
 from damnit.backend.extract_data import add_to_db
 from damnit.ctxsupport.ctxrunner import ContextFile
 from damnit.gui.editor import ContextTestResult
@@ -275,11 +275,20 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
 
     # Simulate adding a new column while the GUI is running
     msg = {
-        "Proposal": 1234,
-        "Run": 1,
-        "new_var": 42
+        "msg_kind": MsgKind.run_values_updated.value,
+        "data": {
+            "proposal": 1234,
+            "run": 1,
+            "values": {"new_var": None},
+        }
     }
-    db.set_variable(msg["Proposal"], msg["Run"], "new_var", ReducedData(msg["new_var"]))
+    msg_data = msg['data']
+    db.set_variable(
+        msg_data["proposal"],
+        msg_data["run"],
+        "new_var",
+        ReducedData(42)
+    )
     win.handle_update(msg)
 
     # The new column should be at the end
@@ -291,7 +300,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     assert headers == visible_headers()
 
     # Simulate adding a new column while the GUI is *not* running
-    db.set_variable(msg["Proposal"], msg["Run"], "newer_var", ReducedData("foo"))
+    db.set_variable(msg_data["proposal"], msg_data["run"], "newer_var", ReducedData("foo"))
 
     # Reload the database
     headers = visible_headers()
@@ -329,13 +338,22 @@ def test_handle_update(mock_db, qtbot):
 
     # Sending an update should add a row to the table
     msg = {
-        "Proposal": 1234,
-        "Run": 1,
-        "scalar1": 42,
-        "string": "foo"
+        "msg_kind": MsgKind.run_values_updated.value,
+        "data": {
+            "proposal": 1234,
+            "run": 1,
+            "values": {
+                "scalar1": None,
+                "string": None,
+            },
+        }
     }
+    msg_data = msg['data']
 
     assert win.table.rowCount() == 0
+    # we need to update the database first as the values are read from there upon table update
+    db.set_variable(msg_data["proposal"], msg_data["run"], "string", ReducedData("foo"))
+    db.set_variable(msg_data["proposal"], msg_data["run"], "scalar1", ReducedData(42))
     win.handle_update(msg)
     assert win.table.rowCount() == 1
 
@@ -345,12 +363,14 @@ def test_handle_update(mock_db, qtbot):
     assert "string" in headers
 
     # Send an update for an existing row
-    msg["scalar1"] = 43
+    msg["data"]["values"] = {"scalar1": None}
+    db.set_variable(msg_data["proposal"], msg_data["run"], "scalar1", ReducedData(43))
     win.handle_update(msg)
-    assert model().data(model().index(0, headers.index("Scalar1"))) == str(msg["scalar1"])
+    assert model().data(model().index(0, headers.index("Scalar1"))) == str(43)
 
     # Add a new column to an existing row
-    msg["unexpected_var"] = 7
+    msg["data"]["values"] = {"unexpected_var": None}
+    db.set_variable(msg_data["proposal"], msg_data["run"], "unexpected_var", ReducedData(7))
     win.handle_update(msg)
     assert len(headers) + 1 == len(get_headers())
     assert "unexpected_var" in get_headers()
@@ -376,11 +396,19 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
 
     extract_mock_run(2)
     msg = {
-        "Proposal": 1234,
-        "Run": 2,
-        "scalar1": 42,
-        "string": "foo"
+        "msg_kind": MsgKind.run_values_updated.value,
+        "data": {
+            "proposal": 1234,
+            "run": 1,
+            "values": {
+                "scalar1": None,
+                "string": None,
+            },
+        }
     }
+    msg_data = msg['data']
+    db.set_variable(msg_data["proposal"], msg_data["run"], "string", ReducedData("foo"))
+    db.set_variable(msg_data["proposal"], msg_data["run"], "scalar1", ReducedData(42))
     win.handle_update(msg)
 
 def test_autoconfigure(tmp_path, bound_port, request, qtbot):
