@@ -359,6 +359,7 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
         if arr is None:
             return super().paint(painter, option, index)
 
+        # Base item rendering (selection background, etc.)
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         opt.text = ""
@@ -366,10 +367,12 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
         style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
         style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, opt, painter, opt.widget)
 
+        # Pixel bounds for the sparkline drawing area.
         rect = opt.rect.adjusted(2, 2, -2, -2)
         if rect.width() < 4 or rect.height() < 4:
             return
 
+        # Validate/prepare data.
         if arr.ndim != 2 or arr.shape[0] != 2 or arr.shape[1] < 2:
             return
 
@@ -384,6 +387,7 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
         if x.size < 2:
             return
 
+        # Normalize data to [0,1] and map to pixel coordinates.
         x_min = float(np.nanmin(x))
         x_max = float(np.nanmax(x))
         y_min = float(np.nanmin(y))
@@ -405,14 +409,16 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
         x_pix = rect.left() + x_norm * (rect.width() - 1)
         y_pix = rect.top() + (1 - y_norm) * (rect.height() - 1)
 
+        # Build the polyline path.
         poly = QtGui.QPolygonF()
         for xi, yi in zip(x_pix, y_pix):
             poly.append(QtCore.QPointF(float(xi), float(yi)))
 
+        # Draw the sparkline.
         painter.save()
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
         line_color = QtGui.QColor(0, 120, 215)    # blue
-        hover_line_color = QtGui.QColor(0, 0, 0)  # black
+        hover_line_color = QtGui.QColor(181, 181, 181)  # gray
         text_color = QtGui.QColor(0, 0, 0)        # black
         dot_color = QtGui.QColor(220, 0, 0)       # red
         pen = QtGui.QPen(line_color)
@@ -420,41 +426,67 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
         painter.setPen(pen)
         painter.drawPolyline(poly)
 
+        # Hover overlay: snap to extrema if near, otherwise interpolate.
         view = opt.widget
         hover_index = view._sparkline_hover_index
         hover_t = view._sparkline_hover_t
         if hover_index is not None and hover_t is not None and hover_index == index:
             x_line = rect.left() + hover_t * (rect.width() - 1)
+
+            snap_idx = None
+            if x.size >= 3:
+                extrema = []
+                for i in range(1, x.size - 1):
+                    if (y[i] >= y[i - 1] and y[i] >= y[i + 1]) or (
+                        y[i] <= y[i - 1] and y[i] <= y[i + 1]
+                    ):
+                        extrema.append(i)
+                if extrema:
+                    extrema = np.asarray(extrema, dtype=int)
+                    dists = np.abs(x_pix[extrema] - x_line)
+                    nearest = int(extrema[np.argmin(dists)])
+                    if dists.min() <= 6.0:
+                        snap_idx = nearest
+
+            if snap_idx is not None:
+                x_line = float(x_pix[snap_idx])
+                y_val = float(y[snap_idx])
+                y_marker = float(y_pix[snap_idx])
+            else:
+                try:
+                    if span_x == 0:
+                        y_val = float(np.nanmean(y))
+                    else:
+                        x_target = x_min + hover_t * span_x
+                        order = np.argsort(x)
+                        x_sorted = x[order]
+                        y_sorted = y[order]
+                        y_val = float(np.interp(x_target, x_sorted, y_sorted))
+                except Exception:
+                    y_val = None
+
+                if y_val is not None and np.isfinite(y_val):
+                    if span_y == 0:
+                        y_norm_val = 0.5
+                    else:
+                        y_norm_val = (y_val - y_min) / span_y
+                    y_norm_val = max(0.0, min(1.0, float(y_norm_val)))
+                    y_marker = rect.top() + (1 - y_norm_val) * (rect.height() - 1)
+                else:
+                    y_marker = None
+
             painter.setPen(QtGui.QPen(hover_line_color))
             painter.drawLine(QtCore.QPointF(x_line, rect.top()),
                              QtCore.QPointF(x_line, rect.bottom()))
 
-            try:
-                if span_x == 0:
-                    y_val = float(np.nanmean(y))
-                else:
-                    x_target = x_min + hover_t * span_x
-                    order = np.argsort(x)
-                    x_sorted = x[order]
-                    y_sorted = y[order]
-                    y_val = float(np.interp(x_target, x_sorted, y_sorted))
-            except Exception:
-                y_val = None
-
-            if y_val is not None and np.isfinite(y_val):
-                if span_y == 0:
-                    y_norm_val = 0.5
-                else:
-                    y_norm_val = (y_val - y_min) / span_y
-                y_norm_val = max(0.0, min(1.0, float(y_norm_val)))
-                y_marker = rect.top() + (1 - y_norm_val) * (rect.height() - 1)
+            # Marker + value label.
+            if y_val is not None and np.isfinite(y_val) and y_marker is not None:
                 painter.save()
                 painter.setBrush(dot_color)
                 painter.setPen(QtGui.QPen(dot_color))
                 painter.drawEllipse(QtCore.QPointF(x_line, y_marker), 2.5, 2.5)
                 painter.restore()
 
-            if y_val is not None and np.isfinite(y_val):
                 text = prettify_notation(y_val)
                 metrics = painter.fontMetrics()
                 text_w = metrics.horizontalAdvance(text)
@@ -575,6 +607,7 @@ class TableView(QtWidgets.QTableView):
         self.model_updated.emit()
 
     def _set_sparkline_hover(self, index, t):
+        self.setCursor(Qt.BlankCursor)
         old_index = self._sparkline_hover_index
         old_t = self._sparkline_hover_t
         if old_index == index and old_t == t:
@@ -587,6 +620,7 @@ class TableView(QtWidgets.QTableView):
             self.viewport().update(self.visualRect(index))
 
     def _clear_sparkline_hover(self):
+        self.setCursor(Qt.ArrowCursor)
         if not self._sparkline_hover_index.isValid():
             self._sparkline_hover_t = None
             return
@@ -1070,17 +1104,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item = self.itemPrototype().clone()
         item.setData(line_data, role=LINE_DATA_ROLE)
         item.setData("", role=Qt.ItemDataRole.DisplayRole)
-        try:
-            y = np.asarray(line_data)[1]
-            finite = np.isfinite(y)
-            if finite.any():
-                y_min = np.nanmin(y[finite])
-                y_max = np.nanmax(y[finite])
-                item.setToolTip(
-                    f"Trendline: min={prettify_notation(y_min)}, max={prettify_notation(y_max)}"
-                )
-        except Exception:
-            pass
         return item
 
     def comment_item(self, text):
