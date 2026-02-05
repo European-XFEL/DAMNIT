@@ -38,11 +38,12 @@ def extract_mock_run(run_num: int, match=()):
     env_prev = os.environ.get('DAMNIT_KAFKA')
     os.environ['DAMNIT_KAFKA'] = '0'
     try:
-        db = DamnitDB()
-        prop = db.metameta['proposal']
-        extr = RunExtractor(prop, run_num, match=match, mock=True)
-        extr.update_db_vars()
-        extr.extract_and_ingest()
+        with patch("damnit.backend.extract_data.KafkaProducer"):
+            db = DamnitDB()
+            prop = db.metameta['proposal']
+            extr = RunExtractor(prop, run_num, match=match, mock=True)
+            extr.update_db_vars()
+            extr.extract_and_ingest()
     finally:
         if env_prev is None:
             del os.environ['DAMNIT_KAFKA']
