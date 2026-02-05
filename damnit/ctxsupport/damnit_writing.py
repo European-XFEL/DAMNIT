@@ -258,11 +258,11 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
 
             data, attrs = data_to_store(cell.data)
             objtype = attrs.get(OBJTYPE_ATTR)
+            grp = f.require_group(name)
+            grp.attrs.update(attrs)
             if objtype == DataType.DataArray.value:
-                f.require_group(name).attrs.update(attrs)
                 save_dataarray_netcdf(f, name, data)
             elif objtype == DataType.Dataset.value:
-                f.require_group(name).attrs.update(attrs)
                 save_dataset_netcdf(f, name, data)
             elif data is not None:
                 if data.ndim > 0 and (
@@ -272,8 +272,7 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
                     kwargs = COMPRESSION_OPTS
                 else:
                     kwargs = {}
-                ds = f.create_dataset(f"{name}/data", data=data, **kwargs)
-                ds.attrs.update(attrs)
+                grp.create_dataset("data", data=data, **kwargs)
 
         for name, (etype, msg) in errors.items():
             ds = f.create_dataset(f'.errors/{name}', data=msg)
