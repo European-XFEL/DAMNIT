@@ -63,11 +63,6 @@ def check_trendline(dset):
     assert dset.shape[0] == 2
     assert np.issubdtype(dset.dtype, np.floating)
 
-@pytest.fixture(autouse=True)
-def suppress_kafka(monkeypatch):
-    monkeypatch.setenv("DAMNIT_KAFKA", "0")
-
-
 def test_add_to_h5_file(tmp_path):
     path = tmp_path / "foo.h5"
     good_file_mode = "-rw-rw-rw-"

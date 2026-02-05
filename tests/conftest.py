@@ -187,8 +187,13 @@ def mock_db(tmp_path, mock_ctx, monkeypatch):
     db.close()
 
 
+@pytest.fixture(autouse=True)
+def suppress_kafka(monkeypatch):
+    monkeypatch.setenv("DAMNIT_KAFKA", "0")
+
+
 @pytest.fixture
-def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
+def mock_db_with_data(mock_ctx, mock_db, monkeypatch, suppress_kafka):
     db_dir, db = mock_db
 
     with monkeypatch.context() as m:
@@ -200,7 +205,7 @@ def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
 
 
 @pytest.fixture
-def mock_db_with_data_2(mock_ctx, mock_db, monkeypatch):
+def mock_db_with_data_2(mock_ctx, mock_db, monkeypatch, suppress_kafka):
     db_dir, db = mock_db
 
     with monkeypatch.context() as m:
