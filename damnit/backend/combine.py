@@ -11,10 +11,11 @@ import xarray as xr
 from kafka import KafkaConsumer, KafkaProducer
 from xarray.backends import H5NetCDFStore
 
-from .db import DamnitDB, MsgKind, msg_dict
 from ..context import DataType
 from ..definitions import UPDATE_BROKERS
+from .db import DamnitDB, MsgKind, msg_dict
 from .extract_data import load_reduced_data, add_to_db
+from .service import notify_ready
 
 KAFKA_TOPIC = "test.damnit.file_submissions"
 
@@ -156,6 +157,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
 
     with FileSubmissionProcessor() as processor:
+        notify_ready()
         try:
             log.info("Waiting for file submission messages")
             processor.run()
