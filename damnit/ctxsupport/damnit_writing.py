@@ -10,14 +10,12 @@ from tempfile import mkstemp
 
 import h5py
 import numpy as np
-from kafka import KafkaProducer
 
 from damnit_ctx import Cell, isinstance_no_import
 
 OBJTYPE_ATTR = '_damnit_objtype'
 THUMBNAIL_SIZE = 300 # px
 COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
-KAFKA_TOPIC = "test.damnit.file_submissions"
 
 if "AMORE_BROKER" in os.environ:
     UPDATE_BROKERS = [os.environ["AMORE_BROKER"]]
@@ -294,7 +292,7 @@ class DamnitFileWriter:
         ds.attrs['type'] = type(exc).__name__
 
 
-def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
+def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
            errors: dict[str, Exception]):
     """Add one or more results into a DAMNIT store"""
     results_dir = damnit_dir / "extracted_data"
@@ -323,29 +321,7 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
 
     os.chmod(f.final_path, 0o666)
 
-    if os.environ.get("DAMNIT_KAFKA", "1") != "0":
-        notify_new_file(damnit_dir, proposal, run, f.final_path)
-
     return Path(f.final_path)
-
-
-def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
-    # Announce via Kafka that this file is ready to be combined
-    prod = KafkaProducer(
-        bootstrap_servers=UPDATE_BROKERS,
-        value_serializer=lambda d: json.dumps(d).encode('utf-8')
-    )
-    prod.send(KAFKA_TOPIC, {
-        'damnit_dir': str(damnit_dir.absolute()),
-        'new_file': file_path,
-        'proposal': proposal,  # int
-        'run': run,  # int
-        'computed_by': {
-            'hostname': socket.gethostname(),
-            'username': getuser(),
-        }
-    })
-    prod.flush(timeout=10)
 
 
 if __name__ == '__main__':
@@ -362,7 +338,7 @@ if __name__ == '__main__':
     fig, ax = plt.subplots()
     ax.plot(np.arange(20))
 
-    submit(results_folder.parent, 1, 1, vars={
+    save_fragment(results_folder.parent, 1, 1, vars={
         'numpy': Cell(np.arange(10), summary_value=5, bold=True),
         'xarray': Cell(da, preview=da.mean('x')),
         'mpl': Cell(fig),

@@ -32,15 +32,11 @@ import xarray as xr
 
 from damnit_ctx import (
     Cell, GroupBoundVariable, GroupError, RunData, Skip, Variable,
-    _normalize_tags, is_group_instance, isinstance_no_import
+    _normalize_tags, is_group_instance
 )
 from damnit_writing import (
     COMPRESSION_OPTS,
-    figure2png,
-    generate_thumbnail,
-    line_thumbnail,
-    plotly2png,
-    submit,
+    save_fragment,
 )
 
 log = logging.getLogger("ctxrunner")
@@ -658,7 +654,7 @@ class Results:
         self.ctx = ctx
 
     def save(self, damnit_dir: Path, proposal: int, run: int):
-        return submit(damnit_dir, proposal, run, self.cells, self.errors)
+        return save_fragment(damnit_dir, proposal, run, self.cells, self.errors)
 
 
 def mock_run():
@@ -692,6 +688,7 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
+    exec_ap.add_argument('--record-output', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -741,7 +738,9 @@ def main(argv=None):
 
         res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
-        res.save(Path.cwd(), args.proposal, args.run)
+        frag_path = res.save(Path.cwd(), args.proposal, args.run)
+        if args.record_output:
+            args.record_output.write_text(str(frag_path) + "\n")
     elif args.subcmd == "ctx":
         error_info = None
 

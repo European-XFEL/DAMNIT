@@ -7,6 +7,7 @@ file (see ctxrunner.py).
 import argparse
 import copy
 import getpass
+import json
 import os
 import logging
 import pickle
@@ -15,6 +16,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 from getpass import getuser
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -26,7 +28,7 @@ import numpy as np
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..definitions import UPDATE_BROKERS
+from ..definitions import UPDATE_BROKERS, FILE_SUBMIT_TOPIC
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
@@ -153,6 +155,30 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         db.set_variable(proposal, run, name, reduced)
 
 
+def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
+    msg = file_submit_msg(damnit_dir, proposal, run, file_path)
+    prod = KafkaProducer(
+        bootstrap_servers=UPDATE_BROKERS,
+        value_serializer=lambda d: json.dumps(d).encode('utf-8')
+    )
+    prod.send(FILE_SUBMIT_TOPIC, msg)
+    prod.flush(timeout=10)
+
+
+def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
+    # Announce via Kafka that this file is ready to be combined
+    return {
+        'damnit_dir': str(damnit_dir.absolute()),
+        'new_file': file_path,
+        'proposal': proposal,  # int
+        'run': run,  # int
+        'computed_by': {
+            'hostname': socket.gethostname(),
+            'username': getuser(),
+        }
+    }
+
+
 class Extractor:
     _proposal = None
 
@@ -251,27 +277,37 @@ class RunExtractor(Extractor):
             args.extend(shlex.split(self.sandbox_args))
             args.append(str(self.proposal))
             args.append("--")
-        args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
-                     self.run_data.value])
-        if self.cluster:
-            args.append('--cluster-job')
-        if self.mock:
-            args.append("--mock")
-        if self.variables:
-            for v in self.variables:
-                args.extend(['--var', v])
-        else:
-            for m in self.match:
-                args.extend(['--match', m])
 
-        p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
+        with tempfile.NamedTemporaryFile(prefix='damnit-file-list') as tf:
+            args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal),
+                         str(self.run), self.run_data.value,
+                         '--record-output', tf.name])
+            if self.cluster:
+                args.append('--cluster-job')
+            if self.mock:
+                args.append("--mock")
+            if self.variables:
+                for v in self.variables:
+                    args.extend(['--var', v])
+            else:
+                for m in self.match:
+                    args.extend(['--match', m])
 
-        while True:
-            try:
-                retcode = p.wait(timeout=10)
-                break
-            except subprocess.TimeoutExpired:
-                self._notify_running()
+            p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
+
+            while True:
+                try:
+                    retcode = p.wait(timeout=10)
+                    break
+                except subprocess.TimeoutExpired:
+                    self._notify_running()
+
+            for line in tf:
+                pth = line.decode().strip()
+                if pth and Path(pth).is_file():
+                    self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
+                        Path.cwd(), self.proposal, self.run, pth
+                    ))
 
         if retcode:
             raise subprocess.CalledProcessError(retcode, p.args)

@@ -20,7 +20,8 @@ def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception] =
     """
     from pathlib import Path
     from .api import find_proposal
-    from .context import submit as inner_submit, Cell
+    from .backend.extract_data import notify_new_file
+    from .context import Cell, save_fragment
 
     if damnit_dir is None:
         damnit_dir = find_proposal(proposal) / "usr/Shared/amore"
@@ -31,4 +32,5 @@ def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception] =
                  for (k, v) in variables.items()}
     errors = errors or {}
 
-    inner_submit(damnit_dir, proposal, run, variables, errors)
+    path = save_fragment(damnit_dir, proposal, run, variables, errors)
+    notify_new_file(damnit_dir, proposal, run, str(path))
