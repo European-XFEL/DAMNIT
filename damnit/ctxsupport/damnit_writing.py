@@ -321,6 +321,8 @@ def submit(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
         for name, exc in errors.items():
             writer.store_error(name, exc)
 
+    os.chmod(f.final_path, 0o666)
+
     if os.environ.get("DAMNIT_KAFKA", "1") != "0":
         notify_new_file(damnit_dir, proposal, run, f.final_path)
 
