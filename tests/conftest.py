@@ -1,7 +1,6 @@
 import os
 import socket
-from pathlib import Path
-from time import sleep, time
+from time import time
 from unittest.mock import MagicMock
 
 import pytest

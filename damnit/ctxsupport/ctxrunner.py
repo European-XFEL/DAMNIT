@@ -28,16 +28,12 @@ import extra_data
 import extra_proposal
 import h5py
 import numpy as np
-import xarray as xr
 
 from damnit_ctx import (
     Cell, GroupBoundVariable, GroupError, RunData, Skip, Variable,
     _normalize_tags, is_group_instance
 )
-from damnit_writing import (
-    COMPRESSION_OPTS,
-    save_fragment,
-)
+from damnit_writing import save_fragment
 
 log = logging.getLogger("ctxrunner")
 
@@ -637,14 +633,6 @@ def add_to_h5_file(path) -> h5py.File:
     elif ex is not None:
         # This should only be reached after all attempts to open the file failed
         raise ex
-
-
-def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
-    """Add default compression options to DataArray"""
-    encoding = COMPRESSION_OPTS.copy()
-    encoding.update(data_array.encoding)
-    data_array.encoding = encoding
-    return data_array
 
 
 class Results:
