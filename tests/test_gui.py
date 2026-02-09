@@ -13,8 +13,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QColor, QPalette, QPixmap
+from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                              QLineEdit, QMessageBox, QStyledItemDelegate)
 
@@ -27,8 +28,9 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
-from damnit.gui.table import STATIC_COLUMNS
-from damnit.gui.table_filter import (CategoricalFilter,
+from damnit.gui.roles import LINE_DATA_ROLE
+from damnit.gui.table import STATIC_COLUMNS, SparklineDelegate, TableView
+from damnit.gui.table_filter import (CategoricalFilter, FilterProxy,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
                                      ThumbnailFilter, ThumbnailFilterWidget)
@@ -1630,3 +1632,97 @@ def test_header_group_toggle_emits_signals(qtbot):
 
     assert table_view.hierarchical_header_enabled is True
     assert header._hierarchy_enabled is True
+
+
+def test_thumbnail_filter_accepts_sparkline():
+    model = QtGui.QStandardItemModel(1, 1)
+    item = QtGui.QStandardItem()
+    line = np.vstack((np.arange(5), np.array([0, 1, 0, 1, 0], dtype=float)))
+    item.setData(line, LINE_DATA_ROLE)
+    model.setItem(0, 0, item)
+
+    proxy = FilterProxy()
+    proxy.setSourceModel(model)
+    proxy.set_filter(0, ThumbnailFilter(0, show_with_thumbnail=True, show_without_thumbnail=False))
+    assert proxy.rowCount() == 1
+    proxy.set_filter(0, ThumbnailFilter(0, show_with_thumbnail=False, show_without_thumbnail=True))
+    assert proxy.rowCount() == 0
+
+
+def test_sparkline_hover_state(qtbot):
+    view = TableView()
+    model = QtGui.QStandardItemModel(1, 1)
+    item = QtGui.QStandardItem()
+    line = np.vstack((np.arange(10), np.arange(10, dtype=float)))
+    item.setData(line, LINE_DATA_ROLE)
+    model.setItem(0, 0, item)
+    view.setModel(model)
+    view.resize(200, 60)
+    qtbot.addWidget(view)
+    view.show()
+    qtbot.waitExposed(view)
+
+    proxy_index = view.model().index(0, 0)
+    rect = view.visualRect(proxy_index)
+    qtbot.mouseMove(view.viewport(), rect.center())
+
+    qtbot.waitUntil(lambda: view._sparkline_hover_index.isValid(), timeout=1000)
+    assert view._sparkline_hover_index == proxy_index
+    assert 0.0 <= view._sparkline_hover_t <= 1.0
+    # Verify hover_t matches the mouse x-position mapping.
+    expected_t = (rect.center().x() - rect.left()) / (rect.width() - 1)
+    assert abs(view._sparkline_hover_t - expected_t) < 0.1
+
+    qtbot.mouseMove(
+        view.viewport(),
+        QPoint(view.viewport().width() + 10, view.viewport().height() + 10),
+    )
+    qtbot.waitUntil(lambda: not view._sparkline_hover_index.isValid(), timeout=1000)
+    # Leaving the cell clears the hover state.
+    assert view._sparkline_hover_t is None
+
+
+def test_sparkline_delegate_paint_smoke(qtbot):
+    view = TableView()
+    model = QtGui.QStandardItemModel(1, 1)
+    item = QtGui.QStandardItem()
+    line = np.vstack((np.arange(5), np.array([0, 1, 0, 1, 0], dtype=float)))
+    item.setData(line, LINE_DATA_ROLE)
+    model.setItem(0, 0, item)
+    view.setModel(model)
+    view.resize(200, 60)
+    qtbot.addWidget(view)
+    view.show()
+    qtbot.waitExposed(view)
+
+    proxy_index = view.model().index(0, 0)
+    option = QtWidgets.QStyleOptionViewItem()
+    option.rect = view.visualRect(proxy_index)
+    option.widget = view
+
+    def image_bytes(img):
+        ptr = img.constBits()
+        ptr.setsize(img.byteCount())
+        return bytes(ptr)
+
+    delegate = SparklineDelegate(view)
+
+    # Render without hover.
+    image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
+    image.fill(Qt.transparent)
+    painter = QtGui.QPainter(image)
+    delegate.paint(painter, option, proxy_index)
+    painter.end()
+    base_bytes = image_bytes(image)
+
+    # Render with hover; output should differ from the baseline.
+    hover_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
+    hover_image.fill(Qt.transparent)
+    hover_painter = QtGui.QPainter(hover_image)
+    view._sparkline_hover_index = proxy_index
+    view._sparkline_hover_t = 0.5
+    delegate.paint(hover_painter, option, proxy_index)
+    hover_painter.end()
+    hover_bytes = image_bytes(hover_image)
+
+    assert base_bytes != hover_bytes
