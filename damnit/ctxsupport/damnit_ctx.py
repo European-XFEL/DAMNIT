@@ -918,7 +918,10 @@ class Pipeline:
 
         if code is None:
             code = ""
-        return context_file_cls(vars_by_name, code)
+        
+        ctx = context_file_cls(vars_by_name, code)
+        ctx.check()
+        return ctx
 
     def _compile_with_context(self, context_file_cls, code_override=None):
         return self._build_context(context_file_cls, code_override=code_override)
