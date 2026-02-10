@@ -11,7 +11,6 @@ import inspect
 import logging
 import re
 import sys
-import weakref
 from contextlib import contextmanager
 from collections.abc import Iterable, Sequence
 from copy import copy
@@ -737,8 +736,6 @@ class Pipeline:
     ``run_number`` using ``extra_data.open_run``.
     """
 
-    _registry = {}
-
     def __init__(
             self,
             *,
@@ -763,9 +760,7 @@ class Pipeline:
             _base_context: Precompiled context for select().
             _code: Source code for the context file, if known.
         """
-        self._name = None
-        if name is not None:
-            self.name = name
+        self.name = name
         self.proposal = proposal
         self.run_number = run_number
         self.run_data = run_data
@@ -874,55 +869,6 @@ class Pipeline:
             clone.input_vars = dict(input_vars)
         return clone
 
-    @classmethod
-    def names(cls):
-        """Return a sorted list of registered pipeline names."""
-        return sorted(cls._registry)
-
-    @classmethod
-    def get(cls, name):
-        """Return all live pipelines registered under a given name."""
-        bucket = cls._registry.get(name)
-        if bucket is None:
-            return []
-        return [pipe for pipe in bucket if pipe is not None]
-
-    @classmethod
-    def _get_bucket(cls, name):
-        bucket = cls._registry.get(name)
-        if bucket is None:
-            bucket = weakref.WeakSet()
-            cls._registry[name] = bucket
-        return bucket
-
-    def _register_name(self, name):
-        if name is None:
-            return
-        if not isinstance(name, str) or not name:
-            raise ValueError("Pipeline name must be a non-empty string")
-        self._get_bucket(name).add(self)
-
-    def _unregister_name(self, name):
-        if not name:
-            return
-        bucket = self._registry.get(name)
-        if bucket is None:
-            return
-        bucket.discard(self)
-        if not bucket:
-            self._registry.pop(name, None)
-
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        if value == self._name:
-            return
-        self._unregister_name(self._name)
-        self._name = value
-        self._register_name(value)
 
     def _normalize_run_data(self, value):
         if value is None:

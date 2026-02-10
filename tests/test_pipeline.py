@@ -102,12 +102,6 @@ def test_pipeline_to_context_file(tmp_path):
     assert out_path.read_text() == code
 
 
-def test_pipeline_name_registry():
-    pipe = Pipeline(name="alpha")
-    assert pipe.name == "alpha"
-    assert pipe in Pipeline.get("alpha")
-
-
 def test_pipeline_nested_context_isolation():
     outer_code = dedent("""
         from damnit_ctx import Variable, Pipeline
