@@ -766,10 +766,15 @@ class Pipeline:
         self.run_data = run_data
         self.data = data
         self.input_vars = dict(input_vars or {})
+        # Items (Variable, Group) explicitly added via Pipeline.add()
         self._items = []
+        # Compiled ContextFile used as the base for add()/select().
         self._base_context = _base_context
+        # Source code string for the context file (used for to_file()).
         self._code = _code
+        # Cached compiled ContextFile for this pipeline (invalidated by add()).
         self._context = _base_context
+        # Results from the last execute() call, if any.
         self._last_results = None
 
     @classmethod
