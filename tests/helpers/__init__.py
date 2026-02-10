@@ -6,7 +6,7 @@ from PyQt5 import QtGui, QtWidgets
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import ReducedData, RunExtractor
 from damnit.cli import main
-from damnit.context import ContextFile
+from damnit.context import Pipeline
 from damnit.gui.table import FilterHeaderView, TableView
 
 
@@ -41,7 +41,8 @@ def extract_mock_run(run_num: int, match=()):
 
 
 def mkcontext(code):
-    return ContextFile.from_str(textwrap.dedent(code))
+    pipe = Pipeline.from_str(textwrap.dedent(code))
+    return pipe.compile()
 
 
 def make_table_with_headers(qtbot, headers):
@@ -62,4 +63,3 @@ def make_table_with_headers(qtbot, headers):
     qtbot.waitExposed(view)
     header._rebuild_hierarchy()
     return view, header
-

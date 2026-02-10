@@ -2,7 +2,7 @@ from textwrap import dedent
 
 import pytest
 
-from damnit.context import ContextFile, Variable, Group, Pipeline
+from damnit.context import Variable, Group, Pipeline
 from damnit.ctxsupport import damnit_ctx as ctxmod
 
 from .helpers import mkcontext
@@ -82,7 +82,7 @@ def test_pipeline_from_context_file(tmp_path, mock_run):
     assert res.cells["foo"].data == 7
 
 
-def test_pipeline_to_context_file(tmp_path):
+def test_pipeline_to_file(tmp_path):
     code = dedent("""
         from damnit_ctx import Variable
 
@@ -94,18 +94,17 @@ def test_pipeline_to_context_file(tmp_path):
     ctx_path.write_text(code)
 
     pipe = Pipeline.from_context_file(ctx_path)
-    ctx = pipe.to_context_file()
-    assert "foo" in ctx.vars
+    assert "foo" in pipe.vars
 
     out_path = tmp_path / "out.py"
-    pipe.to_context_file(out_path)
+    pipe.to_file(out_path)
     assert out_path.read_text() == code
 
 
 def test_pipeline_nested_context_isolation():
     outer_code = dedent("""
         from damnit_ctx import Variable, Pipeline
-        from damnit.context import ContextFile
+        from damnit.context import Pipeline as PipelinePublic
 
         @Variable
         def outer(run):
@@ -123,12 +122,12 @@ def test_pipeline_nested_context_isolation():
         Pipeline.set_default(pipe)
         '''
 
-        ContextFile.from_str(inner_code)
+        PipelinePublic.from_str(inner_code)
         Pipeline.default().add(outer)
     """)
-    ctx = ContextFile.from_str(outer_code)
-    assert "outer" in ctx.vars
-    assert "inner" not in ctx.vars
+    pipe = Pipeline.from_str(outer_code)
+    assert "outer" in pipe.vars
+    assert "inner" not in pipe.vars
 
 
 def test_pipeline_state_reset_after_exception():
@@ -143,7 +142,7 @@ def test_pipeline_state_reset_after_exception():
         raise RuntimeError("boom")
     """)
     with pytest.raises(RuntimeError):
-        ContextFile.from_str(failing_code)
+        Pipeline.from_str(failing_code)
 
     pipe = Pipeline.default()
     ctx = pipe.compile()
@@ -174,7 +173,7 @@ def test_pipeline_sequential_contexts_no_leak():
         pipe.add(b)
         Pipeline.set_default(pipe)
     """)
-    ctx_a = ContextFile.from_str(code_a)
-    ctx_b = ContextFile.from_str(code_b)
-    assert set(ctx_a.vars) == {"a"}
-    assert set(ctx_b.vars) == {"b"}
+    pipe_a = Pipeline.from_str(code_a)
+    pipe_b = Pipeline.from_str(code_b)
+    assert set(pipe_a.vars) == {"a"}
+    assert set(pipe_b.vars) == {"b"}

@@ -10,7 +10,7 @@ from matplotlib.image import AxesImage
 from plotly.graph_objects import Figure as PlotlyFigure
 
 from damnit import Damnit, RunVariables
-from damnit.context import ContextFile
+from damnit.context import Pipeline
 from .helpers import extract_mock_run
 
 
@@ -56,8 +56,8 @@ def test_run_variables(mock_db_with_data, monkeypatch):
     # Test getting keys and titles
     assert "scalar1" in rv.keys()
     assert "Scalar1" in rv.titles()
-    ctx = ContextFile.from_py_file(db_dir / "context.py")
-    assert set(rv.keys()) == set(ctx.vars.keys()) | set(["start_time"])
+    pipe = Pipeline.from_context_file(db_dir / "context.py")
+    assert set(rv.keys()) == set(pipe.vars.keys()) | set(["start_time"])
 
     # Reprocess a single variable for another run
     extract_mock_run(100, match=['scalar1'])

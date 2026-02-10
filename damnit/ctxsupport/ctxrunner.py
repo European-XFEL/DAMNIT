@@ -759,7 +759,7 @@ def main(argv=None):
             variables=args.var,
         )
         log.info("Using %d variables (of %d) from context file %s",
-             len(sel.to_context_file().vars), len(pipe_whole._base_context.vars),
+             len(sel.vars), len(pipe_whole.vars),
              "" if args.cluster_job else "(cluster variables will be processed later)")
 
         if args.mock:
@@ -776,7 +776,7 @@ def main(argv=None):
 
         try:
             pipe = Pipeline.from_context_file(args.context_file)
-            ctx = pipe.to_context_file()
+            ctx = pipe.compile()
 
             # Strip the functions from the Variable's, these cannot always be
             # pickled.

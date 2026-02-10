@@ -744,7 +744,7 @@ class Pipeline:
             run_number: int | None = None,
             run_data: str | RunData | None = None,
             data: Any | None = None,
-            input_vars: dict[str, any] | None = None,
+            input_vars: dict[str, Any] | None = None,
             _base_context: "ContextFile" = None,
             _code: str | None = None,
     ):
@@ -769,6 +769,7 @@ class Pipeline:
         self._items = []
         self._base_context = _base_context
         self._code = _code
+        self._context = _base_context
         self._last_results = None
 
     @classmethod
@@ -820,6 +821,7 @@ class Pipeline:
             _code=self._code,
         )
         clone._items = list(self._items)
+        clone._context = self._context
         return clone
 
     def add(self, *items):
@@ -841,6 +843,7 @@ class Pipeline:
 
         for item in items:
             add_item(item)
+        self._context = None
         return self
 
     def with_context(
@@ -877,7 +880,13 @@ class Pipeline:
             return value
         return RunData(value)
 
-    def _build_context(self, context_file_cls, code_override=None):
+    def _get_context(self):
+        if self._context is None:
+            self._context = self._build_context()
+        return self._context
+
+    def _build_context(self, code_override=None):
+        from ctxrunner import ContextFile
         code = code_override if code_override is not None else self._code
         vars_by_name = {}
         if self._base_context is not None:
@@ -919,36 +928,59 @@ class Pipeline:
         if code is None:
             code = ""
         
-        ctx = context_file_cls(vars_by_name, code)
+        ctx = ContextFile(vars_by_name, code)
         ctx.check()
         return ctx
 
-    def _compile_with_context(self, context_file_cls, code_override=None):
-        return self._build_context(context_file_cls, code_override=code_override)
-
     def compile(self):
         """Compile the Pipeline into a ContextFile."""
-        from ctxrunner import ContextFile
-
-        return self._build_context(ContextFile)
+        return self._get_context()
 
     @classmethod
-    def from_context_file(cls, path, *, name=None):
+    def from_context_file(
+            cls,
+            path,
+            *,
+            name=None,
+    ):
         """Create a Pipeline from a context file on disk."""
         from pathlib import Path
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_py_file(Path(path))
         ctx.check()
-        return cls(
+        pipe = cls(
             name=name,
             _base_context=ctx,
             _code=ctx.code,
         )
+        pipe._context = ctx
+        return pipe
+
+    @classmethod
+    def from_str(
+            cls,
+            code,
+            *,
+            path="<string>",
+            name=None,
+    ):
+        """Create a Pipeline from a context string."""
+        from ctxrunner import ContextFile
+
+        ctx = build_context_from_code(code, path, ContextFile)
+        ctx.check()
+        pipe = cls(
+            name=name,
+            _base_context=ctx,
+            _code=ctx.code,
+        )
+        pipe._context = ctx
+        return pipe
 
     def select(self, *, variables=(), match=(), run_data=None, cluster=None):
         """Return a new Pipeline filtered to a subset of variables."""
-        ctx = self.compile()
+        ctx = self._get_context()
         run_data = self._normalize_run_data(run_data or self.run_data)
         filtered = ctx.filter(
             run_data=run_data,
@@ -956,7 +988,7 @@ class Pipeline:
             name_matches=match,
             variables=variables,
         )
-        return Pipeline(
+        new_pipe = Pipeline(
             name=self.name,
             proposal=self.proposal,
             run_number=self.run_number,
@@ -966,6 +998,8 @@ class Pipeline:
             _base_context=filtered,
             _code=filtered.code,
         )
+        new_pipe._context = filtered
+        return new_pipe
 
     def _open_run(self, proposal, run_number, run_data):
         try:
@@ -1004,7 +1038,7 @@ class Pipeline:
                 self.proposal, self.run_number, run_data
             )
 
-        ctx = self.compile().filter(run_data=run_data, cluster=None)
+        ctx = self._get_context().filter(run_data=run_data, cluster=None)
         merged_input = dict(self.input_vars)
         if input_vars is not None:
             merged_input.update(input_vars)
@@ -1017,22 +1051,29 @@ class Pipeline:
         """Return the Results from the last execution, if any."""
         return self._last_results
 
+    @property
+    def vars(self):
+        """Return the compiled Variable mapping."""
+        return self._get_context().vars
+
+    def vars_to_dict(self, inc_transient=False):
+        """Return variable metadata suitable for database storage."""
+        return self._get_context().vars_to_dict(inc_transient=inc_transient)
+
     def save(self, path, reduced_only=False):
         """Save the last Results to an HDF5 file."""
         if self._last_results is None:
             raise RuntimeError("No results available. Call execute() first.")
         self._last_results.save_hdf5(path, reduced_only=reduced_only)
 
-    def to_context_file(self, path=None):
-        """Return the compiled ContextFile, optionally writing its code."""
-        ctx = self.compile()
-        if path is not None:
-            if not ctx.code:
-                raise RuntimeError("No context code available to write")
-            from pathlib import Path
+    def to_file(self, path):
+        """Write the context source code to a file."""
+        ctx = self._get_context()
+        if not ctx.code:
+            raise RuntimeError("No context code available to write")
+        from pathlib import Path
 
-            Path(path).write_text(ctx.code)
-        return ctx
+        Path(path).write_text(ctx.code)
 
 
 @contextmanager
@@ -1059,13 +1100,15 @@ def build_context_from_code(code, path, context_file_cls):
     vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
 
     if state is None or not state.get("used"):
+        from ctxrunner import ContextFile
+
         vars_by_name.update(expand_groups(context, vars_by_name))
-        return context_file_cls(vars_by_name, code)
+        return ContextFile(vars_by_name, code)
 
     _assign_group_names(context)
     groups = [obj for obj in context.values() if is_group_instance(obj)]
     pipe = state["pipeline"]
     if not state.get("explicit"):
         pipe.add(*vars_by_name.values(), *groups)
-    ctx = pipe._compile_with_context(context_file_cls, code_override=code)
+    ctx = pipe._build_context(code_override=code)
     return ctx
