@@ -814,7 +814,7 @@ class Pipeline:
         state["used"] = True
         return pipeline
 
-    def _clone(self):
+    def copy(self):
         clone = Pipeline(
             name=self.name,
             proposal=self.proposal,
@@ -861,22 +861,21 @@ class Pipeline:
             data=None,
             input_vars=None,
     ):
-        """Return a cloned Pipeline with updated context fields."""
-        clone = self._clone()
+        """Return a new Pipeline with updated context fields."""
+        new_pipe = self.copy()
         if name is not None:
-            clone.name = name
+            new_pipe.name = name
         if proposal is not None:
-            clone.proposal = proposal
+            new_pipe.proposal = proposal
         if run_number is not None:
-            clone.run_number = run_number
+            new_pipe.run_number = run_number
         if run_data is not None:
-            clone.run_data = run_data
+            new_pipe.run_data = run_data
         if data is not None:
-            clone.data = data
+            new_pipe.data = data
         if input_vars is not None:
-            clone.input_vars = dict(input_vars)
-        return clone
-
+            new_pipe.input_vars = dict(input_vars)
+        return new_pipe
 
     def _normalize_run_data(self, value):
         if value is None:
