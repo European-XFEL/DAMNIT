@@ -810,7 +810,7 @@ class Pipeline:
 
     def _clone(self):
         clone = Pipeline(
-            name=self._name,
+            name=self.name,
             proposal=self.proposal,
             run_number=self.run_number,
             run_data=self.run_data,
@@ -954,7 +954,7 @@ class Pipeline:
             variables=variables,
         )
         return Pipeline(
-            name=self._name,
+            name=self.name,
             proposal=self.proposal,
             run_number=self.run_number,
             run_data=run_data.value,
