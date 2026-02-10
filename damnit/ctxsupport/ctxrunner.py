@@ -22,12 +22,13 @@ from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import damnit_ctx as _damnit_ctx
 import extra_data
 import extra_proposal
 import h5py
 import numpy as np
 import xarray as xr
-from damnit_ctx import (Cell, RunData, Skip, Variable, expand_groups,
+from damnit_ctx import (Cell, Pipeline, RunData, Skip, Variable,
                         isinstance_no_import)
 
 log = logging.getLogger("ctxrunner")
@@ -161,13 +162,9 @@ class ContextFile:
 
     @classmethod
     def from_str(cls, code: str, path='<string>'):
-        d = {}
-        codeobj = compile(code, path, 'exec')
-        exec(codeobj, d)
-        vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
-        vars.update(expand_groups(d, vars))
-        log.debug("Loaded %d variables", len(vars))
-        return cls(vars, code)
+        ctx = _damnit_ctx.build_context_from_code(code, path, cls)
+        log.debug("Loaded %d variables", len(ctx.vars))
+        return ctx
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
@@ -749,25 +746,26 @@ def main(argv=None):
             log.warning("Proc data is unavailable, only raw variables will be executed.")
             run_data = RunData.RAW
 
-        ctx_whole = ContextFile.from_py_file(Path('context.py'))
-        ctx_whole.check()
-        ctx = ctx_whole.filter(
-            run_data=run_data, cluster=args.cluster_job, name_matches=args.match,
+        pipe_whole = Pipeline.from_context_file(
+            Path('context.py')
+        ).with_context(
+            proposal=args.proposal,
+            run_number=args.run,
+            run_data=run_data.value,
+        )
+        
+        sel = pipe_whole.select(
+            run_data=run_data, cluster=args.cluster_job, match=args.match,
             variables=args.var,
         )
         log.info("Using %d variables (of %d) from context file %s",
-             len(ctx.vars), len(ctx_whole.vars),
+             len(sel.to_context_file().vars), len(pipe_whole._base_context.vars),
              "" if args.cluster_job else "(cluster variables will be processed later)")
 
         if args.mock:
-            run_dc = mock_run()
+            res = sel.execute(data=mock_run(), input_vars={})
         else:
-            # Make sure that we always select the most data possible, so proc
-            # variables have access to raw data too.
-            actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
-            run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
-
-        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
+            res = sel.execute(input_vars={})
 
         for path in args.save:
             res.save_hdf5(path)
@@ -777,7 +775,8 @@ def main(argv=None):
         error_info = None
 
         try:
-            ctx = ContextFile.from_py_file(args.context_file)
+            pipe = Pipeline.from_context_file(args.context_file)
+            ctx = pipe.to_context_file()
 
             # Strip the functions from the Variable's, these cannot always be
             # pickled.
