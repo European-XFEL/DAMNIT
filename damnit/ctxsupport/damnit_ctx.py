@@ -301,17 +301,17 @@ class GroupError(Exception):
     pass
 
 
-def _normalize_group_tags(tags):
+def _normalize_group_tags(tags) -> tuple[str]:
     if tags is None:
-        return None
+        return ()
     if isinstance(tags, str):
         return (tags,)
     return tuple(tags)
 
 
-def _merge_tags(group_tags, var_tags):
+def _merge_tags(group_tags, var_tags) -> set[str]:
     if not group_tags and not var_tags:
-        return None
+        return set()
     if not group_tags:
         return set(var_tags)
     if not var_tags:
