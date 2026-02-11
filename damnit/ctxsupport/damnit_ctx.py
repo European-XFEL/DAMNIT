@@ -14,6 +14,7 @@ from collections.abc import Iterable, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from enum import Enum
+from graphlib import CycleError, TopologicalSorter
 
 import h5py
 import numpy as np
@@ -641,26 +642,45 @@ def _expand_group(group):
             "internal_deps": internal_deps,
         }
 
+    # Variables can be dropped during the initial pass above if a required
+    # group-field dependency is missing. We then need to cascade that removal to
+    # any Variables that require the dropped variables.
     active = set(var_infos)
-    changed = True
-    while changed:
-        changed = False
-        for method_name in list(active):
-            info = var_infos[method_name]
-            remaining_deps = []
-            for arg_name, dep_name, required in info["internal_deps"]:
-                if dep_name not in active:
-                    # Drop variables that depend on missing required internal vars;
-                    # otherwise remove the dependency and let defaults apply.
-                    if required:
-                        active.remove(method_name)
-                        changed = True
-                        remaining_deps = []
-                        break
-                    info["annotations"].pop(arg_name, None)
-                else:
-                    remaining_deps.append((arg_name, dep_name, required))
-            info["internal_deps"] = remaining_deps
+    graph = {
+        method_name: {
+            dep_name
+            for (_, dep_name, _) in info["internal_deps"]
+            if dep_name in var_infos
+        }
+        for method_name, info in var_infos.items()
+    }
+
+    try:
+        order = tuple(TopologicalSorter(graph).static_order())
+    except CycleError as e:
+        raise CycleError(
+            f"Group {group_name!r} has cyclical dependencies between "
+            f"variables: {e.args[1]}"
+        ) from e
+
+    for method_name in order:
+        if method_name not in active:
+            continue
+
+        info = var_infos[method_name]
+        remaining_deps = []
+        for arg_name, dep_name, required in info["internal_deps"]:
+            if dep_name not in active:
+                # Drop variables that depend on missing required internal vars;
+                # otherwise remove the dependency and let defaults apply.
+                if required:
+                    active.remove(method_name)
+                    remaining_deps = []
+                    break
+                info["annotations"].pop(arg_name, None)
+            else:
+                remaining_deps.append((arg_name, dep_name, required))
+        info["internal_deps"] = remaining_deps
 
     expanded = {}
     for method_name in active:
