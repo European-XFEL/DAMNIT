@@ -770,7 +770,7 @@ class Pipeline:
         self._items = []
         # Compiled ContextFile used as the base for add()/select().
         self._base_context = _base_context
-        # Source code string for the context file (used for to_file()).
+        # Source code string for the context file, if known.
         self._code = _code
         # Cached compiled ContextFile for this pipeline (invalidated by add()).
         self._context = _base_context
@@ -1069,16 +1069,6 @@ class Pipeline:
         if self._last_results is None:
             raise RuntimeError("No results available. Call execute() first.")
         self._last_results.save_hdf5(path, reduced_only=reduced_only)
-
-    def to_file(self, path):
-        """Write the context source code to a file."""
-        ctx = self._get_context()
-        if not ctx.code:
-            raise RuntimeError("No context code available to write")
-        from pathlib import Path
-
-        Path(path).write_text(ctx.code)
-
 
 @contextmanager
 def pipeline_scope():

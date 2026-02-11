@@ -82,25 +82,6 @@ def test_pipeline_from_context_file(tmp_path, mock_run):
     assert res.cells["foo"].data == 7
 
 
-def test_pipeline_to_file(tmp_path):
-    code = dedent("""
-        from damnit_ctx import Variable
-
-        @Variable
-        def foo(run):
-            return 7
-    """)
-    ctx_path = tmp_path / "context.py"
-    ctx_path.write_text(code)
-
-    pipe = Pipeline.from_context_file(ctx_path)
-    assert "foo" in pipe.vars
-
-    out_path = tmp_path / "out.py"
-    pipe.to_file(out_path)
-    assert out_path.read_text() == code
-
-
 def test_pipeline_nested_context_isolation():
     outer_code = dedent("""
         from damnit_ctx import Variable, Pipeline
