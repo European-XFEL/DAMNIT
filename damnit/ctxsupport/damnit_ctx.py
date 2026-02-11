@@ -724,6 +724,20 @@ def expand_groups(context, existing_vars=None):
 
 
 class GroupBoundVariable:
+    """Proxy for accessing a Group `Variable` on an instance.
+
+    1. It allows you to wire dependencies before the group’s final name is
+       known, (because that name can be inferred from the global assignment
+       after the context code runs) so we don't have to mutate or reuse the
+       shared class-level Variable definition across instances by deferring the
+       per-instance binding work until expand_groups().
+    3. Prevents accidentally collecting this reference in case it leaks into the
+       context top level namespace, which would cause duplicate variable
+       definitions.
+
+    The proxy forwards all other attribute access to the original `Variable`, so
+    it behaves like a `Variable` for e.g. dependency wiring.
+    """
     __damnit_group_bound__ = True
 
     def __init__(self, group, var_def):
