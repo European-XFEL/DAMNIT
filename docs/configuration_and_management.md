@@ -204,13 +204,11 @@ class XGMDiagnostics:
 
 # Instantiate the group in your context file, providing parameter values
 xgm_sa2 = XGMDiagnostics(
-    name="xgm_sa2",
     title="XGM SA2",
     device_name="SA2_XTD6_XGM/XGM/DOOCS",
     offset=1.1,
 )
 xgm_hed = XGMDiagnostics(
-    name="xgm_hed",
     title="XGM HED",
     device_name="HED_XTD9_XGM/XGM/DOOCS",
     offset=0.9,
@@ -219,13 +217,14 @@ xgm_hed = XGMDiagnostics(
 
 ### Naming and Titles
 Each `Group` instance has a `name` attribute that becomes the prefix for every
-`Variable` inside it. Pass a unique, non-empty `name=` when you instantiate the
-group, or assign the instance to a name in the context file (e.g.
-`xgm = XGMDiagnostics()`); in that case, the variable name becomes the group
-name. If `name` is still unset after the context is processed, DAMNIT raises an
-error. An error is also raised if two groups end up with the same name, or if a
-single group instance is assigned to multiple names without an explicit
-`name=`.
+`Variable` inside it. By default, you can leave `name` unset and assign the
+instance to a top-level variable in the context file (e.g.
+`xgm = XGMDiagnostics()`); that variable name becomes the group name. If you
+need a different name (or the instance is not referenced in the globals of the
+context file), pass a unique, non-empty `name=` when you instantiate the group.
+DAMNIT raises an error if the name cannot be determined, if two groups end up
+with the same name, or if a single group instance is assigned to multiple names
+without an explicit `name=`.
 
 - The **`Variable` name** is formed by joining the `Group`'s `name` and the
   method's name with a dot: `xgm_sa2.pulse_energy`.
