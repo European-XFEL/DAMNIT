@@ -1,3 +1,5 @@
+from graphlib import CycleError
+
 import pytest
 
 from damnit.context import GroupError
@@ -273,7 +275,7 @@ def test_group_linking_exec_and_dependency_paths(mock_run):
     assert ctx.vars["mid.scaled"].title == "MID | Scaled"
 
 
-def test_group_optional_component_cascades_drop():
+def test_group_optional_component_cascades_drop(mock_run):
     code = """
     from typing import Optional
     from damnit_ctx import Variable, Group
@@ -301,6 +303,99 @@ def test_group_optional_component_cascades_drop():
     ctx = mkcontext(code)
     assert "outer.needs_upstream" not in ctx.vars
     assert "outer.depends_on_needs" not in ctx.vars
+
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Upstream:
+        @Variable
+        def var(self, run):
+            return 100
+
+    @Group
+    class G:
+        upstream: Upstream | None = None
+
+        @Variable
+        def base(self, run):
+            return 2
+
+        @Variable
+        def a(self, run, v: "self#upstream.var"):
+            return v + 1
+
+        @Variable
+        def b(self, run, v: "self#a"):
+            return v + 1
+
+        @Variable
+        def c(self, run, v: "self#a" = 5):
+            return v + 1
+
+        @Variable
+        def d(self, run, v: "self#c"):
+            return v * 2
+
+        @Variable
+        def e(self, run, base: "self#base", v: "self#a" = 10):
+            return base + v
+
+        @Variable
+        def required_from_b(self, run, v: "self#b"):
+            return v * 10
+
+        @Variable
+        def optional_from_b(self, run, v: "self#b" = 3):
+            return v * 10
+
+    g = G(name="grp")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    # Missing upstream drops 'a', which drops 'b', which cascades to other vars
+    # requiring those internal variables.
+    assert "grp.a" not in ctx.vars
+    assert "grp.b" not in ctx.vars
+    assert "grp.required_from_b" not in ctx.vars
+
+    # Optional internal deps are stripped so defaults apply.
+    assert "grp.c" in ctx.vars
+    assert ctx.vars["grp.c"].arg_dependencies() == {}
+    assert results.cells["grp.c"].data == 6
+
+    assert "grp.optional_from_b" in ctx.vars
+    assert ctx.vars["grp.optional_from_b"].arg_dependencies() == {}
+    assert results.cells["grp.optional_from_b"].data == 30
+
+    # Variables depending on the surviving ones still execute normally.
+    assert results.cells["grp.base"].data == 2
+    assert results.cells["grp.d"].data == 12
+
+    assert ctx.vars["grp.e"].arg_dependencies() == {"base": "grp.base"}
+    assert results.cells["grp.e"].data == 12
+
+
+def test_group_internal_cycle_raises_clear_error():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def a(self, run, v: "self#b"):
+            return v + 1
+
+        @Variable
+        def b(self, run, v: "self#a"):
+            return v + 1
+
+    g = G(name="g")
+    """
+    with pytest.raises(CycleError, match=r"cyclical dependencies"):
+        mkcontext(code)
 
 
 def test_group_reserved_field_annotation_rejected():
