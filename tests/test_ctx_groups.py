@@ -319,24 +319,12 @@ def test_group_optional_component_cascades_drop(mock_run):
         upstream: Upstream | None = None
 
         @Variable
-        def base(self, run):
-            return 2
-
-        @Variable
-        def a(self, run, v: "self#upstream.var"):
-            return v + 1
-
-        @Variable
-        def b(self, run, v: "self#a"):
-            return v + 1
+        def d(self, run, v: "self#c"):
+            return v * 2
 
         @Variable
         def c(self, run, v: "self#a" = 5):
             return v + 1
-
-        @Variable
-        def d(self, run, v: "self#c"):
-            return v * 2
 
         @Variable
         def e(self, run, base: "self#base", v: "self#a" = 10):
@@ -349,6 +337,18 @@ def test_group_optional_component_cascades_drop(mock_run):
         @Variable
         def optional_from_b(self, run, v: "self#b" = 3):
             return v * 10
+
+        @Variable
+        def b(self, run, v: "self#a"):
+            return v + 1
+
+        @Variable
+        def a(self, run, v: "self#upstream.var"):
+            return v + 1
+
+        @Variable
+        def base(self, run):
+            return 2
 
     g = G(name="grp")
     """
