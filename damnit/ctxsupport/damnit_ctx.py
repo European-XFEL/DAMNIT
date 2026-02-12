@@ -549,25 +549,24 @@ def _resolve_group_attr_variable_name(group, dep_name, param):
 def _resolve_self_annotation(group, var_defs, arg_name, annotation, param):
     """Resolve a self# annotation into a var# annotation + dependency metadata.
 
-    Returns (resolved_annotation, internal_dep, drop_var, skip_annotation):
+    Returns (resolved_annotation, internal_dep, drop_var):
     - resolved_annotation: string or None
     - internal_dep: (arg_name, dep_name, required) tuple or None
     - drop_var: True if the variable should be removed entirely
-    - skip_annotation: True if the argument should keep its default
     """
     target_group, dep_name, missing = _resolve_self_dependency(
         group, annotation.removeprefix("self#")
     )
     if missing:
         if param.default is inspect.Parameter.empty:
-            return None, None, True, False
-        return None, None, False, True
+            return None, None, True
+        return None, None, False
 
     if target_group is group and dep_name in var_defs:
         # Reference to another method-defined variable in this group.
         resolved = f"{_group_name(target_group)}.{dep_name}"
         required = param.default is inspect.Parameter.empty
-        return f"var#{resolved}", (arg_name, dep_name, required), False, False
+        return f"var#{resolved}", (arg_name, dep_name, required), False
 
     if target_group is group:
         # Reference to a Variable field (or bound variable) on this group.
@@ -577,10 +576,10 @@ def _resolve_self_annotation(group, var_defs, arg_name, annotation, param):
         resolved = _resolve_group_attr_variable_name(target_group, dep_name, param)
 
     if resolved is _MissingDependency.REQUIRED:
-        return None, None, True, False
+        return None, None, True
     if resolved is _MissingDependency.OPTIONAL:
-        return None, None, False, True
-    return f"var#{resolved}", None, False, False
+        return None, None, False
+    return f"var#{resolved}", None, False
 
 
 def _expand_group(group):
@@ -618,17 +617,17 @@ def _expand_group(group):
                 continue
             if annotation.startswith("self#"):
                 # Resolve group-relative dependencies, possibly across nested groups.
-                resolved, internal_dep, drop, skip = _resolve_self_annotation(
+                resolved, internal_dep, drop = _resolve_self_annotation(
                     group, var_defs, arg_name, annotation, param
                 )
                 if drop:
                     drop_var = True
                     break
-                if skip:
-                    continue
-                annotations[arg_name] = resolved
-                if internal_dep is not None:
-                    internal_deps.append(internal_dep)
+                
+                if resolved is not None:
+                    annotations[arg_name] = resolved
+                    if internal_dep is not None:
+                        internal_deps.append(internal_dep)
             else:
                 annotations[arg_name] = annotation
 
