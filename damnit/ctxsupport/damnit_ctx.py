@@ -508,14 +508,13 @@ def _resolve_self_dependency(group, path):
     if not path:
         raise GroupError("Empty self# dependency")
 
-    target = group
     parts = path.split(".")
     for attr in parts[:-1]:
-        if not hasattr(target, attr):
+        if not hasattr(group, attr):
             raise GroupError(
                 f"Group {type(group).__name__!r} has no attribute {attr!r}"
             )
-        target = getattr(target, attr)
+        target = getattr(group, attr)
         if target is None:
             return None, None, True
         if not is_group_instance(target):
@@ -523,8 +522,9 @@ def _resolve_self_dependency(group, path):
                 f"Attribute {attr!r} on group {type(group).__name__!r} "
                 "does not reference a Group instance"
             )
+        group = target
 
-    return target, parts[-1], False
+    return group, parts[-1], False
 
 
 class _MissingDependency(Enum):
