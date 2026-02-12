@@ -195,6 +195,8 @@ representation. A `Cell` takes these arguments:
 Example Usage:
 
 ```python
+from damnit_ctx import Variable, Cell
+
 @Variable(title="Peaks")
 def peaks(run):
     success, counts, data = computation(run)
