@@ -14,7 +14,7 @@ from collections.abc import Iterable, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from enum import Enum
-from graphlib import CycleError, TopologicalSorter
+from typing import Any
 
 import h5py
 import numpy as np
@@ -504,100 +504,74 @@ def _collect_group_variables(group):
     return vars_by_name
 
 
-def _resolve_self_dependency(group, path):
-    if not path:
-        raise GroupError("Empty self# dependency")
+def _make_missing_dependency_placeholder(group, name: str) -> Variable:
+    """Create a fake Variable to replace missing group istances dependencies.
 
-    parts = path.split(".")
-    for attr in parts[:-1]:
-        if not hasattr(group, attr):
-            raise GroupError(
-                f"Group {type(group).__name__!r} has no attribute {attr!r}"
-            )
-        target = getattr(group, attr)
-        if target is None:
-            return None, None, True
-        if not is_group_instance(target):
-            raise GroupError(
-                f"Attribute {attr!r} on group {type(group).__name__!r} "
-                "does not reference a Group instance"
-            )
-        group = target
-
-    return group, parts[-1], False
-
-
-class _MissingDependency(Enum):
-    REQUIRED = "required"
-    OPTIONAL = "optional"
-
-
-def _resolve_group_attr_variable_name(group, dep_name, param):
-    """Resolve a group attribute to a Variable name or missing sentinel."""
-    attr = getattr(group, dep_name, None)
-    if attr is None:
-        if param.default is inspect.Parameter.empty:
-            return _MissingDependency.REQUIRED
-        return _MissingDependency.OPTIONAL
-    if isinstance(attr, (Variable, GroupBoundVariable)):
-        return attr.name
-    raise GroupError(
-        f"Group {type(group).__name__!r} attribute {dep_name!r} is not a Variable"
-    )
-
-
-def _resolve_self_annotation(group, var_defs, arg_name, annotation, param):
-    """Resolve a self# annotation into a var# annotation + dependency metadata.
-
-    Returns (resolved_annotation, internal_dep, drop_var):
-    - resolved_annotation: string or None
-    - internal_dep: (arg_name, dep_name, required) tuple or None
-    - drop_var: True if the variable should be removed entirely
+    The Variable name is namespaced to the group and a special __missing__
+    section to make it clear in error messages that this is a placeholder for a
+    missing dependency.
     """
-    target_group, dep_name, missing = _resolve_self_dependency(
-        group, annotation.removeprefix("self#")
-    )
-    if missing:
-        if param.default is inspect.Parameter.empty:
-            return None, None, True
-        return None, None, False
+    def _missing(run):
+        return None
 
-    if target_group is group and dep_name in var_defs:
-        # Reference to another method-defined variable in this group.
-        resolved = f"{_group_name(target_group)}.{dep_name}"
-        required = param.default is inspect.Parameter.empty
-        return f"var#{resolved}", (arg_name, dep_name, required), False
+    var = Variable(transient=True)
+    var(_missing)
+    # ensure the name does not contain any glob characters
+    safe_name = re.sub(r"[\!\?\*\[\]]", "_", name)
+    var.name = f'{_group_name(group)}.__missing__.{safe_name}'
+    var.title = var.name
+    return var
 
-    if target_group is group:
-        # Reference to a Variable field (or bound variable) on this group.
-        resolved = _resolve_group_attr_variable_name(group, dep_name, param)
-    else:
-        # Reference to a Variable field on a nested group instance.
-        resolved = _resolve_group_attr_variable_name(target_group, dep_name, param)
 
-    if resolved is _MissingDependency.REQUIRED:
-        return None, None, True
-    if resolved is _MissingDependency.OPTIONAL:
-        return None, None, False
-    return f"var#{resolved}", None, False
+def _resolve_self_annotation(annotation: str, group):
+    path = annotation.removeprefix("self#")
+    target, _, remain = path.partition(".")
+
+    if remain:
+        target = getattr(group, target)
+        if target is None:
+            placeholder = _make_missing_dependency_placeholder(group, path)
+            return f'var#{placeholder.name}', placeholder
+        return _resolve_self_annotation(remain, target)
+
+    try:
+        var_ref = getattr(group, target)
+    except AttributeError:
+        if any(ch in target for ch in "*?["):
+            # glob pattern, will be resolved by ContextRunner.
+            return f'var#{_group_name(group)}.{target}', None
+        raise GroupError(
+            f"Attribute {target!r} on group {_group_name(group)!r} does not exist, "
+            "but is referenced as a dependency in annotation."
+        )
+
+    if var_ref is None:
+        placeholder = _make_missing_dependency_placeholder(group, target)
+        return f'var#{placeholder.name}', placeholder
+
+    if not isinstance(var_ref, (Variable, GroupBoundVariable)):
+        raise GroupError(
+            f"Attribute {target!r} on group {_group_name(group)!r} is of type "
+            f"{type(var_ref).__name__!r}, but a Variable is required for a self# dependency."
+        )
+
+    return f'var#{var_ref.name}', None
 
 
 def _expand_group(group):
     """Build Variables for a group instance, resolving "self#" dependencies.
 
     This binds each @Variable to the group instance, namespaces names and
-    titles, and rewrites annotations to "var#..." dependencies. Group-internal
-    dependencies are tracked so variables with missing required inputs are
-    dropped, and optional dependencies are removed from annotations.
+    titles, and rewrites annotations to "var#..." dependencies.
     """
     group_name = _group_name(group)
     if group.title is None:
         group.title = group_name
 
-    var_defs = _collect_group_variables(group)
-    var_infos = {}
+    var_defs: dict[str, Variable] = _collect_group_variables(group)
+    expanded = {}
 
-    for method_name, var_def in var_defs.items():
+    for var_def in var_defs.values():
         # Create a per-instance Variable copy so name/title/annotations can be
         # rewritten without mutating the class definition.
         bound_func = var_def.func.__get__(group, type(group))
@@ -607,8 +581,6 @@ def _expand_group(group):
         new_var.title = f"{group.title}{group.sep}{var_def.title}"
 
         annotations = {}
-        internal_deps = []
-        drop_var = False
         sig = inspect.signature(bound_func)
         original_annotations = getattr(var_def.func, "__annotations__", {})
         for arg_name, param in sig.parameters.items():
@@ -617,80 +589,26 @@ def _expand_group(group):
                 continue
             if annotation.startswith("self#"):
                 # Resolve group-relative dependencies, possibly across nested groups.
-                resolved, internal_dep, drop = _resolve_self_annotation(
-                    group, var_defs, arg_name, annotation, param
-                )
-                if drop:
-                    drop_var = True
-                    break
-                
-                if resolved is not None:
-                    annotations[arg_name] = resolved
-                    if internal_dep is not None:
-                        internal_deps.append(internal_dep)
+                resolved, placeholder = _resolve_self_annotation(annotation, group)
+                annotations[arg_name] = resolved
+                if placeholder is not None:
+                    # missing dependency -> add placeholder Variable
+                    expanded[placeholder.name] = placeholder
+
             else:
                 annotations[arg_name] = annotation
 
-        if drop_var:
-            continue
-
         new_var.tags = _merge_tags(group.tags, new_var.tags)
-        var_infos[method_name] = {
-            "var": new_var,
-            "annotations": annotations,
-            "internal_deps": internal_deps,
-        }
-
-    # Variables can be dropped during the initial pass above if a required
-    # group-field dependency is missing. We then need to cascade that removal to
-    # any Variables that require the dropped variables.
-    active = set(var_infos)
-    graph = {
-        method_name: {
-            dep_name
-            for (_, dep_name, _) in info["internal_deps"]
-            if dep_name in var_infos
-        }
-        for method_name, info in var_infos.items()
-    }
-
-    try:
-        order = tuple(TopologicalSorter(graph).static_order())
-    except CycleError as e:
-        raise CycleError(
-            f"Group {group_name!r} has cyclical dependencies between "
-            f"variables: {e.args[1]}"
-        ) from e
-
-    for method_name in order:
-        if method_name not in active:
-            continue
-
-        info = var_infos[method_name]
-        remaining_deps = []
-        for arg_name, dep_name, required in info["internal_deps"]:
-            if dep_name not in active:
-                # Drop variables that depend on missing required internal vars;
-                # otherwise remove the dependency and let defaults apply.
-                if required:
-                    active.remove(method_name)
-                    remaining_deps = []
-                    break
-                info["annotations"].pop(arg_name, None)
-            else:
-                remaining_deps.append((arg_name, dep_name, required))
-        info["internal_deps"] = remaining_deps
-
-    expanded = {}
-    for method_name in active:
-        info = var_infos[method_name]
-        info["var"]._annotation_overrides = info["annotations"]
-        expanded[info["var"].name] = info["var"]
+        new_var._annotation_overrides = annotations
+        expanded[new_var.name] = new_var
 
     return expanded
 
 
-def expand_groups(context, existing_vars=None):
+def expand_groups(
+        context: dict[str, Any],
+        existing_vars: dict[str, Variable] | None = None,
+    ) -> dict[str, Variable]:
     """Return Variables generated from Group instances in a context file."""
     _assign_group_names(context)
     groups = _collect_group_instances(context.values())

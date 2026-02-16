@@ -45,12 +45,167 @@ def test_group_linking_resolves_dependencies():
         def scaled(self, run, energy: "self#inner.energy"):
             return energy * 2
 
-    outer = Outer(name="outer", inner=Inner(name="inner"))
+    outer = Outer(name="outer", inner=Inner(name="blah"))
     """
     ctx = mkcontext(code)
-    assert "inner.energy" in ctx.vars
-    assert "outer.scaled" in ctx.vars
-    assert ctx.vars["outer.scaled"].arg_dependencies() == {"energy": "inner.energy"}
+    assert set(ctx.vars) == {"blah.energy", "outer.scaled"}
+    assert ctx.vars["outer.scaled"].arg_dependencies() == {"energy": "blah.energy"}
+
+
+def test_group_glob(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Other:
+        @Variable
+        def var_a(self, run):
+            return 1
+
+        @Variable
+        def var_b(self, run):
+            return 2
+
+    @Group
+    class G:
+        other: Other
+
+        @Variable
+        def total(self, run, data: "self#other.var_*"):
+            return sum(data.values())
+
+    g = G(other=Other(name="blah"))
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    
+    assert ctx.vars["g.total"].arg_dependencies() == {"data": "blah.var_*"}
+    assert set(ctx.vars) == {"blah.var_a", "blah.var_b", "g.total"}
+    assert results.cells["g.total"].data == 3
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Upstream:
+        @Variable
+        def x(self, run):
+            return 1
+
+    @Group
+    class G:
+        upstream: Upstream | None = None
+
+        @Variable
+        def var_a(self, run, x: "self#upstream.x"):
+            return x + 1
+
+        @Variable
+        def var_b(self, run, x: "self#upstream.x"):
+            return x + 2
+
+        @Variable
+        def total(self, run, data: "self#var_*"):
+            return sum(data.values())
+
+    g = G()
+    g2 = G(upstream=Upstream(name="u"))
+    """
+    ctx = mkcontext(code)
+    assert "g.var_a" in ctx.vars
+    assert "g.var_b" in ctx.vars
+    assert "g.total" in ctx.vars
+
+    assert ctx.vars["g2.total"].arg_dependencies() == {"data": "g2.var_*"}
+    assert "g2.var_a" in ctx.vars
+    assert "g2.var_b" in ctx.vars
+    assert "g2.total" in ctx.vars
+
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "g.total" not in results.cells
+    assert results.cells["g2.total"].data == 5
+
+
+def test_group_glob_only_allowed_on_leaf():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Other:
+        @Variable
+        def var(self, run):
+            return 1
+
+    @Group
+    class G:
+        other: Other
+
+        @Variable
+        def out(self, run, v: "self#other*.var"):
+            return v
+
+    g = G(other=Other(name="other"))
+    """
+    with pytest.raises(AttributeError):
+        mkcontext(code)
+
+
+def test_group_missing_group_with_glob_pattern():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Other:
+        @Variable
+        def var_a(self, run):
+            return 1
+
+    @Group
+    class G:
+        other: Other | None = None
+
+        @Variable
+        def total(self, run, data: "self#other.var_*"):
+            return sum(data.values())
+
+    g = G(name="g")
+    """
+    ctx = mkcontext(code)
+    ctx.check()
+    missing = [name for name in ctx.vars if ".__missing__." in name]
+    assert missing[0] == "g.__missing__.other.var__"
+
+
+def test_group_invalid_self_annotation(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def out(self, run, v: "self#no_such_group.x"):
+            return v
+
+    g = G()
+    """
+    with pytest.raises(AttributeError, match="no_such_group"):
+        mkcontext(code)
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        blah: int = 5
+
+        @Variable
+        def out(self, run, v: "self#blah"):
+            return v ** 2
+
+    g = G()
+    """
+    with pytest.raises(GroupError, match="type 'int'"):
+        mkcontext(code)
 
 
 def test_group_variable_field_linking(mock_run):
@@ -176,7 +331,7 @@ def test_group_name_instance(mock_run):
     assert results.cells["instance.val"].data == 5
 
 
-def test_group_optional_component_drops_missing_dependency(mock_run):
+def test_group_optional_component_skips_missing_dependency(mock_run):
     code = """
     from damnit_ctx import Variable, Group
 
@@ -202,9 +357,12 @@ def test_group_optional_component_drops_missing_dependency(mock_run):
     """
     ctx = mkcontext(code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    assert "b.needs_upstream" not in ctx.vars
+    assert "b.needs_upstream" in ctx.vars
+    assert "b.needs_upstream" not in results.cells
     assert "b.optional_upstream" in ctx.vars
-    assert ctx.vars["b.optional_upstream"].arg_dependencies() == {}
+    assert ctx.vars["b.optional_upstream"].arg_dependencies() == {
+        "value": "b.__missing__.upstream.var"
+    }
     assert results.cells["b.optional_upstream"].data == 43
 
 
@@ -301,8 +459,11 @@ def test_group_optional_component_cascades_drop(mock_run):
     outer = Outer(name="outer")
     """
     ctx = mkcontext(code)
-    assert "outer.needs_upstream" not in ctx.vars
-    assert "outer.depends_on_needs" not in ctx.vars
+    assert "outer.needs_upstream" in ctx.vars
+    assert "outer.depends_on_needs" in ctx.vars
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "outer.needs_upstream" not in results.cells
+    assert "outer.depends_on_needs" not in results.cells
 
 
     code = """
@@ -355,26 +516,27 @@ def test_group_optional_component_cascades_drop(mock_run):
     ctx = mkcontext(code)
     results = ctx.execute(mock_run, 1000, 123, {})
 
-    # Missing upstream drops 'a', which drops 'b', which cascades to other vars
-    # requiring those internal variables.
-    assert "grp.a" not in ctx.vars
-    assert "grp.b" not in ctx.vars
-    assert "grp.required_from_b" not in ctx.vars
+    # Missing upstream keeps variables but they skip at runtime.
+    assert "grp.a" in ctx.vars
+    assert "grp.b" in ctx.vars
+    assert "grp.required_from_b" in ctx.vars
+    assert "grp.a" not in results.cells
+    assert "grp.b" not in results.cells
+    assert "grp.required_from_b" not in results.cells
 
-    # Optional internal deps are stripped so defaults apply.
     assert "grp.c" in ctx.vars
-    assert ctx.vars["grp.c"].arg_dependencies() == {}
+    assert ctx.vars["grp.c"].arg_dependencies() == {"v": "grp.a"}
     assert results.cells["grp.c"].data == 6
 
     assert "grp.optional_from_b" in ctx.vars
-    assert ctx.vars["grp.optional_from_b"].arg_dependencies() == {}
+    assert ctx.vars["grp.optional_from_b"].arg_dependencies() == {"v": "grp.b"}
     assert results.cells["grp.optional_from_b"].data == 30
 
     # Variables depending on the surviving ones still execute normally.
     assert results.cells["grp.base"].data == 2
     assert results.cells["grp.d"].data == 12
 
-    assert ctx.vars["grp.e"].arg_dependencies() == {"base": "grp.base"}
+    assert ctx.vars["grp.e"].arg_dependencies() == {"base": "grp.base", "v": "grp.a"}
     assert results.cells["grp.e"].data == 12
 
 
