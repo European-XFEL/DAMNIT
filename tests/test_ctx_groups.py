@@ -3,7 +3,43 @@ from graphlib import CycleError
 import pytest
 
 from damnit.context import GroupError
+from damnit.ctxsupport.damnit_ctx import Variable, Group, GroupBoundVariable, is_group_instance, expand_groups
 from .helpers import mkcontext
+
+
+def test_group_variable_reference():
+    @Variable
+    def var(run):
+        return 42
+
+    @Group
+    class Grp:
+        ref: Variable = None
+        grp_ref: Group = None
+
+        @Variable(tags='G!')
+        def grp_var(self, run):
+            return 1 / 42
+
+    group1 = Grp()
+    group2 = Grp(ref=var, grp_ref=group1)
+
+    assert isinstance(var, Variable)
+    assert is_group_instance(group1)
+    assert group1.ref is group1.grp_ref is None
+    assert isinstance(group1.grp_var, GroupBoundVariable)
+    assert isinstance(group2.grp_ref, Grp)
+    assert isinstance(group2.grp_var, GroupBoundVariable)
+    assert isinstance(group2.grp_ref.grp_var, GroupBoundVariable)
+
+    with pytest.raises(match="has no name"):
+        # group names aren't assigned yet
+        group2.grp_ref.grp_var.name
+    
+    expand_groups({"group1": group1, "group2": group2,}, {"var": var})
+
+    # now group names are assigned from context
+    assert group2.grp_ref.grp_var.name == "group1.grp_var"
 
 
 def test_group_expands_variables_and_prefixes():
@@ -42,8 +78,8 @@ def test_group_linking_resolves_dependencies():
         inner: Inner
 
         @Variable
-        def scaled(self, run, energy: "self#inner.energy"):
-            return energy * 2
+        def scaled(self, run, energy: "self#inner.energy", factor: int = 2):
+            return energy * factor
 
     outer = Outer(name="outer", inner=Inner(name="blah"))
     """
@@ -335,6 +371,10 @@ def test_group_optional_component_skips_missing_dependency(mock_run):
     code = """
     from damnit_ctx import Variable, Group
 
+    @Variable
+    def var(run):
+        return 1
+
     @Group
     class A:
         @Variable
@@ -344,14 +384,15 @@ def test_group_optional_component_skips_missing_dependency(mock_run):
     @Group
     class B:
         upstream: A | None = None
+        other_var: Variable | None = None
 
         @Variable
         def needs_upstream(self, run, value: "self#upstream.var"):
             return value + 1
 
         @Variable
-        def optional_upstream(self, run, value: "self#upstream.var" = 42):
-            return value + 1
+        def optional_upstream(self, run, value: "self#upstream.var" = 42, other_value: "self#other_var" = -1):
+            return other_value * (value + 1)
 
     b = B(name="b")
     """
@@ -361,9 +402,10 @@ def test_group_optional_component_skips_missing_dependency(mock_run):
     assert "b.needs_upstream" not in results.cells
     assert "b.optional_upstream" in ctx.vars
     assert ctx.vars["b.optional_upstream"].arg_dependencies() == {
-        "value": "b.__missing__.upstream.var"
+        "value": "b.__missing__.upstream.var",
+        "other_value": "b.__missing__.other_var"
     }
-    assert results.cells["b.optional_upstream"].data == 43
+    assert results.cells["b.optional_upstream"].data == -43
 
 
 def test_group_execute_intra_dependencies_and_overrides(mock_run):
@@ -382,7 +424,7 @@ def test_group_execute_intra_dependencies_and_overrides(mock_run):
         def adjusted(self, run, base: "self#base"):
             return base + self.offset
 
-    g = G(name="g", title="MyDiag", offset=5, tags=["Override"])
+    g = G(name="g", title="MyDiag", offset=5, tags="Override")
     """
     ctx = mkcontext(code)
     results = ctx.execute(mock_run, 1000, 123, {})
@@ -420,7 +462,7 @@ def test_group_linking_exec_and_dependency_paths(mock_run):
         def scaled(self, run, energy: "self#xgm.corrected"):
             return energy * self.factor
 
-    xgm_sa2 = XGM(name="xgm_sa2", title="XGM", offset=1.5)
+    xgm_sa2 = XGM(name="xgm_sa2", title="XGM", offset=1.5, tags="XGM")
     mid = MID(name="mid", title="MID", sep=" | ", xgm=xgm_sa2, factor=3)
     """
     ctx = mkcontext(code)
@@ -750,4 +792,25 @@ def test_group_ambiguous_assignment_raises():
     alias = g
     """
     with pytest.raises(GroupError):
+        mkcontext(code)
+
+
+def test_duplicate_group_var_name():
+    code = """
+    from damnit_ctx import Variable, Group
+    
+    @Variable
+    def dummy(run):
+        return 42
+    dummy.name = "g.var"
+    
+    @Group
+    class G:
+        @Variable
+        def var(self, run):
+            return -42
+    
+    g = G()
+    """
+    with pytest.raises(GroupError, match="Duplicate variable name"):
         mkcontext(code)
