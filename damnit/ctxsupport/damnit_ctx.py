@@ -1020,7 +1020,7 @@ class Pipeline:
         if data_obj is None:
             if self.proposal is None or self.run_number is None:
                 raise ValueError(
-                    "Pipeline.execute requires data=... or proposal/run_number"
+                    "Pipeline.execute requires run_data=... or proposal/run_number"
                 )
             data_obj, run_data = self._open_run(
                 self.proposal, self.run_number, run_data
