@@ -438,6 +438,60 @@ class DetectorAnalysisAlt(BaseAnalysis):
 detector = DetectorAnalysis(name="detector", title="Detector")
 ```
 
+## Pipeline
+`Pipeline` is the public API for loading, inspecting, and executing context
+files programmatically. It wraps the context compilation/execution machinery
+and lets you select subsets of variables to run.
+
+Common usage with a context file:
+```python
+from damnit.context import Pipeline
+
+pipe = Pipeline.from_context_file("context.py")
+print(sorted(pipe.vars))  # variable names
+
+# Run a subset by title match and save results
+res = (pipe.select(match=["XGM"])
+           .with_context(proposal=1234, run_number=56, run_data="raw")
+           .execute())
+res.save_hdf5("results.h5")
+```
+
+Execute with a any data object instead of opening a run from proposal/run
+number:
+```python
+from damnit.context import Pipeline
+import extra_data
+
+run = extra_data.open_run(1234, 56, data="raw")
+pipe = Pipeline.from_context_file("context.py")
+res = pipe.select(variables=["xgm_intensity"]).execute(run_data=run)
+```
+
+Develop directly in Python without a context file:
+```python
+from damnit.context import Pipeline, Variable, Group
+
+@Variable
+def my_var(run):
+    return 123
+
+@Group
+class Demo:
+    @Variable
+    def val(self, run):
+        return 456
+
+pipe = Pipeline()
+pipe.add(my_var, Demo(name="demo"))
+print(sorted(pipe.vars))
+```
+
+Advanced: context files can call `Pipeline.default()` or
+`Pipeline.set_default()` to programmatically select which Variables/Groups are
+compiled. This is useful for conditional inclusion or constructing groups at
+runtime.
+
 ### Cell
 
 The `Cell` object is a versatile container that allows customizing how data is

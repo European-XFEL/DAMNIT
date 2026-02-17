@@ -962,17 +962,9 @@ class Pipeline:
         return pipe
 
     @classmethod
-    def from_str(
-            cls,
-            code,
-            *,
-            path="<string>",
-            name=None,
-    ):
+    def from_str(cls, code, *, path="<string>", name=None):
         """Create a Pipeline from a context string."""
-        from ctxrunner import ContextFile
-
-        ctx = build_context_from_code(code, path, ContextFile)
+        ctx = build_context_from_code(code, path)
         ctx.check()
         pipe = cls(
             name=name,
@@ -992,16 +984,8 @@ class Pipeline:
             name_matches=match,
             variables=variables,
         )
-        new_pipe = Pipeline(
-            name=self.name,
-            proposal=self.proposal,
-            run_number=self.run_number,
-            run_data=run_data.value,
-            data=self.data,
-            input_vars=self.input_vars,
-            _base_context=filtered,
-            _code=filtered.code,
-        )
+        new_pipe = self.copy()
+        new_pipe._base_context = filtered
         new_pipe._context = filtered
         return new_pipe
 
@@ -1064,7 +1048,7 @@ class Pipeline:
         """Return variable metadata suitable for database storage."""
         return self._get_context().vars_to_dict(inc_transient=inc_transient)
 
-    def save(self, path, reduced_only=False):
+    def save_hdf5(self, path, reduced_only=False):
         """Save the last Results to an HDF5 file."""
         if self._last_results is None:
             raise RuntimeError("No results available. Call execute() first.")
@@ -1084,7 +1068,7 @@ def pipeline_scope():
         _DEFAULT_PIPELINE_STATE.reset(token)
 
 
-def build_context_from_code(code, path, context_file_cls):
+def build_context_from_code(code, path):
     """Execute context code and return ContextFile."""
     context = {}
     codeobj = compile(code, path, 'exec')

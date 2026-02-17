@@ -162,7 +162,7 @@ class ContextFile:
 
     @classmethod
     def from_str(cls, code: str, path='<string>'):
-        ctx = _damnit_ctx.build_context_from_code(code, path, cls)
+        ctx = _damnit_ctx.build_context_from_code(code, path)
         log.debug("Loaded %d variables", len(ctx.vars))
         return ctx
 
