@@ -9,6 +9,9 @@ Added:
 - Core: Introduced a migrations framework to apply future schema changes
   predictably (!510).
 - GUI: save/restore column widths setting (!526).
+- Core: downsampled 1D data is now saved in the database instead of thumbnail
+  (!531).
+- GUI: Display interactive sparklines for 1D data in the main table (!531).
 
 Fixed:
 
