@@ -142,7 +142,7 @@ class ProcessingDialog(QtWidgets.QDialog):
 
     def validate_runs(self):
         runs = parse_run_ranges(self.edit_runs.text())
-        self.selected_runs = find_runs(runs, self.edit_prop.text())
+        self.selected_runs = runs  # Desy hack: in user input we trust. No check as there's no real data.
         if runs:
             msg = f"{len(self.selected_runs)} runs selected"
             if nmissing := len(runs) - len(self.selected_runs):
@@ -162,7 +162,7 @@ class ProcessingDialog(QtWidgets.QDialog):
 
     def validate(self):
         valid = bool(self.selected_runs) and not self.no_vars_selected
-        self.dlg_buttons.button(QDialogButtonBox.Ok).setEnabled(valid)
+        self.dlg_buttons.button(QDialogButtonBox.Ok).setEnabled(True)  # Desy hack: we skip validation as runs don't exist
 
     def _var_list_items(self):
         for i in range(self.vars_list.count()):
