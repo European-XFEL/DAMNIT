@@ -1,8 +1,8 @@
 from datetime import timedelta
 
 import numpy as np
-
 from extra.components import XGM, XrayPulses
+
 from damnit_ctx import Variable
 
 

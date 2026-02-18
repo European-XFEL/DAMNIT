@@ -12,9 +12,9 @@ from threading import Thread
 
 from kafka import KafkaConsumer
 
+from ..api import find_proposal
 from ..context import RunData
 from ..definitions import DEFAULT_DAMNIT_PYTHON
-from ..api import find_proposal
 from .db import DamnitDB, KeyValueMapping, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 

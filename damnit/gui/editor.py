@@ -8,17 +8,16 @@ from tempfile import NamedTemporaryFile
 
 from pyflakes.api import check as pyflakes_check
 from pyflakes.reporter import Reporter
-from PyQt5.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
-from PyQt5.QtCore import Qt, QProcess, QThread, pyqtSignal
-from PyQt5.QtGui import QFont
 from PyQt5 import QtWidgets
+from PyQt5.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
+from PyQt5.QtCore import QProcess, Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QFont
 from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file
 from ..context import Pipeline
 from ..ctxsupport.ctxrunner import extract_error_info
 from .theme import Theme, ThemeManager, set_lexer_theme
-
 
 log = logging.getLogger(__name__)
 

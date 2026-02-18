@@ -2,15 +2,14 @@ import logging
 import re
 from pathlib import Path
 
+from extra_data.read_machinery import find_proposal
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialogButtonBox
-
-from extra_data.read_machinery import find_proposal
 from superqt import QSearchableListWidget
 
-from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
+from ..context import RunData
 
 log = logging.getLogger(__name__)
 

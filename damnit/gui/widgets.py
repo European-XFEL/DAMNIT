@@ -3,8 +3,10 @@ from itertools import pairwise
 
 import numpy as np
 from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QDoubleValidator
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget, QLineEdit, QHBoxLayout
+from PyQt5.QtGui import (QBrush, QColor, QDoubleValidator, QPainter, QPen,
+                         QPixmap)
+from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QVBoxLayout,
+                             QWidget)
 from superqt import QDoubleRangeSlider
 from superqt.utils import signals_blocked
 

@@ -1,5 +1,5 @@
-import pickle
 import logging
+import pickle
 
 from kafka import KafkaConsumer, KafkaProducer
 from PyQt5 import QtCore

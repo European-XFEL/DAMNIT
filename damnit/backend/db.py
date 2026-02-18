@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ..definitions import UPDATE_TOPIC, DEFAULT_CONTEXT_PYTHON
+from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC
 from .db_migrations import apply_migrations, latest_version
 from .user_variables import UserEditableVariable
 

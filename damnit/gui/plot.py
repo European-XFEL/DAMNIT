@@ -6,7 +6,6 @@ import mplcursors
 import numpy as np
 import pandas as pd
 import xarray as xr
-
 from matplotlib.backends.backend_qtagg import FigureCanvas
 from matplotlib.backends.backend_qtagg import \
     NavigationToolbar2QT as NavigationToolbar
@@ -14,7 +13,7 @@ from matplotlib.colorbar import Colorbar
 from matplotlib.figure import Figure
 from mpl_pan_zoom import MouseButton, PanManager, zoom_factory
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt, QObject
+from PyQt5.QtCore import QObject, Qt
 from PyQt5.QtGui import QColor, QIcon, QPainter
 from PyQt5.QtWidgets import QMessageBox
 

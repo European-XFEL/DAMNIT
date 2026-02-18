@@ -672,6 +672,7 @@ class Pipeline:
     ):
         """Create a Pipeline from a context file on disk."""
         from pathlib import Path
+
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_py_file(Path(path))

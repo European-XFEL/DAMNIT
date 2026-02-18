@@ -14,8 +14,7 @@ import xarray as xr
 from kafka.errors import NoBrokersAvailable
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 from PyQt5.Qsci import QsciLexerPython, QsciScintilla
-from PyQt5.QtCore import Qt
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
 from PyQt5.QtWebEngineWidgets import QWebEngineProfile
 from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
@@ -38,7 +37,7 @@ from .standalone_comments import TimeComment
 from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
-from .util import icon_path, StatusbarStylesheet
+from .util import StatusbarStylesheet, icon_path
 from .web_viewer import PlotlyPlot, UrlSchemeHandler
 from .zulip_messenger import ZulipMessenger
 
