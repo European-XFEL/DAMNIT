@@ -25,7 +25,8 @@ import numpy as np
 
 from kafka import KafkaProducer
 
-from ..context import ContextFile, RunData
+from ..context import Pipeline, RunData
+from ..ctxsupport.ctxrunner import ContextFile
 from ..definitions import UPDATE_BROKERS
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
@@ -76,8 +77,10 @@ def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, san
         with out_file.open("rb") as f:
             unpickler = ContextFileUnpickler(f)
             ctx, error_info = unpickler.load()
-
-            return ctx, error_info
+            pipe = None
+            if ctx is not None:
+                pipe = Pipeline(name="default", _base_context=ctx, _code=ctx.code)
+            return pipe, error_info
 
 
 def load_reduced_data(h5_path):
@@ -167,7 +170,7 @@ class Extractor:
             self.kafka_prd = None
 
         context_python = self.db.metameta.get("context_python")
-        self.ctx_whole, error_info = get_context_file(
+        self.pipe_whole, error_info = get_context_file(
             Path('context.py'),
             context_python=context_python,
             sandbox_args=sandbox_args,
@@ -175,9 +178,11 @@ class Extractor:
         )
         if error_info is not None:
             raise RuntimeError(f"Error loading context file:\n{error_info[0]}")
+        if self.pipe_whole is None:
+            raise RuntimeError("Error loading context file: no context returned")
 
     def update_db_vars(self):
-        updates = self.db.update_computed_variables(self.ctx_whole.vars_to_dict())
+        updates = self.db.update_computed_variables(self.pipe_whole.vars_to_dict())
 
         if self.kafka_prd is not None:
             for name, var in updates.items():
@@ -305,11 +310,11 @@ class RunExtractor(Extractor):
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         if not self.cluster:
-            ctx_slurm = self.ctx_whole.filter(
-                run_data=self.run_data, name_matches=self.match, variables=self.variables, cluster=True
+            pipe_slurm = self.pipe_whole.select(
+                run_data=self.run_data, match=self.match, variables=self.variables, cluster=True
             )
-            ctx_no_slurm = ctx_slurm.filter(cluster=False)
-            if set(ctx_slurm.vars) > set(ctx_no_slurm.vars):
+            pipe_no_slurm = pipe_slurm.select(cluster=False)
+            if set(pipe_slurm.vars) > set(pipe_no_slurm.vars):
                 submitter = ExtractionSubmitter(Path.cwd(), self.db)
                 cluster_req = ExtractionRequest(
                     self.run, self.proposal, mock=self.mock, run_data=self.run_data,

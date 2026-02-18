@@ -6,12 +6,15 @@ We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
+import contextvars
 import logging
 import re
 import sys
 from collections.abc import Iterable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 import h5py
 import numpy as np
@@ -21,6 +24,7 @@ __all__ = [
     "Cell",
     "Group",
     "GroupError",
+    "Pipeline",
     "RunData",
     "Skip",
     "Variable"
@@ -30,6 +34,11 @@ log = logging.getLogger(__name__)
 
 
 THUMBNAIL_SIZE = 300 # px
+
+
+_DEFAULT_PIPELINE_STATE = contextvars.ContextVar(
+    "damnit_ctx_default_pipeline", default=None
+)
 
 
 def isinstance_no_import(obj, mod: str, cls: str):
@@ -439,3 +448,370 @@ class GroupBoundVariable:
 
     def __getattr__(self, attr):
         return getattr(self._var_def, attr)
+
+
+class Pipeline:
+    """Select and execute a set of Variables/Groups with a shared context.
+
+    A Pipeline collects Variables and Group instances, compiles them into a
+    ContextFile, and executes them with a run source. The run source can be
+    provided directly via ``data=...`` or opened from ``proposal`` and
+    ``run_number`` using ``extra_data.open_run``.
+    """
+
+    def __init__(
+            self,
+            *,
+            name: str | None = None,
+            proposal: int | None = None,
+            run_number: int | None = None,
+            run_data: str | RunData | None = None,
+            data: Any | None = None,
+            input_vars: dict[str, Any] | None = None,
+            _base_context: "ContextFile" = None,
+            _code: str | None = None,
+    ):
+        """Initialize a Pipeline.
+
+        Args:
+            name: name used for tracking pipelines.
+            proposal: Proposal number for meta access or run opening.
+            run_number: Run number for meta access or run opening.
+            run_data: raw/proc/all selection for execution.
+            data: Object passed to Variable functions.
+            input_vars: Mapping for input# dependencies.
+            _base_context: Precompiled context for select().
+            _code: Source code for the context file, if known.
+        """
+        self.name = name
+        self.proposal = proposal
+        self.run_number = run_number
+        self.run_data = run_data
+        self.data = data
+        self.input_vars = dict(input_vars or {})
+        # Items (Variable, Group) explicitly added via Pipeline.add()
+        self._items = []
+        # Compiled ContextFile used as the base for add()/select().
+        self._base_context = _base_context
+        # Source code string for the context file, if known.
+        self._code = _code
+        # Cached compiled ContextFile for this pipeline (invalidated by add()).
+        self._context = _base_context
+        # Results from the last execute() call, if any.
+        self._last_results = None
+
+    @classmethod
+    def _new_state(cls):
+        return {"pipeline": cls(name="default"), "explicit": False, "used": False}
+
+    @classmethod
+    def default(cls):
+        """Return the default Pipeline for the current context execution.
+
+        This is only meaningful while a context file is being executed by
+        ContextFile.from_str(), which sets a ContextVar to scope default
+        pipelines to that execution.
+        """
+        state = _DEFAULT_PIPELINE_STATE.get()
+        if state is None:
+            state = cls._new_state()
+            _DEFAULT_PIPELINE_STATE.set(state)
+        state["used"] = True
+        return state["pipeline"]
+
+    @classmethod
+    def set_default(cls, pipeline):
+        """Set an explicit default Pipeline for the current context execution.
+
+        When set, auto-discovered Variables and Groups are ignored; only the
+        explicitly provided pipeline is compiled.
+        """
+        if not isinstance(pipeline, cls):
+            raise TypeError("Pipeline.set_default expects a Pipeline instance")
+        state = _DEFAULT_PIPELINE_STATE.get()
+        if state is None:
+            state = cls._new_state()
+            _DEFAULT_PIPELINE_STATE.set(state)
+        state["pipeline"] = pipeline
+        state["explicit"] = True
+        state["used"] = True
+        return pipeline
+
+    def copy(self):
+        clone = Pipeline(
+            name=self.name,
+            proposal=self.proposal,
+            run_number=self.run_number,
+            run_data=self.run_data,
+            data=self.data,
+            input_vars=self.input_vars,
+            _base_context=self._base_context,
+            _code=self._code,
+        )
+        clone._items = list(self._items)
+        clone._context = self._context
+        return clone
+
+    def add(self, *items):
+        """Add Variables or Group instances to this Pipeline.
+
+        Items can be Variables, Group instances, or iterables of them.
+        """
+        def add_item(item):
+            if isinstance(item, Variable) or is_group_instance(item):
+                self._items.append(item)
+                return
+            if isinstance(item, Iterable):
+                for sub in item:
+                    add_item(sub)
+                return
+            raise TypeError(
+                "Pipeline.add accepts Variable or Group instances (or iterables of them)"
+            )
+
+        for item in items:
+            add_item(item)
+        self._context = None
+        return self
+
+    def with_context(
+            self,
+            *,
+            name=None,
+            proposal=None,
+            run_number=None,
+            run_data=None,
+            data=None,
+            input_vars=None,
+    ):
+        """Return a new Pipeline with updated context fields."""
+        new_pipe = self.copy()
+        if name is not None:
+            new_pipe.name = name
+        if proposal is not None:
+            new_pipe.proposal = proposal
+        if run_number is not None:
+            new_pipe.run_number = run_number
+        if run_data is not None:
+            new_pipe.run_data = run_data
+        if data is not None:
+            new_pipe.data = data
+        if input_vars is not None:
+            new_pipe.input_vars = dict(input_vars)
+        return new_pipe
+
+    def _normalize_run_data(self, value):
+        if value is None:
+            return RunData.ALL
+        if isinstance(value, RunData):
+            return value
+        return RunData(value)
+
+    def _get_context(self):
+        if self._context is None:
+            self._context = self._build_context()
+        return self._context
+
+    def _build_context(self, code_override=None):
+        from ctxrunner import ContextFile, expand_groups
+        code = code_override if code_override is not None else self._code
+        vars_by_name = {}
+        if self._base_context is not None:
+            vars_by_name.update(self._base_context.vars)
+            if not code:
+                code = self._base_context.code
+
+        group_items = []
+        for item in self._items:
+            if isinstance(item, Variable):
+                existing = vars_by_name.get(item.name)
+                if existing is not None and existing is not item:
+                    raise GroupError(f"Duplicate variable name {item.name!r}")
+                vars_by_name[item.name] = item
+            elif is_group_instance(item):
+                group_items.append(item)
+            else:
+                raise TypeError(
+                    "Pipeline items must be Variable or Group instances"
+                )
+
+        if group_items:
+            unnamed = [group for group in group_items if group.name is None]
+            if unnamed:
+                raise GroupError(
+                    "Group instance has no name. Provide name=... before adding to Pipeline."
+                )
+            seen_names = {}
+            for group in group_items:
+                existing = seen_names.get(group.name)
+                if existing is not None and existing is not group:
+                    raise GroupError(
+                        f"Group name {group.name!r} is used by multiple group instances"
+                    )
+                seen_names[group.name] = group
+            context = dict(seen_names)
+            vars_by_name.update(expand_groups(context, vars_by_name))
+
+        if code is None:
+            code = ""
+        
+        ctx = ContextFile(vars_by_name, code)
+        ctx.check()
+        return ctx
+
+    def compile(self):
+        """Compile the Pipeline into a ContextFile."""
+        return self._get_context()
+
+    @classmethod
+    def from_context_file(
+            cls,
+            path,
+            *,
+            name=None,
+    ):
+        """Create a Pipeline from a context file on disk."""
+        from pathlib import Path
+        from ctxrunner import ContextFile
+
+        ctx = ContextFile.from_py_file(Path(path))
+        ctx.check()
+        pipe = cls(
+            name=name,
+            _base_context=ctx,
+            _code=ctx.code,
+        )
+        pipe._context = ctx
+        return pipe
+
+    @classmethod
+    def from_str(cls, code, *, path="<string>", name=None):
+        """Create a Pipeline from a context string."""
+        ctx = build_context_from_code(code, path)
+        ctx.check()
+        pipe = cls(
+            name=name,
+            _base_context=ctx,
+            _code=ctx.code,
+        )
+        pipe._context = ctx
+        return pipe
+
+    def select(self, *, variables=(), match=(), run_data=None, cluster=None):
+        """Return a new Pipeline filtered to a subset of variables."""
+        ctx = self._get_context()
+        run_data = self._normalize_run_data(run_data or self.run_data)
+        filtered = ctx.filter(
+            run_data=run_data,
+            cluster=cluster,
+            name_matches=match,
+            variables=variables,
+        )
+        new_pipe = self.copy()
+        new_pipe._base_context = filtered
+        new_pipe._context = filtered
+        return new_pipe
+
+    def _open_run(self, proposal, run_number, run_data):
+        try:
+            import extra_data
+        except ImportError as exc:
+            raise RuntimeError(
+                "extra_data is required to open runs; pass data=... instead"
+            ) from exc
+
+        if run_data == RunData.ALL:
+            try:
+                return extra_data.open_run(proposal, run_number, data="all"), run_data
+            except FileNotFoundError:
+                log.warning("Proc data unavailable, using raw only")
+                return extra_data.open_run(proposal, run_number, data="raw"), RunData.RAW
+        if run_data == RunData.PROC:
+            return extra_data.open_run(proposal, run_number, data="all"), run_data
+        return extra_data.open_run(proposal, run_number, data=run_data.value), run_data
+
+    def execute(self, *, data=None, input_vars=None):
+        """Execute the Pipeline and return Results.
+
+        If ``data`` (or ``self.data``) is provided, it is passed directly to
+        Variable functions as their first argument. Otherwise, ``proposal`` and
+        ``run_number`` must be set to open the run via ``extra_data``.
+        """
+        run_data = self._normalize_run_data(self.run_data)
+
+        data_obj = data if data is not None else self.data
+        if data_obj is None:
+            if self.proposal is None or self.run_number is None:
+                raise ValueError(
+                    "Pipeline.execute requires run_data=... or proposal/run_number"
+                )
+            data_obj, run_data = self._open_run(
+                self.proposal, self.run_number, run_data
+            )
+
+        ctx = self._get_context().filter(run_data=run_data, cluster=None)
+        merged_input = dict(self.input_vars)
+        if input_vars is not None:
+            merged_input.update(input_vars)
+        res = ctx.execute(data_obj, self.run_number, self.proposal, merged_input)
+        self._last_results = res
+        return res
+
+    @property
+    def results(self):
+        """Return the Results from the last execution, if any."""
+        return self._last_results
+
+    @property
+    def vars(self):
+        """Return the compiled Variable mapping."""
+        return self._get_context().vars
+
+    def vars_to_dict(self, inc_transient=False):
+        """Return variable metadata suitable for database storage."""
+        return self._get_context().vars_to_dict(inc_transient=inc_transient)
+
+    def save_hdf5(self, path, reduced_only=False):
+        """Save the last Results to an HDF5 file."""
+        if self._last_results is None:
+            raise RuntimeError("No results available. Call execute() first.")
+        self._last_results.save_hdf5(path, reduced_only=reduced_only)
+
+
+@contextmanager
+def pipeline_scope():
+    """Context manager that scopes default pipeline state to a context exec."""
+
+    # Initialize default pipeline state
+    token = _DEFAULT_PIPELINE_STATE.set(Pipeline._new_state())
+    try:
+        # yield current default pipeline state
+        yield _DEFAULT_PIPELINE_STATE.get()
+    finally:
+        # Reset default pipeline state
+        _DEFAULT_PIPELINE_STATE.reset(token)
+
+
+def build_context_from_code(code, path):
+    """Execute context code and return ContextFile."""
+    context = {}
+    codeobj = compile(code, path, 'exec')
+    with pipeline_scope() as state:
+        exec(codeobj, context)
+
+    vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
+
+    if state is None or not state.get("used"):
+        from ctxrunner import ContextFile, expand_groups
+
+        vars_by_name.update(expand_groups(context, vars_by_name))
+        return ContextFile(vars_by_name, code)
+
+    from ctxrunner import _assign_group_names
+    _assign_group_names(context)
+    groups = [obj for obj in context.values() if is_group_instance(obj)]
+    pipe = state["pipeline"]
+    if not state.get("explicit"):
+        pipe.add(*vars_by_name.values(), *groups)
+    ctx = pipe._build_context(code_override=code)
+    return ctx

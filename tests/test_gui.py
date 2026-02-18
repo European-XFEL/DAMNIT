@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
 import damnit
 from damnit.backend.db import DamnitDB, MsgKind, ReducedData
 from damnit.backend.extract_data import add_to_db
-from damnit.ctxsupport.ctxrunner import ContextFile
+from damnit.context import Pipeline
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
@@ -779,7 +779,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
-    ctx = ContextFile.from_str(ctx_code)
+    Pipeline.from_str(ctx_code).compile()
     extract_mock_run(1)
 
     # Create window
