@@ -12,12 +12,10 @@ from kafka import KafkaConsumer, KafkaProducer
 from xarray.backends import H5NetCDFStore
 
 from ..context import DataType
-from ..definitions import UPDATE_BROKERS
+from ..definitions import FILE_SUBMIT_TOPIC, UPDATE_BROKERS
 from .db import DamnitDB, MsgKind, msg_dict
 from .extract_data import load_reduced_data, add_to_db
 from .service import notify_ready
-
-KAFKA_TOPIC = "test.damnit.file_submissions"
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
 
@@ -71,7 +69,7 @@ def combine(src: Path, dst: Path):
 class FileSubmissionProcessor:
     def __init__(self):
         self.consumer = KafkaConsumer(
-            KAFKA_TOPIC,
+            FILE_SUBMIT_TOPIC,
             bootstrap_servers=UPDATE_BROKERS,
             consumer_timeout_ms=600_000,
         )
