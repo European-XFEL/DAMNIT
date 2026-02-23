@@ -167,7 +167,7 @@ def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
 
 def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
     # Announce via Kafka that this file is ready to be combined
-    return {
+    return msg_dict(MsgKind.file_submission, {
         'damnit_dir': str(damnit_dir.absolute()),
         'new_file': file_path,
         'proposal': proposal,  # int
@@ -176,7 +176,7 @@ def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
             'hostname': socket.gethostname(),
             'username': getuser(),
         }
-    }
+    })
 
 
 class Extractor:

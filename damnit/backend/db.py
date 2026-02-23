@@ -555,6 +555,10 @@ class MsgKind(Enum):
     processing_finished = 'processing_finished'
     # Commented out options are not implemented yet
 
+    # These messages are sent on the file submission topic & received by the
+    # combiner service, unlike the other messages above.
+    file_submission = 'file_submission'
+
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
 

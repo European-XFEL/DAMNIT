@@ -94,7 +94,10 @@ class FileSubmissionProcessor:
             for record in self.consumer:
                 try:
                     msg = json.loads(record.value.decode())
-                    self.process_file_submission_msg(msg)
+                    if msg['msg_kind'] == MsgKind.file_submission.value:
+                        self.process_file_submission_msg(msg['data'])
+                    else:
+                        log.info("Unexpected message kind %r", msg['msg_kind'])
                 except Exception:
                     log.error(
                         "Unexpected error processing file submission message",
