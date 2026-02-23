@@ -122,7 +122,7 @@ class FileSubmissionProcessor:
     def send_update(self, reduced_data, topic, proposal, run):
         update_msg = msg_dict(MsgKind.run_values_updated, {
             'run': run, 'proposal': proposal, 'values': {
-                name: reduced.value for name, reduced in reduced_data.items()
+                name: None for name in reduced_data.keys()
             }
         })
         self.producer.send(topic, update_msg)
