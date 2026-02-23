@@ -187,7 +187,7 @@ class Extractor:
         if connect_to_kafka:
             self.kafka_prd = KafkaProducer(
                 bootstrap_servers=UPDATE_BROKERS,
-                value_serializer=lambda d: pickle.dumps(d),
+                value_serializer=lambda d: json.dumps(d).encode('utf-8'),
             )
         else:
             self.kafka_prd = None
