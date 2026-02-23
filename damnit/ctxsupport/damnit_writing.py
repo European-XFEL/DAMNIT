@@ -115,7 +115,7 @@ def line_thumbnail(arr):
 def downsample_line(data):
     from fpcs import downsample
 
-    if isinstance(data, xr.DataArray):
+    if isinstance_no_import(data, 'xarray', 'DataArray'):
         y = data.values
         x = None
         if data.dims:

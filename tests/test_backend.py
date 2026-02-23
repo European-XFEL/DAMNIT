@@ -793,8 +793,7 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         dset = f['.reduced/line']
