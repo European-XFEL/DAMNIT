@@ -302,15 +302,15 @@ class RunExtractor(Extractor):
                 except subprocess.TimeoutExpired:
                     self._notify_running()
 
+            if retcode:
+                raise subprocess.CalledProcessError(retcode, p.args)
+
             for line in tf:
                 pth = line.decode().strip()
                 if pth and Path(pth).is_file():
                     self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
                         Path.cwd(), self.proposal, self.run, pth
                     ))
-
-        if retcode:
-            raise subprocess.CalledProcessError(retcode, p.args)
 
     def extract_and_ingest(self):
         self._notify_running()
