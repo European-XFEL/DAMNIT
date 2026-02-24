@@ -5,7 +5,10 @@ __version__ = '0.2.1'
 from .api import Damnit, RunVariables, VariableData
 
 
-def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception] =None, damnit_dir=None):
+def submit(
+        proposal: int, run: int, variables, *, errors: dict[str, Exception] =None,
+        damnit_dir=None, provenance=""
+):
     """Add some results into DAMNIT's store
 
     Args:
@@ -17,6 +20,7 @@ def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception] =
         damnit_dir (Path or str, optional): The DAMNIT directory to write into.
             If not specified, it will find the default directory for the
             relevant proposal.
+        provenance (str, optional): A name for what produced these results.
     """
     from pathlib import Path
     from .api import find_proposal
@@ -32,5 +36,7 @@ def submit(proposal: int, run: int, variables, *, errors: dict[str, Exception] =
                  for (k, v) in variables.items()}
     errors = errors or {}
 
-    path = save_fragment(damnit_dir, proposal, run, variables, errors)
+    path = save_fragment(
+        damnit_dir, proposal, run, variables, errors, provenance=provenance
+    )
     notify_new_file(damnit_dir, proposal, run, str(path))

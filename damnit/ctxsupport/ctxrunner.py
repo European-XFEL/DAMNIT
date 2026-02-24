@@ -642,7 +642,9 @@ class Results:
         self.ctx = ctx
 
     def save(self, damnit_dir: Path, proposal: int, run: int):
-        return save_fragment(damnit_dir, proposal, run, self.cells, self.errors)
+        return save_fragment(
+            damnit_dir, proposal, run, self.cells, self.errors, provenance="context.py"
+        )
 
 
 def mock_run():

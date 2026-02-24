@@ -955,7 +955,7 @@ da-dev@xfel.eu"""
             return
 
         log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
-        self.db.set_variable(prop, run, name, ReducedData(value))
+        self.db.set_variable(prop, run, name, ReducedData(value), provenance="interactive")
         if self._connect_to_kafka:
             self.update_agent.run_values_updated(prop, run, name)
 

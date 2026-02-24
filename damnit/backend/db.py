@@ -327,7 +327,9 @@ class DamnitDB:
                    GROUP BY run;
             """)
 
-    def set_variable(self, proposal: int, run: int, name: str, reduced):
+    def set_variable(
+            self, proposal: int, run: int, name: str, reduced, provenance=""
+    ):
         timestamp = datetime.now(tz=timezone.utc).timestamp()
 
         variable = asdict(reduced)
@@ -352,7 +354,7 @@ class DamnitDB:
         variable["run"] = run
         variable["name"] = name
         variable["timestamp"] = timestamp
-        variable["provenance"] = "context.py"
+        variable["provenance"] = provenance
         variable["attributes"] = None
         if reduced.attributes:
             variable["attributes"] = json.dumps(reduced.attributes)

@@ -115,9 +115,11 @@ class FileSubmissionProcessor:
 
         prop, run = d['proposal'], d['run']
 
+        with h5py.File(src) as f:
+            provenance = f.attrs.get("provenance", "")
         new_data = load_reduced_data(src)
         combine(src, dst)
-        add_to_db(new_data, db, prop, run)
+        add_to_db(new_data, db, prop, run, provenance=provenance)
         self.send_update(new_data, db.kafka_topic, prop, run)
 
     def send_update(self, reduced_data, topic, proposal, run):
@@ -141,8 +143,10 @@ def gather_all_fragments(damnit_dir: Path):
         run = int(m[2])
 
         new_data = load_reduced_data(p)
+        with h5py.File(p) as f:
+            provenance = f.attrs.get("provenance", "")
         combine(p, h5_dir / f"p{proposal}_r{run}.h5")
-        add_to_db(new_data, db, proposal, run)
+        add_to_db(new_data, db, proposal, run, provenance=provenance)
 
 
 def interrupted(signum, frame):

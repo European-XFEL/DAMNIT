@@ -290,14 +290,15 @@ class DamnitFileWriter:
 
 
 def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
-           errors: dict[str, Exception]):
-    """Add one or more results into a DAMNIT store"""
+           errors: dict[str, Exception], provenance=""):
+    """Save one or more results into a fragment file, to be combined later"""
     results_dir = damnit_dir / "extracted_data"
     results_dir.mkdir(parents=True, exist_ok=True)
     if results_dir.stat().st_uid == os.getuid():
         os.chmod(results_dir, 0o777)
 
     with atomic_create_h5(dir=results_dir, prefix=f"p{proposal}_r{run}.") as f:
+        f.attrs["provenance"] = provenance
         writer = DamnitFileWriter(f)
         for name, cell in vars.items():
             if (summary := cell.get_summary()) is not None:
