@@ -116,9 +116,9 @@ class FileSubmissionProcessor:
         prop, run = d['proposal'], d['run']
 
         new_data = load_reduced_data(src)
+        combine(src, dst)
         add_to_db(new_data, db, prop, run)
         self.send_update(new_data, db.kafka_topic, prop, run)
-        combine(src, dst)
 
     def send_update(self, reduced_data, topic, proposal, run):
         update_msg = msg_dict(MsgKind.run_values_updated, {
@@ -127,11 +127,6 @@ class FileSubmissionProcessor:
             }
         })
         self.producer.send(topic, update_msg)
-
-
-def update_db(db: DamnitDB, proposal: int, run: int, src: Path):
-    new_data = load_reduced_data(src)
-    add_to_db(new_data, db, proposal, run)
 
 
 def gather_all_fragments(damnit_dir: Path):
@@ -144,9 +139,10 @@ def gather_all_fragments(damnit_dir: Path):
 
         proposal = int(m[1])
         run = int(m[2])
-        dst = h5_dir / f"p{proposal}_r{run}.h5"
-        update_db(db, proposal, run, p)
-        combine(p, dst)
+
+        new_data = load_reduced_data(p)
+        combine(p, h5_dir / f"p{proposal}_r{run}.h5")
+        add_to_db(new_data, db, proposal, run)
 
 
 def interrupted(signum, frame):
