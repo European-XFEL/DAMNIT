@@ -30,7 +30,7 @@ backend = [
     "EXtra-data",
     "EXtra-proposal",
     "ipython",
-    "kafka-python-ng",
+    "kafka-python",
     "kaleido",  # used in plotly to convert figures to images
     "matplotlib",
     "numpy",

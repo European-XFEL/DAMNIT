@@ -54,7 +54,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/d9/33/1f075bf72b0b747cb3288d011319aaf64083cf2efef8354174e3ed4540e2/ipython_pygments_lexers-1.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/5a/9cac0c82afec3d09ccd97c8b6502d48f165f9124db81b4bcb90b4af974ee/jedi-0.19.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/4f/1195bbac8e0c2acc5f740661631d8d750dc38d4a32b23ee5df3cde6f4e0d/joblib-1.5.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/0f/61/22e778f642465a157c449782300d8817ebbc106794a8a7ebe88cbb846b05/kafka_python_ng-2.2.3-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/4a/db/694fd552295ed091e7418d02b6268ee36092d4c93211136c448fe061fe32/kafka_python-2.3.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/28/0e/853df00cac4823eaa8f35114d0d0ad1e2ec6b8243ce4acf5f8ac5235c517/kaleido-1.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8f/e9/6a7d025d8da8c4931522922cd706105aa32b3291d1add8c5427cdcd66e63/kiwisolver-1.4.8-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/bc/df/e51691ab004d74fa25b751527d041ad1b4d84ee86cbcb8630ab0d7d5188e/logistro-1.1.0-py3-none-any.whl
@@ -246,7 +246,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/d9/33/1f075bf72b0b747cb3288d011319aaf64083cf2efef8354174e3ed4540e2/ipython_pygments_lexers-1.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/5a/9cac0c82afec3d09ccd97c8b6502d48f165f9124db81b4bcb90b4af974ee/jedi-0.19.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/4f/1195bbac8e0c2acc5f740661631d8d750dc38d4a32b23ee5df3cde6f4e0d/joblib-1.5.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/0f/61/22e778f642465a157c449782300d8817ebbc106794a8a7ebe88cbb846b05/kafka_python_ng-2.2.3-py2.py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/4a/db/694fd552295ed091e7418d02b6268ee36092d4c93211136c448fe061fe32/kafka_python-2.3.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/28/0e/853df00cac4823eaa8f35114d0d0ad1e2ec6b8243ce4acf5f8ac5235c517/kaleido-1.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8f/e9/6a7d025d8da8c4931522922cd706105aa32b3291d1add8c5427cdcd66e63/kiwisolver-1.4.8-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/bc/df/e51691ab004d74fa25b751527d041ad1b4d84ee86cbcb8630ab0d7d5188e/logistro-1.1.0-py3-none-any.whl
@@ -475,7 +475,7 @@ packages:
 - pypi: ./
   name: damnit
   version: 0.2.1
-  sha256: 08054937bf9323f422e4c7b513cfc20a5aee488d861ea5de7ca14623e4e796b4
+  sha256: 536ecc0d641a28c8791c9d0493b569a4864f8605933248acf379ece8757ace50
   requires_dist:
   - fpcs
   - h5netcdf>=1.4.1
@@ -488,7 +488,7 @@ packages:
   - extra-data ; extra == 'backend'
   - extra-proposal ; extra == 'backend'
   - ipython ; extra == 'backend'
-  - kafka-python-ng ; extra == 'backend'
+  - kafka-python ; extra == 'backend'
   - kaleido ; extra == 'backend'
   - matplotlib ; extra == 'backend'
   - numpy ; extra == 'backend'
@@ -844,17 +844,20 @@ packages:
   version: 1.5.1
   sha256: 4719a31f054c7d766948dcd83e9613686b27114f190f717cec7eaa2084f8a74a
   requires_python: '>=3.9'
-- pypi: https://files.pythonhosted.org/packages/0f/61/22e778f642465a157c449782300d8817ebbc106794a8a7ebe88cbb846b05/kafka_python_ng-2.2.3-py2.py3-none-any.whl
-  name: kafka-python-ng
-  version: 2.2.3
-  sha256: adc6e82147c441ca4ae1f22e291fc08efab0d10971cbd4aa1481d2ffa38e9480
+- pypi: https://files.pythonhosted.org/packages/4a/db/694fd552295ed091e7418d02b6268ee36092d4c93211136c448fe061fe32/kafka_python-2.3.0-py2.py3-none-any.whl
+  name: kafka-python
+  version: 2.3.0
+  sha256: 831ba6dff28144d0f1145c874d391f3ebb3c2c3e940cc78d74e83f0183497c98
   requires_dist:
-  - botocore ; extra == 'boto'
   - crc32c ; extra == 'crc32c'
   - lz4 ; extra == 'lz4'
   - python-snappy ; extra == 'snappy'
   - zstandard ; extra == 'zstd'
-  requires_python: '>=3.8'
+  - pytest ; extra == 'testing'
+  - mock ; python_full_version < '3.3' and extra == 'testing'
+  - pytest-mock ; extra == 'testing'
+  - pytest-timeout ; extra == 'testing'
+  - pyperf ; extra == 'benchmarks'
 - pypi: https://files.pythonhosted.org/packages/28/0e/853df00cac4823eaa8f35114d0d0ad1e2ec6b8243ce4acf5f8ac5235c517/kaleido-1.0.0-py3-none-any.whl
   name: kaleido
   version: 1.0.0
