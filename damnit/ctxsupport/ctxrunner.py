@@ -12,14 +12,17 @@ import io
 import logging
 import os
 import pickle
+import re
 import sys
 import time
 import traceback
 from contextlib import contextmanager
+from copy import copy
 from datetime import timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import extra_data
@@ -27,7 +30,8 @@ import extra_proposal
 import h5py
 import numpy as np
 import xarray as xr
-from damnit_ctx import (Cell, RunData, Skip, Variable, expand_groups,
+from damnit_ctx import (Cell, GroupBoundVariable, GroupError, RunData, Skip,
+                        Variable, _normalize_tags, is_group_instance,
                         isinstance_no_import)
 
 log = logging.getLogger("ctxrunner")
@@ -51,6 +55,214 @@ class ContextFileErrors(RuntimeError):
 
     def __str__(self):
         return "\n".join(self.problems)
+
+
+def _group_name(group):
+    name = group.name
+    if isinstance(name, str) and name:
+        return name
+    if name is None:
+        raise GroupError(
+            f"Group instance of {type(group).__name__!r} has no name. "
+            "Provide name=... or assign it to a variable in the context file."
+        )
+    raise GroupError(
+        f"Group instance of {type(group).__name__!r} has invalid name {name!r}. "
+        "Provide a non-empty string name."
+    )
+
+
+def _assign_group_names(context):
+    # Group names can be assigned by context variable names after execution.
+    # e.g.: mygroup = MyGroup() -> since MyGroup(name=...) wasn't set, 'mygroup'
+    # becomes the name when the context is processed.
+    group_refs = {}
+    for var_name, value in context.items():
+        if var_name.startswith("__"):
+            continue
+        if is_group_instance(value):
+            entry = group_refs.setdefault(id(value), {"obj": value, "names": []})
+            entry["names"].append(var_name)
+
+    for entry in group_refs.values():
+        group = entry["obj"]
+        if group.name is None:
+            names = sorted(entry["names"])
+            if len(names) == 1:
+                group.name = names[0]
+            else:
+                raise GroupError(
+                    f"Group instance of {type(group).__name__!r} is assigned "
+                    f"to multiple names {names} without an explicit name."
+                )
+        if group.title is None:
+            group.title = group.name
+
+
+def _collect_group_instances(objects):
+    pending = [obj for obj in objects if is_group_instance(obj)]
+    groups = []
+    seen_ids = set()
+
+    while pending:
+        group = pending.pop()
+        group_id = id(group)
+        if group_id in seen_ids:
+            continue
+        seen_ids.add(group_id)
+
+        # check if group name is valid
+        _group_name(group)
+        groups.append(group)
+
+        for value in vars(group).values():
+            if is_group_instance(value):
+                pending.append(value)
+
+    return groups
+
+
+def _collect_group_variables(group):
+    vars_by_name = {}
+    for cls in reversed(type(group).mro()):
+        for name, value in cls.__dict__.items():
+            if isinstance(value, Variable):
+                vars_by_name[name] = value
+    return vars_by_name
+
+
+def _make_missing_dependency_placeholder(group, name: str) -> Variable:
+    """Create a fake Variable to replace missing group instances dependencies.
+
+    The Variable name is namespaced to the group and a special __missing__
+    section to make it clear in error messages that this is a placeholder for a
+    missing dependency.
+    """
+    def _missing(run):
+        return None
+
+    var = Variable(transient=True)
+    var(_missing)
+    # ensure the name does not contain any glob characters
+    safe_name = re.sub(r"[!?*\[\]]", "_", name)
+    var.name = f'{group.name}.__missing__.{safe_name}'
+    var.title = var.name
+    return var
+
+
+def _resolve_self_annotation(annotation: str, group):
+    path = annotation.removeprefix("self#")
+    target, _, remain = path.partition(".")
+
+    if remain:
+        target = getattr(group, target)
+        if target is None:
+            placeholder = _make_missing_dependency_placeholder(group, path)
+            return f'var#{placeholder.name}', placeholder
+        return _resolve_self_annotation(remain, target)
+
+    try:
+        var_ref = getattr(group, target)
+    except AttributeError:
+        if any(ch in target for ch in "*?["):
+            # glob pattern, will be resolved by ContextRunner.
+            return f'var#{group.name}.{target}', None
+        raise GroupError(
+            f"Attribute {target!r} on group {group.name!r} does not exist, "
+            "but is referenced as a dependency in annotation."
+        )
+
+    if var_ref is None:
+        placeholder = _make_missing_dependency_placeholder(group, target)
+        return f'var#{placeholder.name}', placeholder
+
+    if not isinstance(var_ref, (Variable, GroupBoundVariable)):
+        raise GroupError(
+            f"Attribute {target!r} on group {group.name!r} is of type "
+            f"{type(var_ref).__name__!r}, but a Variable is required for a self# dependency."
+        )
+
+    return f'var#{var_ref.name}', None
+
+
+def _expand_group(group):
+    """Build Variables for a group instance, resolving "self#" dependencies.
+
+    This binds each @Variable to the group instance, namespaces names and
+    titles, and rewrites annotations to "var#..." dependencies.
+    """
+    if group.title is None:
+        group.title = group.name
+
+    var_defs: dict[str, Variable] = _collect_group_variables(group)
+    expanded = {}
+
+    for var_def in var_defs.values():
+        # Create a per-instance Variable copy so name/title/annotations can be
+        # rewritten without mutating the class definition.
+        bound_func = var_def.func.__get__(group, type(group))
+        new_var = copy(var_def)
+        new_var(bound_func)
+        new_var.name = f"{group.name}.{var_def.name}"
+        new_var.title = f"{group.title}{group.sep}{var_def.title}"
+
+        annotations = {}
+        sig = inspect.signature(bound_func)
+        original_annotations = getattr(var_def.func, "__annotations__", {})
+        for arg_name, param in sig.parameters.items():
+            annotation = original_annotations.get(arg_name, param.annotation)
+            if not isinstance(annotation, str):
+                continue
+            if annotation.startswith("self#"):
+                # Resolve group-relative dependencies, possibly across nested groups.
+                resolved, placeholder = _resolve_self_annotation(annotation, group)
+                annotations[arg_name] = resolved
+                if placeholder is not None:
+                    # missing dependency -> add placeholder Variable
+                    expanded[placeholder.name] = placeholder
+
+            else:
+                annotations[arg_name] = annotation
+
+        new_var.tags = set(group.tags) | set(_normalize_tags(new_var.tags))
+        new_var._annotation_overrides = annotations
+        expanded[new_var.name] = new_var
+
+    return expanded
+
+
+def expand_groups(
+        context: dict[str, Any],
+        existing_vars: dict[str, Variable] | None = None,
+    ) -> dict[str, Variable]:
+    """Return Variables generated from Group instances in a context file."""
+    _assign_group_names(context)
+    groups = _collect_group_instances(context.values())
+    if not groups:
+        return {}
+
+    existing_names = set(existing_vars or {})
+    seen_group_names = {}
+    for group in groups:
+        group_id = id(group)
+        if group.name in seen_group_names and seen_group_names[group.name] != group_id:
+            raise GroupError(
+                f"Group name {group.name!r} is used by multiple group instances"
+            )
+        seen_group_names[group.name] = group_id
+
+    expanded = {}
+    for group in groups:
+        group_vars = _expand_group(group)
+        for var_name in group_vars:
+            if var_name in existing_names or var_name in expanded:
+                raise GroupError(
+                    f"Duplicate variable name {var_name!r} from group "
+                    f"{group.name!r}"
+                )
+        expanded.update(group_vars)
+
+    return expanded
 
 
 class ContextFile:

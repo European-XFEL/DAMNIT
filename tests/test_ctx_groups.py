@@ -3,7 +3,10 @@ from graphlib import CycleError
 import pytest
 
 from damnit.context import GroupError
-from damnit.ctxsupport.damnit_ctx import Variable, Group, GroupBoundVariable, is_group_instance, expand_groups
+from damnit.ctxsupport.ctxrunner import expand_groups
+from damnit.ctxsupport.damnit_ctx import (Group, GroupBoundVariable, Variable,
+                                          is_group_instance)
+
 from .helpers import mkcontext
 
 
