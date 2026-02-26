@@ -234,6 +234,8 @@ class ContextFile:
 
                 annotations = var.annotations()
                 for arg_name, param in inspect.signature(var.func).parameters.items():
+                    # Not using param.annotation, because the annotation in the
+                    # function def can be overridden for variables within a group.
                     annotation = annotations.get(arg_name, inspect.Parameter.empty)
                     if not isinstance(annotation, str):
                         continue

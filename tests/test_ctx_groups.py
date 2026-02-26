@@ -32,9 +32,8 @@ def test_group_variable_reference():
     assert isinstance(group2.grp_var, GroupBoundVariable)
     assert isinstance(group2.grp_ref.grp_var, GroupBoundVariable)
 
-    with pytest.raises(match="has no name"):
-        # group names aren't assigned yet
-        group2.grp_ref.grp_var.name
+    # group names aren't assigned yet
+    assert group2.grp_ref.name is None
     
     expand_groups({"group1": group1, "group2": group2,}, {"var": var})
 

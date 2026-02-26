@@ -82,8 +82,6 @@ class Variable:
         return self
 
     def __get__(self, instance, owner):
-        if instance is None:
-            return self
         if is_group_instance(instance):
             # Return a proxy that resolves the group name lazily after context exec.
             return GroupBoundVariable(instance, self)
@@ -301,23 +299,12 @@ class GroupError(Exception):
     pass
 
 
-def _normalize_group_tags(tags) -> tuple[str]:
+def _normalize_tags(tags) -> tuple[str]:
     if tags is None:
         return ()
     if isinstance(tags, str):
         return (tags,)
     return tuple(tags)
-
-
-def _merge_tags(group_tags, var_tags) -> set[str]:
-    if not group_tags and not var_tags:
-        return set()
-    if not group_tags:
-        return set(var_tags)
-    if not var_tags:
-        return set(group_tags)
-
-    return set(group_tags) | set(var_tags)
 
 
 def _inherit_group_config(cls):
@@ -387,15 +374,13 @@ def Group(
         nonlocal tags
         if tags is None:
             tags = parent_config.get("tags")
-        tags = _normalize_group_tags(tags)
+        tags = _normalize_tags(tags)
 
         cls.__damnit_group__ = True
         cls.__damnit_group_config__ = RESERVED_GROUP_FIELDS.copy()
         cls.__damnit_group_config__["tags"] = tags
 
         annotations = dict(getattr(cls, "__annotations__", {}))
-        for field_name in reserved_fields:
-            annotations.pop(field_name, None)
         annotations.update({
             "name": str | None,
             "title": str | None,
@@ -412,7 +397,7 @@ def Group(
         original_post_init = getattr(cls, "__post_init__", None)
 
         def __post_init__(self):
-            self.tags = _normalize_group_tags(self.tags)
+            self.tags = _normalize_tags(self.tags)
             if self.title is None:
                 self.title = self.name
 
@@ -486,6 +471,9 @@ def _collect_group_instances(objects):
         if group_id in seen_ids:
             continue
         seen_ids.add(group_id)
+
+        # check if group name is valid
+        _group_name(group)
         groups.append(group)
 
         for value in vars(group).values():
@@ -505,7 +493,7 @@ def _collect_group_variables(group):
 
 
 def _make_missing_dependency_placeholder(group, name: str) -> Variable:
-    """Create a fake Variable to replace missing group istances dependencies.
+    """Create a fake Variable to replace missing group instances dependencies.
 
     The Variable name is namespaced to the group and a special __missing__
     section to make it clear in error messages that this is a placeholder for a
@@ -517,8 +505,8 @@ def _make_missing_dependency_placeholder(group, name: str) -> Variable:
     var = Variable(transient=True)
     var(_missing)
     # ensure the name does not contain any glob characters
-    safe_name = re.sub(r"[\!\?\*\[\]]", "_", name)
-    var.name = f'{_group_name(group)}.__missing__.{safe_name}'
+    safe_name = re.sub(r"[!?*\[\]]", "_", name)
+    var.name = f'{group.name}.__missing__.{safe_name}'
     var.title = var.name
     return var
 
@@ -539,9 +527,9 @@ def _resolve_self_annotation(annotation: str, group):
     except AttributeError:
         if any(ch in target for ch in "*?["):
             # glob pattern, will be resolved by ContextRunner.
-            return f'var#{_group_name(group)}.{target}', None
+            return f'var#{group.name}.{target}', None
         raise GroupError(
-            f"Attribute {target!r} on group {_group_name(group)!r} does not exist, "
+            f"Attribute {target!r} on group {group.name!r} does not exist, "
             "but is referenced as a dependency in annotation."
         )
 
@@ -551,7 +539,7 @@ def _resolve_self_annotation(annotation: str, group):
 
     if not isinstance(var_ref, (Variable, GroupBoundVariable)):
         raise GroupError(
-            f"Attribute {target!r} on group {_group_name(group)!r} is of type "
+            f"Attribute {target!r} on group {group.name!r} is of type "
             f"{type(var_ref).__name__!r}, but a Variable is required for a self# dependency."
         )
 
@@ -564,9 +552,8 @@ def _expand_group(group):
     This binds each @Variable to the group instance, namespaces names and
     titles, and rewrites annotations to "var#..." dependencies.
     """
-    group_name = _group_name(group)
     if group.title is None:
-        group.title = group_name
+        group.title = group.name
 
     var_defs: dict[str, Variable] = _collect_group_variables(group)
     expanded = {}
@@ -577,7 +564,7 @@ def _expand_group(group):
         bound_func = var_def.func.__get__(group, type(group))
         new_var = copy(var_def)
         new_var(bound_func)
-        new_var.name = f"{group_name}.{var_def.name}"
+        new_var.name = f"{group.name}.{var_def.name}"
         new_var.title = f"{group.title}{group.sep}{var_def.title}"
 
         annotations = {}
@@ -598,7 +585,7 @@ def _expand_group(group):
             else:
                 annotations[arg_name] = annotation
 
-        new_var.tags = _merge_tags(group.tags, new_var.tags)
+        new_var.tags = set(group.tags) | set(_normalize_tags(new_var.tags))
         new_var._annotation_overrides = annotations
         expanded[new_var.name] = new_var
 
@@ -618,13 +605,12 @@ def expand_groups(
     existing_names = set(existing_vars or {})
     seen_group_names = {}
     for group in groups:
-        name = _group_name(group)
         group_id = id(group)
-        if name in seen_group_names and seen_group_names[name] != group_id:
+        if group.name in seen_group_names and seen_group_names[group.name] != group_id:
             raise GroupError(
-                f"Group name {name!r} is used by multiple group instances"
+                f"Group name {group.name!r} is used by multiple group instances"
             )
-        seen_group_names[name] = group_id
+        seen_group_names[group.name] = group_id
 
     expanded = {}
     for group in groups:
@@ -633,7 +619,7 @@ def expand_groups(
             if var_name in existing_names or var_name in expanded:
                 raise GroupError(
                     f"Duplicate variable name {var_name!r} from group "
-                    f"{_group_name(group)!r}"
+                    f"{group.name!r}"
                 )
         expanded.update(group_vars)
 
@@ -648,7 +634,7 @@ class GroupBoundVariable:
        after the context code runs) so we don't have to mutate or reuse the
        shared class-level Variable definition across instances by deferring the
        per-instance binding work until expand_groups().
-    3. Prevents accidentally collecting this reference in case it leaks into the
+    2. Prevents accidentally collecting this reference in case it leaks into the
        context top level namespace, which would cause duplicate variable
        definitions.
 
@@ -663,7 +649,7 @@ class GroupBoundVariable:
 
     @property
     def name(self):
-        return f"{_group_name(self._group)}.{self._var_def.name}"
+        return f"{self._group.name}.{self._var_def.name}"
 
     def __getattr__(self, attr):
         return getattr(self._var_def, attr)
