@@ -16,6 +16,7 @@ import re
 import sys
 import time
 import traceback
+from collections import deque
 from contextlib import contextmanager
 from copy import copy
 from datetime import timezone
@@ -76,16 +77,53 @@ def _assign_group_names(context):
     # Group names can be assigned by context variable names after execution.
     # e.g.: mygroup = MyGroup() -> since MyGroup(name=...) wasn't set, 'mygroup'
     # becomes the name when the context is processed.
-    group_refs = {}
+    # Nested groups inherit names from the attribute path. Shorter paths take
+    # precedence over deeper nesting.
+    pending = deque()
+    candidates = {}
+    expanded_depth = {}
+
+    def _record_candidate(group, path, depth):
+        group_id = id(group)
+        entry = candidates.get(group_id)
+        if entry is None or depth < entry["depth"]:
+            candidates[group_id] = {
+                "group": group,
+                "depth": depth,
+                "names": {path},
+            }
+        elif depth == entry["depth"]:
+            entry["names"].add(path)
+
     for var_name, value in context.items():
         if var_name.startswith("__"):
             continue
         if is_group_instance(value):
-            entry = group_refs.setdefault(id(value), {"obj": value, "names": []})
-            entry["names"].append(var_name)
+            group = value
+            root_name = group.name or var_name
+            _record_candidate(group, root_name, 0)
+            pending.append((group, root_name, 0))
 
-    for entry in group_refs.values():
-        group = entry["obj"]
+    while pending:
+        group, path, depth = pending.popleft()
+        group_id = id(group)
+
+        entry = candidates.get(group_id)
+        if entry is None or depth != entry["depth"]:
+            continue
+
+        if expanded_depth.get(group_id) == depth:
+            continue
+        expanded_depth[group_id] = depth
+
+        for attr, value in vars(group).items():
+            if is_group_instance(value):
+                child_path = f"{group.name or path}.{attr}"
+                _record_candidate(value, child_path, depth + 1)
+                pending.append((value, child_path, depth + 1))
+
+    for entry in candidates.values():
+        group = entry["group"]
         if group.name is None:
             names = sorted(entry["names"])
             if len(names) == 1:
@@ -96,7 +134,7 @@ def _assign_group_names(context):
                     f"to multiple names {names} without an explicit name."
                 )
         if group.title is None:
-            group.title = group.name
+            group.title = group.name.replace('.', group.sep)
 
 
 def _collect_group_instances(objects):

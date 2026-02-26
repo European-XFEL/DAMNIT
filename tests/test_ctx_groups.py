@@ -369,6 +369,204 @@ def test_group_name_instance(mock_run):
     assert results.cells["instance.val"].data == 5
 
 
+def test_nested_group_name_assignment(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    outer = Outer(inner=Inner())
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "outer.inner.val" in ctx.vars
+    assert "outer.out" in ctx.vars
+    assert ctx.vars["outer.out"].arg_dependencies() == {"val": "outer.inner.val"}
+    assert ctx.vars["outer.inner.val"].title == "outer/inner/val"
+    assert results.cells["outer.inner.val"].data == 1
+    assert results.cells["outer.out"].data == 2
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 5
+
+    g = G(name="explicit.dot")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "explicit.dot.val" in ctx.vars
+    assert ctx.vars["explicit.dot.val"].title == "explicit.dot/val"
+    assert results.cells["explicit.dot.val"].data == 5
+
+
+def test_group_name_shortest_path():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    inner = Inner()
+    outer = Outer(inner=inner)
+    """
+    ctx = mkcontext(code)
+    assert "inner.val" in ctx.vars
+    assert "outer.out" in ctx.vars
+    assert "outer.inner.val" not in ctx.vars
+    assert ctx.vars["outer.out"].arg_dependencies() == {"val": "inner.val"}
+
+
+def test_group_nested_name_uses_explicit_parent_prefix():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    outer = Outer(name="explicit", inner=Inner())
+    """
+    ctx = mkcontext(code)
+    assert "explicit.inner.val" in ctx.vars
+    assert "explicit.out" in ctx.vars
+    assert "outer.inner.val" not in ctx.vars
+    assert ctx.vars["explicit.out"].arg_dependencies() == {"val": "explicit.inner.val"}
+
+
+def test_group_explicit_child_name_overrides_nested_assignment(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    inner = Inner(name="custom")
+    outer = Outer(inner=inner)
+    """
+    ctx = mkcontext(code)
+    assert "custom.val" in ctx.vars
+    assert "outer.out" in ctx.vars
+    assert "outer.inner.val" not in ctx.vars
+    assert ctx.vars["outer.out"].arg_dependencies() == {"val": "custom.val"}
+
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert results.cells["custom.val"].data == 1
+    assert results.cells["outer.out"].data == 2
+
+
+def test_group_nested_ambiguous_names_at_same_depth_raises():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    __shared = Inner()
+    outer1 = Outer(inner=__shared)
+    outer2 = Outer(inner=__shared)
+    """
+    with pytest.raises(GroupError, match="multiple names"):
+        mkcontext(code)
+
+
+def test_group_nested_shortest_path_prefers_shallower():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Mid:
+        inner: Inner
+
+    @Group
+    class Outer:
+        mid: Mid
+
+    @Group
+    class Alt:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    shared = Inner()
+    outer = Outer(mid=Mid(inner=shared))
+    alt = Alt(inner=shared)
+    """
+    ctx = mkcontext(code)
+    assert "shared.val" in ctx.vars
+    assert "alt.out" in ctx.vars
+    assert "alt.inner.val" not in ctx.vars
+    assert "outer.mid.inner.val" not in ctx.vars
+    assert ctx.vars["alt.out"].arg_dependencies() == {"val": "shared.val"}
+
+
 def test_group_optional_component_skips_missing_dependency(mock_run):
     code = """
     from damnit_ctx import Variable, Group
@@ -640,7 +838,7 @@ def test_group_reserved_attribute_rejected():
         mkcontext(code)
 
 
-def test_group_missing_name_for_nested_component_raises():
+def test_group_explicit_name_avoids_ambiguity():
     code = """
     from damnit_ctx import Variable, Group
 
@@ -658,10 +856,18 @@ def test_group_missing_name_for_nested_component_raises():
         def out(self, run, val: "self#inner.val"):
             return val + 1
 
-    outer = Outer(name="outer", inner=Inner())
+    shared = Inner(name="shared")
+    outer1 = Outer(inner=shared)
+    outer2 = Outer(inner=Inner(name="inner2"))
+    outer3 = Outer(inner=Inner())
     """
-    with pytest.raises(GroupError):
-        mkcontext(code)
+    ctx = mkcontext(code)
+    assert "shared.val" in ctx.vars
+    assert "inner2.val" in ctx.vars
+    assert "outer3.inner.val" in ctx.vars
+    assert ctx.vars["outer1.out"].arg_dependencies() == {"val": "shared.val"}
+    assert ctx.vars["outer2.out"].arg_dependencies() == {"val": "inner2.val"}
+    assert ctx.vars["outer3.out"].arg_dependencies() == {"val": "outer3.inner.val"}
 
 
 def test_group_inheritance_and_reset(mock_run):
