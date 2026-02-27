@@ -475,7 +475,7 @@ packages:
 - pypi: ./
   name: damnit
   version: 0.2.1
-  sha256: 536ecc0d641a28c8791c9d0493b569a4864f8605933248acf379ece8757ace50
+  sha256: 7f45445822d0e44c50b206950b077158ed8c3a496bd23aa23a027c0b03cd6964
   requires_dist:
   - fpcs
   - h5netcdf>=1.4.1
