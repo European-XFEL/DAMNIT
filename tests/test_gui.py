@@ -377,7 +377,7 @@ def test_handle_update(mock_db, qtbot):
     assert len(headers) + 1 == len(get_headers())
     assert "unexpected_var" in get_headers()
 
-def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
+def test_handle_update_plots(mock_db_with_data, mock_kafka_broker, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
@@ -727,7 +727,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean") is None
 
-def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, qtbot):
+def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_broker, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
@@ -986,7 +986,7 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         messenger.send_table.assert_called_once()
 
 @pytest.mark.parametrize("extension", [".xlsx", ".csv"])
-def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
+def test_exporting(mock_db_with_data, mock_kafka_broker, qtbot, monkeypatch, extension):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 

@@ -42,7 +42,7 @@ def test_damnit(mock_db_with_data):
     df = damnit.table(with_titles=True)
     assert "Scalar1" in df.columns
 
-def test_run_variables(mock_db_with_data, monkeypatch):
+def test_run_variables(mock_db_with_data, mock_kafka_broker, monkeypatch):
     db_dir, db = mock_db_with_data
     damnit = Damnit(db_dir)
     monkeypatch.chdir(db_dir)
@@ -85,7 +85,7 @@ def test_run_variables(mock_db_with_data, monkeypatch):
     with pytest.raises(KeyError):
         rv["foo"]
 
-def test_variable_data(mock_db_with_data, monkeypatch):
+def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
     damnit = Damnit(db_dir)

@@ -25,7 +25,7 @@ from ..backend import initialize_proposal
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
-from ..definitions import UPDATE_BROKERS
+from ..definitions import update_brokers
 from ..util import isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
@@ -613,7 +613,7 @@ da-dev@xfel.eu"""
             self.update_agent = UpdateAgent(self.db_id)
         except NoBrokersAvailable:
             QtWidgets.QMessageBox.warning(self, "Broker connection failed",
-                                          f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
+                                          f"Could not connect to any Kafka brokers at: {' '.join(update_brokers())}\n\n" +
                                           "DAMNIT can operate offline, but it will not receive any updates from new or reprocessed runs.")
             return
 

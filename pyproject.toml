@@ -63,6 +63,7 @@ test = [
     "pytest-timeout",
     "pytest-venv",
     "testpath",
+    "nafka @ git+https://git.xfel.eu/kluyvert/nafka",
 ]
 docs = [
     "mkdocs",
