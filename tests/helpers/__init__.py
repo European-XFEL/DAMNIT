@@ -1,6 +1,5 @@
 import textwrap
 from pathlib import Path
-from unittest.mock import patch
 
 from PyQt5 import QtGui, QtWidgets
 
@@ -29,17 +28,16 @@ def amore_proto(args):
     It is the callers responsibility to make sure the PWD is a database
     directory.
     """
-    with patch("damnit.backend.extract_data.KafkaProducer"):
-        main(args)
+    main(args)
 
 def extract_mock_run(run_num: int, match=()):
     """Run the context file in the CWD on the specified run"""
-    with patch("damnit.backend.extract_data.KafkaProducer"):
-        db = DamnitDB()
-        prop = db.metameta['proposal']
-        extr = RunExtractor(prop, run_num, match=match, mock=True)
-        extr.update_db_vars()
-        extr.extract_and_ingest()
+    db = DamnitDB()
+    prop = db.metameta['proposal']
+    extr = RunExtractor(prop, run_num, match=match, mock=True)
+    extr.update_db_vars()
+    extr.extract_and_ingest()
+    extr.kafka_prd.flush(timeout=30)
 
     gather_all_fragments(Path.cwd())
 

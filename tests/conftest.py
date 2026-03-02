@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import numpy as np
+from nafka.runner import BrokerThreadRunner
 
 from damnit.backend.db import DamnitDB
 from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
@@ -171,7 +172,7 @@ def mock_run():
 
 
 @pytest.fixture
-def mock_db(tmp_path, mock_ctx, monkeypatch):
+def mock_db(tmp_path, mock_ctx, mock_kafka_broker, monkeypatch):
     db = DamnitDB.from_dir(tmp_path, create=True)
     db.metameta['proposal'] = 1234
 
@@ -187,7 +188,12 @@ def mock_db(tmp_path, mock_ctx, monkeypatch):
 
 
 @pytest.fixture
-def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
+def mock_kafka_broker(tmp_path, monkeypatch, nafka_broker):
+    monkeypatch.setenv("AMORE_BROKER", nafka_broker.address)
+    return nafka_broker
+
+@pytest.fixture
+def mock_db_with_data(mock_ctx, mock_db, mock_kafka_broker, monkeypatch):
     db_dir, db = mock_db
 
     with monkeypatch.context() as m:
@@ -199,7 +205,7 @@ def mock_db_with_data(mock_ctx, mock_db, monkeypatch):
 
 
 @pytest.fixture
-def mock_db_with_data_2(mock_ctx, mock_db, monkeypatch):
+def mock_db_with_data_2(mock_ctx, mock_db, mock_kafka_broker, monkeypatch):
     db_dir, db = mock_db
 
     with monkeypatch.context() as m:
