@@ -253,7 +253,7 @@ without an explicit `name=`.
 Decorator tag defaults can be overridden per instance:
 
 ```python
-another_xgm = XGMDiagnostics(name="another_xgm", title="Another XGM", tags=["XGM!"])
+xgm = XGMDiagnostics(name="another_xgm", title="Another XGM", tags=["XGM!"])
 ```
 
 > Note: Group classes cannot define or override the reserved fields `name`,
@@ -311,8 +311,8 @@ class A:
     def asdf(self, run, data: "self#v"):
         return data + 1
 
-a1 = A(name="a1", v=base)
-a2 = A(name="a2", v=a1.asdf)
+a1 = A(v=base)
+a2 = A(v=a1.asdf)
 # a1.asdf depends on base; a2.asdf depends on a1.asdf
 ```
 
@@ -354,17 +354,17 @@ class MIDDiagnostics:
 
 # 1. Define the shared, top-level instances. Their `name` values
 #    ("xgm_sa2", "xgm_hed") are their public identifiers.
-xgm_sa2 = XGMDiagnostics(name="xgm_sa2", device_name="SA2_XTD6_XGM/XGM/DOOCS")
-xgm_hed = XGMDiagnostics(name="xgm_hed", device_name="HED_XTD9_XGM/XGM/DOOCS")
+xgm_sa2 = XGMDiagnostics(device_name="SA2_XTD6_XGM/XGM/DOOCS")
+xgm_mid = XGMDiagnostics(device_name="MID_XTD9_XGM/XGM/DOOCS")
 
-agipd = Detector(name="agipd", title="AGIPD")
+agipd = Detector(title="AGIPD")
 
 # 2. Instantiate the linking group and provide the dependency objects.
-diag1 = MIDDiagnostics(name="mid_diag_sa2", title="MID Diagnostics", xgm=xgm_sa2, detector=agipd)
-diag2 = MIDDiagnostics(name="mid_diag_hed", title="MID Diagnostics", xgm=xgm_hed, detector=agipd)
+diag1 = MIDDiagnostics(title="MID Diagnostics SA2", xgm=xgm_sa2, detector=agipd)
+diag2 = MIDDiagnostics(title="MID Diagnostics MID", xgm=xgm_mid, detector=agipd)
 
 # Result: `diag1` depends on `xgm_sa2.corrected_energy`, and
-# `diag2` depends on `xgm_hed.corrected_energy`. No work is duplicated.
+# `diag2` depends on `xgm_mid.corrected_energy`. No work is duplicated.
 ```
 
 ### Optional components and defaults
@@ -398,8 +398,8 @@ class B:
         return value + 1
 
 a = A(name="a")
-b_full = B(name="b_full", upstream=a)
-b_partial = B(name="b_partial")  # upstream defaults to None
+b_full = B(upstream=a)
+b_partial = B()  # upstream defaults to None
 # b_full exposes both variables. b_partial drops needs_upstream but keeps
 # optional_upstream, which receives the default value (42) at runtime.
 ```
@@ -434,7 +434,7 @@ class DetectorAnalysisAlt(BaseAnalysis):
     ...
 
 # This instance will have two variables: detector.n_trains and detector.photon_count
-detector = DetectorAnalysis(name="detector", title="Detector")
+detector = DetectorAnalysis(title="Detector")
 ```
 
 ### Cell
