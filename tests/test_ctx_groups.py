@@ -1,0 +1,1024 @@
+from graphlib import CycleError
+
+import pytest
+
+from damnit.context import GroupError
+from damnit.ctxsupport.ctxrunner import expand_groups
+from damnit.ctxsupport.damnit_ctx import (Group, GroupBoundVariable, Variable,
+                                          is_group_instance)
+
+from .helpers import mkcontext
+
+
+def test_group_variable_reference():
+    @Variable
+    def var(run):
+        return 42
+
+    @Group
+    class Grp:
+        ref: Variable = None
+        grp_ref: Group = None
+
+        @Variable(tags='G!')
+        def grp_var(self, run):
+            return 1 / 42
+
+    group1 = Grp()
+    group2 = Grp(ref=var, grp_ref=group1)
+
+    assert isinstance(var, Variable)
+    assert is_group_instance(group1)
+    assert group1.ref is group1.grp_ref is None
+    assert isinstance(group1.grp_var, GroupBoundVariable)
+    assert isinstance(group2.grp_ref, Grp)
+    assert isinstance(group2.grp_var, GroupBoundVariable)
+    assert isinstance(group2.grp_ref.grp_var, GroupBoundVariable)
+
+    # group names aren't assigned yet
+    assert group2.grp_ref.name is None
+    
+    expand_groups({"group1": group1, "group2": group2,}, {"var": var})
+
+    # now group names are assigned from context
+    assert group2.grp_ref.grp_var.name == "group1.grp_var"
+
+
+def test_group_expands_variables_and_prefixes():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group(tags=["XGM"])
+    class XGM:
+        device_name: str
+
+        @Variable(title="Pulse Energy", tags=["Energy"])
+        def pulse_energy(self, run):
+            return 1
+
+    xgm = XGM(name="xgm_sa2", title="XGM Diag", device_name="SA2_XTD6_XGM/XGM/DOOCS")
+    """
+    ctx = mkcontext(code)
+    assert "xgm_sa2.pulse_energy" in ctx.vars
+    var = ctx.vars["xgm_sa2.pulse_energy"]
+    assert var.title == "XGM Diag/Pulse Energy"
+    assert var.tags == {"XGM", "Energy"}
+
+
+def test_group_linking_resolves_dependencies():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def energy(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def scaled(self, run, energy: "self#inner.energy", factor: int = 2):
+            return energy * factor
+
+    outer = Outer(name="outer", inner=Inner(name="blah"))
+    """
+    ctx = mkcontext(code)
+    assert set(ctx.vars) == {"blah.energy", "outer.scaled"}
+    assert ctx.vars["outer.scaled"].arg_dependencies() == {"energy": "blah.energy"}
+
+
+def test_group_glob(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Other:
+        @Variable
+        def var_a(self, run):
+            return 1
+
+        @Variable
+        def var_b(self, run):
+            return 2
+
+    @Group
+    class G:
+        other: Other
+
+        @Variable
+        def total(self, run, data: "self#other.var_*"):
+            return sum(data.values())
+
+    g = G(other=Other(name="blah"))
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    
+    assert ctx.vars["g.total"].arg_dependencies() == {"data": "blah.var_*"}
+    assert set(ctx.vars) == {"blah.var_a", "blah.var_b", "g.total"}
+    assert results.cells["g.total"].data == 3
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Upstream:
+        @Variable
+        def x(self, run):
+            return 1
+
+    @Group
+    class G:
+        upstream: Upstream | None = None
+
+        @Variable
+        def var_a(self, run, x: "self#upstream.x"):
+            return x + 1
+
+        @Variable
+        def var_b(self, run, x: "self#upstream.x"):
+            return x + 2
+
+        @Variable
+        def total(self, run, data: "self#var_*"):
+            return sum(data.values())
+
+    g = G()
+    g2 = G(upstream=Upstream(name="u"))
+    """
+    ctx = mkcontext(code)
+    assert "g.var_a" in ctx.vars
+    assert "g.var_b" in ctx.vars
+    assert "g.total" in ctx.vars
+
+    assert ctx.vars["g2.total"].arg_dependencies() == {"data": "g2.var_*"}
+    assert "g2.var_a" in ctx.vars
+    assert "g2.var_b" in ctx.vars
+    assert "g2.total" in ctx.vars
+
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "g.total" not in results.cells
+    assert results.cells["g2.total"].data == 5
+
+
+def test_group_glob_only_allowed_on_leaf():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Other:
+        @Variable
+        def var(self, run):
+            return 1
+
+    @Group
+    class G:
+        other: Other
+
+        @Variable
+        def out(self, run, v: "self#other*.var"):
+            return v
+
+    g = G(other=Other(name="other"))
+    """
+    with pytest.raises(AttributeError):
+        mkcontext(code)
+
+
+def test_group_missing_group_with_glob_pattern():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Other:
+        @Variable
+        def var_a(self, run):
+            return 1
+
+    @Group
+    class G:
+        other: Other | None = None
+
+        @Variable
+        def total(self, run, data: "self#other.var_*"):
+            return sum(data.values())
+
+    g = G(name="g")
+    """
+    ctx = mkcontext(code)
+    ctx.check()
+    missing = [name for name in ctx.vars if ".__missing__." in name]
+    assert missing[0] == "g.__missing__.other.var__"
+
+
+def test_group_invalid_self_annotation(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def out(self, run, v: "self#no_such_group.x"):
+            return v
+
+    g = G()
+    """
+    with pytest.raises(AttributeError, match="no_such_group"):
+        mkcontext(code)
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        blah: int = 5
+
+        @Variable
+        def out(self, run, v: "self#blah"):
+            return v ** 2
+
+    g = G()
+    """
+    with pytest.raises(GroupError, match="type 'int'"):
+        mkcontext(code)
+
+
+def test_group_variable_field_linking(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Variable
+    def base(run):
+        return 1
+
+    @Group
+    class A:
+        v: Variable
+
+        @Variable
+        def asdf(self, run, data: "self#v"):
+            return data + 1
+
+    a1 = A(name="a1", v=base)
+    a2 = A(name="a2", v=a1.asdf)
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert results.cells["base"].data == 1
+    assert results.cells["a1.asdf"].data == 2
+    assert results.cells["a2.asdf"].data == 3
+    assert ctx.vars["a1.asdf"].arg_dependencies() == {"data": "base"}
+    assert ctx.vars["a2.asdf"].arg_dependencies() == {"data": "a1.asdf"}
+
+
+def test_group_nested_variable_field_chain(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Variable
+    def base(run):
+        return 5
+
+    @Group
+    class Leaf:
+        linked_base: Variable
+        scale: int = 2
+
+        @Variable
+        def scaled(self, run, value: "self#linked_base"):
+            return value * self.scale
+
+    @Group
+    class Mid:
+        leaf: Leaf
+        offset: int = 4
+
+        @Variable
+        def total(self, run, value: "self#leaf.scaled"):
+            return value + self.offset
+
+    @Group
+    class Outer:
+        mid: Mid
+        factor: int = 2
+
+        @Variable
+        def final(self, run, value: "self#mid.total"):
+            return value * self.factor
+
+        @Variable
+        def extra(self, run, value: "self#mid.leaf.linked_base"):
+            return 2 * value
+
+    leaf = Leaf(name="leaf", linked_base=base, scale=2)
+    mid = Mid(name="mid", leaf=leaf, offset=4)
+    outer = Outer(name="outer", mid=mid, factor=2)
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert results.cells["base"].data == 5
+    assert results.cells["leaf.scaled"].data == 10
+    assert results.cells["mid.total"].data == 14
+    assert results.cells["outer.final"].data == 28
+    assert results.cells["outer.extra"].data == 10
+    assert ctx.vars["leaf.scaled"].arg_dependencies() == {"value": "base"}
+    assert ctx.vars["mid.total"].arg_dependencies() == {"value": "leaf.scaled"}
+    assert ctx.vars["outer.final"].arg_dependencies() == {"value": "mid.total"}
+    assert ctx.vars["outer.extra"].arg_dependencies() == {"value": "base"}
+
+
+def test_group_name_from_context_assignment(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 3
+
+    group_name = G()
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "group_name.val" in ctx.vars
+    assert ctx.vars["group_name.val"].title == "group_name/val"
+    assert results.cells["group_name.val"].data == 3
+
+
+def test_group_name_instance(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 5
+
+    g = G(name="instance")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "instance.val" in ctx.vars
+    assert ctx.vars["instance.val"].title == "instance/val"
+    assert "decorated.val" not in ctx.vars
+    assert results.cells["instance.val"].data == 5
+
+
+def test_nested_group_name_assignment(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    outer = Outer(inner=Inner())
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "outer.inner.val" in ctx.vars
+    assert "outer.out" in ctx.vars
+    assert ctx.vars["outer.out"].arg_dependencies() == {"val": "outer.inner.val"}
+    assert ctx.vars["outer.inner.val"].title == "outer/inner/val"
+    assert results.cells["outer.inner.val"].data == 1
+    assert results.cells["outer.out"].data == 2
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 5
+
+    g = G(name="explicit.dot")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "explicit.dot.val" in ctx.vars
+    assert ctx.vars["explicit.dot.val"].title == "explicit.dot/val"
+    assert results.cells["explicit.dot.val"].data == 5
+
+
+def test_group_name_shortest_path():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    inner = Inner()
+    outer = Outer(inner=inner)
+    """
+    ctx = mkcontext(code)
+    assert "inner.val" in ctx.vars
+    assert "outer.out" in ctx.vars
+    assert "outer.inner.val" not in ctx.vars
+    assert ctx.vars["outer.out"].arg_dependencies() == {"val": "inner.val"}
+
+
+def test_group_nested_name_uses_explicit_parent_prefix():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    outer = Outer(name="explicit", inner=Inner())
+    """
+    ctx = mkcontext(code)
+    assert "explicit.inner.val" in ctx.vars
+    assert "explicit.out" in ctx.vars
+    assert "outer.inner.val" not in ctx.vars
+    assert ctx.vars["explicit.out"].arg_dependencies() == {"val": "explicit.inner.val"}
+
+
+def test_group_explicit_child_name_overrides_nested_assignment(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    inner = Inner(name="custom")
+    outer = Outer(inner=inner)
+    """
+    ctx = mkcontext(code)
+    assert "custom.val" in ctx.vars
+    assert "outer.out" in ctx.vars
+    assert "outer.inner.val" not in ctx.vars
+    assert ctx.vars["outer.out"].arg_dependencies() == {"val": "custom.val"}
+
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert results.cells["custom.val"].data == 1
+    assert results.cells["outer.out"].data == 2
+
+
+def test_group_nested_ambiguous_names_at_same_depth_raises():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    __shared = Inner()
+    outer1 = Outer(inner=__shared)
+    outer2 = Outer(inner=__shared)
+    """
+    with pytest.raises(GroupError, match="multiple names"):
+        mkcontext(code)
+
+
+def test_group_nested_shortest_path_prefers_shallower():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Mid:
+        inner: Inner
+
+    @Group
+    class Outer:
+        mid: Mid
+
+    @Group
+    class Alt:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    shared = Inner()
+    outer = Outer(mid=Mid(inner=shared))
+    alt = Alt(inner=shared)
+    """
+    ctx = mkcontext(code)
+    assert "shared.val" in ctx.vars
+    assert "alt.out" in ctx.vars
+    assert "alt.inner.val" not in ctx.vars
+    assert "outer.mid.inner.val" not in ctx.vars
+    assert ctx.vars["alt.out"].arg_dependencies() == {"val": "shared.val"}
+
+
+def test_group_optional_component_skips_missing_dependency(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Variable
+    def var(run):
+        return 1
+
+    @Group
+    class A:
+        @Variable
+        def var(self, run):
+            return 41
+
+    @Group
+    class B:
+        upstream: A | None = None
+        other_var: Variable | None = None
+
+        @Variable
+        def needs_upstream(self, run, value: "self#upstream.var"):
+            return value + 1
+
+        @Variable
+        def optional_upstream(self, run, value: "self#upstream.var" = 42, other_value: "self#other_var" = -1):
+            return other_value * (value + 1)
+
+    b = B(name="b")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "b.needs_upstream" in ctx.vars
+    assert "b.needs_upstream" not in results.cells
+    assert "b.optional_upstream" in ctx.vars
+    assert ctx.vars["b.optional_upstream"].arg_dependencies() == {
+        "value": "b.__missing__.upstream.var",
+        "other_value": "b.__missing__.other_var"
+    }
+    assert results.cells["b.optional_upstream"].data == -43
+
+
+def test_group_execute_intra_dependencies_and_overrides(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group(tags=["Default"])
+    class G:
+        offset: float = 0.0
+
+        @Variable(title="Base", tags=["Base"])
+        def base(self, run):
+            return 10
+
+        @Variable(title="Adjusted")
+        def adjusted(self, run, base: "self#base"):
+            return base + self.offset
+
+    g = G(name="g", title="MyDiag", offset=5, tags="Override")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    assert results.cells["g.base"].data == 10
+    assert results.cells["g.adjusted"].data == 15
+    assert ctx.vars["g.adjusted"].arg_dependencies() == {"base": "g.base"}
+    assert ctx.vars["g.adjusted"].title == "MyDiag/Adjusted"
+    assert ctx.vars["g.base"].tags == {"Override", "Base"}
+    assert ctx.vars["g.adjusted"].tags == {"Override"}
+
+
+def test_group_linking_exec_and_dependency_paths(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class XGM:
+        offset: float = 0.0
+
+        @Variable(title="Energy")
+        def energy(self, run):
+            return 10
+
+        @Variable(title="Corrected")
+        def corrected(self, run, energy: "self#energy"):
+            return energy + self.offset
+
+    @Group
+    class MID:
+        xgm: XGM
+        factor: float = 2.0
+
+        @Variable(title="Scaled")
+        def scaled(self, run, energy: "self#xgm.corrected"):
+            return energy * self.factor
+
+    xgm_sa2 = XGM(name="xgm_sa2", title="XGM", offset=1.5, tags="XGM")
+    mid = MID(name="mid", title="MID", sep=" | ", xgm=xgm_sa2, factor=3)
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    assert results.cells["xgm_sa2.energy"].data == 10
+    assert results.cells["xgm_sa2.corrected"].data == pytest.approx(11.5)
+    assert results.cells["mid.scaled"].data == pytest.approx(34.5)
+    assert ctx.vars["mid.scaled"].arg_dependencies() == {"energy": "xgm_sa2.corrected"}
+    assert ctx.vars["mid.scaled"].title == "MID | Scaled"
+
+
+def test_group_optional_component_cascades_drop(mock_run):
+    code = """
+    from typing import Optional
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Upstream:
+        @Variable
+        def value(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        upstream: Optional[Upstream] = None
+
+        @Variable
+        def needs_upstream(self, run, value: "self#upstream.value"):
+            return value + 1
+
+        @Variable
+        def depends_on_needs(self, run, value: "self#needs_upstream"):
+            return value + 1
+
+    outer = Outer(name="outer")
+    """
+    ctx = mkcontext(code)
+    assert "outer.needs_upstream" in ctx.vars
+    assert "outer.depends_on_needs" in ctx.vars
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert "outer.needs_upstream" not in results.cells
+    assert "outer.depends_on_needs" not in results.cells
+
+
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Upstream:
+        @Variable
+        def var(self, run):
+            return 100
+
+    @Group
+    class G:
+        upstream: Upstream | None = None
+
+        @Variable
+        def d(self, run, v: "self#c"):
+            return v * 2
+
+        @Variable
+        def c(self, run, v: "self#a" = 5):
+            return v + 1
+
+        @Variable
+        def e(self, run, base: "self#base", v: "self#a" = 10):
+            return base + v
+
+        @Variable
+        def required_from_b(self, run, v: "self#b"):
+            return v * 10
+
+        @Variable
+        def optional_from_b(self, run, v: "self#b" = 3):
+            return v * 10
+
+        @Variable
+        def b(self, run, v: "self#a"):
+            return v + 1
+
+        @Variable
+        def a(self, run, v: "self#upstream.var"):
+            return v + 1
+
+        @Variable
+        def base(self, run):
+            return 2
+
+    g = G(name="grp")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    # Missing upstream keeps variables but they skip at runtime.
+    assert "grp.a" in ctx.vars
+    assert "grp.b" in ctx.vars
+    assert "grp.required_from_b" in ctx.vars
+    assert "grp.a" not in results.cells
+    assert "grp.b" not in results.cells
+    assert "grp.required_from_b" not in results.cells
+
+    assert "grp.c" in ctx.vars
+    assert ctx.vars["grp.c"].arg_dependencies() == {"v": "grp.a"}
+    assert results.cells["grp.c"].data == 6
+
+    assert "grp.optional_from_b" in ctx.vars
+    assert ctx.vars["grp.optional_from_b"].arg_dependencies() == {"v": "grp.b"}
+    assert results.cells["grp.optional_from_b"].data == 30
+
+    # Variables depending on the surviving ones still execute normally.
+    assert results.cells["grp.base"].data == 2
+    assert results.cells["grp.d"].data == 12
+
+    assert ctx.vars["grp.e"].arg_dependencies() == {"base": "grp.base", "v": "grp.a"}
+    assert results.cells["grp.e"].data == 12
+
+
+def test_group_internal_cycle_raises_clear_error():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def a(self, run, v: "self#b"):
+            return v + 1
+
+        @Variable
+        def b(self, run, v: "self#a"):
+            return v + 1
+
+    g = G(name="g")
+    """
+    with pytest.raises(CycleError, match=r"cyclical dependencies"):
+        mkcontext(code)
+
+
+def test_group_reserved_field_annotation_rejected():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Bad:
+        name: str
+
+        @Variable
+        def val(self, run):
+            return 1
+
+    bad = Bad(name="bad")
+    """
+    with pytest.raises(GroupError):
+        mkcontext(code)
+
+
+def test_group_reserved_attribute_rejected():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Bad:
+        tags = ["nope"]
+
+        @Variable
+        def val(self, run):
+            return 1
+
+    bad = Bad(name="bad")
+    """
+    with pytest.raises(GroupError):
+        mkcontext(code)
+
+
+def test_group_explicit_name_avoids_ambiguity():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class Inner:
+        @Variable
+        def val(self, run):
+            return 1
+
+    @Group
+    class Outer:
+        inner: Inner
+
+        @Variable
+        def out(self, run, val: "self#inner.val"):
+            return val + 1
+
+    shared = Inner(name="shared")
+    outer1 = Outer(inner=shared)
+    outer2 = Outer(inner=Inner(name="inner2"))
+    outer3 = Outer(inner=Inner())
+    """
+    ctx = mkcontext(code)
+    assert "shared.val" in ctx.vars
+    assert "inner2.val" in ctx.vars
+    assert "outer3.inner.val" in ctx.vars
+    assert ctx.vars["outer1.out"].arg_dependencies() == {"val": "shared.val"}
+    assert ctx.vars["outer2.out"].arg_dependencies() == {"val": "inner2.val"}
+    assert ctx.vars["outer3.out"].arg_dependencies() == {"val": "outer3.inner.val"}
+
+
+def test_group_inheritance_and_reset(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group(tags=["BaseTag"])
+    class Base:
+        @Variable(title="BaseVar")
+        def base(self, run):
+            return 5
+
+    @Group
+    class Derived(Base):
+        @Variable(title="ChildVar")
+        def child(self, run, base: "self#base"):
+            return base + 1
+
+    @Group(tags=["AltTag"])
+    class DerivedAlt(Base):
+        @Variable(title="AltVar")
+        def alt(self, run):
+            return 7
+
+    derived = Derived(name="derived")
+    alt = DerivedAlt(name="alt", title="Alt")
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    assert results.cells["derived.base"].data == 5
+    assert results.cells["derived.child"].data == 6
+    assert results.cells["alt.base"].data == 5
+    assert results.cells["alt.alt"].data == 7
+
+    assert ctx.vars["derived.base"].title == "derived/BaseVar"
+    assert ctx.vars["derived.child"].title == "derived/ChildVar"
+    assert ctx.vars["derived.base"].tags == {"BaseTag"}
+
+    assert ctx.vars["alt.base"].title == "Alt/BaseVar"
+    assert ctx.vars["alt.alt"].title == "Alt/AltVar"
+    assert ctx.vars["alt.base"].tags == {"AltTag"}
+
+
+def test_group_inherited_dataclass_fields(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class A:
+        label: str
+
+        @Variable
+        def label_len(self, run):
+            return len(self.label)
+
+    @Group
+    class B(A):
+        age: int
+
+        @Variable
+        def age_plus(self, run):
+            return self.age + 1
+
+    b = B(label="asdf", age=12)
+    """
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert results.cells["b.label_len"].data == 4
+    assert results.cells["b.age_plus"].data == 13
+
+
+def test_group_decorated_subclass_non_default_field(mock_run):
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class A:
+        base: int = 1
+
+        @Variable
+        def base_val(self, run):
+            return self.base
+
+    @Group
+    class B(A):
+        value: int
+
+        @Variable
+        def combined(self, run):
+            return self.base + self.value
+
+    b = B(value=3)
+    """
+    with pytest.raises(TypeError):
+        mkcontext(code)
+    # results = ctx.execute(mock_run, 1000, 123, {})
+    # assert results.cells["b.base_val"].data == 1
+    # assert results.cells["b.combined"].data == 4
+
+
+def test_group_duplicate_names_raise():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 1
+
+    g1 = G(name="dup")
+    g2 = G(name="dup")
+    """
+    with pytest.raises(GroupError):
+        mkcontext(code)
+
+
+def test_group_ambiguous_assignment_raises():
+    code = """
+    from damnit_ctx import Variable, Group
+
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 1
+
+    g = G()
+    alias = g
+    """
+    with pytest.raises(GroupError):
+        mkcontext(code)
+
+
+def test_duplicate_group_var_name():
+    code = """
+    from damnit_ctx import Variable, Group
+    
+    @Variable
+    def dummy(run):
+        return 42
+    dummy.name = "g.var"
+    
+    @Group
+    class G:
+        @Variable
+        def var(self, run):
+            return -42
+    
+    g = G()
+    """
+    with pytest.raises(GroupError, match="Duplicate variable name"):
+        mkcontext(code)

@@ -1,4 +1,6 @@
-"""This module is made available by manipulating sys.path
+"""Core DAMNIT context types and helpers.
+
+This module is made available by manipulating sys.path
 
 We aim to maintain compatibility with older Python 3 versions (currently 3.9+)
 than the DAMNIT code in general, to allow running context files in other Python
@@ -7,14 +9,22 @@ environments.
 import logging
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from enum import Enum
 
 import h5py
 import numpy as np
 import xarray as xr
 
-__all__ = ["RunData", "Variable", "Cell"]
+__all__ = [
+    "Cell",
+    "Group",
+    "GroupError",
+    "RunData",
+    "Skip",
+    "Variable"
+]
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +60,7 @@ class Variable:
         self.cluster = cluster
         self.transient = transient
         self._data = data
+        self._annotation_overrides = None
 
         if callable(title):
             # @Variable called without parenthesis
@@ -67,18 +78,24 @@ class Variable:
             self.title = self.name
         return self
 
+    def __get__(self, instance, owner):
+        if is_group_instance(instance):
+            # Return a proxy that resolves the group name lazily after context exec.
+            return GroupBoundVariable(instance, self)
+        return self
+
     def check(self):
         problems = []
-        if not self.name.isidentifier():
+        if not all(part.isidentifier() for part in self.name.split(".")):
             problems.append(
-                f"The variable name {self.name!r} is not a valid Python identifier"
+                f"The variable name {self.name!r} is not a valid Python identifier or dotted name"
             )
         if self._data not in (None, "raw", "proc"):
             problems.append(
                 f"data={self._data!r} for variable {self.name} (can be 'raw'/'proc')"
             )
         if self.tags is not None:
-            if not isinstance(self.tags, Sequence) or not all(
+            if not isinstance(self.tags, Iterable) or not all(
                 isinstance(tag, str) and tag != "" for tag in self.tags
             ):
                 problems.append(
@@ -111,6 +128,8 @@ class Variable:
 
         Returns a dict of argument names to their annotations.
         """
+        if self._annotation_overrides is not None:
+            return self._annotation_overrides
         return getattr(self.func, '__annotations__', {})
 
     def evaluate(self, run_data, kwargs):
@@ -268,3 +287,155 @@ class Cell:
 
 class Skip(Exception):
     pass
+
+
+class GroupError(Exception):
+    pass
+
+
+def _normalize_tags(tags) -> tuple[str]:
+    if tags is None:
+        return ()
+    if isinstance(tags, str):
+        return (tags,)
+    return tuple(tags)
+
+
+def _inherit_group_config(cls):
+    for base in cls.mro()[1:]:
+        config = base.__dict__.get("__damnit_group_config__")
+        if config is not None:
+            return config
+    return {}
+
+
+def Group(
+    _cls=None,
+    *,
+    tags: Iterable[str] | str | None = None,
+):
+    """Decorate a class to define a reusable group of Variables.
+
+    Group instances are dataclasses, therefore a Group subclass must also be
+    decorated with @Group. Instantiate them in the context file and access group
+    variables as "<group>.<var>" names. Use "self#..." in Variable annotations
+    to link to other group values or nested groups.
+
+    A group has 4 default parameters, they must be set at instantiation (except
+    for `tags`):
+        name: str | None = None
+            The group `name`. If None, the Group instance name assigned in the
+            context file will be used.
+        title: str | None = None
+            The group `title`. If None, the group `name` will be used as title.
+        tags: Iterable[str] | str | None = None
+            Tags to merge into each variable's tags.
+        sep: str = "/"
+            The separator between group title and variable title when generating
+            variable titles.
+
+    A Group decorator can define the default value of the Group instance `tags`.
+    `Tags` will be inherited from parent Group classes unless explicitly
+    overridden.
+    """
+    RESERVED_GROUP_FIELDS = {
+        "name": None,
+        "title": None,
+        "tags": None,
+        "sep": "/",
+    }
+
+    def wrap(cls):
+        # Prevent Group classes from shadowing internal config fields.
+        reserved_fields = set(RESERVED_GROUP_FIELDS)
+        defined_fields = set(getattr(cls, "__annotations__", {}))
+        conflicts = sorted(reserved_fields & defined_fields)
+        if conflicts:
+            raise GroupError(
+                "Group classes cannot define reserved fields: "
+                f"{', '.join(conflicts)}"
+            )
+        explicit_attrs = reserved_fields & set(cls.__dict__)
+        if explicit_attrs:
+            conflicts = ", ".join(sorted(explicit_attrs))
+            raise GroupError(
+                "Group classes cannot override reserved attributes: "
+                f"{conflicts}"
+            )
+
+        # inherit parents' Group tags if not redefined
+        parent_config = _inherit_group_config(cls)
+        nonlocal tags
+        if tags is None:
+            tags = parent_config.get("tags")
+        tags = _normalize_tags(tags)
+
+        cls.__damnit_group__ = True
+        cls.__damnit_group_config__ = RESERVED_GROUP_FIELDS.copy()
+        cls.__damnit_group_config__["tags"] = tags
+
+        annotations = dict(getattr(cls, "__annotations__", {}))
+        annotations.update({
+            "name": str | None,
+            "title": str | None,
+            "tags": Iterable[str] | str | None,
+            "sep": str,
+        })
+        cls.__annotations__ = annotations
+
+        cls.name = field(default=RESERVED_GROUP_FIELDS["name"], kw_only=True)
+        cls.title = field(default=RESERVED_GROUP_FIELDS["title"], kw_only=True)
+        cls.sep = field(default=RESERVED_GROUP_FIELDS["sep"], kw_only=True)
+        cls.tags = field(default=tags, kw_only=True)
+
+        original_post_init = getattr(cls, "__post_init__", None)
+
+        def __post_init__(self):
+            self.tags = _normalize_tags(self.tags)
+            if self.title is None:
+                self.title = self.name
+
+            if original_post_init is not None:
+                original_post_init(self)
+
+        cls.__post_init__ = __post_init__
+
+        return dataclass(cls)
+
+    if _cls is None:
+        return wrap
+    return wrap(_cls)
+
+
+def is_group_instance(obj):
+    """Return True if obj is an instance of a Group class."""
+    return hasattr(type(obj), "__damnit_group__")
+
+
+class GroupBoundVariable:
+    """Proxy for accessing a Group `Variable` on an instance.
+
+    1. It allows you to wire dependencies before the group’s final name is
+       known, (because that name can be inferred from the global assignment
+       after the context code runs) so we don't have to mutate or reuse the
+       shared class-level Variable definition across instances by deferring the
+       per-instance binding work until expand_groups().
+    2. Prevents accidentally collecting this reference in case it leaks into the
+       context top level namespace, which would cause duplicate variable
+       definitions.
+
+    The proxy forwards all other attribute access to the original `Variable`, so
+    it behaves like a `Variable` for e.g. dependency wiring.
+    """
+    __damnit_group_bound__ = True
+
+    def __init__(self, group, var_def):
+        self._group = group
+        self._var_def = var_def
+
+    @property
+    def name(self):
+        return f"{self._group.name}.{self._var_def.name}"
+
+    def __getattr__(self, attr):
+        return getattr(self._var_def, attr)

@@ -251,6 +251,32 @@ def test_context_file(mock_ctx, tmp_path):
     assert ctx.vars["foo"].title == "foo"
     assert ctx.vars["foo"].name == "foo"
 
+    # test variable name
+    invalid_var_name = """
+    from damnit_ctx import Variable
+
+    @Variable
+    def var(run):
+        return 42
+
+    var.name = 'var.1.name'
+    """
+    ctx = mkcontext(invalid_var_name)
+    with pytest.raises(ContextFileErrors, match='not a valid Python identifier'):
+        ctx.check()
+
+    # test invalid data source
+    invalid_var_data = """
+    from damnit_ctx import Variable
+
+    @Variable(data="scratch/test")
+    def var(run):
+        return 42
+    """
+    ctx = mkcontext(invalid_var_data)
+    with pytest.raises(ValueError):
+        ctx.check()
+
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a

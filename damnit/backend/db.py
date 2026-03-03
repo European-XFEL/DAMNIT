@@ -306,7 +306,7 @@ class DamnitDB:
     def update_views(self):
         variables = self.variable_names()
 
-        col_select_sql = "max(CASE WHEN name='{var}' THEN {col} END) AS {var}"
+        col_select_sql = "max(CASE WHEN name='{var}' THEN {col} END) AS '{var}'"
         runs_cols = ", ".join([col_select_sql.format(var=var, col="value")
                                for var in variables])
         max_diff_cols = ", ".join([col_select_sql.format(var=var, col="max_diff")
