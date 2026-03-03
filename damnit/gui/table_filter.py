@@ -24,6 +24,7 @@ from superqt import QSearchableListWidget as SuperQListWidget
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
+from .roles import LINE_DATA_ROLE
 from .widgets import ValueRangeWidget
 
 
@@ -212,7 +213,11 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
 
             item = self.sourceModel().index(source_row, col, source_parent)
             if isinstance(filter, ThumbnailFilter):
-                data = type(item.data(Qt.DecorationRole))
+                has_thumb = item.data(LINE_DATA_ROLE) is not None
+                if not has_thumb:
+                    thumb = item.data(Qt.DecorationRole)
+                    has_thumb = thumb is not None and not isinstance(thumb, QColor)
+                data = QPixmap if has_thumb else type(None)
             else:
                 data = item.data(Qt.UserRole)
             if not filter.accepts(data):
@@ -249,9 +254,14 @@ class FilterMenu(QMenu):
         is_numeric = True
         values = []
         decos = set()
+        has_sparkline = False
 
         for row in range(model.sourceModel().rowCount()):
             item = model.sourceModel().index(row, column)
+
+            if item.data(LINE_DATA_ROLE) is not None:
+                has_sparkline = True
+                continue
 
             if thumb := item.data(Qt.DecorationRole):
                 # QColor decoration is used for errors (no value)
@@ -271,7 +281,7 @@ class FilterMenu(QMenu):
         unique_values = set(values)
 
         # Create appropriate filter widget
-        if len(unique_values) == 0 and (len(decos) == 1) and (decos.pop() is QPixmap):
+        if len(unique_values) == 0 and (has_sparkline or (len(decos) == 1 and decos.pop() is QPixmap)):
             filter_widget = ThumbnailFilterWidget(column)
         elif is_numeric:
             filter_widget = NumericFilterWidget(column, values)

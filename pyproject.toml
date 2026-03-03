@@ -15,6 +15,7 @@ classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version"]
 readme = "README.md"
 dependencies = [
+    "fpcs",
     "h5netcdf>=1.4.1",
     "h5py",
     "numpy",
@@ -29,7 +30,7 @@ backend = [
     "EXtra-data",
     "EXtra-proposal",
     "ipython",
-    "kafka-python-ng",
+    "kafka-python",
     "kaleido",  # used in plotly to convert figures to images
     "matplotlib",
     "numpy",
@@ -81,6 +82,9 @@ damnit = "damnit.cli:main"
 [tool.pytest.ini_options]
 timeout = 120
 norecursedirs = "tests/helpers"
+filterwarnings = [
+    "ignore:unclosed database in <sqlite3:ResourceWarning",
+]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]

@@ -12,22 +12,18 @@ import subprocess
 import textwrap
 from time import sleep, time
 from uuid import uuid4
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import extra_data as ed
 import h5py
 import numpy as np
 import plotly.express as px
 import pytest
-import requests
 import xarray as xr
-import yaml
 from PIL import Image
 from testpath import MockCommand
 
 from damnit.backend import listener_is_running, initialize_proposal, start_listener
-from damnit.backend.db import DamnitDB
+from damnit.backend.db import BlobTypes, DamnitDB, blob2numpy
 from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data, main as extract_data_main
 from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
@@ -60,6 +56,11 @@ def check_png(dset):
     assert dset.ndim == 1
     assert dset.dtype == np.dtype(np.uint8)
     assert dset[:8].tobytes() == b'\x89PNG\r\n\x1a\n'
+
+def check_trendline(dset):
+    assert dset.ndim == 2
+    assert dset.shape[0] == 2
+    assert np.issubdtype(dset.dtype, np.floating)
 
 def test_add_to_h5_file(tmp_path):
     path = tmp_path / "foo.h5"
@@ -127,7 +128,7 @@ def test_context_file(mock_ctx, tmp_path):
     assert mock_ctx.ordered_vars() == (
         # First everything without dependencies, in definition order
         "scalar1", "empty_string", "timestamp", "string", "plotly_mc_plotface",
-        "results", "image", "array_preview", "plotly_preview",
+        "results", "image", "array_preview", "plotly_preview", "trendline",
         # Then the dependencies
         "scalar2", "array", "meta_array"
     )
@@ -699,7 +700,8 @@ def test_results_preview(mock_run, tmp_path):
     results.save_hdf5(results_hdf5_path)
     with h5py.File(results_hdf5_path) as f:
         np.testing.assert_array_equal(f['.preview/var1'][()], np.ones(5))
-        check_png(f['.reduced/var1'])  # Summary thumbnail made from preview
+        check_trendline(f['.reduced/var1'])
+        assert f['.reduced/var1'].attrs['summary_type'] == "trendline"
         check_rgba(f['.preview/var2'])
         check_png(f['.reduced/var2'])
         assert f['.preview/var3'].dtype == bool
@@ -780,6 +782,37 @@ def test_add_to_db(mock_db):
         "SELECT * FROM run_variables WHERE proposal=1234 AND run=42 AND name='float'"
     ).fetchone()
     assert json.loads(row["attributes"]) == {"background": [255, 0, 0]}
+
+def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
+    db_dir, db = mock_db
+
+    ctx_code = """
+    import numpy as np
+    from damnit_ctx import Variable
+
+    @Variable()
+    def line(run):
+        return np.linspace(0, 1, 15000)
+    """
+    ctx = mkcontext(ctx_code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    results_hdf5_path = tmp_path / 'results.h5'
+    results.save_hdf5(results_hdf5_path)
+
+    with h5py.File(results_hdf5_path) as f:
+        dset = f['.reduced/line']
+        check_trendline(dset)
+        assert dset.attrs['summary_type'] == "trendline"
+
+    reduced_data = load_reduced_data(results_hdf5_path)
+    add_to_db(reduced_data, db, 1000, 123)
+    row = db.conn.execute(
+        "SELECT value, summary_type FROM run_variables WHERE name='line'"
+    ).fetchone()
+    assert row["summary_type"] == "trendline"
+    assert BlobTypes.identify(row["value"]) is BlobTypes.numpy
+    arr = blob2numpy(row["value"])
+    assert arr.shape[0] == 2
 
 def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     # Change to the DB directory

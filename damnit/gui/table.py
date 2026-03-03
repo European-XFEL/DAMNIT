@@ -4,6 +4,7 @@ import time
 from base64 import b64encode
 from itertools import groupby
 
+import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QProcess, Qt
@@ -12,10 +13,11 @@ from PyQt5.QtWidgets import QAction, QMenu, QMessageBox
 from superqt.fonticon import icon
 from superqt.utils import qthrottled
 
-from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex
+from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex, blob2numpy
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import timestamp2str
+from .roles import LINE_DATA_ROLE
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
 from .util import delete_variable, StatusbarStylesheet
 
@@ -351,6 +353,165 @@ class FilterHeaderView(QtWidgets.QHeaderView):
             parent.viewport().update()
 
 
+class SparklineDelegate(QtWidgets.QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        arr = index.data(LINE_DATA_ROLE)
+        if arr is None:
+            return super().paint(painter, option, index)
+
+        # Base item rendering (selection background, etc.)
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+
+        style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        # Pixel bounds for the sparkline drawing area.
+        rect = opt.rect.adjusted(2, 2, -2, -2)
+        if rect.width() < 4 or rect.height() < 4:
+            return
+
+        # Validate/prepare data.
+        if arr.ndim != 2 or arr.shape[0] != 2 or arr.shape[1] < 2:
+            return
+
+        x = np.asarray(arr[0], dtype=np.float64)
+        y = np.asarray(arr[1], dtype=np.float64)
+
+        finite = np.isfinite(x) & np.isfinite(y)
+        if not finite.any():
+            return
+        x = x[finite]
+        y = y[finite]
+        if x.size < 2:
+            return
+
+        # Normalize data to [0,1] and map to pixel coordinates.
+        x_min = float(np.nanmin(x))
+        x_max = float(np.nanmax(x))
+        y_min = float(np.nanmin(y))
+        y_max = float(np.nanmax(y))
+
+        span_x = x_max - x_min
+        span_y = y_max - y_min
+
+        if span_x == 0:
+            x_norm = np.linspace(0, 1, x.size)
+        else:
+            x_norm = (x - x_min) / span_x
+
+        if span_y == 0:
+            y_norm = np.full_like(y, 0.5)
+        else:
+            y_norm = (y - y_min) / span_y
+
+        x_pix = rect.left() + x_norm * (rect.width() - 1)
+        y_pix = rect.top() + (1 - y_norm) * (rect.height() - 1)
+
+        # Build the polyline path.
+        poly = QtGui.QPolygonF()
+        for xi, yi in zip(x_pix, y_pix):
+            poly.append(QtCore.QPointF(float(xi), float(yi)))
+
+        # Draw the sparkline.
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        line_color = QtGui.QColor(0, 120, 215)    # blue
+        hover_line_color = QtGui.QColor(181, 181, 181)  # gray
+        text_color = QtGui.QColor(0, 0, 0)        # black
+        dot_color = QtGui.QColor(220, 0, 0)       # red
+        pen = QtGui.QPen(line_color)
+        pen.setWidth(1)
+        painter.setPen(pen)
+        painter.drawPolyline(poly)
+
+        # Hover overlay: snap to extrema if near, otherwise interpolate.
+        view = opt.widget
+        hover_index = view._sparkline_hover_index
+        hover_t = view._sparkline_hover_t
+        if hover_index is not None and hover_t is not None and hover_index == index:
+            x_line = rect.left() + hover_t * (rect.width() - 1)
+
+            snap_idx = None
+            if x.size >= 3:
+                extrema = []
+                for i in range(1, x.size - 1):
+                    if (y[i] >= y[i - 1] and y[i] >= y[i + 1]) or (
+                        y[i] <= y[i - 1] and y[i] <= y[i + 1]
+                    ):
+                        extrema.append(i)
+                if extrema:
+                    extrema = np.asarray(extrema, dtype=int)
+                    dists = np.abs(x_pix[extrema] - x_line)
+                    nearest = int(extrema[np.argmin(dists)])
+                    if dists.min() <= 6.0:
+                        snap_idx = nearest
+
+            if snap_idx is not None:
+                x_line = float(x_pix[snap_idx])
+                y_val = float(y[snap_idx])
+                y_marker = float(y_pix[snap_idx])
+            else:
+                try:
+                    if span_x == 0:
+                        y_val = float(np.nanmean(y))
+                    else:
+                        x_target = x_min + hover_t * span_x
+                        order = np.argsort(x)
+                        x_sorted = x[order]
+                        y_sorted = y[order]
+                        y_val = float(np.interp(x_target, x_sorted, y_sorted))
+                except Exception:
+                    y_val = None
+
+                if y_val is not None and np.isfinite(y_val):
+                    if span_y == 0:
+                        y_norm_val = 0.5
+                    else:
+                        y_norm_val = (y_val - y_min) / span_y
+                    y_norm_val = max(0.0, min(1.0, float(y_norm_val)))
+                    y_marker = rect.top() + (1 - y_norm_val) * (rect.height() - 1)
+                else:
+                    y_marker = None
+
+            painter.setPen(QtGui.QPen(hover_line_color))
+            painter.drawLine(QtCore.QPointF(x_line, rect.top()),
+                             QtCore.QPointF(x_line, rect.bottom()))
+
+            # Marker + value label.
+            if y_val is not None and np.isfinite(y_val) and y_marker is not None:
+                painter.save()
+                painter.setBrush(dot_color)
+                painter.setPen(QtGui.QPen(dot_color))
+                painter.drawEllipse(QtCore.QPointF(x_line, y_marker), 2.5, 2.5)
+                painter.restore()
+
+                text = prettify_notation(y_val)
+                metrics = painter.fontMetrics()
+                text_w = metrics.horizontalAdvance(text)
+                text_h = metrics.height()
+                box_w = text_w + 6
+                box_h = text_h + 4
+                text_left = x_line + 4
+                if text_left + box_w > rect.right():
+                    text_left = x_line - box_w - 4
+                text_left = max(rect.left(), min(text_left, rect.right() - box_w))
+                text_top = rect.top() + 2
+                if text_top + box_h > rect.bottom():
+                    text_top = rect.bottom() - box_h - 2
+                box_rect = QtCore.QRectF(text_left, text_top, box_w, box_h)
+                bg = QtGui.QColor(255, 255, 255, 210)
+                painter.fillRect(box_rect, bg)
+                painter.setPen(text_color)
+                painter.drawText(
+                    box_rect.adjusted(3, 2, -3, -2),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    text,
+                )
+        painter.restore()
+
+
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
@@ -362,12 +523,16 @@ class TableView(QtWidgets.QTableView):
         self.setAlternatingRowColors(False)
         self.hierarchical_header_enabled = True
         self._restoring_column_widths = False
+        self._sparkline_hover_index = QtCore.QModelIndex()
+        self._sparkline_hover_t = None
 
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
+        self.setItemDelegate(SparklineDelegate(self))
+        self.setMouseTracking(True)
 
         # Add the widgets to be used in the column settings dialog
         self._columns_widget = QtWidgets.QListWidget()
@@ -440,6 +605,48 @@ class TableView(QtWidgets.QTableView):
         self.selectionModel().selectionChanged.connect(self.selection_changed)
 
         self.model_updated.emit()
+
+    def _set_sparkline_hover(self, index, t):
+        self.setCursor(Qt.BlankCursor)
+        old_index = self._sparkline_hover_index
+        old_t = self._sparkline_hover_t
+        if old_index == index and old_t == t:
+            return
+        self._sparkline_hover_index = index
+        self._sparkline_hover_t = t
+        if old_index.isValid():
+            self.viewport().update(self.visualRect(old_index))
+        if index.isValid():
+            self.viewport().update(self.visualRect(index))
+
+    def _clear_sparkline_hover(self):
+        self.setCursor(Qt.ArrowCursor)
+        if not self._sparkline_hover_index.isValid():
+            self._sparkline_hover_t = None
+            return
+        old_index = self._sparkline_hover_index
+        self._sparkline_hover_index = QtCore.QModelIndex()
+        self._sparkline_hover_t = None
+        if old_index.isValid():
+            self.viewport().update(self.visualRect(old_index))
+
+    def mouseMoveEvent(self, event):
+        index = self.indexAt(event.pos())
+        if index.isValid() and index.data(LINE_DATA_ROLE) is not None:
+            rect = self.visualRect(index)
+            if rect.width() > 1:
+                t = (event.pos().x() - rect.left()) / (rect.width() - 1)
+            else:
+                t = 0.0
+            t = max(0.0, min(1.0, float(t)))
+            self._set_sparkline_hover(index, t)
+        else:
+            self._clear_sparkline_hover()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._clear_sparkline_hover()
+        super().leaveEvent(event)
 
     def _on_section_resized(self, logical_index, old_size, new_size):
         if self._restoring_column_widths:
@@ -893,6 +1100,12 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         )
         return item
 
+    def line_item(self, line_data: np.ndarray):
+        item = self.itemPrototype().clone()
+        item.setData(line_data, role=LINE_DATA_ROLE)
+        item.setData("", role=Qt.ItemDataRole.DisplayRole)
+        return item
+
     def comment_item(self, text):
         item = self.text_item(text)
         item.setToolTip(text)
@@ -915,7 +1128,12 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
         return item
 
-    def new_item(self, value, column_id, max_diff, attrs):
+    def new_item(self, value, column_id, max_diff, attrs, summary_type=None):
+        if summary_type == "trendline":
+            return self.line_item(blob2numpy(value))
+        if summary_type == "numpy":
+            arr = blob2numpy(value)
+            return self.text_item(f"{arr.dtype}: {arr.shape}")
         if is_png_bytes(value):
             return self.image_item(value)
         elif column_id == 'comment':
@@ -963,7 +1181,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 if summary_type == "complex":
                     value = blob2complex(value)
                 attrs = json.loads(attr_json) if attr_json else {}
-                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs))
+                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs, summary_type))
 
         self.setVerticalHeaderLabels(row_headers)
         t1 = time.perf_counter()
@@ -1049,16 +1267,21 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
 
-    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict):
+    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict, summary_types: dict = None):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
         status_item.setCheckState(Qt.Checked)
         row = [status_item, self.text_item(proposal), self.text_item(run)]
 
+        summary_types = summary_types or {}
         for column_id in self.column_ids[3:]:
             if (value := contents.get(column_id, None)) is not None:
                 item = self.new_item(
-                    value, column_id, max_diffs.get(column_id) or 0, attrs.get(column_id) or {}
+                    value,
+                    column_id,
+                    max_diffs.get(column_id) or 0,
+                    attrs.get(column_id) or {},
+                    summary_types.get(column_id),
                 )
             elif column_id in self.editable_columns:
                 item = QtGui.QStandardItem()  # Editable by default
@@ -1083,28 +1306,50 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
         try:
             row_ix = self.find_row(proposal, run)
+            if not values:
+                # No need to update anything else
+                return
+            placeholders = ", ".join(["?"] * len(values))
+            query = (
+                "SELECT name, value, max_diff, summary_type, attributes "
+                "FROM run_variables WHERE proposal=? AND run=? "
+                f"AND name IN ({placeholders})"
+            )
+            params = (proposal, run, *values.keys())
         except KeyError:
             row_ix = None
+            query = (
+                "SELECT name, value, max_diff, summary_type, attributes "
+                "FROM run_variables WHERE proposal=? AND run=?"
+            )
+            params = (proposal, run)
 
+        data = {}
         max_diffs = {}
         attrs = {}
-        for name, max_diff, attr_json in self.db.conn.execute("""
-            SELECT name, max_diff, attributes FROM run_variables WHERE proposal=? AND run=?
-        """, (proposal, run)):
+        summary_types = {}
+
+        for name, value, max_diff, summary_type, attr_json in self.db.conn.execute(query, params):
+            data[name] = value
             max_diffs[name] = max_diff
+            summary_types[name] = summary_type
             attrs[name] = json.loads(attr_json) if attr_json else {}
 
         col_id_to_ix = {c: i for (i, c) in enumerate(self.column_ids)}
 
         if row_ix is not None:
             log.debug("Update existing row %s for run %s", row_ix, run)
-            for column_id, value in values.items():
+            for column_id in values:
                 col_ix = col_id_to_ix[column_id]
                 self.setItem(row_ix, col_ix, self.new_item(
-                    value, column_id, max_diffs.get(column_id) or 0, attrs.get(column_id) or {}
+                    data.get(column_id),
+                    column_id,
+                    max_diffs.get(column_id) or 0,
+                    attrs.get(column_id) or {},
+                    summary_types.get(column_id),
                 ))
         else:
-            self.insert_run_row(proposal, run, values, max_diffs, attrs)
+            self.insert_run_row(proposal, run, data, max_diffs, attrs, summary_types)
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
@@ -1316,6 +1561,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                     val = item and item.data(Qt.UserRole)
                     if val is None and item and item.data(Qt.DecorationRole):
                         val = "<image>"
+                    if val is None and item and item.data(LINE_DATA_ROLE) is not None:
+                        val = "<trendline>"
 
                 values.append(val)
                 for i, pytype in enumerate(value_types):
@@ -1385,3 +1632,6 @@ def prettify_notation(value):
 
 def is_png_bytes(obj):
     return isinstance(obj, bytes) and BlobTypes.identify(obj) is BlobTypes.png
+
+def is_numpy_bytes(obj):
+    return isinstance(obj, bytes) and BlobTypes.identify(obj) is BlobTypes.numpy

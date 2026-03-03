@@ -8,7 +8,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .backend.db import BlobTypes, DamnitDB, blob2complex
+from .backend.db import BlobTypes, DamnitDB, blob2complex, blob2numpy
 from .util import isinstance_no_import
 
 
@@ -163,8 +163,13 @@ class VariableData:
             raise RuntimeError(f"Could not find value for '{self.name}' in p{self.proposal}, r{self.name}")
         else:
             value, summary_type, version = result
-            if isinstance(value, bytes) and summary_type == "complex":
-                return blob2complex(value)
+            if isinstance(value, bytes):
+                if summary_type == "complex":
+                    return blob2complex(value)
+                if summary_type in ("numpy", "trendline"):
+                    return blob2numpy(value)
+                if BlobTypes.identify(value) is BlobTypes.numpy:
+                    return blob2numpy(value)
             return value
 
     def preview_data(self, *, data_fallback=True, deserialize_plotly=True):

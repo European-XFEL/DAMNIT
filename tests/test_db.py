@@ -1,8 +1,10 @@
 import os
 
+import numpy as np
 import pytest
 
-from damnit.backend.db import complex2blob, blob2complex, DamnitDB
+from damnit.backend.db import (BlobTypes, DamnitDB, ReducedData, blob2complex,
+                               blob2numpy, complex2blob, numpy2blob)
 from damnit.backend.db_migrations import latest_version
 import sqlite3
 from pathlib import Path
@@ -183,6 +185,35 @@ def test_complex_blob_conversion(value):
     blob = complex2blob(value)
     result = blob2complex(blob)
     assert result == value
+
+
+def test_numpy_blob_conversion():
+    arr = np.arange(6, dtype=np.float64).reshape(2, 3)
+    blob = numpy2blob(arr)
+    assert blob.startswith(b'\x93NUMPY')
+    result = blob2numpy(blob)
+    np.testing.assert_array_equal(result, arr)
+
+
+def test_numpy_summary_type_and_storage(tmp_path):
+    db = DamnitDB.from_dir(tmp_path)
+    db.ensure_run(1234, 1)
+    arr = np.arange(10, dtype=np.float64)
+
+    db.set_variable(1234, 1, "array", ReducedData(arr))
+    row = db.conn.execute(
+        "SELECT value, summary_type FROM run_variables WHERE name='array'"
+    ).fetchone()
+    assert row["summary_type"] == "numpy"
+    assert BlobTypes.identify(row["value"]) is BlobTypes.numpy
+    np.testing.assert_array_equal(blob2numpy(row["value"]), arr)
+
+    db.set_variable(1234, 1, "line", ReducedData(arr, summary_type="trendline"))
+    row = db.conn.execute(
+        "SELECT value, summary_type FROM run_variables WHERE name='line'"
+    ).fetchone()
+    assert row["summary_type"] == "trendline"
+    assert BlobTypes.identify(row["value"]) is BlobTypes.numpy
 
 
 def test_new_db_schema_is_latest(tmp_path):

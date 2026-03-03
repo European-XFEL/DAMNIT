@@ -1,10 +1,11 @@
+import io
 import json
 import logging
 import os
 import shutil
 import sqlite3
-import sys
 import struct
+import sys
 from collections.abc import ItemsView, MutableMapping, ValuesView
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from enum import Enum
 from pathlib import Path
 from secrets import token_hex
 from typing import Any, Optional
+
+import numpy as np
 
 from ..definitions import UPDATE_TOPIC, DEFAULT_CONTEXT_PYTHON
 from .db_migrations import apply_migrations, latest_version
@@ -68,6 +71,19 @@ def blob2complex(data: bytes) -> complex:
     # convert bytes to complex
     real, imag = struct.unpack('<dd', data)
     return complex(real, imag)
+
+
+def numpy2blob(arr: np.ndarray) -> bytes:
+    """Serialize a numpy array into .npy bytes for SQLite storage."""
+    buff = io.BytesIO()
+    np.save(buff, arr, allow_pickle=False)
+    return buff.getvalue()
+
+
+def blob2numpy(data: bytes) -> np.ndarray:
+    """Deserialize .npy bytes from SQLite into a numpy array."""
+    buff = io.BytesIO(data)
+    return np.load(buff, allow_pickle=False)
 
 
 def db_path(root_path: Path):
@@ -325,6 +341,12 @@ class DamnitDB:
         elif isinstance(variable["value"], complex):
             variable["value"] = complex2blob(variable["value"])
             variable["summary_type"] = "complex"
+        elif isinstance(variable["value"], np.ndarray):
+            if variable["value"].dtype.hasobject:
+                raise TypeError("Unsupported array dtype for database storage")
+            variable["value"] = numpy2blob(variable["value"])
+            if variable["summary_type"] in (None, ""):
+                variable["summary_type"] = "numpy"
 
         variable["proposal"] = proposal
         variable["run"] = run
