@@ -26,7 +26,7 @@ import numpy as np
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..definitions import UPDATE_BROKERS
+from ..definitions import update_brokers
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
@@ -160,7 +160,7 @@ class Extractor:
         self.db = DamnitDB()
         if connect_to_kafka:
             self.kafka_prd = KafkaProducer(
-                bootstrap_servers=UPDATE_BROKERS,
+                bootstrap_servers=update_brokers(),
                 value_serializer=lambda d: pickle.dumps(d),
             )
         else:

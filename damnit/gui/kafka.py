@@ -5,7 +5,7 @@ from kafka import KafkaConsumer, KafkaProducer
 from PyQt5 import QtCore
 
 from ..backend.db import MsgKind, msg_dict
-from ..definitions import UPDATE_BROKERS, UPDATE_TOPIC
+from ..definitions import update_brokers, UPDATE_TOPIC
 
 log = logging.getLogger(__name__)
 
@@ -18,9 +18,9 @@ class UpdateAgent(QtCore.QObject):
         self.update_topic = UPDATE_TOPIC.format(db_id)
 
         self.kafka_cns = KafkaConsumer(
-            self.update_topic, bootstrap_servers=UPDATE_BROKERS
+            self.update_topic, bootstrap_servers=update_brokers()
         )
-        self.kafka_prd = KafkaProducer(bootstrap_servers=UPDATE_BROKERS,
+        self.kafka_prd = KafkaProducer(bootstrap_servers=update_brokers(),
                                        value_serializer=lambda d: pickle.dumps(d))
         self.running = False
 

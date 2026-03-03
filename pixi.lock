@@ -254,6 +254,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/8f/8e/9ad090d3553c280a8060fbf6e24dc1c0c29704ee7d1c372f0c174aa59285/matplotlib_inline-0.1.7-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/45/53dbdd7013a1b84bec5ae0cea432ea212cd29d7a85a1baa42cf0ac079aac/mpl_pan_zoom-1.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c7/a4/070512af1bbf73de4d2648bbfc355619abf27dd468dba6dae35805a05b43/mplcursors-0.6-py3-none-any.whl
+      - pypi: git+https://git.xfel.eu/kluyvert/nafka#1f763dcdf9ebd0b6de874f8d59a76c0cfffd485c
       - pypi: https://files.pythonhosted.org/packages/7f/26/43caf834e47c63883a5eddc02893b7fdbe6a0a4508ff6dc401907f3cc085/narwhals-2.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ef/82/7a9d0550484a62c6da82858ee9419f3dd1ccc9aa1c26a1e43da3ecd20b0d/natsort-8.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1d/0f/571b2c7a3833ae419fe69ff7b479a78d313581785203cc70a8db90121b9a/numpy-2.3.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -475,7 +476,7 @@ packages:
 - pypi: ./
   name: damnit
   version: 0.2.1
-  sha256: 7f45445822d0e44c50b206950b077158ed8c3a496bd23aa23a027c0b03cd6964
+  sha256: c6c50e2826d59190d0443f7e46978131df4892d9d0529b5c6e59e67659ee010b
   requires_dist:
   - fpcs
   - h5netcdf>=1.4.1
@@ -522,6 +523,7 @@ packages:
   - pytest-timeout ; extra == 'test'
   - pytest-venv ; extra == 'test'
   - testpath ; extra == 'test'
+  - nafka @ git+https://git.xfel.eu/kluyvert/nafka ; extra == 'test'
   requires_python: '>=3.10'
   editable: true
 - pypi: https://files.pythonhosted.org/packages/4e/8c/f3147f5c4b73e7550fe5f9352eaa956ae838d5c51eb58e7a25b9f3e2643b/decorator-5.2.1-py3-none-any.whl
@@ -1233,6 +1235,9 @@ packages:
   - sphinx ; extra == 'docs'
   - sphinx-gallery ; extra == 'docs'
   requires_python: '>=3.7'
+- pypi: git+https://git.xfel.eu/kluyvert/nafka#1f763dcdf9ebd0b6de874f8d59a76c0cfffd485c
+  name: nafka
+  version: '0.1'
 - pypi: https://files.pythonhosted.org/packages/7f/26/43caf834e47c63883a5eddc02893b7fdbe6a0a4508ff6dc401907f3cc085/narwhals-2.0.1-py3-none-any.whl
   name: narwhals
   version: 2.0.1
