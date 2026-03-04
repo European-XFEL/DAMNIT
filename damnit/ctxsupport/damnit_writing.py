@@ -320,27 +320,3 @@ def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cel
     os.chmod(f.final_path, 0o666)
 
     return Path(f.final_path)
-
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    import plotly.express as px
-    import xarray as xr
-    from extra_data import SourceNameError
-    from damnit_ctx import Cell
-
-    results_folder = Path("test/extracted_data")
-    results_folder.mkdir(parents=True, exist_ok=True)
-
-    da = xr.DataArray(np.zeros((2, 4, 5)), dims=['x', 'y', 'z'])
-    fig, ax = plt.subplots()
-    ax.plot(np.arange(20))
-
-    save_fragment(results_folder.parent, 1, 1, vars={
-        'numpy': Cell(np.arange(10), summary_value=5, bold=True),
-        'xarray': Cell(da, preview=da.mean('x')),
-        'mpl': Cell(fig),
-        'plotly': Cell(px.bar(x=['a', 'b', 'c'], y=[1, 3, 2]))
-    }, errors={
-        'sourceerr': SourceNameError("No source named FOO/BAR/BAZ in this data"),
-    })
