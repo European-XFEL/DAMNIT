@@ -137,6 +137,13 @@ class DamnitDB:
     def close(self):
         self.conn.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     @property
     def kafka_topic(self):
         return UPDATE_TOPIC.format(self.metameta['db_id'])
@@ -327,7 +334,9 @@ class DamnitDB:
                    GROUP BY run;
             """)
 
-    def set_variable(self, proposal: int, run: int, name: str, reduced):
+    def set_variable(
+            self, proposal: int, run: int, name: str, reduced, provenance=""
+    ):
         timestamp = datetime.now(tz=timezone.utc).timestamp()
 
         variable = asdict(reduced)
@@ -352,7 +361,7 @@ class DamnitDB:
         variable["run"] = run
         variable["name"] = name
         variable["timestamp"] = timestamp
-        variable["provenance"] = "context.py"
+        variable["provenance"] = provenance
         variable["attributes"] = None
         if reduced.attributes:
             variable["attributes"] = json.dumps(reduced.attributes)
@@ -554,6 +563,10 @@ class MsgKind(Enum):
     processing_state_set = 'processing_state_set'   # Supports status indicators
     processing_finished = 'processing_finished'
     # Commented out options are not implemented yet
+
+    # These messages are sent on the file submission topic & received by the
+    # combiner service, unlike the other messages above.
+    file_submission = 'file_submission'
 
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}

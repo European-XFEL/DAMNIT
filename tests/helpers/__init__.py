@@ -1,8 +1,10 @@
 import textwrap
+from pathlib import Path
 from unittest.mock import patch
 
 from PyQt5 import QtGui, QtWidgets
 
+from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import ReducedData, RunExtractor
 from damnit.cli import main
@@ -39,6 +41,8 @@ def extract_mock_run(run_num: int, match=()):
         extr.update_db_vars()
         extr.extract_and_ingest()
 
+    gather_all_fragments(Path.cwd())
+
 
 def mkcontext(code):
     return ContextFile.from_str(textwrap.dedent(code))
@@ -62,4 +66,3 @@ def make_table_with_headers(qtbot, headers):
     qtbot.waitExposed(view)
     header._rebuild_hierarchy()
     return view, header
-

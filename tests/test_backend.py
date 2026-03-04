@@ -23,6 +23,7 @@ from PIL import Image
 from testpath import MockCommand
 
 from damnit.backend import listener_is_running, initialize_proposal, start_listener
+from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import BlobTypes, DamnitDB, blob2numpy
 from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data, main as extract_data_main
 from damnit.backend.extraction_control import ExtractionJobTracker
@@ -300,7 +301,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
 
     # Check that the summary of a DataArray is a single number
     assert isinstance(results.cells["meta_array"].data, xr.DataArray)
-    assert results.reduced["meta_array"].ndim == 0
+    assert results.cells["meta_array"].get_summary().ndim == 0
 
     # Check the result values
     assert results.cells["scalar1"].data == 42
@@ -374,12 +375,11 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     default_value_ctx = mkcontext(default_value_code)
     results = results_create(default_value_ctx)
-    assert results.reduced["bar"].item() == 42
+    assert results.cells["bar"].get_summary().item() == 42
 
     # Test that the backend completely updates all datasets belonging to a
     # variable during reprocessing. e.g. if it had a trainId dataset but now
     # doesn't, the trainId dataset should be deleted from the HDF5 file.
-    results_hdf5_path = tmp_path / "results.hdf5"
     with_coords_code = """
     import xarray as xr
     from damnit.context import Variable
@@ -394,7 +394,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     with_coords_ctx = mkcontext(with_coords_code)
     results = results_create(with_coords_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     # This time there should be a trainId dataset saved
     with h5py.File(results_hdf5_path) as f:
@@ -412,7 +412,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     without_coords_ctx = mkcontext(without_coords_code)
     results = results_create(without_coords_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     # But now it should be deleted from the file
     with h5py.File(results_hdf5_path) as f:
@@ -452,11 +452,11 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     figure_ctx = mkcontext(figure_code)
     results = results_create(figure_ctx)
-    assert isinstance(results.reduced["figure"], PNGData)
-    assert isinstance(results.reduced["axes"], PNGData)
+    assert isinstance(results.cells["figure"].get_summary(), PNGData)
+    assert isinstance(results.cells["axes"].get_summary(), PNGData)
 
     results_hdf5_path.unlink()
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
     with h5py.File(results_hdf5_path) as f:
         # The plots should be saved as 3D RGBA arrays
         check_rgba(f["figure/data"])
@@ -484,7 +484,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     dataset_ctx = mkcontext(dataset_code)
     results = results_create(dataset_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     dataset = xr.load_dataset(results_hdf5_path, group="dataset", engine="h5netcdf")
     assert "foo" in dataset
@@ -510,7 +510,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     """
     complex_ctx = mkcontext(complex_code)
     results = results_create(complex_ctx)
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, proposal, run_number)
 
     dataset = xr.load_dataset(results_hdf5_path, group="complex_dataset", engine="h5netcdf")
     assert "foo" in dataset
@@ -567,8 +567,7 @@ def test_return_bool(mock_run, tmp_path):
     ctx = mkcontext(code)
     results = ctx.execute(mock_run, 1000, 123, {})
 
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         assert f['bool/data'][()] == True
@@ -579,6 +578,7 @@ def test_results_bad_obj(mock_run, tmp_path):
     # Test returning an object we can't save in HDF5
     bad_obj_code = """
     from damnit_ctx import Variable
+    import numpy as np
 
     @Variable()
     def good(run):
@@ -594,10 +594,9 @@ def test_results_bad_obj(mock_run, tmp_path):
     """
     bad_obj_ctx = mkcontext(bad_obj_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
-        assert set(f) == {".errors", ".reduced", "good", "start_time"}
+        assert {n for n in f if not n.startswith(".")} == {"good", "start_time"}
         assert set(f[".reduced"]) == {"good", "start_time"}
 
 def test_results_cell(mock_run, tmp_path):
@@ -619,8 +618,7 @@ def test_results_cell(mock_run, tmp_path):
     """
     bad_obj_ctx = mkcontext(ctx_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
         assert f['.reduced/var2'][()] == 45
         assert f['.reduced/var2'].attrs['bold'] == False
@@ -644,12 +642,12 @@ def test_results_empty_array(mock_run, tmp_path, caplog):
     ctx = mkcontext(empty_array)
     with caplog.at_level(logging.ERROR):
         results = ctx.execute(mock_run, 1000, 123, {})
-        results.save_hdf5(tmp_path / 'results.h5', reduced_only=True)
+        results.save(tmp_path, 1000, 123)
 
         # One warning about foo should have been logged
         assert len(caplog.records) == 1
         assert caplog.records[0].levelname == "ERROR"
-        assert caplog.records[0].msg == "Failed to produce summary data"
+        assert caplog.records[0].msg.startswith("Failed to produce summary data")
 
 
 @pytest.mark.skip(reason="Depending on user variables is currently disabled")
@@ -696,8 +694,7 @@ def test_results_preview(mock_run, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
         np.testing.assert_array_equal(f['.preview/var1'][()], np.ones(5))
         check_trendline(f['.reduced/var1'])
@@ -796,8 +793,7 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         dset = f['.reduced/line']
@@ -837,9 +833,6 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     ctx_path = db_dir / "context.py"
     ctx_path.write_text(mock_ctx.code)
 
-    out_path = db_dir / "extracted_data" / "p1234_r42.h5"
-    out_path.parent.mkdir(exist_ok=True)
-
     # Create Extractor with a mocked KafkaProducer
     with patch(f"{pkg}.KafkaProducer") as _:
         extractor = RunExtractor(1234, 42, cluster=False, run_data=RunData.ALL)
@@ -858,7 +851,9 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Process run
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['exec', '1234', '42', 'raw', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'raw'])
+    gather_all_fragments(db_dir)
+    out_path = db_dir / "extracted_data" / "p1234_r42.h5"
 
     # Check that a file was created
     assert out_path.is_file()
@@ -877,7 +872,8 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with `data='all'`, but as if there is no proc data
     with patch("ctxrunner.extra_data.open_run", side_effect=mock_open_run):
-        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all'])
+    gather_all_fragments(db_dir)
 
     # Check that `meta_array` wasn't processed, since it requires proc data
     with h5py.File(out_path) as f:
@@ -885,7 +881,8 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Reprocess with proc data
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['exec', '1234', '42', 'all', '--save', str(out_path)])
+        main(['exec', '1234', '42', 'all'])
+    gather_all_fragments(db_dir)
 
     # Now `meta_array` should have been processed
     with h5py.File(out_path) as f:
@@ -895,6 +892,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
     with patch("ctxrunner.extra_data.open_run") as open_run:
         main(["exec", "1234", "42", "all", "--mock"])
         open_run.assert_not_called()
+    gather_all_fragments(db_dir)
 
     # When only proc variables are reprocessed, the run should still be opened
     # with `data='all'` so that raw data is available. Note that we patch
@@ -904,6 +902,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
         main(["exec", "1234", "42", "proc"])
 
         open_run.assert_called_with(1234, 42, data="all")
+    gather_all_fragments(db_dir)
 
 def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db
@@ -944,6 +943,7 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
 
     with patch(f"{pkg}.KafkaProducer"):
         RunExtractor(1234, 42, mock=True).extract_and_ingest()
+    gather_all_fragments(db_dir)
 
     with h5py.File(db_dir / "extracted_data" / "p1234_r42.h5") as f:
         assert f["foo/data"][()] == 42
@@ -1369,8 +1369,7 @@ def test_transient_variables(mock_run, mock_db, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         assert '.reduced/var1' in f
@@ -1425,8 +1424,7 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    results_hdf5_path = tmp_path / 'results.h5'
-    results.save_hdf5(results_hdf5_path)
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
 
     with h5py.File(results_hdf5_path) as f:
         for i in [1, 2, 4]:

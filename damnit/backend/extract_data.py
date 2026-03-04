@@ -7,6 +7,7 @@ file (see ctxrunner.py).
 import argparse
 import copy
 import getpass
+import json
 import os
 import logging
 import pickle
@@ -15,6 +16,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 from getpass import getuser
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -26,7 +28,7 @@ import numpy as np
 from kafka import KafkaProducer
 
 from ..context import ContextFile, RunData
-from ..definitions import UPDATE_BROKERS
+from ..definitions import UPDATE_BROKERS, FILE_SUBMIT_TOPIC
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
@@ -126,7 +128,7 @@ def load_reduced_data(h5_path):
         }
 
 
-def add_to_db(reduced_data, db: DamnitDB, proposal, run):
+def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance=""):
     db.ensure_run(proposal, run)
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))
@@ -150,7 +152,31 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run):
         if not isinstance(reduced.value, (int, float, str, bytes, complex, np.ndarray, type(None))):
             raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
 
-        db.set_variable(proposal, run, name, reduced)
+        db.set_variable(proposal, run, name, reduced, provenance=provenance)
+
+
+def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
+    msg = file_submit_msg(damnit_dir, proposal, run, file_path)
+    prod = KafkaProducer(
+        bootstrap_servers=UPDATE_BROKERS,
+        value_serializer=lambda d: json.dumps(d).encode('utf-8')
+    )
+    prod.send(FILE_SUBMIT_TOPIC, msg)
+    prod.flush(timeout=10)
+
+
+def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
+    # Announce via Kafka that this file is ready to be combined
+    return msg_dict(MsgKind.file_submission, {
+        'damnit_dir': str(damnit_dir.absolute()),
+        'new_file': file_path,
+        'proposal': proposal,  # int
+        'run': run,  # int
+        'computed_by': {
+            'hostname': socket.gethostname(),
+            'username': getuser(),
+        }
+    })
 
 
 class Extractor:
@@ -161,7 +187,7 @@ class Extractor:
         if connect_to_kafka:
             self.kafka_prd = KafkaProducer(
                 bootstrap_servers=UPDATE_BROKERS,
-                value_serializer=lambda d: pickle.dumps(d),
+                value_serializer=lambda d: json.dumps(d).encode('utf-8'),
             )
         else:
             self.kafka_prd = None
@@ -251,24 +277,21 @@ class RunExtractor(Extractor):
             args.extend(shlex.split(self.sandbox_args))
             args.append(str(self.proposal))
             args.append("--")
-        args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal), str(self.run),
-                     self.run_data.value, '--save', self.out_path])
-        if self.cluster:
-            args.append('--cluster-job')
-        if self.mock:
-            args.append("--mock")
-        if self.variables:
-            for v in self.variables:
-                args.extend(['--var', v])
-        else:
-            for m in self.match:
-                args.extend(['--match', m])
 
-        with TemporaryDirectory() as td:
-            # Save a separate copy of the reduced data, so we can send an update
-            # with only the variables that we've extracted.
-            reduced_out_path = Path(td, 'reduced.h5')
-            args.extend(['--save-reduced', str(reduced_out_path)])
+        with tempfile.NamedTemporaryFile(prefix='damnit-file-list') as tf:
+            args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal),
+                         str(self.run), self.run_data.value,
+                         '--record-output', tf.name])
+            if self.cluster:
+                args.append('--cluster-job')
+            if self.mock:
+                args.append("--mock")
+            if self.variables:
+                for v in self.variables:
+                    args.extend(['--var', v])
+            else:
+                for m in self.match:
+                    args.extend(['--match', m])
 
             p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
 
@@ -282,7 +305,12 @@ class RunExtractor(Extractor):
             if retcode:
                 raise subprocess.CalledProcessError(retcode, p.args)
 
-            return load_reduced_data(reduced_out_path)
+            for line in tf:
+                pth = line.decode().strip()
+                if pth and Path(pth).is_file():
+                    self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
+                        self.db.path.parent, self.proposal, self.run, pth
+                    ))
 
     def extract_and_ingest(self):
         self._notify_running()
@@ -290,18 +318,7 @@ class RunExtractor(Extractor):
         if self.out_path.parent.stat().st_uid == os.getuid():
             os.chmod(self.out_path.parent, 0o777)
 
-        reduced_data = self.extract_in_subprocess()
-        log.info("Reduced data has %d fields", len(reduced_data))
-        add_to_db(reduced_data, self.db, self.proposal, self.run)
-
-        # Send all the updates for scalars
-        update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': self.run, 'proposal': self.proposal, 'values': {
-                name: None for name, _ in reduced_data.items()
-            }})
-        self.kafka_prd.send(self.db.kafka_topic, update_msg).get(timeout=30)
-
-        log.info("Sent Kafka updates to topic %r", self.db.kafka_topic)
+        self.extract_in_subprocess()
 
         # Launch a Slurm job if there are any 'cluster' variables to evaluate
         if not self.cluster:
