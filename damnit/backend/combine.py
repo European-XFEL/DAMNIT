@@ -108,7 +108,6 @@ class FileSubmissionProcessor:
     def process_file_submission_msg(self, d: dict):
         """Handle a notification from Kafka"""
         damnit_dir = Path(d['damnit_dir'])
-        db = DamnitDB.from_dir(damnit_dir)
         h5_dir = damnit_dir / "extracted_data"
         src = Path(d['new_file'])
         dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
@@ -120,8 +119,10 @@ class FileSubmissionProcessor:
             provenance = f.attrs.get("provenance", "")
         new_data = load_reduced_data(src)
         combine(src, dst)
-        add_to_db(new_data, db, prop, run, provenance=provenance)
-        self.send_update(new_data, db.kafka_topic, prop, run)
+
+        with DamnitDB.from_dir(damnit_dir) as db:
+            add_to_db(new_data, db, prop, run, provenance=provenance)
+            self.send_update(new_data, db.kafka_topic, prop, run)
 
     def send_update(self, reduced_data, topic, proposal, run):
         update_msg = msg_dict(MsgKind.run_values_updated, {
