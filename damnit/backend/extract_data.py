@@ -309,7 +309,7 @@ class RunExtractor(Extractor):
                 pth = line.decode().strip()
                 if pth and Path(pth).is_file():
                     self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
-                        Path.cwd(), self.proposal, self.run, pth
+                        self.db.path.parent, self.proposal, self.run, pth
                     ))
 
     def extract_and_ingest(self):

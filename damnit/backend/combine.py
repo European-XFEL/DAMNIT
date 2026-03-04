@@ -71,6 +71,7 @@ class FileSubmissionProcessor:
         self.consumer = KafkaConsumer(
             FILE_SUBMIT_TOPIC,
             bootstrap_servers=UPDATE_BROKERS,
+            group_id='xfel-da-damnit-combiner',
             consumer_timeout_ms=600_000,
         )
         self.producer = KafkaProducer(
