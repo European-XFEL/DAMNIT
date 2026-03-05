@@ -41,6 +41,13 @@ _DEFAULT_PIPELINE_STATE = contextvars.ContextVar(
 )
 
 
+@dataclass
+class _PipelineState:
+    pipeline: "Pipeline"
+    explicit: bool = False
+    used: bool = False
+
+
 def isinstance_no_import(obj, mod: str, cls: str):
     """Check if isinstance(obj, mod.cls) without loading mod"""
     m = sys.modules.get(mod)
@@ -469,7 +476,6 @@ class Pipeline:
             data: Any | None = None,
             input_vars: dict[str, Any] | None = None,
             _base_context: "ContextFile" = None,
-            _code: str | None = None,
     ):
         """Initialize a Pipeline.
 
@@ -481,7 +487,6 @@ class Pipeline:
             data: Object passed to Variable functions.
             input_vars: Mapping for input# dependencies.
             _base_context: Precompiled context for select().
-            _code: Source code for the context file, if known.
         """
         self.name = name
         self.proposal = proposal
@@ -493,16 +498,16 @@ class Pipeline:
         self._items = []
         # Compiled ContextFile used as the base for add()/select().
         self._base_context = _base_context
-        # Source code string for the context file, if known.
-        self._code = _code
         # Cached compiled ContextFile for this pipeline (invalidated by add()).
         self._context = _base_context
+        # RunData used to filter the current context, if any.
+        self._filtered_run_data = None
         # Results from the last execute() call, if any.
         self._last_results = None
 
     @classmethod
     def _new_state(cls):
-        return {"pipeline": cls(name="default"), "explicit": False, "used": False}
+        return _PipelineState(pipeline=cls(name="default"))
 
     @classmethod
     def default(cls):
@@ -516,8 +521,8 @@ class Pipeline:
         if state is None:
             state = cls._new_state()
             _DEFAULT_PIPELINE_STATE.set(state)
-        state["used"] = True
-        return state["pipeline"]
+        state.used = True
+        return state.pipeline
 
     @classmethod
     def set_default(cls, pipeline):
@@ -532,9 +537,9 @@ class Pipeline:
         if state is None:
             state = cls._new_state()
             _DEFAULT_PIPELINE_STATE.set(state)
-        state["pipeline"] = pipeline
-        state["explicit"] = True
-        state["used"] = True
+        state.pipeline = pipeline
+        state.explicit = True
+        state.used = True
         return pipeline
 
     def copy(self):
@@ -546,10 +551,10 @@ class Pipeline:
             data=self.data,
             input_vars=self.input_vars,
             _base_context=self._base_context,
-            _code=self._code,
         )
         clone._items = list(self._items)
         clone._context = self._context
+        clone._filtered_run_data = self._filtered_run_data
         return clone
 
     def add(self, *items):
@@ -561,6 +566,10 @@ class Pipeline:
             if isinstance(item, Variable) or is_group_instance(item):
                 self._items.append(item)
                 return
+            if isinstance(item, (str, bytes, bytearray)):
+                raise TypeError(
+                    "Pipeline.add accepts Variable or Group instances (or iterables of them)"
+                )
             if isinstance(item, Iterable):
                 for sub in item:
                     add_item(sub)
@@ -572,6 +581,7 @@ class Pipeline:
         for item in items:
             add_item(item)
         self._context = None
+        self._filtered_run_data = None
         return self
 
     def with_context(
@@ -607,19 +617,22 @@ class Pipeline:
             return value
         return RunData(value)
 
+    def _resolve_code(self, code_override=None):
+        if code_override is not None:
+            return code_override
+        if self._base_context is not None:
+            return self._base_context.code
+        return ""
+
     def _get_context(self):
         if self._context is None:
             self._context = self._build_context()
         return self._context
 
     def _build_context(self, code_override=None):
-        from ctxrunner import ContextFile, expand_groups
-        code = code_override if code_override is not None else self._code
         vars_by_name = {}
         if self._base_context is not None:
             vars_by_name.update(self._base_context.vars)
-            if not code:
-                code = self._base_context.code
 
         group_items = []
         for item in self._items:
@@ -635,33 +648,33 @@ class Pipeline:
                     "Pipeline items must be Variable or Group instances"
                 )
 
-        if group_items:
-            unnamed = [group for group in group_items if group.name is None]
-            if unnamed:
-                raise GroupError(
-                    "Group instance has no name. Provide name=... before adding to Pipeline."
-                )
-            seen_names = {}
-            for group in group_items:
-                existing = seen_names.get(group.name)
-                if existing is not None and existing is not group:
-                    raise GroupError(
-                        f"Group name {group.name!r} is used by multiple group instances"
-                    )
-                seen_names[group.name] = group
-            context = dict(seen_names)
-            vars_by_name.update(expand_groups(context, vars_by_name))
+        return _build_context_file(
+            vars_by_name=vars_by_name,
+            code=self._resolve_code(code_override),
+            group_items=group_items,
+        )
 
-        if code is None:
-            code = ""
-        
-        ctx = ContextFile(vars_by_name, code)
-        ctx.check()
-        return ctx
+    def _with_context(self, ctx, *, filtered_run_data=None):
+        new_pipe = self.copy()
+        new_pipe._base_context = ctx
+        new_pipe._context = ctx
+        new_pipe._filtered_run_data = filtered_run_data
+        return new_pipe
 
     def compile(self):
         """Compile the Pipeline into a ContextFile."""
         return self._get_context()
+
+    @classmethod
+    def _from_context(cls, ctx, *, name=None, check=True):
+        if check:
+            ctx.check()
+        pipe = cls(
+            name=name,
+            _base_context=ctx,
+        )
+        pipe._context = ctx
+        return pipe
 
     @classmethod
     def from_context_file(
@@ -675,30 +688,17 @@ class Pipeline:
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_py_file(Path(path))
-        ctx.check()
-        pipe = cls(
-            name=name,
-            _base_context=ctx,
-            _code=ctx.code,
-        )
-        pipe._context = ctx
-        return pipe
+        return cls._from_context(ctx, name=name)
 
     @classmethod
     def from_str(cls, code, *, path="<string>", name=None):
         """Create a Pipeline from a context string."""
         ctx = build_context_from_code(code, path)
-        ctx.check()
-        pipe = cls(
-            name=name,
-            _base_context=ctx,
-            _code=ctx.code,
-        )
-        pipe._context = ctx
-        return pipe
+        return cls._from_context(ctx, name=name)
 
     def select(self, *, variables=(), match=(), run_data=None, cluster=None):
         """Return a new Pipeline filtered to a subset of variables."""
+        selected_run_data = run_data
         ctx = self._get_context()
         run_data = self._normalize_run_data(run_data or self.run_data)
         filtered = ctx.filter(
@@ -707,9 +707,9 @@ class Pipeline:
             name_matches=match,
             variables=variables,
         )
-        new_pipe = self.copy()
-        new_pipe._base_context = filtered
-        new_pipe._context = filtered
+        new_pipe = self._with_context(filtered, filtered_run_data=run_data)
+        if selected_run_data is not None:
+            new_pipe.run_data = selected_run_data
         return new_pipe
 
     def _open_run(self, proposal, run_number, run_data):
@@ -749,7 +749,9 @@ class Pipeline:
                 self.proposal, self.run_number, run_data
             )
 
-        ctx = self._get_context().filter(run_data=run_data, cluster=None)
+        ctx = self._get_context()
+        if self._filtered_run_data != run_data:
+            ctx = ctx.filter(run_data=run_data, cluster=None)
         merged_input = dict(self.input_vars)
         if input_vars is not None:
             merged_input.update(input_vars)
@@ -792,6 +794,52 @@ def pipeline_scope():
         _DEFAULT_PIPELINE_STATE.reset(token)
 
 
+def _build_context_file(
+        *,
+        vars_by_name: dict[str, "Variable"],
+        code: str | None,
+        group_items=None,
+        context=None,
+        check=True,
+):
+    """Build and optionally validate a ContextFile."""
+    if group_items is not None and context is not None:
+        raise ValueError("Provide either group_items or context, not both")
+
+    vars_by_name = dict(vars_by_name)
+
+    if group_items:
+        from ctxrunner import _group_name, expand_groups
+
+        group_list = list(group_items)
+        for group in group_list:
+            _group_name(group)
+
+        seen_names = {}
+        for group in group_list:
+            existing = seen_names.get(group.name)
+            if existing is not None and existing is not group:
+                raise GroupError(
+                    f"Group name {group.name!r} is used by multiple group instances"
+                )
+            seen_names[group.name] = group
+
+        group_context = {group.name: group for group in group_list}
+        vars_by_name.update(expand_groups(group_context, vars_by_name))
+
+    elif context is not None:
+        from ctxrunner import expand_groups
+
+        vars_by_name.update(expand_groups(context, vars_by_name))
+
+    from ctxrunner import ContextFile
+
+    ctx = ContextFile(vars_by_name, code or "")
+    if check:
+        ctx.check()
+    return ctx
+
+
 def build_context_from_code(code, path):
     """Execute context code and return ContextFile."""
     context = {}
@@ -801,17 +849,19 @@ def build_context_from_code(code, path):
 
     vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
 
-    if state is None or not state.get("used"):
-        from ctxrunner import ContextFile, expand_groups
-
-        vars_by_name.update(expand_groups(context, vars_by_name))
-        return ContextFile(vars_by_name, code)
+    if state is None or not state.used:
+        return _build_context_file(
+            vars_by_name=vars_by_name,
+            code=code,
+            context=context,
+            check=False,
+        )
 
     from ctxrunner import _assign_group_names
+
     _assign_group_names(context)
     groups = [obj for obj in context.values() if is_group_instance(obj)]
-    pipe = state["pipeline"]
-    if not state.get("explicit"):
+    pipe = state.pipeline
+    if not state.explicit:
         pipe.add(*vars_by_name.values(), *groups)
-    ctx = pipe._build_context(code_override=code)
-    return ctx
+    return pipe._build_context(code_override=code)

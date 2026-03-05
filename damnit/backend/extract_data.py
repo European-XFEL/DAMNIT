@@ -79,7 +79,7 @@ def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, san
             ctx, error_info = unpickler.load()
             pipe = None
             if ctx is not None:
-                pipe = Pipeline(name="default", _base_context=ctx, _code=ctx.code)
+                pipe = Pipeline(name="default", _base_context=ctx)
             return pipe, error_info
 
 
