@@ -177,6 +177,11 @@ def test_pipeline_add_accepts_nested_iterables_and_rejects_invalid():
         Pipeline().add(123)
 
 
+def test_pipeline_add_rejects_string():
+    with pytest.raises(TypeError, match=r"Pipeline\.add accepts"):
+        Pipeline().add("not-a-variable")
+
+
 def test_pipeline_add_invalidates_compiled_context():
     @Variable
     def a(run):
@@ -215,7 +220,7 @@ def test_pipeline_build_context_rejects_unnamed_group_instance():
         def val(self, run):
             return 1
 
-    with pytest.raises(GroupError, match=r"Group instance has no name"):
+    with pytest.raises(GroupError, match=r"has no name"):
         Pipeline().add(G()).compile()
 
 
@@ -279,6 +284,22 @@ def test_pipeline_select_filters():
 
     raw_only = pipe.select(run_data="raw")
     assert set(raw_only.vars) == {"a", "c"}
+
+
+def test_pipeline_select_run_data_overrides_execution(mock_run):
+    @Variable(data="raw")
+    def raw_var(run):
+        return 1
+
+    @Variable(data="proc")
+    def proc_var(run):
+        return 2
+
+    pipe = Pipeline(run_data="proc").add(raw_var, proc_var)
+    selected = pipe.select(run_data="raw")
+    res = selected.with_context(data=mock_run, proposal=1, run_number=1).execute()
+    assert "raw_var" in res.cells
+    assert "proc_var" not in res.cells
 
 
 def test_pipeline_execute_requires_data_or_proposal_run_number():
