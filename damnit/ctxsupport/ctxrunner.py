@@ -422,6 +422,7 @@ class ContextFile:
     @classmethod
     def from_str(cls, code: str, path='<string>'):
         ctx = build_context_from_code(code, path)
+        ctx.check()
         log.debug("Loaded %d variables", len(ctx.vars))
         return ctx
 
@@ -754,11 +755,13 @@ def extract_error_info(exc_type, e, tb):
     return (stacktrace, lineno, offset)
 
 
-def get_proposal_path(xd_run):
-    files = [f.filename for f in xd_run.files]
-    p = Path(files[0])
+def get_proposal_path(xd_run) -> str:
+    if isinstance(xd_run, extra_data.DataCollection):
+        files = [f.filename for f in xd_run.files]
+        p = Path(files[0])
 
-    return Path(*p.parts[:-3])
+        return Path(*p.parts[:-3])
+    return ""
 
 
 @contextmanager

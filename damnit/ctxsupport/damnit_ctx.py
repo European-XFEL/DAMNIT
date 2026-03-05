@@ -560,7 +560,7 @@ class Pipeline:
     def add(self, *items):
         """Add Variables or Group instances to this Pipeline.
 
-        Items can be Variables, Group instances, or iterables of them.
+        Items can be Variables, Group instances, or sequences of them.
         """
         def add_item(item):
             if isinstance(item, Variable) or is_group_instance(item):
@@ -568,14 +568,14 @@ class Pipeline:
                 return
             if isinstance(item, (str, bytes, bytearray)):
                 raise TypeError(
-                    "Pipeline.add accepts Variable or Group instances (or iterables of them)"
+                    "Pipeline.add accepts Variable or Group instances (or sequences of them)"
                 )
-            if isinstance(item, Iterable):
+            if isinstance(item, Sequence):
                 for sub in item:
                     add_item(sub)
                 return
             raise TypeError(
-                "Pipeline.add accepts Variable or Group instances (or iterables of them)"
+                "Pipeline.add accepts Variable or Group instances (or sequences of them)"
             )
 
         for item in items:
@@ -693,7 +693,9 @@ class Pipeline:
     @classmethod
     def from_str(cls, code, *, path="<string>", name=None):
         """Create a Pipeline from a context string."""
-        ctx = build_context_from_code(code, path)
+        from ctxrunner import ContextFile
+
+        ctx = ContextFile.from_str(code, path)
         return cls._from_context(ctx, name=name)
 
     def select(self, *, variables=(), match=(), run_data=None, cluster=None):
@@ -800,7 +802,6 @@ def _build_context_file(
         code: str | None,
         group_items=None,
         context=None,
-        check=True,
 ):
     """Build and optionally validate a ContextFile."""
     if group_items is not None and context is not None:
@@ -835,8 +836,7 @@ def _build_context_file(
     from ctxrunner import ContextFile
 
     ctx = ContextFile(vars_by_name, code or "")
-    if check:
-        ctx.check()
+    ctx.check()
     return ctx
 
 
@@ -854,7 +854,6 @@ def build_context_from_code(code, path):
             vars_by_name=vars_by_name,
             code=code,
             context=context,
-            check=False,
         )
 
     from ctxrunner import _assign_group_names
