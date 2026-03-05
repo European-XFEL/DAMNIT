@@ -161,7 +161,7 @@ def test_pipeline_sequential_contexts_no_leak():
     assert set(pipe_b.vars) == {"b"}
 
 
-def test_pipeline_add_accepts_nested_iterables_and_rejects_invalid():
+def test_pipeline_add_accepts_nested_sequences_and_rejects_invalid_iterables():
     @Variable
     def a(run):
         return 1
@@ -175,6 +175,12 @@ def test_pipeline_add_accepts_nested_iterables_and_rejects_invalid():
 
     with pytest.raises(TypeError, match=r"Pipeline\.add accepts"):
         Pipeline().add(123)
+
+    def gen():
+        yield a
+
+    with pytest.raises(TypeError, match=r"Pipeline\.add accepts"):
+        Pipeline().add(gen())
 
 
 def test_pipeline_add_rejects_string():
