@@ -301,38 +301,38 @@ def main(argv=None):
     elif args.subcmd == "listener":
         from .backend.listener import ListenerDB
 
-        db = ListenerDB(Path.cwd())
-        if args.listener_subcmd == "config":
-            handle_config_args(args, db.settings,
-                               # Convert `static_mode` to a bool
-                               dict(static_mode=lambda x: bool(int(x))))
-        elif args.listener_subcmd == "add":
-            official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
+        with ListenerDB(Path.cwd()) as db:
+            if args.listener_subcmd == "config":
+                handle_config_args(args, db.settings,
+                                   # Convert `static_mode` to a bool
+                                   dict(static_mode=lambda x: bool(int(x))))
+            elif args.listener_subcmd == "add":
+                official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
 
-            if args.db_dir is None:
-                db_dir = official_dir
-                official = True
-            else:
-                db_dir = args.db_dir
-                official = db_dir == official_dir
-
-            db.add_proposal_db(args.proposal, db_dir, official=official)
-            print(f"Added proposal {args.proposal} at {db_dir}")
-        elif args.listener_subcmd == "rm":
-            db.remove_proposal_db(args.db_dir)
-            print(f"Removed database at {args.db_dir}")
-        elif args.listener_subcmd == "databases":
-            db = ListenerDB(Path.cwd())
-            all_proposals = db.all_proposals()
-            sorted_proposals = sorted(all_proposals.keys())
-            for p in sorted_proposals:
-                if len(all_proposals[p]) > 1:
-                    print(f"p{p}:")
-                    for x in all_proposals[p]:
-                        print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
+                if args.db_dir is None:
+                    db_dir = official_dir
+                    official = True
                 else:
-                    x = all_proposals[p][0]
-                    print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
+                    db_dir = args.db_dir
+                    official = db_dir == official_dir
+
+                db.add_proposal_db(args.proposal, db_dir, official=official)
+                print(f"Added proposal {args.proposal} at {db_dir}")
+            elif args.listener_subcmd == "rm":
+                db.remove_proposal_db(args.db_dir)
+                print(f"Removed database at {args.db_dir}")
+            elif args.listener_subcmd == "databases":
+                db = ListenerDB(Path.cwd())
+                all_proposals = db.all_proposals()
+                sorted_proposals = sorted(all_proposals.keys())
+                for p in sorted_proposals:
+                    if len(all_proposals[p]) > 1:
+                        print(f"p{p}:")
+                        for x in all_proposals[p]:
+                            print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
+                    else:
+                        x = all_proposals[p][0]
+                        print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable
@@ -346,43 +346,43 @@ def main(argv=None):
 
     elif args.subcmd == 'read-context':
         from .backend.extract_data import Extractor
-        Extractor(connect_to_kafka=not args.no_kafka).update_db_vars()
+        with Extractor(connect_to_kafka=not args.no_kafka) as extr:
+            extr.update_db_vars()
 
     elif args.subcmd == 'proposal':
         from .backend.db import DamnitDB
-        db = DamnitDB()
-        currently_set = db.metameta.get('proposal', None)
-        if args.proposal is None:
-            print("Current proposal number:", currently_set)
-        elif args.proposal == currently_set:
-            print(f"No change - proposal {currently_set} already set")
-        else:
-            db.metameta['proposal'] = args.proposal
-            print(f"Changed proposal to {args.proposal} (was {currently_set})")
+        with DamnitDB() as db:
+            currently_set = db.metameta.get('proposal', None)
+            if args.proposal is None:
+                print("Current proposal number:", currently_set)
+            elif args.proposal == currently_set:
+                print(f"No change - proposal {currently_set} already set")
+            else:
+                db.metameta['proposal'] = args.proposal
+                print(f"Changed proposal to {args.proposal} (was {currently_set})")
 
     elif args.subcmd == 'new-id':
         from secrets import token_hex
         from .backend.db import DamnitDB
 
-        db = DamnitDB.from_dir(args.db_dir)
-        db.metameta["db_id"] = token_hex(20)
+        with DamnitDB.from_dir(args.db_dir) as db:
+            db.metameta["db_id"] = token_hex(20)
 
     elif args.subcmd == 'db-config':
         from .backend.db import DamnitDB
 
-        db = DamnitDB()
-        handle_config_args(args, db.metameta)
+        with DamnitDB() as db:
+            handle_config_args(args, db.metameta)
 
     elif args.subcmd == "migrate":
         from .backend.db import DamnitDB
         from .migrations import migrate_intermediate_v1, migrate_v0_to_v1
 
-        db = DamnitDB(allow_old=True)
-
-        if args.migrate_subcmd == "v0-to-v1":
-            migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
-        elif args.migrate_subcmd == "intermediate-v1":
-            migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
+        with DamnitDB(allow_old=True) as db:
+            if args.migrate_subcmd == "v0-to-v1":
+                migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
+            elif args.migrate_subcmd == "intermediate-v1":
+                migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
 
 if __name__ == '__main__':
     sys.exit(main())
