@@ -18,10 +18,22 @@ def test_pipeline_execute_with_data(mock_run):
     def b(run):
         return 2
 
-    pipe = Pipeline(run_data="raw").add(a, b)
-    res = pipe.with_context(data=mock_run, proposal=123, run_number=1).execute()
+    pipe = Pipeline().add(a, b)
+    res = pipe.with_context(data=mock_run, proposal=123, run_number=1).select(run_data="raw").execute()
     assert res.cells["a"].data == 1
     assert "b" not in res.cells
+
+
+def test_pipeline_execute_data_override(mock_run):
+    override = {}
+
+    @Variable
+    def used_override(run, _override=override):
+        return run is _override
+
+    pipe = Pipeline().add(used_override)
+    res = pipe.with_context(data=mock_run, proposal=1, run_number=1).execute(data=override)
+    assert bool(res.cells["used_override"].data) is True
 
 
 def test_pipeline_default_merges_autodiscovery():
@@ -247,14 +259,14 @@ def test_pipeline_build_context_rejects_duplicate_group_names():
 def test_pipeline_with_context_updates():
     input_vars = {"x": 1}
     data_obj = object()
-    pipe = Pipeline(name="a", proposal=1, run_number=2, run_data="raw", data=data_obj, input_vars=input_vars)
+    pipe = Pipeline(name="a", proposal=1, run_number=2, data=data_obj, input_vars=input_vars)
     new_pipe = pipe.with_context(name="b", proposal=3, input_vars={"y": 2})
 
-    assert (pipe.name, pipe.proposal, pipe.run_number, pipe.run_data, pipe.data, pipe.input_vars) == (
-        "a", 1, 2, "raw", data_obj, {"x": 1}
+    assert (pipe.name, pipe.proposal, pipe.run_number, pipe.data, pipe.input_vars) == (
+        "a", 1, 2, data_obj, {"x": 1}
     )
-    assert (new_pipe.name, new_pipe.proposal, new_pipe.run_number, new_pipe.run_data, new_pipe.data, new_pipe.input_vars) == (
-        "b", 3, 2, "raw", data_obj, {"y": 2}
+    assert (new_pipe.name, new_pipe.proposal, new_pipe.run_number, new_pipe.data, new_pipe.input_vars) == (
+        "b", 3, 2, data_obj, {"y": 2}
     )
 
     input_vars["x"] = 999
@@ -301,7 +313,7 @@ def test_pipeline_select_run_data_overrides_execution(mock_run):
     def proc_var(run):
         return 2
 
-    pipe = Pipeline(run_data="proc").add(raw_var, proc_var)
+    pipe = Pipeline().add(raw_var, proc_var)
     selected = pipe.select(run_data="raw")
     res = selected.with_context(data=mock_run, proposal=1, run_number=1).execute()
     assert "raw_var" in res.cells
@@ -313,7 +325,7 @@ def test_pipeline_execute_requires_data_or_proposal_run_number():
     def a(run):
         return 1
 
-    with pytest.raises(ValueError, match="requires run_data=... or proposal/run_number"):
+    with pytest.raises(ValueError, match="proposal and run_number must be set"):
         Pipeline().add(a).execute()
 
 
@@ -419,7 +431,7 @@ def test_reuse_vars(mock_run):
 
     @Variable
     def source(run):
-        pipe = Pipeline(data={'data': 10})
+        pipe = Pipeline(proposal=1, run_number=2, data={'data': 10})
         pipe.add(A(value=2, name='aa'))
         pipe.execute()
         return pipe.results.cells['aa.var'].data

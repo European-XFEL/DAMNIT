@@ -397,7 +397,6 @@ class ContextFile:
     @classmethod
     def from_str(cls, code: str, path='<string>'):
         ctx = build_context_from_code(code, path)
-        ctx.check()
         log.debug("Loaded %d variables", len(ctx.vars))
         return ctx
 
@@ -687,36 +686,18 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        # Check if we have proc data
-        proc_available = False
-        if args.mock:
-            # If we want to mock a run, assume it's available
-            proc_available = True
-        else:
-            # Otherwise check with open_run()
-            try:
-                extra_data.open_run(args.proposal, args.run, data="proc")
-                proc_available = True
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                log.warning(f"Error when checking if proc data available: {e}")
-
-        run_data = RunData(args.run_data)
-        if run_data == RunData.ALL and not proc_available:
-            log.warning("Proc data is unavailable, only raw variables will be executed.")
-            run_data = RunData.RAW
 
         pipe_whole = Pipeline.from_context_file(
             Path('context.py')
         ).with_context(
             proposal=args.proposal,
             run_number=args.run,
-            run_data=run_data.value,
         )
-        
+
         sel = pipe_whole.select(
-            run_data=run_data, cluster=args.cluster_job, match=args.match,
+            run_data=RunData(args.run_data),
+            cluster=args.cluster_job,
+            match=args.match,
             variables=args.var,
         )
         log.info("Using %d variables (of %d) from context file %s",
@@ -724,9 +705,9 @@ def main(argv=None):
              "" if args.cluster_job else "(cluster variables will be processed later)")
 
         if args.mock:
-            res = sel.execute(data=mock_run(), input_vars={})
+            res = sel.execute(data=mock_run())
         else:
-            res = sel.execute(input_vars={})
+            res = sel.execute()
 
         frag_path = res.save(Path.cwd(), args.proposal, args.run)
         if args.record_output:
