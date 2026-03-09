@@ -701,12 +701,12 @@ class Pipeline:
     def execute(self, *, data=None, input_vars=None):
         """Execute the Pipeline and return Results.
 
-        If ``self.data`` is provided, it is passed directly to Variable
-        functions as their first argument. Otherwise, ``proposal`` and
+        If ``data`` or ``self.data`` is provided, it is passed directly to
+        Variable functions as their first argument. Otherwise, ``proposal`` and
         ``run_number`` are used to open the run via ``extra_data``.
         """
         if self.proposal is None or self.run_number is None:
-            raise ValueError("proposal and run_number must be set to open run")
+            raise ValueError("proposal and run_number must be set")
 
         ctx = self._get_context()
 
