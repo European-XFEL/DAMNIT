@@ -525,8 +525,8 @@ pipe = Pipeline.from_context_file("context.py")
 print(sorted(pipe.vars))  # variable names
 
 # Run a subset by title match and save results
-res = (pipe.select(match=["XGM"])
-           .with_context(proposal=1234, run_number=56, run_data="raw")
+res = (pipe.with_context(proposal=1234, run_number=56)
+           .select(match=["XGM"], run_data="raw")
            .execute())
 res.save_hdf5("results.h5")
 ```
@@ -539,7 +539,7 @@ import extra_data
 
 run = extra_data.open_run(1234, 56, data="raw")
 pipe = Pipeline.from_context_file("context.py")
-res = pipe.select(variables=["xgm_intensity"]).execute(run_data=run)
+res = pipe.select(variables=["xgm_intensity"]).execute(data=run)
 ```
 
 Develop directly in Python without a context file:
@@ -562,10 +562,9 @@ print(sorted(pipe.vars))
 ```
 
 ### Advanced features
-Context files can call `Pipeline.default()` or
-`Pipeline.set_default()` to programmatically select which Variables/Groups are
-compiled. This is useful for conditional inclusion or constructing groups at
-runtime.
+Context files can call `Pipeline.default()` or `Pipeline.set_default()` to
+programmatically select which Variables/Groups are compiled. This is useful for
+conditional inclusion or constructing groups at runtime.
 
 ```python title=add to default pipeline
 for i in range(10):
