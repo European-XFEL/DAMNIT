@@ -40,9 +40,9 @@ from damnit_ctx import (
     Skip,
     Variable,
     _normalize_tags,
-    build_context_from_code,
     is_group_instance,
     isinstance_no_import,
+    pipeline_scope,
 )
 
 log = logging.getLogger("ctxrunner")
@@ -311,6 +311,68 @@ def expand_groups(
         expanded.update(group_vars)
 
     return expanded
+
+
+def _build_context_file(
+        *,
+        vars_by_name: dict[str, "Variable"],
+        code: str | None,
+        group_items=None,
+        context=None,
+):
+    """Build and optionally validate a ContextFile."""
+    if group_items is not None and context is not None:
+        raise ValueError("Provide either group_items or context, not both")
+
+    vars_by_name = dict(vars_by_name)
+
+    if group_items:
+        group_list = list(group_items)
+        for group in group_list:
+            _group_name(group)
+
+        seen_names = {}
+        for group in group_list:
+            existing = seen_names.get(group.name)
+            if existing is not None and existing is not group:
+                raise GroupError(
+                    f"Group name {group.name!r} is used by multiple group instances"
+                )
+            seen_names[group.name] = group
+
+        group_context = {group.name: group for group in group_list}
+        vars_by_name.update(expand_groups(group_context, vars_by_name))
+
+    elif context is not None:
+        vars_by_name.update(expand_groups(context, vars_by_name))
+
+    ctx = ContextFile(vars_by_name, code or "")
+    ctx.check()
+    return ctx
+
+
+def build_context_from_code(code, path):
+    """Execute context code and return ContextFile."""
+    context = {}
+    codeobj = compile(code, path, 'exec')
+    with pipeline_scope() as state:
+        exec(codeobj, context)
+
+    vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
+
+    if state is None or not state.used:
+        return _build_context_file(
+            vars_by_name=vars_by_name,
+            code=code,
+            context=context,
+        )
+
+    _assign_group_names(context)
+    groups = [obj for obj in context.values() if is_group_instance(obj)]
+    pipe = state.pipeline
+    if not state.explicit:
+        pipe.add(*vars_by_name.values(), *groups)
+    return pipe._build_context(code_override=code)
 
 
 class ContextFile:

@@ -14,6 +14,7 @@ from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import h5py
@@ -612,6 +613,8 @@ class Pipeline:
         return self._context
 
     def _build_context(self, code_override=None):
+        from ctxrunner import _build_context_file
+
         vars_by_name = {}
         if self._base_context is not None:
             vars_by_name.update(self._base_context.vars)
@@ -653,29 +656,12 @@ class Pipeline:
         return self._get_context()
 
     @classmethod
-    def _from_context(cls, ctx, *, name=None, check=True):
-        if check:
-            ctx.check()
-        pipe = cls(
-            name=name,
-            _base_context=ctx,
-        )
-        pipe._context = ctx
-        return pipe
-
-    @classmethod
-    def from_context_file(
-            cls,
-            path,
-            *,
-            name=None,
-    ):
+    def from_context_file(cls, path, *, name=None):
         """Create a Pipeline from a context file on disk."""
-        from pathlib import Path
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_py_file(Path(path))
-        return cls._from_context(ctx, name=name)
+        return cls(name=name, _base_context=ctx)
 
     @classmethod
     def from_str(cls, code, *, path="<string>", name=None):
@@ -683,7 +669,7 @@ class Pipeline:
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_str(code, path)
-        return cls._from_context(ctx, name=name)
+        return cls(name=name, _base_context=ctx)
 
     def select(self, *, variables=(), match=(), run_data=None, cluster=None):
         """Return a new Pipeline filtered to a subset of variables."""
@@ -765,73 +751,3 @@ def pipeline_scope():
     finally:
         # Reset default pipeline state
         _DEFAULT_PIPELINE_STATE.reset(token)
-
-
-def _build_context_file(
-        *,
-        vars_by_name: dict[str, "Variable"],
-        code: str | None,
-        group_items=None,
-        context=None,
-):
-    """Build and optionally validate a ContextFile."""
-    if group_items is not None and context is not None:
-        raise ValueError("Provide either group_items or context, not both")
-
-    vars_by_name = dict(vars_by_name)
-
-    if group_items:
-        from ctxrunner import _group_name, expand_groups
-
-        group_list = list(group_items)
-        for group in group_list:
-            _group_name(group)
-
-        seen_names = {}
-        for group in group_list:
-            existing = seen_names.get(group.name)
-            if existing is not None and existing is not group:
-                raise GroupError(
-                    f"Group name {group.name!r} is used by multiple group instances"
-                )
-            seen_names[group.name] = group
-
-        group_context = {group.name: group for group in group_list}
-        vars_by_name.update(expand_groups(group_context, vars_by_name))
-
-    elif context is not None:
-        from ctxrunner import expand_groups
-
-        vars_by_name.update(expand_groups(context, vars_by_name))
-
-    from ctxrunner import ContextFile
-
-    ctx = ContextFile(vars_by_name, code or "")
-    ctx.check()
-    return ctx
-
-
-def build_context_from_code(code, path):
-    """Execute context code and return ContextFile."""
-    context = {}
-    codeobj = compile(code, path, 'exec')
-    with pipeline_scope() as state:
-        exec(codeobj, context)
-
-    vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
-
-    if state is None or not state.used:
-        return _build_context_file(
-            vars_by_name=vars_by_name,
-            code=code,
-            context=context,
-        )
-
-    from ctxrunner import _assign_group_names
-
-    _assign_group_names(context)
-    groups = [obj for obj in context.values() if is_group_instance(obj)]
-    pipe = state.pipeline
-    if not state.explicit:
-        pipe.add(*vars_by_name.values(), *groups)
-    return pipe._build_context(code_override=code)
