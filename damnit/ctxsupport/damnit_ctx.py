@@ -472,7 +472,6 @@ class Pipeline:
             name: str | None = None,
             proposal: int | None = None,
             run_number: int | None = None,
-            run_data: str | RunData | None = None,
             data: Any | None = None,
             input_vars: dict[str, Any] | None = None,
             _base_context: "ContextFile" = None,
@@ -483,7 +482,6 @@ class Pipeline:
             name: name used for tracking pipelines.
             proposal: Proposal number for meta access or run opening.
             run_number: Run number for meta access or run opening.
-            run_data: raw/proc/all selection for execution.
             data: Object passed to Variable functions.
             input_vars: Mapping for input# dependencies.
             _base_context: Precompiled context for select().
@@ -491,7 +489,6 @@ class Pipeline:
         self.name = name
         self.proposal = proposal
         self.run_number = run_number
-        self.run_data = run_data
         self.data = data
         self.input_vars = dict(input_vars or {})
         # Items (Variable, Group) explicitly added via Pipeline.add()
@@ -500,8 +497,6 @@ class Pipeline:
         self._base_context = _base_context
         # Cached compiled ContextFile for this pipeline (invalidated by add()).
         self._context = _base_context
-        # RunData used to filter the current context, if any.
-        self._filtered_run_data = None
         # Results from the last execute() call, if any.
         self._last_results = None
 
@@ -547,14 +542,12 @@ class Pipeline:
             name=self.name,
             proposal=self.proposal,
             run_number=self.run_number,
-            run_data=self.run_data,
             data=self.data,
             input_vars=self.input_vars,
             _base_context=self._base_context,
         )
         clone._items = list(self._items)
         clone._context = self._context
-        clone._filtered_run_data = self._filtered_run_data
         return clone
 
     def add(self, *items):
@@ -581,7 +574,6 @@ class Pipeline:
         for item in items:
             add_item(item)
         self._context = None
-        self._filtered_run_data = None
         return self
 
     def with_context(
@@ -590,7 +582,6 @@ class Pipeline:
             name=None,
             proposal=None,
             run_number=None,
-            run_data=None,
             data=None,
             input_vars=None,
     ):
@@ -602,8 +593,6 @@ class Pipeline:
             new_pipe.proposal = proposal
         if run_number is not None:
             new_pipe.run_number = run_number
-        if run_data is not None:
-            new_pipe.run_data = run_data
         if data is not None:
             new_pipe.data = data
         if input_vars is not None:
@@ -616,13 +605,6 @@ class Pipeline:
         if isinstance(value, RunData):
             return value
         return RunData(value)
-
-    def _resolve_code(self, code_override=None):
-        if code_override is not None:
-            return code_override
-        if self._base_context is not None:
-            return self._base_context.code
-        return ""
 
     def _get_context(self):
         if self._context is None:
@@ -648,17 +630,22 @@ class Pipeline:
                     "Pipeline items must be Variable or Group instances"
                 )
 
+        if code_override is None:
+            if self._base_context is not None:
+                code_override = self._base_context.code
+            if code_override is None:
+                code_override = ""
+
         return _build_context_file(
             vars_by_name=vars_by_name,
-            code=self._resolve_code(code_override),
+            code=code_override,
             group_items=group_items,
         )
 
-    def _with_context(self, ctx, *, filtered_run_data=None):
+    def _with_context(self, ctx):
         new_pipe = self.copy()
         new_pipe._base_context = ctx
         new_pipe._context = ctx
-        new_pipe._filtered_run_data = filtered_run_data
         return new_pipe
 
     def compile(self):
@@ -700,62 +687,46 @@ class Pipeline:
 
     def select(self, *, variables=(), match=(), run_data=None, cluster=None):
         """Return a new Pipeline filtered to a subset of variables."""
-        selected_run_data = run_data
         ctx = self._get_context()
-        run_data = self._normalize_run_data(run_data or self.run_data)
+        run_data = self._normalize_run_data(run_data)
         filtered = ctx.filter(
             run_data=run_data,
             cluster=cluster,
             name_matches=match,
             variables=variables,
         )
-        new_pipe = self._with_context(filtered, filtered_run_data=run_data)
-        if selected_run_data is not None:
-            new_pipe.run_data = selected_run_data
+        new_pipe = self._with_context(filtered)
         return new_pipe
-
-    def _open_run(self, proposal, run_number, run_data):
-        try:
-            import extra_data
-        except ImportError as exc:
-            raise RuntimeError(
-                "extra_data is required to open runs; pass data=... instead"
-            ) from exc
-
-        if run_data == RunData.ALL:
-            try:
-                return extra_data.open_run(proposal, run_number, data="all"), run_data
-            except FileNotFoundError:
-                log.warning("Proc data unavailable, using raw only")
-                return extra_data.open_run(proposal, run_number, data="raw"), RunData.RAW
-        if run_data == RunData.PROC:
-            return extra_data.open_run(proposal, run_number, data="all"), run_data
-        return extra_data.open_run(proposal, run_number, data=run_data.value), run_data
 
     def execute(self, *, data=None, input_vars=None):
         """Execute the Pipeline and return Results.
 
-        If ``data`` (or ``self.data``) is provided, it is passed directly to
-        Variable functions as their first argument. Otherwise, ``proposal`` and
-        ``run_number`` must be set to open the run via ``extra_data``.
+        If ``self.data`` is provided, it is passed directly to Variable
+        functions as their first argument. Otherwise, ``proposal`` and
+        ``run_number`` are used to open the run via ``extra_data``.
         """
-        run_data = self._normalize_run_data(self.run_data)
+        if self.proposal is None or self.run_number is None:
+            raise ValueError("proposal and run_number must be set to open run")
+
+        ctx = self._get_context()
 
         data_obj = data if data is not None else self.data
         if data_obj is None:
-            if self.proposal is None or self.run_number is None:
-                raise ValueError(
-                    "Pipeline.execute requires run_data=... or proposal/run_number"
-                )
-            data_obj, run_data = self._open_run(
-                self.proposal, self.run_number, run_data
-            )
+            import extra_data
 
-        ctx = self._get_context()
-        if self._filtered_run_data != run_data:
-            ctx = ctx.filter(run_data=run_data, cluster=None)
+            if any(var._data == 'proc' for var in ctx.vars.values()):
+                try:
+                    extra_data.open_run(self.proposal, self.run_number, data='proc')
+                except FileNotFoundError:
+                    log.warning("Proc data is unavailable, only raw variables will be executed.")
+                    ctx = ctx.filter(run_data=RunData.RAW)
+
+            data_obj = extra_data.open_run(self.proposal, self.run_number)
+
         merged_input = dict(self.input_vars)
         if input_vars is not None:
+            if not isinstance(input_vars, dict):
+                raise TypeError("input_vars should be a dict.")
             merged_input.update(input_vars)
         res = ctx.execute(data_obj, self.run_number, self.proposal, merged_input)
         self._last_results = res
