@@ -779,7 +779,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     """
     ctx_code = mock_ctx.code + "\n\n" + textwrap.dedent(const_array_code)
     (db_dir / "context.py").write_text(ctx_code)
-    Pipeline.from_str(ctx_code).compile()
+    Pipeline.from_str(ctx_code)
     extract_mock_run(1)
 
     # Create window

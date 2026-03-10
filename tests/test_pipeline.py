@@ -139,8 +139,7 @@ def test_pipeline_state_reset_after_exception():
         Pipeline.from_str(failing_code)
 
     pipe = Pipeline.default()
-    ctx = pipe.compile()
-    assert "bad" not in ctx.vars
+    assert "bad" not in pipe.vars
     _DEFAULT_PIPELINE_STATE.set(None)
 
 
@@ -183,7 +182,7 @@ def test_pipeline_add_accepts_nested_sequences_and_rejects_invalid_iterables():
         return 2
 
     pipe = Pipeline().add([a, (b,)])
-    assert set(pipe.compile().vars) == {"a", "b"}
+    assert set(pipe.vars) == {"a", "b"}
 
     with pytest.raises(TypeError, match=r"Pipeline\.add accepts"):
         Pipeline().add(123)
@@ -228,7 +227,7 @@ def test_pipeline_build_context_rejects_duplicate_variable_names():
     v2 = Variable(f)
 
     with pytest.raises(GroupError, match=r"Duplicate variable name 'f'"):
-        Pipeline().add(v1, v2).compile()
+        Pipeline().add(v1, v2)
 
 
 def test_pipeline_build_context_rejects_unnamed_group_instance():
@@ -239,7 +238,7 @@ def test_pipeline_build_context_rejects_unnamed_group_instance():
             return 1
 
     with pytest.raises(GroupError, match=r"has no name"):
-        Pipeline().add(G()).compile()
+        Pipeline().add(G())
 
 
 def test_pipeline_build_context_rejects_duplicate_group_names():
@@ -253,7 +252,7 @@ def test_pipeline_build_context_rejects_duplicate_group_names():
     g2 = G(name="same")
 
     with pytest.raises(GroupError, match=r"Group name 'same' is used by multiple group instances"):
-        Pipeline().add(g1, g2).compile()
+        Pipeline().add(g1, g2)
 
 
 def test_pipeline_with_context_updates():
@@ -302,6 +301,26 @@ def test_pipeline_select_filters():
 
     raw_only = pipe.select(run_data="raw")
     assert set(raw_only.vars) == {"a", "c"}
+
+
+def test_pipeline_select_then_add_does_not_resurrect_filtered_vars():
+    @Variable
+    def a(run):
+        return 1
+
+    @Variable
+    def b(run):
+        return 2
+
+    @Variable
+    def c(run):
+        return 3
+
+    selected = Pipeline().add(a, b).select(variables=("a",))
+    assert set(selected.vars) == {"a"}
+
+    selected.add(c)
+    assert set(selected.vars) == {"a", "c"}
 
 
 def test_pipeline_select_run_data_overrides_execution(mock_run):
@@ -404,7 +423,6 @@ def test_pipeline_copy():
         return 2
 
     pipe = Pipeline(input_vars={"x": 1}).add(a)
-    pipe.compile()
 
     clone = pipe.copy()
     clone.input_vars["x"] = 2
@@ -413,8 +431,8 @@ def test_pipeline_copy():
 
     assert pipe.input_vars == {"x": 1}
     assert clone.input_vars == {"x": 2, "y": 3}
-    assert set(pipe.compile().vars) == {"a"}
-    assert set(clone.compile().vars) == {"a", "b"}
+    assert set(pipe.vars) == {"a"}
+    assert set(clone.vars) == {"a", "b"}
 
 
 def test_reuse_vars(mock_run):

@@ -475,7 +475,7 @@ class Pipeline:
             run_number: int | None = None,
             data: Any | None = None,
             input_vars: dict[str, Any] | None = None,
-            _base_context: "ContextFile" = None,
+            _context: "ContextFile" = None,
     ):
         """Initialize a Pipeline.
 
@@ -485,19 +485,15 @@ class Pipeline:
             run_number: Run number for meta access or run opening.
             data: Object passed to Variable functions.
             input_vars: Mapping for input# dependencies.
-            _base_context: Precompiled context for select().
+            _context: Precompiled context (e.g. from Pipeline.from_str() or select()).
         """
         self.name = name
         self.proposal = proposal
         self.run_number = run_number
         self.data = data
         self.input_vars = dict(input_vars or {})
-        # Items (Variable, Group) explicitly added via Pipeline.add()
-        self._items = []
-        # Compiled ContextFile used as the base for add()/select().
-        self._base_context = _base_context
-        # Cached compiled ContextFile for this pipeline (invalidated by add()).
-        self._context = _base_context
+        # Compiled ContextFile for this pipeline.
+        self._context = _context
         # Results from the last execute() call, if any.
         self._last_results = None
 
@@ -545,10 +541,8 @@ class Pipeline:
             run_number=self.run_number,
             data=self.data,
             input_vars=self.input_vars,
-            _base_context=self._base_context,
+            _context=self._context,
         )
-        clone._items = list(self._items)
-        clone._context = self._context
         return clone
 
     def add(self, *items):
@@ -556,9 +550,11 @@ class Pipeline:
 
         Items can be Variables, Group instances, or sequences of them.
         """
+        _items = []
+
         def add_item(item):
             if isinstance(item, Variable) or is_group_instance(item):
-                self._items.append(item)
+                _items.append(item)
                 return
             if isinstance(item, (str, bytes, bytearray)):
                 raise TypeError(
@@ -574,7 +570,8 @@ class Pipeline:
 
         for item in items:
             add_item(item)
-        self._context = None
+
+        self._build_context(items=_items)
         return self
 
     def with_context(
@@ -607,20 +604,17 @@ class Pipeline:
             return value
         return RunData(value)
 
-    def _get_context(self):
-        if self._context is None:
-            self._context = self._build_context()
-        return self._context
-
-    def _build_context(self, code_override=None):
+    def _build_context(self, code_override=None, items: list | None = None):
         from ctxrunner import _build_context_file
 
+        base = self._context
+
         vars_by_name = {}
-        if self._base_context is not None:
-            vars_by_name.update(self._base_context.vars)
+        if base is not None:
+            vars_by_name.update(base.vars)
 
         group_items = []
-        for item in self._items:
+        for item in items or []:
             if isinstance(item, Variable):
                 existing = vars_by_name.get(item.name)
                 if existing is not None and existing is not item:
@@ -634,26 +628,17 @@ class Pipeline:
                 )
 
         if code_override is None:
-            if self._base_context is not None:
-                code_override = self._base_context.code
+            if base is not None:
+                code_override = base.code
             if code_override is None:
                 code_override = ""
 
-        return _build_context_file(
+        self._context = _build_context_file(
             vars_by_name=vars_by_name,
             code=code_override,
             group_items=group_items,
         )
-
-    def _with_context(self, ctx):
-        new_pipe = self.copy()
-        new_pipe._base_context = ctx
-        new_pipe._context = ctx
-        return new_pipe
-
-    def compile(self):
-        """Compile the Pipeline into a ContextFile."""
-        return self._get_context()
+        return self._context
 
     @classmethod
     def from_context_file(cls, path, *, name=None):
@@ -661,7 +646,7 @@ class Pipeline:
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_py_file(Path(path))
-        return cls(name=name, _base_context=ctx)
+        return cls(name=name, _context=ctx)
 
     @classmethod
     def from_str(cls, code, *, path="<string>", name=None):
@@ -669,19 +654,20 @@ class Pipeline:
         from ctxrunner import ContextFile
 
         ctx = ContextFile.from_str(code, path)
-        return cls(name=name, _base_context=ctx)
+        return cls(name=name, _context=ctx)
 
     def select(self, *, variables=(), match=(), run_data=None, cluster=None):
         """Return a new Pipeline filtered to a subset of variables."""
-        ctx = self._get_context()
         run_data = self._normalize_run_data(run_data)
-        filtered = ctx.filter(
+        filtered = self.context.filter(
             run_data=run_data,
             cluster=cluster,
             name_matches=match,
             variables=variables,
         )
-        new_pipe = self._with_context(filtered)
+
+        new_pipe = self.copy()
+        new_pipe._context = filtered
         return new_pipe
 
     def execute(self, *, data=None, input_vars=None):
@@ -694,7 +680,7 @@ class Pipeline:
         if self.proposal is None or self.run_number is None:
             raise ValueError("proposal and run_number must be set")
 
-        ctx = self._get_context()
+        ctx = self.context
 
         data_obj = data if data is not None else self.data
         if data_obj is None:
@@ -724,13 +710,20 @@ class Pipeline:
         return self._last_results
 
     @property
+    def context(self):
+        """Return the compiled ContextFile."""
+        if self._context is None:
+            self._build_context()
+        return self._context
+
+    @property
     def vars(self):
         """Return the compiled Variable mapping."""
-        return self._get_context().vars
+        return self.context.vars
 
     def vars_to_dict(self, inc_transient=False):
         """Return variable metadata suitable for database storage."""
-        return self._get_context().vars_to_dict(inc_transient=inc_transient)
+        return self.context.vars_to_dict(inc_transient=inc_transient)
 
     def save_hdf5(self, path, reduced_only=False):
         """Save the last Results to an HDF5 file."""

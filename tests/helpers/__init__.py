@@ -41,8 +41,7 @@ def extract_mock_run(run_num: int, match=()):
 
 
 def mkcontext(code):
-    pipe = Pipeline.from_str(textwrap.dedent(code))
-    return pipe.compile()
+    return Pipeline.from_str(textwrap.dedent(code)).context
 
 
 def make_table_with_headers(qtbot, headers):
