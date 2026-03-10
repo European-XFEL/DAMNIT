@@ -788,7 +788,7 @@ def main(argv=None):
 
         try:
             pipe = Pipeline.from_context_file(args.context_file)
-            ctx = pipe.compile()
+            ctx = pipe.context
 
             # Strip the functions from the Variable's, these cannot always be
             # pickled.
