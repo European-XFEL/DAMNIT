@@ -538,8 +538,10 @@ from damnit.context import Pipeline
 import extra_data
 
 run = extra_data.open_run(1234, 56, data="raw")
-pipe = Pipeline.from_context_file("context.py")
-res = pipe.select(variables=["xgm_intensity"]).execute(data=run)
+res = (Pipeline.from_context_file("context.py")
+               .with_context(proposal=1, run_number=1)
+               .select(variables=['xgm_intensity'])
+               .execute(data=run))
 ```
 
 Develop directly in Python without a context file:
@@ -567,10 +569,9 @@ programmatically select which Variables/Groups are compiled. This is useful for
 conditional inclusion or constructing groups at runtime.
 
 ```python title=add to default pipeline
-for i in range(10):
-    Pipeline.default().add(
-      MyGroup(name=f'my_group_{i}')
-    )
+Pipeline.default().add(
+    [MyGroup(name=f'my_group_{i}') for i in range(10)]
+)
 ```
 
 ```python title=change default pipeline
