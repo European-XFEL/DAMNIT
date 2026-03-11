@@ -111,7 +111,7 @@ class FileSubmissionProcessor:
         h5_dir = damnit_dir / "extracted_data"
         src = Path(d['new_file'])
         dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
-        log.info(f"Combining %r into %r", src, dst)
+        log.info("Combining %r into %r", src, dst)
 
         prop, run = d['proposal'], d['run']
 
