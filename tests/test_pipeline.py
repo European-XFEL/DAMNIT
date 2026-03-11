@@ -214,6 +214,23 @@ def test_pipeline_add_invalidates_compiled_context():
     assert set(pipe.vars) == {"a", "b"}
 
 
+def test_pipeline_build_context_invalidates_results(mock_run):
+    @Variable
+    def a(run):
+        return 1
+
+    @Variable
+    def b(run):
+        return 2
+
+    pipe = Pipeline().add(a).with_context(data=mock_run, proposal=1, run_number=1)
+    pipe.execute()
+    assert pipe.results is not None
+
+    pipe.add(b)
+    assert pipe.results is None
+
+
 def test_pipeline_set_default_rejects_non_pipeline():
     with pytest.raises(TypeError, match="expects a Pipeline instance"):
         Pipeline.set_default("not a pipeline")
