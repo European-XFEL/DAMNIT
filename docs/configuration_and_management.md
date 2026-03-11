@@ -568,13 +568,13 @@ Context files can call `Pipeline.default()` or `Pipeline.set_default()` to
 programmatically select which Variables/Groups are compiled. This is useful for
 conditional inclusion or constructing groups at runtime.
 
-```python title=add to default pipeline
+```python title="Add items to default pipeline"
 Pipeline.default().add(
     [MyGroup(name=f'my_group_{i}') for i in range(10)]
 )
 ```
 
-```python title=change default pipeline
+```python title="Change default pipeline"
 @Variable
 def var_1(run):
     return 1
