@@ -222,6 +222,8 @@ class Cell:
                     )
                 elif not (np.issubdtype(preview.dtype, np.number) or preview.dtype == bool):
                     raise TypeError("preview array should be numeric")
+            elif isinstance_no_import(preview, 'matplotlib.axes', 'Axes'):
+                preview = preview.get_figure()
             elif not (
                     isinstance_no_import(preview, 'matplotlib.figure', 'Figure') or
                     isinstance_no_import(preview, 'plotly.graph_objs', 'Figure')
