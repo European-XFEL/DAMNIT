@@ -8,7 +8,6 @@ possibly running in a different Python interpreter. It will run a context file
 import argparse
 import fnmatch
 import inspect
-import io
 import logging
 import os
 import pickle
@@ -20,7 +19,6 @@ from collections import deque
 from contextlib import contextmanager
 from copy import copy
 from datetime import timezone
-from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 from typing import Any
@@ -30,24 +28,16 @@ import extra_data
 import extra_proposal
 import h5py
 import numpy as np
-import xarray as xr
-from damnit_ctx import (Cell, GroupBoundVariable, GroupError, RunData, Skip,
-                        Variable, _normalize_tags, is_group_instance,
-                        isinstance_no_import)
+
+from damnit_ctx import (
+    Cell, GroupBoundVariable, GroupError, RunData, Skip, Variable,
+    _normalize_tags, is_group_instance
+)
+from damnit_writing import save_fragment
 
 log = logging.getLogger("ctxrunner")
 
 THUMBNAIL_SIZE = 300 # px
-COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
-
-# More specific Python types beyond what HDF5/NetCDF4 know about, so we can
-# reconstruct Python objects when reading values back in.
-class DataType(Enum):
-    DataArray = "dataarray"
-    Dataset = "dataset"
-    Image = "image"
-    Timestamp = "timestamp"
-    PlotlyFigure = "PlotlyFigure"
 
 
 class ContextFileErrors(RuntimeError):
@@ -590,142 +580,6 @@ def get_start_time(xd_run):
         return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
-def figure2array(fig):
-    from matplotlib.backends.backend_agg import FigureCanvas
-
-    canvas = FigureCanvas(fig)
-    canvas.draw()
-    return np.asarray(canvas.buffer_rgba())
-
-
-class PNGData:
-    def __init__(self, data: bytes):
-        self.data = data
-
-
-def is_png_data(obj):
-    # insinstance(obj, PNGData) returns false if the PNGData object has been
-    # instantiated from the context file code, so we need to check the data
-    # attribute.
-    try:
-        return obj.data.startswith(b'\x89PNG\r\n\x1a\n')
-    except:
-        return False
-
-
-def figure2png(fig, dpi=None):
-    bio = io.BytesIO()
-    fig.savefig(bio, dpi=dpi, format='png')
-    return PNGData(bio.getvalue())
-
-
-def plotly2png(figure):
-    """Generate a png from a Plotly Figure
-
-    largest dimension set to THUMBNAIL_SIZE
-    """
-    from PIL import Image
-    png_data = figure.to_image(format='png')
-    # resize with PIL (scaling in plotly does not play well with text)
-    img = Image.open(io.BytesIO(png_data))
-    largest_dim = max(img.width, img.height)
-    width = int(img.width / largest_dim * THUMBNAIL_SIZE)
-    height = int(img.height / largest_dim * THUMBNAIL_SIZE)
-    img = img.resize((width, height), Image.Resampling.LANCZOS)
-    # convert to PNG
-    buff = io.BytesIO()
-    img.save(buff, format='PNG')
-    return PNGData(buff.getvalue())
-
-
-def generate_thumbnail(image):
-    from matplotlib.figure import Figure
-
-    # Create plot
-    fig = Figure(figsize=(1, 1))
-    ax = fig.add_subplot()
-    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-    vmin = np.nanquantile(image, 0.01)
-    vmax = np.nanquantile(image, 0.99)
-    if isinstance(image, np.ndarray):
-        ax.imshow(image, vmin=vmin, vmax=vmax)
-    else:
-        # Use DataArray's own plotting method
-        image.plot.imshow(ax=ax, vmin=vmin, vmax=vmax, add_colorbar=False)
-    ax.axis('tight')
-    ax.axis('off')
-    ax.margins(0, 0)
-
-    # The figure is 1 inch square, so setting the DPI to THUMBNAIL_SIZE will
-    # save a figure of size THUMBNAIL_SIZE x THUMBNAIL_SIZE.
-    return figure2png(fig, dpi=THUMBNAIL_SIZE)
-
-
-def line_thumbnail(arr):
-    from matplotlib.figure import Figure
-
-    # width = 3 * height; roughly fits table cells
-    fig = Figure(figsize=(2, 2/3))
-    ax = fig.add_subplot()
-    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-
-    if isinstance(arr, np.ndarray):
-        ax.plot(arr)
-    else:
-        # Use DataArray's own plotting method
-        arr.plot(ax=ax)
-
-    ax.axis('tight')
-    ax.axis('off')
-    ax.margins(0, 0)
-
-    return figure2png(fig, dpi=THUMBNAIL_SIZE)
-
-
-def downsample_line(data):
-    from fpcs import downsample
-
-    if isinstance(data, xr.DataArray):
-        y = data.values
-        x = None
-        if data.dims:
-            dim = data.dims[0]
-            if dim in data.coords:
-                x = data.coords[dim].values
-        if x is None or np.shape(x) != np.shape(y):
-            x = np.arange(y.size)
-    else:
-        y = np.asarray(data)
-        x = np.arange(y.size)
-
-    if not np.issubdtype(x.dtype, np.number):
-        if np.issubdtype(x.dtype, np.datetime64):
-            x = x.astype("datetime64[ns]").astype("int64") / 1e9
-        else:
-            x = np.arange(y.shape[0])
-
-    x = x.astype(np.float64, copy=False)
-    y = y.astype(np.float64, copy=False)
-
-    if x.size == 0:
-        return np.empty((2, 0), dtype=np.float64)
-
-    # ensure we have a monotonic increasing coordinates
-    if x.size > 1:
-        diffs = np.diff(x)
-        if not np.all(diffs >= 0):
-            order = np.argsort(x, kind="stable")
-            x = x[order]
-            y = y[order]
-
-    # We aim to retain ~150 samples
-    # (TODO: rather save a ratio of the data with upper bound?)
-    # the fpcs algorithm retain ~1.25 point per sampling window
-    ratio = max(1, int(x.size / (0.8 * 150)))
-    xd, yd = downsample(x, y, ratio=ratio)
-    return np.vstack((xd, yd))
-
-
 def extract_error_info(exc_type, e, tb):
     lineno = -1
     offset = 0
@@ -781,223 +635,16 @@ def add_to_h5_file(path) -> h5py.File:
         raise ex
 
 
-def _set_encoding(data_array: xr.DataArray) -> xr.DataArray:
-    """Add default compression options to DataArray"""
-    encoding = COMPRESSION_OPTS.copy()
-    encoding.update(data_array.encoding)
-    data_array.encoding = encoding
-    return data_array
-
-
 class Results:
     def __init__(self, cells, errors, ctx):
         self.cells = cells
         self.errors = errors
         self.ctx = ctx
-        self._reduced = None
 
-    @property
-    def reduced(self):
-        if self._reduced is None:
-            r = {}
-            for name in self.cells:
-                v = self.summarise(name)
-                if v is not None:
-                    r[name] = v
-            self._reduced = r
-        return self._reduced
-
-    def summarise(self, name):
-        cell = self.cells[name]
-
-        if (summary_val := cell.get_summary()) is not None:
-            return summary_val
-
-        # If a summary wasn't specified, try some default fallbacks
-        data = cell.preview if (cell.preview is not None) else cell.data
-        if isinstance(data, str):
-            return data
-        elif isinstance(data, xr.Dataset):
-            size = data.nbytes / 1e6
-            return f"Dataset ({size:.2f}MB)"
-        elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
-            # For the sake of space and memory we downsample images to a
-            # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
-            image_shape = data.get_size_inches() * data.dpi
-            zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
-            try:
-                return figure2png(data, dpi=(data.dpi * zoom_ratio))
-            except:
-                logging.error("Error generating thumbnail for %s", name, exc_info=True)
-                return "<thumbnail error>"
-        elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
-            return plotly2png(data)
-
-        elif isinstance(data, (np.ndarray, xr.DataArray)):
-            if data.ndim == 0:
-                return data
-            elif data.ndim == 1:
-                try:
-                    return downsample_line(data)
-                except ModuleNotFoundError:
-                    logging.warning(
-                        'Downsampling library not found for trendline generation'
-                        ', falling back to thumbnail generation for %s', name
-                    )
-                    try:
-                        # fall back to generating thumbnail
-                        return line_thumbnail(data)
-                    except:
-                        logging.error(
-                            "Error generating thumbnail for %s", name, exc_info=True)
-                        return "<thumbnail error>"
-                except:
-                    logging.error(
-                        "Error generating trendline for %s", name, exc_info=True)
-                    return "<trendline error>"
-            elif data.ndim == 2:
-                if isinstance(data, np.ndarray):
-                    data = np.nan_to_num(data)
-                else:
-                    data = data.fillna(0)
-
-                try:
-                    return generate_thumbnail(data)
-                except:
-                    logging.error("Error generating thumbnail for %s", name, exc_info=True)
-                    return "<thumbnail error>"
-            else:
-                # Describe the full data (cell.data), not the preview data
-                return f"{cell.data.dtype}: {cell.data.shape}"
-
-        return None
-
-    def save_hdf5(self, hdf5_path, reduced_only=False):
-        xarray_dsets = []
-        dsets = []
-        obj_type_hints = {}
-
-        for name, cell in self.cells.items():
-            summary_val = self.summarise(name)
-            summary_attrs = cell.summary_attrs()
-            if isinstance(summary_val, np.ndarray):
-                if summary_val.ndim == 2 and summary_val.shape[0] == 2:
-                    summary_attrs["summary_type"] = "trendline"
-            dsets.append((f'.reduced/{name}', summary_val, summary_attrs))
-            dsets.append((f'.errors/{name}', None, {}))  # Delete any previous error
-            if not reduced_only:
-                obj = cell.data
-                if isinstance(obj, (xr.DataArray, xr.Dataset)):
-                    xarray_dsets.append((name, obj))
-                    obj_type_hints[name] = (
-                        DataType.DataArray if isinstance(obj, xr.DataArray)
-                        else DataType.Dataset
-                    )
-                else:
-                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
-                        value = figure2array(obj)
-                        obj_type_hints[name] = DataType.Image
-                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-                        # we want to compress plotly figures in HDF5 files
-                        # so we need to convert the data to array of uint8
-                        value = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-                        obj_type_hints[name] = DataType.PlotlyFigure
-                    elif isinstance(obj, str):
-                        value = obj
-                    elif obj is None:
-                        value = None  # Will delete any previous data in file
-                    else:
-                        value = np.asarray(obj)
-
-                    dsets.append((f'{name}/data', value, {}))
-
-                if (obj := cell.preview) is None:
-                    # Delete any previous preview
-                    dsets.append((f'.preview/{name}', None, {}))
-                elif isinstance(obj, xr.DataArray):
-                    xarray_dsets.append((f'.preview/{name}', obj))
-                else:
-                    attrs = {}
-                    if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
-                        obj = figure2array(obj)
-                        attrs['_damnit_objtype'] = DataType.Image.value
-                    elif isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
-                        obj = np.frombuffer(obj.to_json().encode('utf-8'), dtype=np.uint8)
-                        attrs['_damnit_objtype'] = DataType.PlotlyFigure.value
-                    dsets.append((f'.preview/{name}', obj, attrs))
-
-        for name, exc in self.errors.items():
-            dsets.append((f'.errors/{name}', str(exc), {'type': type(exc).__name__}))
-
-        log.info("Writing %d variables to %s",
-                 len(self.cells), hdf5_path)
-
-        # We need to open the files in append mode so that when proc Variable's
-        # are processed after raw ones, the raw ones won't be lost.
-        with add_to_h5_file(hdf5_path) as f:
-            # Delete whole groups for the Variables we're modifying
-            for name in self.cells.keys():
-                if name in f:
-                    del f[name]
-
-            for grp_name, hint in obj_type_hints.items():
-                f.require_group(grp_name).attrs['_damnit_objtype'] = hint.value
-
-            f.require_group('.reduced')
-            f.require_group('.errors')
-
-            # Create datasets before filling them, so metadata goes near the
-            # start of the file.
-            for path, obj, attrs in dsets:
-                # Delete the existing datasets so we can overwrite them
-                if path in f:
-                    del f[path]
-
-                if obj is None:
-                    continue  # Deleted without replacement
-                elif isinstance(obj, str):
-                    f.create_dataset(path, shape=(), dtype=h5py.string_dtype())
-                elif is_png_data(obj):  # Thumbnail
-                    f.create_dataset(path, shape=len(obj.data), dtype=np.uint8)
-                elif obj.ndim > 0 and (
-                        np.issubdtype(obj.dtype, np.number) or
-                        np.issubdtype(obj.dtype, np.bool_)):
-                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype, **COMPRESSION_OPTS)
-                else:
-                    f.create_dataset(path, shape=obj.shape, dtype=obj.dtype)
-
-                f[path].attrs.update(attrs)
-
-            # Fill with data
-            for path, obj, _ in dsets:
-                if obj is None:
-                    continue  # Deleted dataset
-                elif is_png_data(obj):
-                    f[path][()] = np.frombuffer(obj.data, dtype=np.uint8)
-                else:
-                    f[path][()] = obj
-
-        for name, obj in xarray_dsets:
-            if isinstance(obj, xr.DataArray):
-                # HDF5 doesn't allow slashes in names :(
-                if obj.name is not None and "/" in obj.name:
-                    obj.name = obj.name.replace("/", "_")
-                obj = _set_encoding(obj)
-            elif isinstance(obj, xr.Dataset):
-                vars_names = {}
-                for var_name, dataarray in obj.items():
-                    if var_name is not None and "/" in var_name:
-                        vars_names[var_name] = var_name.replace("/", "_")
-                    dataarray = _set_encoding(dataarray)
-                obj = obj.rename_vars(vars_names)
-
-            obj.to_netcdf(
-                hdf5_path,
-                mode="a",
-                format="NETCDF4",
-                group=name,
-                engine="h5netcdf",
-            )
+    def save(self, damnit_dir: Path, proposal: int, run: int):
+        return save_fragment(
+            damnit_dir, proposal, run, self.cells, self.errors, provenance="context.py"
+        )
 
 
 def mock_run():
@@ -1031,8 +678,7 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
-    exec_ap.add_argument('--save', action='append', default=[])
-    exec_ap.add_argument('--save-reduced', action='append', default=[])
+    exec_ap.add_argument('--record-output', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -1082,10 +728,9 @@ def main(argv=None):
 
         res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
-        for path in args.save:
-            res.save_hdf5(path)
-        for path in args.save_reduced:
-            res.save_hdf5(path, reduced_only=True)
+        frag_path = res.save(Path.cwd(), args.proposal, args.run)
+        if args.record_output:
+            args.record_output.write_text(str(frag_path) + "\n")
     elif args.subcmd == "ctx":
         error_info = None
 

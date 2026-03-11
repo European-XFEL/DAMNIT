@@ -256,14 +256,75 @@ class Cell:
         else:
             raise TypeError(f"Don't understand colour as {type(c)}")
 
-    def get_summary(self):
+    def get_summary(self, log_name="unknown"):
         if self.summary_value is not None:
             return self.summary_value
         elif (self.data is not None) and (self.summary is not None):
             try:
                 return np.asarray(getattr(np, self.summary)(self.data))
             except Exception:
-                log.error("Failed to produce summary data", exc_info=True)
+                log.error("Failed to produce summary data for %s", log_name, exc_info=True)
+
+        # If a summary wasn't specified, try some default fallbacks
+        from damnit_writing import (
+            figure2png, plotly2png, generate_thumbnail, line_thumbnail,
+            downsample_line
+        )
+        data = self.preview if (self.preview is not None) else self.data
+        if isinstance(data, str):
+            return data
+        elif isinstance(data, xr.Dataset):
+            size = data.nbytes / 1e6
+            return f"Dataset ({size:.2f}MB)"
+        elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
+            # For the sake of space and memory we downsample images to a
+            # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
+            image_shape = data.get_size_inches() * data.dpi
+            zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
+            try:
+                return figure2png(data, dpi=(data.dpi * zoom_ratio))
+            except:
+                logging.error("Error generating thumbnail for %s", log_name, exc_info=True)
+                return "<thumbnail error>"
+        elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
+            return plotly2png(data)
+
+        elif isinstance(data, (np.ndarray, xr.DataArray)):
+            if data.ndim == 0:
+                return data
+            elif data.ndim == 1:
+                try:
+                    return downsample_line(data)
+                except ModuleNotFoundError:
+                    logging.warning(
+                        'Downsampling library not found for trendline generation'
+                        ', falling back to thumbnail generation for %s', log_name
+                    )
+                    try:
+                        # fall back to generating thumbnail
+                        return line_thumbnail(data)
+                    except:
+                        logging.error(
+                            "Error generating thumbnail for %s", log_name, exc_info=True)
+                        return "<thumbnail error>"
+                except:
+                    logging.error(
+                        "Error generating trendline for %s", log_name, exc_info=True)
+                    return "<trendline error>"
+            elif data.ndim == 2:
+                if isinstance(data, np.ndarray):
+                    data = np.nan_to_num(data)
+                else:
+                    data = data.fillna(0)
+
+                try:
+                    return generate_thumbnail(data)
+                except:
+                    logging.error("Error generating thumbnail for %s", log_name, exc_info=True)
+                    return "<thumbnail error>"
+            else:
+                # Describe the full data (cell.data), not the preview data
+                return f"{self.data.dtype}: {self.data.shape}"
 
         return None
 
