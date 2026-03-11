@@ -604,6 +604,7 @@ def test_results_cell(mock_run, tmp_path):
     ctx_code = """
     from damnit_ctx import Variable, Cell
     import numpy as np
+    import matplotlib.pyplot as plt
 
     @Variable()
     def var1(run):
@@ -615,7 +616,9 @@ def test_results_cell(mock_run, tmp_path):
 
     @Variable()
     def var3(run):
-        return Cell(np.arange(7), summary_value=4)
+        plt.figure()
+        plt.plot([1, 2, 3])
+        return Cell(np.arange(7), summary_value=4, preview=plt.gca())
     """
     bad_obj_ctx = mkcontext(ctx_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
