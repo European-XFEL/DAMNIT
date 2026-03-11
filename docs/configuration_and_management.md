@@ -512,6 +512,110 @@ class DetectorAnalysisAlt(BaseAnalysis):
 detector = DetectorAnalysis(title="Detector")
 ```
 
+## Pipeline
+`Pipeline` is the public API for loading, inspecting, and executing context
+files programmatically. It wraps the context compilation/execution machinery
+and lets you select subsets of variables to run.
+
+Common usage with a context file:
+```python
+from damnit.context import Pipeline
+
+pipe = Pipeline.from_context_file("context.py")
+print(sorted(pipe.vars))  # variable names
+
+# Run a subset by title match and save results
+res = (pipe.with_context(proposal=1234, run_number=56)
+           .select(match=["XGM"], run_data="raw")
+           .execute())
+res.save_hdf5("results.h5")
+```
+
+Execute with a any data object instead of opening a run from proposal/run
+number:
+```python
+from damnit.context import Pipeline
+import extra_data
+
+run = extra_data.open_run(1234, 56, data="raw")
+res = (Pipeline.from_context_file("context.py")
+               .with_context(proposal=1, run_number=1)
+               .select(variables=['xgm_intensity'])
+               .execute(data=run))
+```
+
+Develop directly in Python without a context file:
+```python
+from damnit.context import Pipeline, Variable, Group
+
+@Variable
+def my_var(run):
+    return 123
+
+@Group
+class Demo:
+    @Variable
+    def val(self, run):
+        return 456
+
+pipe = Pipeline()
+pipe.add(my_var, Demo(name="demo"))
+print(sorted(pipe.vars))
+```
+
+### Advanced features
+Context files can call `Pipeline.default()` or `Pipeline.set_default()` to
+programmatically select which Variables/Groups are compiled. This is useful for
+conditional inclusion or constructing groups at runtime.
+
+```python title="Add items to default pipeline"
+Pipeline.default().add(
+    [MyGroup(name=f'my_group_{i}') for i in range(10)]
+)
+```
+
+```python title="Change default pipeline"
+@Variable
+def var_1(run):
+    return 1
+
+@Variable
+def var_2(run):
+    return 2
+
+new_pipe = Pipeline()
+new_pipe.add(var_2)
+
+# Now the context file will be executed with variables only added to new_pipe,
+# not scanning the context file globals.
+Pipeline.set_default(new_pipe)
+```
+
+Pipelines can be instantiated and executed inside variable. This may be useful
+to reuse a set of variable with a different pipeline context.
+
+```python
+
+@Variable
+def calibrate_data(run, run_nb: 'meta#run_number'):
+    return calibration(run, run_nb)
+
+
+@Variable
+def baseline(run, run_nb: 'meta#run_number', proposal: 'meta#proposal'):
+    dark_run = get_last_dark(run_nb)
+
+    pipe = Pipeline(proposal=proposal, run_number=dark_run)
+    pipe.add(calibrate_data)
+    pipe.execute()
+    return pipe.results.cells['calibrate_data'].data
+
+
+@Variable
+def corrected_data(run, data: 'var#calibrate_data', baseline: 'var#baseline'):
+    return data - baseline
+```
+
 ## Using custom environments
 DAMNIT supports running the context file in a user-defined Python environment,
 which is handy if there's a certain package you want that's only installed in

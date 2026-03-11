@@ -29,7 +29,7 @@ from damnit.backend.extraction_control import ExtractionJobTracker
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
-from damnit.context import (ContextFile, ContextFileErrors, PNGData, RunData,
+from damnit.context import (ContextFileErrors, PNGData, Pipeline, RunData,
                             get_proposal_path)
 from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE, add_to_h5_file
 from damnit.gui.main_window import MainWindow
@@ -96,9 +96,8 @@ def test_context_file(mock_ctx, tmp_path):
     # Test creating from a file
     ctx_path = tmp_path / 'context.py'
     ctx_path.write_text(textwrap.dedent(code))
-    ctx = ContextFile.from_py_file(ctx_path)
-
-    assert len(ctx.vars) == 1
+    pipe = Pipeline.from_context_file(ctx_path)
+    assert len(pipe.vars) == 1
 
     duplicate_titles_code = """
     from damnit.context import Variable
@@ -110,9 +109,8 @@ def test_context_file(mock_ctx, tmp_path):
     def bar(run): return 43
     """
 
-    ctx = mkcontext(duplicate_titles_code)
     with pytest.raises(ContextFileErrors):
-        ctx.check()
+        mkcontext(duplicate_titles_code)
 
     # Helper lambda to get the names of the direct dependencies of a variable
     var_deps = lambda name: set(mock_ctx.vars[name].arg_dependencies().values())
@@ -169,9 +167,8 @@ def test_context_file(mock_ctx, tmp_path):
         return foo
     """
 
-    ctx = mkcontext(bad_dep_code)
     with pytest.raises(ContextFileErrors):
-        ctx.check()
+        mkcontext(bad_dep_code)
 
     var_promotion_code = """
     from damnit.context import Variable
@@ -221,12 +218,10 @@ def test_context_file(mock_ctx, tmp_path):
     def foo(run, quux: "mymdc#quux"):
         return 42
     """
-    ctx = mkcontext(bad_mymdc_code)
-
     # This should raise an exception because it's using an unsupported mymdc
     # field.
     with pytest.raises(ContextFileErrors):
-        ctx.check()
+        mkcontext(bad_mymdc_code)
 
     # test tag validity
     empty_string_tag = """
@@ -236,9 +231,8 @@ def test_context_file(mock_ctx, tmp_path):
     def foo(run):
         return 42
     """
-    ctx = mkcontext(empty_string_tag)
     with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
-        ctx.check()
+        mkcontext(empty_string_tag)
 
     no_parenthesis = """
     from damnit.context import Variable
@@ -261,9 +255,8 @@ def test_context_file(mock_ctx, tmp_path):
 
     var.name = 'var.1.name'
     """
-    ctx = mkcontext(invalid_var_name)
     with pytest.raises(ContextFileErrors, match='not a valid Python identifier'):
-        ctx.check()
+        mkcontext(invalid_var_name)
 
     # test invalid data source
     invalid_var_data = """
@@ -273,9 +266,8 @@ def test_context_file(mock_ctx, tmp_path):
     def var(run):
         return 42
     """
-    ctx = mkcontext(invalid_var_data)
     with pytest.raises(ValueError):
-        ctx.check()
+        mkcontext(invalid_var_data)
 
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
@@ -906,7 +898,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
          patch("ctxrunner.Results"):
         main(["exec", "1234", "42", "proc"])
 
-        open_run.assert_called_with(1234, 42, data="all")
+        open_run.assert_called_with(1234, 42)
 
 def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
     db_dir, db = mock_db
