@@ -469,10 +469,10 @@ class Pipeline:
 
     def __init__(
             self,
-            *,
-            name: str | None = None,
             proposal: int | None = None,
             run_number: int | None = None,
+            *,
+            name: str | None = None,
             data: Any | None = None,
             input_vars: dict[str, Any] | None = None,
             _context: "ContextFile" = None,
@@ -540,7 +540,7 @@ class Pipeline:
             proposal=self.proposal,
             run_number=self.run_number,
             data=self.data,
-            input_vars=self.input_vars,
+            input_vars=self.input_vars.copy(),
             _context=self._context,
         )
         return clone
@@ -552,21 +552,23 @@ class Pipeline:
         """
         _items = []
 
+        def _raise_invalid(_item):
+            raise TypeError(
+                "Pipeline.add accepts Variable or Group instances "
+                f"(or sequences of them); got {type(_item)!r}"
+            )
+
         def add_item(item):
             if isinstance(item, Variable) or is_group_instance(item):
                 _items.append(item)
                 return
             if isinstance(item, (str, bytes, bytearray)):
-                raise TypeError(
-                    "Pipeline.add accepts Variable or Group instances (or sequences of them)"
-                )
+                _raise_invalid(item)
             if isinstance(item, Sequence):
                 for sub in item:
                     add_item(sub)
                 return
-            raise TypeError(
-                "Pipeline.add accepts Variable or Group instances (or sequences of them)"
-            )
+            _raise_invalid(item)
 
         for item in items:
             add_item(item)
@@ -577,11 +579,11 @@ class Pipeline:
     def with_context(
             self,
             *,
-            name=None,
-            proposal=None,
-            run_number=None,
-            data=None,
-            input_vars=None,
+            name: str | None = None,
+            proposal: int | None = None,
+            run_number: int | None = None,
+            data: Any | None = None,
+            input_vars: dict[str, Any] | None = None,
     ):
         """Return a new Pipeline with updated context fields."""
         new_pipe = self.copy()
@@ -638,6 +640,8 @@ class Pipeline:
             code=code_override,
             group_items=group_items,
         )
+
+        self._last_results = None
         return self._context
 
     @classmethod
@@ -697,9 +701,7 @@ class Pipeline:
 
         merged_input = dict(self.input_vars)
         if input_vars is not None:
-            if not isinstance(input_vars, dict):
-                raise TypeError("input_vars should be a dict.")
-            merged_input.update(input_vars)
+            merged_input.update(dict(input_vars))
         res = ctx.execute(data_obj, self.run_number, self.proposal, merged_input)
         self._last_results = res
         return res
