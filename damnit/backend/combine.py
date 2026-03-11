@@ -60,7 +60,7 @@ def combine(src: Path, dst: Path):
                 copy_h5_obj(fsrc, fdst, grp)
 
         for special_grp in [".reduced", ".preview", ".errors"]:
-            for k in fsrc[special_grp]:
+            for k in fsrc.get(special_grp, ()):
                 copy_h5_obj(fsrc, fdst, f"{special_grp}/{k}")
 
     src.unlink()
