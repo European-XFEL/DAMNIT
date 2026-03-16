@@ -98,3 +98,6 @@ test = { features = ["test", "backend", "gui"], solve-group = "default" }
 
 [tool.pixi.feature.test.tasks]
 test = "python -m pytest -v --cov=damnit --cov-report=xml"
+
+[tool.pixi.dependencies]
+hdf5plugin = ">=6.0.0,<7"

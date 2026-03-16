@@ -15,7 +15,7 @@ import pickle
 import sys
 import time
 import traceback
-from datetime import timezone
+from datetime import datetime, timezone
 from enum import Enum
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
@@ -29,6 +29,7 @@ import numpy as np
 import xarray as xr
 
 from damnit_ctx import RunData, Variable, Cell, Skip, isinstance_no_import
+from parse_metadata import open_scan
 
 log = logging.getLogger(__name__)
 
@@ -217,7 +218,8 @@ class ContextFile:
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
-        dep_results = {'start_time': 12345}#get_start_time(run_data)}
+
+        dep_results = {'start_time': get_start_time(run_data)}
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         metadata = None
@@ -315,25 +317,40 @@ class ContextFile:
 
 
 def get_start_time(xd_run):
+    
+    if xd_run['batch'] is not None:
+        if 'start_time' in xd_run['batch'].keys():
+            _start_time = xd_run['batch']['start_time']
+            dt = datetime.strptime(_start_time, "%a %b %d %H:%M:%S %Y")
+            _start_time = int(dt.replace(tzinfo=timezone.utc).timestamp())
+        else:
+            # put something just to avoid error
+            _start_time = 0
+    else:
+        # put something just to avoid error
+        _start_time = -2208988800
+
+    return _start_time
+    
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
 
-    if np.isnan(ts):
-        # If the timestamp information is not present (i.e. on old files), then
-        # we take the timestamp from the oldest raw file as an approximation.
-        files = sorted([f.filename for f in xd_run.files if "raw" in f.filename])
-        if len(files) == 0:
-            # Some old proposals also copy all the non-detector data into proc,
-            # in which case the DataCollection will only open the proc files. In
-            # this case we fall back to the timestamp of the proc files, which
-            # should be pretty close to the timestamp of the raw files.
-            files = sorted([f.filename for f in xd_run.files])
-        first_file = Path(files[0])
+    # if np.isnan(ts):
+    #     # If the timestamp information is not present (i.e. on old files), then
+    #     # we take the timestamp from the oldest raw file as an approximation.
+    #     files = sorted([f.filename for f in xd_run.files if "raw" in f.filename])
+    #     if len(files) == 0:
+    #         # Some old proposals also copy all the non-detector data into proc,
+    #         # in which case the DataCollection will only open the proc files. In
+    #         # this case we fall back to the timestamp of the proc files, which
+    #         # should be pretty close to the timestamp of the raw files.
+    #         files = sorted([f.filename for f in xd_run.files])
+    #     first_file = Path(files[0])
 
-        # Use the modified timestamp
-        return first_file.stat().st_mtime
-    else:
-        # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
-        return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
+    #     # Use the modified timestamp
+    #     return first_file.stat().st_mtime
+    # else:
+    #     # Convert np datetime64 [ns] -> [us] -> datetime -> float  :-/
+    #     return np.datetime64(ts, 'us').item().replace(tzinfo=timezone.utc).timestamp()
 
 
 def figure2array(fig):
@@ -764,7 +781,7 @@ def main(argv=None):
             # variables have access to raw data too.
             actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
 
-            run_dc = ...
+            run_dc = open_scan(args.proposal, args.run)
 
         res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
 
