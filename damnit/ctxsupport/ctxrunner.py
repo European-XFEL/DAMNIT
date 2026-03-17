@@ -317,7 +317,9 @@ class ContextFile:
 
 
 def get_start_time(xd_run):
-    
+    # currently takes the timestamp from the .batchinfo file
+    # one can add reading out the "oldest" file creating date
+    # (as it is with the EuXFEL DAMNIT version)
     if xd_run['batch'] is not None:
         if 'start_time' in xd_run['batch'].keys():
             _start_time = xd_run['batch']['start_time']

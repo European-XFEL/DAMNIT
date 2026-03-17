@@ -15,11 +15,13 @@ from pathlib import Path
 from secrets import token_hex
 from threading import Thread
 from uuid import uuid4
+import yaml
 
 from extra_data.read_machinery import find_proposal
 
 from .db import DamnitDB
 from ..context import RunData
+from ..ctxsupport.find_beamtime import find_beamtime
 
 log = logging.getLogger(__name__)
 
@@ -72,9 +74,14 @@ def tee(path: Path):
 
 
 def proposal_runs(proposal):
-    proposal_name = f"p{int(proposal):06d}"
-    raw_dir = Path(find_proposal(proposal_name)) / "raw"
-    return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
+    prop_dir = Path(find_beamtime(proposal))
+    enumerated_list = prop_dir / "scratch_cc" / f"{proposal}_enumerated_scans.yaml"
+    
+    with open(enumerated_list, 'r') as f:
+        scans = yaml.safe_load(f)
+    
+    raw_runs = list(scans.keys())
+    return set(raw_runs)
 
 def batches(l, n):
     start = 0
@@ -363,7 +370,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
         if mock:
             available_runs = runs
         else:
-            available_runs = runs #proposal_runs(proposal)
+            available_runs = proposal_runs(proposal)
 
         unavailable_runs = runs - available_runs
         if len(unavailable_runs) > 0:
