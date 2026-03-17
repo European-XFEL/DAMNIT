@@ -194,6 +194,24 @@ def test_pipeline_add_accepts_nested_sequences_and_rejects_invalid_iterables():
         Pipeline().add(gen())
 
 
+def test_pipeline_add_accepts_group_mapping():
+    @Group
+    class G:
+        @Variable
+        def val(self, run):
+            return 1
+
+    g = G()
+    pipe = Pipeline().add({"grp": g})
+    assert g.name == "grp"
+    assert set(pipe.vars) == {"grp.val"}
+
+    g = G(name="left")
+    pipe.add({"right": g})
+    assert g.name == "left"
+    assert set(pipe.vars) == {"grp.val", "left.val"}
+
+
 def test_pipeline_add_rejects_string():
     with pytest.raises(TypeError, match=r"Pipeline\.add accepts"):
         Pipeline().add("not-a-variable")

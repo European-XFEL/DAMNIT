@@ -541,7 +541,7 @@ class Pipeline:
             proposal: Proposal number for meta access or run opening.
             run_number: Run number for meta access or run opening.
             data: Object passed to Variable functions.
-            input_vars: Mapping for input# dependencies.
+            input_vars: dict for input# dependencies.
             _context: Precompiled context (e.g. from Pipeline.from_str() or select()).
         """
         self.name = name
@@ -605,14 +605,15 @@ class Pipeline:
     def add(self, *items):
         """Add Variables or Group instances to this Pipeline.
 
-        Items can be Variables, Group instances, or sequences of them.
+        Items can be Variables, Group instances, dict[str, Group], or sequences
+        of them.
         """
         _items = []
 
         def _raise_invalid(_item):
             raise TypeError(
                 "Pipeline.add accepts Variable or Group instances "
-                f"(or sequences of them); got {type(_item)!r}"
+                f"(or dict[str, Group], or sequences of them); got {type(_item)!r}"
             )
 
         def add_item(item):
@@ -621,6 +622,19 @@ class Pipeline:
                 return
             if isinstance(item, (str, bytes, bytearray)):
                 _raise_invalid(item)
+            if isinstance(item, dict):
+                for key, value in item.items():
+                    if is_group_instance(value):
+                        if value.name is None:
+                            value.name = key
+                        _items.append(value)
+                    elif isinstance(value, Variable):
+                        _items.append(value)
+                    elif isinstance(value, dict):
+                        add_item(value)
+                    else:
+                        _raise_invalid(item)
+                return
             if isinstance(item, Sequence):
                 for sub in item:
                     add_item(sub)
