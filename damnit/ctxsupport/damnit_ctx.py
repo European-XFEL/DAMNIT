@@ -647,6 +647,52 @@ class Pipeline:
         self._build_context(items=_items)
         return self
 
+    def union(self, other, *, on_conflict="error"):
+        """Return a new Pipeline containing variables from self and other.
+
+        Variables are deduplicated by object identity only. If two different
+        Variable objects share the same name, ``on_conflict`` controls what
+        happens.
+
+        Args:
+            other: Pipeline to merge in.
+            on_conflict: "error" (default), "left", or "right".
+
+        Notes:
+            - The returned Pipeline inherits context fields (proposal, run_number,
+              data, input_vars, name) from self.
+            - The compiled context code is taken from self.
+        """
+        if not isinstance(other, Pipeline):
+            raise TypeError("Pipeline.union expects a Pipeline instance")
+
+        if on_conflict not in ("error", "left", "right"):
+            raise ValueError("on_conflict must be 'error', 'left', or 'right'")
+
+        left_ctx = self.context
+        right_ctx = other.context
+
+        vars_by_name = dict(left_ctx.vars)
+        for name, var in right_ctx.vars.items():
+            existing = vars_by_name.get(name)
+            if existing is None:
+                vars_by_name[name] = var
+                continue
+            if existing is var:
+                continue
+            if on_conflict == "error":
+                raise Exception(f"Duplicate variable name {name!r}")
+            if on_conflict == "right":
+                vars_by_name[name] = var
+
+        new_pipe = self.copy()
+        new_pipe._context = None
+        new_pipe._build_context(
+            code_override=left_ctx.code,
+            items=list(vars_by_name.values()),
+        )
+        return new_pipe
+
     def with_context(
             self,
             *,

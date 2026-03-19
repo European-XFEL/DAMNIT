@@ -265,6 +265,58 @@ def test_pipeline_build_context_rejects_duplicate_variable_names():
         Pipeline().add(v1, v2)
 
 
+def test_pipeline_union_disjoint():
+    @Variable
+    def a(run):
+        return 1
+
+    @Variable
+    def b(run):
+        return 2
+
+    left = Pipeline().add(a)
+    right = Pipeline().add(b)
+    merged = left.union(right)
+
+    assert set(merged.vars) == {"a", "b"}
+    assert set(left.vars) == {"a"}
+    assert set(right.vars) == {"b"}
+
+
+def test_pipeline_union_deduplicates_same_object():
+    @Variable
+    def a(run):
+        return 1
+
+    left = Pipeline().add(a)
+    right = Pipeline().add(a)
+    merged = left.union(right)
+
+    assert set(merged.vars) == {"a"}
+    assert merged.vars["a"] is left.vars["a"] is right.vars["a"]
+
+
+def test_pipeline_union_conflicts():
+    code = dedent("""
+        from damnit_ctx import Variable
+
+        @Variable
+        def a(run):
+            return 1
+    """)
+    left = Pipeline.from_str(code)
+    right = Pipeline.from_str(code)
+
+    with pytest.raises(match=r"Duplicate variable name 'a'"):
+        left.union(right)
+
+    merged_left = left.union(right, on_conflict="left")
+    assert merged_left.vars["a"] is left.vars["a"]
+
+    merged_right = left.union(right, on_conflict="right")
+    assert merged_right.vars["a"] is right.vars["a"]
+
+
 def test_pipeline_build_context_rejects_unnamed_group_instance():
     @Group
     class G:

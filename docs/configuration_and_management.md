@@ -563,6 +563,27 @@ pipe.add(my_var, Demo(name="demo"))
 print(sorted(pipe.vars))
 ```
 
+### Merging pipelines
+You can combine two pipelines with `Pipeline.union()`. This returns a new
+pipeline containing variables from both inputs, and preserves the context fields
+(`proposal`, `run_number`, `data`, `input_vars`, `name`) and context code from
+the left-hand pipeline.
+
+By default, `union()` raises if the two pipelines contain different `Variable`
+objects with the same name. Use `on_conflict="left"` or `on_conflict="right"` to
+resolve name clashes.
+
+```python title="Union pipelines"
+from damnit.context import Pipeline
+
+pipe_a = Pipeline.from_context_file("context_a.py")
+pipe_b = Pipeline.from_context_file("context_b.py")
+
+# Prefer variables from pipe_a when names collide
+pipe = pipe_a.union(pipe_b, on_conflict="left")
+print(sorted(pipe.vars))
+```
+
 ### Advanced features
 Context files can call `Pipeline.default()` or `Pipeline.set_default()` to
 programmatically select which Variables/Groups are compiled. This is useful for
