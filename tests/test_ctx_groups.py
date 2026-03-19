@@ -962,11 +962,10 @@ def test_group_decorated_subclass_non_default_field(mock_run):
 
     b = B(value=3)
     """
-    with pytest.raises(TypeError):
-        mkcontext(code)
-    # results = ctx.execute(mock_run, 1000, 123, {})
-    # assert results.cells["b.base_val"].data == 1
-    # assert results.cells["b.combined"].data == 4
+    ctx = mkcontext(code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+    assert results.cells["b.base_val"].data == 1
+    assert results.cells["b.combined"].data == 4
 
 
 def test_group_duplicate_names_raise():
