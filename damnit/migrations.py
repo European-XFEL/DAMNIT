@@ -54,7 +54,7 @@ def migrate_images(new_db, db_dir, dry_run):
 
     # And then update the summaries in the database
     for run, run_reduced_data in reduced_data.items():
-        add_to_db(run_reduced_data, new_db, proposal, run)
+        add_to_db(run_reduced_data, new_db, proposal, run, provenance="context.py")
 
     info = f"updated {len(reduced_data)} variables in {len(files_modified)} files"
     if dry_run:

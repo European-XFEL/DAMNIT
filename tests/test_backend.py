@@ -765,7 +765,7 @@ def test_add_to_db(mock_db):
     reduced_objs = reduced_data_from_dict(reduced_data)
     reduced_objs["float"].attributes = {"background": [255, 0, 0]}
 
-    add_to_db(reduced_objs, db, 1234, 42)
+    add_to_db(reduced_objs, db, 1234, 42, provenance="test")
 
     cursor = db.conn.execute("SELECT * FROM runs")
     row = cursor.fetchone()
@@ -801,7 +801,7 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
         assert dset.attrs['summary_type'] == "trendline"
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123)
+    add_to_db(reduced_data, db, 1000, 123, provenance="test")
     row = db.conn.execute(
         "SELECT value, summary_type FROM run_variables WHERE name='line'"
     ).fetchone()
@@ -1384,7 +1384,7 @@ def test_transient_variables(mock_run, mock_db, tmp_path):
         assert np.allclose(f['var3/data'][()], np.arange(7) * 7)
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123)
+    add_to_db(reduced_data, db, 1000, 123, provenance="test")
     vars = db.conn.execute('SELECT value FROM run_variables WHERE name="var3"').fetchall()
     assert vars[0]['value'] == 42
     # also not saved in the db
@@ -1433,7 +1433,7 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
             assert f'var{i}' not in f
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123)
+    add_to_db(reduced_data, db, 1000, 123, provenance="test")
     attrs = db.conn.execute(
         "SELECT attributes FROM run_variables WHERE name='var1'"
     ).fetchone()[0]

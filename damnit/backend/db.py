@@ -214,7 +214,7 @@ class DamnitDB:
                 """, (start_time, proposal, run))
 
     def change_run_comment(self, proposal: int, run: int, comment: str):
-        self.set_variable(proposal, run, "comment", ReducedData(comment))
+        self.set_variable(proposal, run, "comment", ReducedData(comment), provenance="")
 
     def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
         v = variable

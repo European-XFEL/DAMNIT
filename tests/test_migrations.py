@@ -4,10 +4,7 @@ import h5py
 import numpy as np
 
 from damnit.migrations import migrate_images
-from damnit.backend.extract_data import add_to_db
 from damnit.backend.db import BlobTypes, ReducedData
-
-from .helpers import reduced_data_from_dict
 
 
 def test_migrate_images(mock_db, monkeypatch):
@@ -28,8 +25,8 @@ def test_migrate_images(mock_db, monkeypatch):
     with h5py.File(mock_h5_path, "w") as f:
         f.create_dataset(".reduced/foo", data=foo)
         f.create_dataset(".reduced/bar", data=np.array(bar))
-    db.set_variable(proposal, run, "bar", ReducedData(bar))
-    db.set_variable(proposal, run, "foo", ReducedData(pickle.dumps(foo)))
+    db.set_variable(proposal, run, "bar", ReducedData(bar), provenance="test")
+    db.set_variable(proposal, run, "foo", ReducedData(pickle.dumps(foo)), provenance="test")
 
     migrate_images(db, db_dir, dry_run=False)
 
