@@ -536,3 +536,32 @@ class Damnit:
 
     def __repr__(self):
         return f"<Damnit database for p{self.proposal}>"
+
+    def submit(self, run: int, variables, *, provenance,
+            errors: dict[str, Exception] = None, proposal: int | None = None,
+    ):
+        """Add some results into DAMNIT's store
+
+        Args:
+            run (int): Run number
+            variables (dict): Mapping of names to arrays or DAMNIT Cell objects.
+            provenance (str): A name for what produced these results.
+            errors (dict): Mapping of names to exceptions, to make error messages
+                visible in the table.
+            proposal (int, optional): Proposal number, if not the default for
+                this DAMNIT folder.
+        """
+        from .backend.extract_data import notify_new_file
+        from .context import Cell, save_fragment
+
+        variables = {k: (v if isinstance(v, Cell) else Cell(v))
+                     for (k, v) in variables.items()}
+        errors = errors or {}
+
+        if proposal is None:
+            proposal = self._db.metameta['proposal']
+
+        path = save_fragment(
+            self._db_dir, proposal, run, variables, errors, provenance=provenance
+        )
+        notify_new_file(self._db_dir, proposal, run, str(path))
