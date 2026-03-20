@@ -335,7 +335,7 @@ class DamnitDB:
             """)
 
     def set_variable(
-            self, proposal: int, run: int, name: str, reduced, provenance=""
+            self, proposal: int, run: int, name: str, reduced, provenance: str
     ):
         timestamp = datetime.now(tz=timezone.utc).timestamp()
 

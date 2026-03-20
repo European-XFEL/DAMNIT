@@ -11,7 +11,6 @@ import json
 import os
 import logging
 import pickle
-import re
 import shlex
 import socket
 import subprocess
@@ -128,7 +127,7 @@ def load_reduced_data(h5_path):
         }
 
 
-def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance=""):
+def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
     db.ensure_run(proposal, run)
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))

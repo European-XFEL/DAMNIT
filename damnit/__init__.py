@@ -6,8 +6,8 @@ from .api import Damnit, RunVariables, VariableData
 
 
 def submit(
-        proposal: int, run: int, variables, *, errors: dict[str, Exception] =None,
-        damnit_dir=None, provenance=""
+        proposal: int, run: int, variables, *, provenance,
+        errors: dict[str, Exception] =None, damnit_dir=None
 ):
     """Add some results into DAMNIT's store
 
@@ -15,12 +15,12 @@ def submit(
         proposal (int): Proposal number
         run (int): Run number
         variables (dict): Mapping of names to arrays or DAMNIT Cell objects.
+        provenance (str): A name for what produced these results.
         errors (dict): Mapping of names to exceptions, to make error messages
             visible in the table.
         damnit_dir (Path or str, optional): The DAMNIT directory to write into.
             If not specified, it will find the default directory for the
             relevant proposal.
-        provenance (str, optional): A name for what produced these results.
     """
     from pathlib import Path
     from .api import find_proposal
