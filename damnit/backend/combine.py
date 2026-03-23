@@ -137,10 +137,13 @@ def gather_all_fragments(damnit_dir: Path):
     db = DamnitDB.from_dir(damnit_dir)
     h5_dir = damnit_dir / "extracted_data"
 
-    for p in h5_dir.iterdir():
-        if not (m := FRAGMENT_PATTERN.match(p.name)):
-            continue
+    frag_files_matches = sorted(
+        [(p, m) for p in h5_dir.iterdir() if (m := FRAGMENT_PATTERN.match(p.name))],
+        # Sort by mtime to process files in order written
+        key=lambda t: t[0].stat().st_mtime
+    )
 
+    for p, m in frag_files_matches:
         proposal = int(m[1])
         run = int(m[2])
 
