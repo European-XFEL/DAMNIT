@@ -2,20 +2,21 @@ from pathlib import Path
 from socket import gethostname
 from typing import Optional, Tuple
 
-from extra_data.read_machinery import find_proposal
+# from extra_data.read_machinery import find_proposal
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 from .open_dialog_ui import Ui_Dialog
 
+from ..ctxsupport.find_beamtime import find_beamtime
 
 class ProposalFinder(QObject):
     find_result = pyqtSignal(str, str)
 
     def find_proposal(self, propnum: str):
-        if propnum.isdecimal() and len(propnum) >= 4:
+        if propnum.isdecimal():
             try:
-                dir = find_proposal(f"p{int(propnum):06}")
+                dir = find_beamtime(propnum)
             except:
                 dir = ''
         else:
@@ -82,7 +83,7 @@ class OpenDBDialog(QDialog):
 
     def get_chosen_dir(self):
         if self.ui.proposal_rb.isChecked():
-            return Path(self.proposal_dir) / "usr/Shared/amore"
+            return Path(self.proposal_dir) / "processed/_damnit"
         else:
             return Path(self.ui.folder_edit.text())
 

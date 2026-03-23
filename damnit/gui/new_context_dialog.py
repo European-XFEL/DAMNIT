@@ -2,11 +2,13 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from extra_data.read_machinery import find_proposal
+#from extra_data.read_machinery import find_proposal
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QFileDialog, QListWidgetItem, QMessageBox
 
 from .new_context_dialog_ui import Ui_Dialog
+
+from ..ctxsupport.find_beamtime import find_beamtime
 
 DAMNIT_PKG = Path(__file__).parent.parent
 
@@ -86,12 +88,12 @@ class NewContextFileDialog(QDialog):
         elif self.ui.proposal_rb.isChecked():
             propnum = self.ui.proposal_edit.text()
             try:
-                prop_dir = find_proposal(f"p{int(propnum):06}")
+                prop_dir = find_beamtime(propnum)
             except Exception:
                 QMessageBox.critical(self, "Proposal not found",
                                      f"Could not find proposal {propnum}")
                 return self.run_get_result()
-            path = Path(prop_dir) / 'usr/Shared/amore/context.py'
+            path = Path(prop_dir) / 'processed/_damnit/context.py'
             if not path.is_file():
                 QMessageBox.critical(self, "No context file",
                                      f"Proposal {propnum} didn't contain a context file")
