@@ -18,13 +18,16 @@ from ..api import find_proposal
 from .db import DamnitDB, KeyValueMapping, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
+from ..ctxsupport.find_beamtime import find_beamtime
+from ..definitions import UPDATE_BROKERS
+
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the DAMNIT updates go via XFEL's test instance.
 CONSUMER_ID = 'xfel-da-damnit-{}'
 KAFKA_CONF = {
     'maxwell': {
-        'brokers': ['exflwgs06:9091'],
-        'topics': ["test.r2d2", "cal.offline-corrections"],
+        'brokers': UPDATE_BROKERS,
+        'topics': ["test.desydamnit",],
         'events': ["migration_complete", "run_corrections_complete"],
     },
     'onc': {
@@ -201,7 +204,7 @@ class EventProcessor:
         # If it's the first time we've seen this proposal and we're not in
         # static mode, add it to the database.
         try:
-            official_path = find_proposal(proposal) / "usr/Shared/amore"
+            official_path = Path(find_beamtime(proposal)) / "processed/_damnit"
         except FileNotFoundError:
             log.warning(f"Could not find proposal directory for p{proposal}")
             official_path = None

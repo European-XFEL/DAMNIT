@@ -8,7 +8,9 @@ from pathlib import Path
 
 from termcolor import colored
 
-from extra_data.read_machinery import find_proposal
+# from extra_data.read_machinery import find_proposal
+
+from .ctxsupport.find_beamtime import find_beamtime
 
 
 def excepthook(exc_type, value, tb):
@@ -273,8 +275,10 @@ def main(argv=None):
             if (path := Path(args.proposal_or_dir)).is_dir():
                 context_dir = path
             elif args.proposal_or_dir.isdigit():
-                proposal_name = f"p{int(args.proposal_or_dir):06d}"
-                context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
+                # proposal_name = f"p{int(args.proposal_or_dir):06d}"
+                # context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
+                proposal_name = args.proposal_or_dir
+                context_dir = Path(find_beamtime(proposal_name)) / "processed/_damnit"
             else:
                 sys.exit(f"{args.proposal_or_dir} is not a proposal number or DAMNIT database directory")
         else:
@@ -307,7 +311,7 @@ def main(argv=None):
                                # Convert `static_mode` to a bool
                                dict(static_mode=lambda x: bool(int(x))))
         elif args.listener_subcmd == "add":
-            official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
+            official_dir = Path(find_beamtime(args.proposal)) / "_processed/_damnit"
 
             if args.db_dir is None:
                 db_dir = official_dir
