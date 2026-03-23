@@ -42,3 +42,5 @@ summary = myvar.summary()
 ::: damnit.VariableData
     options:
       merge_init_into_class: no
+
+::: damnit.submit
