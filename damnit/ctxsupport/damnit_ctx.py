@@ -402,7 +402,7 @@ def Group(
 
         cls.__post_init__ = __post_init__
 
-        return dataclass(cls)
+        return dataclass(cls, kw_only=True)
 
     if _cls is None:
         return wrap
