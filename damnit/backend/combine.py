@@ -121,15 +121,12 @@ class FileSubmissionProcessor:
 
         prop, run = d['proposal'], d['run']
 
-        time_limit = msg_timestamp + timedelta(seconds=NO_FILE_TIMEOUT)
-        while not src.exists():
-            if datetime.now(timezone.utc) > time_limit:
-                log.warning(
-                    "File %s not present %d s after notification, skipping",
-                    src, NO_FILE_TIMEOUT
-                )
-                return
-            time.sleep(0.5)
+        if not self.wait_file_exists(src, msg_timestamp):
+            log.warning(
+                "File %s not present %d s after notification, skipping",
+                src, NO_FILE_TIMEOUT
+            )
+            return
 
         with h5py.File(src) as f:
             provenance = f.attrs.get("provenance", "")
@@ -139,6 +136,26 @@ class FileSubmissionProcessor:
         with DamnitDB.from_dir(damnit_dir) as db:
             add_to_db(new_data, db, prop, run, provenance=provenance)
             self.send_update(new_data, db.kafka_topic, prop, run)
+
+    @staticmethod
+    def wait_file_exists(p: Path, msg_timestamp: datetime):
+        if p.exists():
+            return True
+
+        time_limit = msg_timestamp + timedelta(seconds=NO_FILE_TIMEOUT)
+        t0 = time.monotonic()
+        while not p.exists():
+            if datetime.now(timezone.utc) > time_limit:
+                return False
+            time.sleep(0.5)
+
+        t1 = time.monotonic()
+        since_msg = datetime.now(timezone.utc) - msg_timestamp
+        log.info(
+            "Fragment file %s found after %d s (%d s after notification)",
+            p, (t1 - t0), since_msg.total_seconds()
+        )
+        return True
 
     def send_update(self, reduced_data, topic, proposal, run):
         update_msg = msg_dict(MsgKind.run_values_updated, {
