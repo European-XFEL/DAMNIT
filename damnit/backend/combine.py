@@ -3,6 +3,8 @@ import json
 import logging
 import re
 import signal
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import h5py
@@ -18,6 +20,9 @@ from .extract_data import load_reduced_data, add_to_db
 from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
+
+# If the file doesn't exist N seconds after the Kafka message was sent, move on
+NO_FILE_TIMEOUT = 30
 
 log = logging.getLogger(__name__)
 
@@ -94,9 +99,10 @@ class FileSubmissionProcessor:
         while True:
             for record in self.consumer:
                 try:
+                    ts = datetime.fromtimestamp(record.timestamp / 1000, tz=timezone.utc)
                     msg = json.loads(record.value.decode())
                     if msg['msg_kind'] == MsgKind.file_submission.value:
-                        self.process_file_submission_msg(msg['data'])
+                        self.process_file_submission_msg(msg['data'], ts)
                     else:
                         log.info("Unexpected message kind %r", msg['msg_kind'])
                 except Exception:
@@ -105,7 +111,7 @@ class FileSubmissionProcessor:
                         exc_info=True,
                     )
 
-    def process_file_submission_msg(self, d: dict):
+    def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
         """Handle a notification from Kafka"""
         damnit_dir = Path(d['damnit_dir'])
         h5_dir = damnit_dir / "extracted_data"
@@ -114,6 +120,16 @@ class FileSubmissionProcessor:
         log.info("Combining %r into %r", src, dst)
 
         prop, run = d['proposal'], d['run']
+
+        time_limit = msg_timestamp + timedelta(seconds=NO_FILE_TIMEOUT)
+        while not src.exists():
+            if datetime.now(timezone.utc) > time_limit:
+                log.warning(
+                    "File %s not present %d s after notification, skipping",
+                    src, NO_FILE_TIMEOUT
+                )
+                return
+            time.sleep(0.5)
 
         with h5py.File(src) as f:
             provenance = f.attrs.get("provenance", "")
