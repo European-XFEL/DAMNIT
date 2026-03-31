@@ -242,7 +242,7 @@ def test_context_file(mock_ctx, tmp_path):
 
     no_parenthesis = """
     from damnit.context import Variable
-    
+
     @Variable
     def foo(run):
         return 42
@@ -1422,9 +1422,37 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     def var5(run):
         raise NotImplementedError
 
+    @Variable(transient=True)
+    def var6(run, var3: 'var#var3'):
+        return var3
+
+    @Variable()
+    def var7(run, var5: 'var#var5', var6: 'var#var6'):
+        return var5 + var6
+
+    @Variable(transient=True)
+    def var8(run, data: 'var#var7'):
+        return data
+
+    @Variable
+    def var9(run, data: 'var#var8'):
+        return data
+
     @Variable()
     def summary(run, data: 'var#var?'):
         return len(data)
+
+    @Variable
+    def res_is_none(run):
+        return
+
+    @Variable(transient=True)
+    def trans_is_none(run):
+        return None
+
+    @Variable
+    def dep_is_none(run, data: 'var#res_is_none', data1: 'var#trans_is_none'):
+        return data + data1
     """
     ctx = mkcontext(ctx_code)
     results = ctx.execute(mock_run, 1000, 123, {})
@@ -1432,10 +1460,15 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     results.save_hdf5(results_hdf5_path)
 
     with h5py.File(results_hdf5_path) as f:
-        for i in [1, 2, 4]:
+        for i in [1, 2, 4, 7, 9]:
             assert f'.errors/var{i}' in f
             assert f'.reduced/var{i}' not in f
             assert f'var{i}' not in f
+
+        assert '.errors/dep_is_none' in f
+        assert '.errors/res_is_none' not in f
+        assert 'res_is_none' not in f
+        assert 'dep_is_none' not in f
 
     reduced_data = load_reduced_data(results_hdf5_path)
     add_to_db(reduced_data, db, 1000, 123)
@@ -1454,7 +1487,26 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     attrs = db.conn.execute(
         "SELECT attributes FROM run_variables WHERE name='var4'"
     ).fetchone()[0]
-    assert json.loads(attrs) == {"error": "\ndependency (var3) failed: ZeroDivisionError('division by zero')", "error_cls": "Exception"}
+    assert json.loads(attrs) == {
+        "error": (
+            "Skipped due to missing dependency:\n"
+            "└ (var3) failed: ZeroDivisionError: division by zero"
+        ),
+        "error_cls": "DependencyError",
+    }
+
+    attrs = db.conn.execute(
+        "SELECT attributes FROM run_variables WHERE name='var7'"
+    ).fetchone()[0]
+    assert json.loads(attrs) == {
+        "error": (
+            "Skipped due to missing dependency:\n"
+            "├ (var5) failed: NotImplementedError\n"
+            "└ (var6) skipped\n"
+            "   └ (var3) failed: ZeroDivisionError: division by zero"
+        ),
+        "error_cls": "DependencyError",
+    }
 
     attrs = db.conn.execute(
         "SELECT attributes FROM run_variables WHERE name='summary'"
@@ -1462,6 +1514,12 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
     data = json.loads(attrs)
     assert '(var5)' in data['error']
     assert '(var3)' in data['error']
+
+    attrs = db.conn.execute(
+        "SELECT attributes FROM run_variables WHERE name='dep_is_none'"
+    ).fetchone()[0]
+    data = json.loads(attrs)
+    assert data['error_cls'] == 'Skip'
 
 
 def test_pattern_matching_dependency(mock_run):

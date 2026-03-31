@@ -1123,7 +1123,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 colour = 'lightgrey'
             case cls:
                 colour = 'orange'
-                msg = f"{cls}: {msg} (see processing log for details)"
+                msg = f'{msg}\n(see processing log for details)'
+                if cls != 'DependencyError':
+                    msg = f"{cls}: {msg}"
         item.setToolTip(msg)
         item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
         return item

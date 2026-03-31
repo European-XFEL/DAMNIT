@@ -34,6 +34,7 @@ import xarray as xr
 from damnit_ctx import (Cell, GroupBoundVariable, GroupError, RunData, Skip,
                         Variable, _normalize_tags, is_group_instance,
                         isinstance_no_import)
+from damnit_exceptions import ContextFileErrors, DependencyError
 
 log = logging.getLogger("ctxrunner")
 
@@ -48,14 +49,6 @@ class DataType(Enum):
     Image = "image"
     Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
-
-
-class ContextFileErrors(RuntimeError):
-    def __init__(self, problems):
-        self.problems = problems
-
-    def __str__(self):
-        return "\n".join(self.problems)
 
 
 def _group_name(group):
@@ -421,7 +414,7 @@ class ContextFile:
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
-        
+
         args:
             inc_transient (bool): include transient Variables in the dict
         """
@@ -529,12 +522,12 @@ class ContextFile:
                 if missing_deps:
                     log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
                     # get error message from transient dependencies
-                    error_message = ''
-                    for dep in missing_deps:
-                        if self.vars[dep].transient and dep in errors:
-                            error_message += f'\ndependency ({dep}) failed: {repr(errors[f"{dep}"])}'
-                    if error_message:
-                        errors[name] = Exception(error_message)
+                    dep_errors = [(dep, errors[dep]) for dep in missing_deps if dep in errors]
+                    if dep_errors:
+                        errors[name] = DependencyError(dep_errors)
+                    else:
+                        deps = [f"{os.linesep}- '{d}'" for d in missing_deps]
+                        errors[name] = Skip(f"Dependencies returned no data:{''.join(deps)}")
                     continue
                 elif missing_input:
                     log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
