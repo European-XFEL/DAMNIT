@@ -17,6 +17,8 @@ import h5py
 import numpy as np
 import xarray as xr
 
+from damnit_exceptions import GroupError, Skip
+
 __all__ = [
     "Cell",
     "Group",
@@ -285,14 +287,6 @@ class Cell:
         if (max_diff := self._max_diff()) is not None:
             d['max_diff'] = max_diff
         return d
-
-
-class Skip(Exception):
-    pass
-
-
-class GroupError(Exception):
-    pass
 
 
 def _normalize_tags(tags) -> tuple[str]:
