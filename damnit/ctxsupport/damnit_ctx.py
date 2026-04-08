@@ -17,6 +17,8 @@ import h5py
 import numpy as np
 import xarray as xr
 
+from damnit_exceptions import GroupError, Skip
+
 __all__ = [
     "Cell",
     "Group",
@@ -222,6 +224,8 @@ class Cell:
                     )
                 elif not (np.issubdtype(preview.dtype, np.number) or preview.dtype == bool):
                     raise TypeError("preview array should be numeric")
+            elif isinstance_no_import(preview, 'matplotlib.axes', 'Axes'):
+                preview = preview.get_figure()
             elif not (
                     isinstance_no_import(preview, 'matplotlib.figure', 'Figure') or
                     isinstance_no_import(preview, 'plotly.graph_objs', 'Figure')
@@ -346,14 +350,6 @@ class Cell:
         return d
 
 
-class Skip(Exception):
-    pass
-
-
-class GroupError(Exception):
-    pass
-
-
 def _normalize_tags(tags) -> tuple[str]:
     if tags is None:
         return ()
@@ -461,7 +457,7 @@ def Group(
 
         cls.__post_init__ = __post_init__
 
-        return dataclass(cls)
+        return dataclass(cls, kw_only=True)
 
     if _cls is None:
         return wrap
