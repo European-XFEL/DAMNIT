@@ -3,7 +3,7 @@ import logging
 import sys
 import textwrap
 import traceback
-from argparse import ArgumentParser
+from argparse import ArgumentParser, SUPPRESS
 from pathlib import Path
 
 from termcolor import colored
@@ -157,6 +157,16 @@ def main(argv=None):
         "databases",
         help="Display the DAMNIT databases currently being monitored"
     )
+
+    combiner_ap = subparsers.add_parser("combiner", help="Manage the DAMNIT combiner.")
+    combiner_subparser = combiner_ap.add_subparsers(dest="combiner_subcmd", required=True)
+    combiner_start_grp = combiner_subparser.add_parser("run", help="Run the DAMNIT combiner")
+
+    combiner_now_grp = combiner_subparser.add_parser("now",
+         help="Combine files in the specified DAMNIT directory now. "
+              "Can cause corruption if the combiner is running at the same time."
+    )
+    combiner_now_grp.add_argument("db_dir", type=Path)
 
     reprocess_ap = subparsers.add_parser(
         'reprocess',
@@ -333,6 +343,14 @@ def main(argv=None):
                 else:
                     x = all_proposals[p][0]
                     print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
+
+    elif args.subcmd == "combiner":
+        if args.combiner_subcmd == 'run':
+            from .backend.combine import main
+            return main()
+        elif args.combiner_subcmd == 'now':
+            from .backend.combine import gather_all_fragments
+            gather_all_fragments(args.damnit_dir)
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable

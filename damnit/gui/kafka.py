@@ -1,4 +1,4 @@
-import pickle
+import json
 import logging
 
 from kafka import KafkaConsumer, KafkaProducer
@@ -20,8 +20,10 @@ class UpdateAgent(QtCore.QObject):
         self.kafka_cns = KafkaConsumer(
             self.update_topic, bootstrap_servers=UPDATE_BROKERS
         )
-        self.kafka_prd = KafkaProducer(bootstrap_servers=UPDATE_BROKERS,
-                                       value_serializer=lambda d: pickle.dumps(d))
+        self.kafka_prd = KafkaProducer(
+            bootstrap_servers=UPDATE_BROKERS,
+            value_serializer=lambda d: json.dumps(d).encode('utf-8')
+        )
         self.running = False
 
     def listen_loop(self) -> None:
@@ -35,7 +37,7 @@ class UpdateAgent(QtCore.QObject):
             for topic, messages in topic_messages.items():
                 for msg in messages:
                     try:
-                        unpickled_msg = pickle.loads(msg.value)
+                        unpickled_msg = json.loads(msg.value)
                     except Exception:
                         log.error("Kafka event could not be un-pickled.", exc_info=True)
                         continue

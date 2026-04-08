@@ -17,6 +17,7 @@ from ..definitions import DEFAULT_DAMNIT_PYTHON
 from ..api import find_proposal
 from .db import DamnitDB, KeyValueMapping, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
+from .service import notify_ready
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
 # but the DAMNIT updates go via XFEL's test instance.
@@ -247,6 +248,7 @@ def listen(db_dir):
     logging.root.addHandler(file_handler)
 
     log.info(f"Running on {platform.node()} under user {getpass.getuser()}, PID {os.getpid()}")
+    notify_ready()
     try:
         with EventProcessor(db_dir) as processor:
             processor.run()

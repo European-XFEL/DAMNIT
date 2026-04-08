@@ -1,0 +1,14 @@
+[Unit]
+Description=DAMNIT output file combiner service
+PartOf=damnit-services.target
+# Ensure we don't accidentally start it on other nodes
+ConditionHost=max-exfl458.desy.de
+
+[Service]
+Type=notify
+WorkingDirectory=%h/srv/damnit-combiner
+ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-mid/.pixi/envs/default/bin/python -m damnit.backend.combine
+Restart=on-failure
+
+[Install]
+WantedBy=damnit-services.target

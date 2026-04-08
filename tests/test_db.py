@@ -200,7 +200,7 @@ def test_numpy_summary_type_and_storage(tmp_path):
     db.ensure_run(1234, 1)
     arr = np.arange(10, dtype=np.float64)
 
-    db.set_variable(1234, 1, "array", ReducedData(arr))
+    db.set_variable(1234, 1, "array", ReducedData(arr), provenance="test")
     row = db.conn.execute(
         "SELECT value, summary_type FROM run_variables WHERE name='array'"
     ).fetchone()
@@ -208,7 +208,9 @@ def test_numpy_summary_type_and_storage(tmp_path):
     assert BlobTypes.identify(row["value"]) is BlobTypes.numpy
     np.testing.assert_array_equal(blob2numpy(row["value"]), arr)
 
-    db.set_variable(1234, 1, "line", ReducedData(arr, summary_type="trendline"))
+    db.set_variable(
+        1234, 1, "line", ReducedData(arr, summary_type="trendline"), provenance="test"
+    )
     row = db.conn.execute(
         "SELECT value, summary_type FROM run_variables WHERE name='line'"
     ).fetchone()

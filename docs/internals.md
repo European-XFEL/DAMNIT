@@ -295,3 +295,25 @@ proposal | runnr | start_time        | added_at         | comment            | v
 And every time a variable was added another column would be added to the table
 by changing its schema. There are a few other tables in the database but they're
 not so important.
+
+## Adding new data
+
+New data is not written into the per-run HDF5 files directly, since concurrent
+writes on different nodes can cause file corruption. Instead, it is written into
+'fragment' files in the same directory. These are merged into the per-run files
+by the combiner service, which also updates the SQLite database.
+
+The combiner service runs as user `xdamnprd` on `max-exfl458`, and can be
+managed through systemd:
+
+```shell
+systemctl --user status damnit-listener
+systemctl --user start damnit-listener
+systemctl --user stop damnit-listener
+systemctl --user restart damnit-listener
+```
+
+Processes producing data notify the listener of new fragment files by sending
+a Kafka message on the topic `test.damnit.file_submissions`.
+[damnit.submit()][damnit.submit] can be used to write the file and send the
+notification.

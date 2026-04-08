@@ -1242,7 +1242,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             # the `run_variables` table with an empty comment. Adding it to
             # both ensures that the run will show up in the `runs` view.
             self.db.ensure_run(proposal, run)
-            self.db.set_variable(proposal, run, "comment", ReducedData(None))
+            self.db.set_variable(proposal, run, "comment", ReducedData(None), provenance="")
 
             self.insert_run_row(proposal, run, {}, {}, {})
 
