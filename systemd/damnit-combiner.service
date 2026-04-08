@@ -7,7 +7,7 @@ ConditionHost=max-exfl458.desy.de
 [Service]
 Type=notify
 WorkingDirectory=%h/srv/damnit-combiner
-ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-mid/.pixi/envs/default/bin/python -m damnit.backend.combine
+ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-beta/.pixi/envs/default/bin/python -m damnit.backend.combine
 Restart=on-failure
 
 [Install]
