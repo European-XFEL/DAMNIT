@@ -52,6 +52,72 @@ $ pixi install
 ```
 
 ## The listener
+
+The listener launches DAMNIT processing when new run data is migrated or
+calibrated. Most DAMNIT folders share a single, centrally managed listener
+service. It's possible to start a separate static listener for a single folder,
+e.g. for testing purposes.
+
+### Central listener service
+
+A single listener in dynamic mode is deployed from the *beta module* on
+`max-exfl458.desy.de` under the `xdamnprd` user. To access it you can run:
+```bash
+$ ssh xdamnprd@max-exfl458.desy.de
+$ module load exfel damnit/beta
+$ cd ~/srv/damnit-listener
+$ damnit listener databases # Or whatever other command you want
+```
+
+To update the listener you should:
+
+1. Update the beta module.
+2. Restart the listener with `systemctl --user restart damnit-listener`.
+
+The central listener process is managed by systemd, so can be controlled with
+various `systemctl --user` commands. Aliases are set up for some of these,
+e.g. `damnit-status`.
+
+As the name suggests, the listener listens for migration/calibration Kafka
+notifications for all proposals and launches processing jobs for them. To do
+this it needs to have access to all proposals, so on Maxwell it runs under the
+`xdamnprd` user. Jobs can optionally (currently disabled by default) be run
+inside a [sandbox](https://git.xfel.eu/dataAnalysis/proposal-sandbox) that
+executes the context file under the `xdamntst` user with dynamic privileges to
+only allow access to their proposal.
+
+The databases being monitored can be managed through the CLI as well:
+```bash
+# Show all databases being managed
+$ damnit listener databases
+
+# Add a proposal database
+$ damnit listener add 1234
+
+# Add a database in a specific location
+$ damnit listener add 1234 /foo/bar
+
+# Remove a database
+$ damnit listener rm /foo/bar
+```
+
+!!! danger
+    Only one listener in should be running in dynamic mode at a time. Otherwise
+    multiple jobs may be launched for the same notification, which will cause
+    file corruption and weeping and gnashing of teeth.
+
+### Static listeners
+
+If you set up a DAMNIT folder in a non-standard location, the central listener
+won't know about it. You can start a listener in static mode to watch for new
+data and launch jobs for this DAMNIT folder.
+
+From inside your DAMNIT folder, run::
+
+```bash
+damnit listen --daemonize
+```
+
 The listener is a process running under [Supervisor](http://supervisord.org/). In
 a nutshell:
 
@@ -61,14 +127,6 @@ a nutshell:
   username/password. Supervisor will save its logs to `supervisord.log`.
 - It can be controlled with `supervisorctl` on any machine using the same config
   file.
-
-As the name suggests, the listener listens for migration/calibration Kafka
-notifications for all proposals and launches processing jobs for them. To do
-this it needs to have access to all proposals, so on Maxwell it runs under the
-`xdamnprd` user. Jobs can optionally (currently disabled by default) be run
-inside a [sandbox](https://git.xfel.eu/dataAnalysis/proposal-sandbox) that
-executes the context file under the `xdamntst` user with dynamic privileges to
-only allow access to their proposal.
 
 So lets say the listener has been started. If you open a terminal and `cd` to the
 database directory you'll see:
@@ -94,52 +152,13 @@ $ supervisorctl -c supervisord.conf status damnit
 damnit                           RUNNING   pid 3793880, uptime 0:00:04
 ```
 
-When a new listener is started it initializes itself in _static mode_, which
-means that it will only process jobs for proposals that are already in its
-database to avoid conflicts with other listeners. To enable 'dynamic' mode and
-launch jobs for all proposals you can change the setting in its database:
-```bash
-$ damnit listener config static_mode 0
-```
+The new listener starts in _static mode_ by default, which means that it will
+only process jobs for proposals that are already in its database to avoid
+conflicts with other listeners.
 
 By default the listener will only submit slurm jobs, but you can allow falling
 back to executing jobs locally by setting the `allow_local_processing` setting
 to `1` (true).
-
-The databases being monitored can be managed through the CLI as well:
-```bash
-# Show all databases being managed
-$ damnit listener databases
-
-# Add a proposal database
-$ damnit listener add 1234
-
-# Add a database in a specific location
-$ damnit listener add 1234 /foo/bar
-
-# Remove a database
-$ damnit listener rm /foo/bar
-```
-
-!!! danger
-    Only one listener in should be running in dynamic mode at a time. Otherwise
-    multiple jobs may be launched for the same notification, which will cause
-    file corruption and weeping and gnashing of teeth.
-
-### Deployment on Maxwell
-A single listener in dynamic mode is deployed from the *beta module* on
-`max-exfl458.desy.de` under the `xdamnprd` user. To access it you can run:
-```bash
-$ ssh xdamnprd@max-exfl458.desy.de
-$ module load exfel damnit/beta
-$ cd ~/srv/damnit-listener
-$ damnit listener databases # Or whatever other command you want
-```
-
-To update the listener you should:
-
-1. Update the beta module.
-2. Restart the listener with `supervisorctl -c supervisord.conf restart damnit`.
 
 ## Kafka
 The GUI is updated by Kafka messages sent by the backend. Currently we use
