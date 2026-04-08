@@ -2,10 +2,16 @@
 
 ## [Unreleased]
 
+[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.3.0...HEAD)
+
+## [0.3.0]
+
 Added:
 
 - GUI: Run-table headers can now display hierarchical view for slash-separated
   titles (!520).
+- GUI: Hierarchical headers can be switched back to flat (legacy) mode from
+  the table menu (!520).
 - Core: Introduced a migrations framework to apply future schema changes
   predictably (!510).
 - GUI: save/restore column widths setting (!526).
@@ -13,12 +19,24 @@ Added:
   (!531).
 - GUI: Display interactive sparklines for 1D data in the main table (!531).
 - Core: New ``Group`` class decorator to create reusable components (!532).
+- API: Added `damnit.submit()` to submit results (with provenance/errors) into
+  DAMNIT (!512).
+- CLI: Added `damnit combiner run` and `damnit combiner now` commands to
+  process fragment files (!512).
+- CLI: `damnit read-context` now supports `--no-kafka` (also used by the GUI in
+  no-kafka mode) (!521).
+- API: `Cell` previews now support returning matplotlib `Axes` objects (!540).
+- GUI: Added provenance markers for values submitted via API (!547).
 
 Fixed:
 
-- GUI: Preview render boolean arrays correctly (!513).
+- GUI: Preview renders boolean arrays correctly (!513).
+- Context: Dependency errors now show clearer dependency chains, including
+  skipped variables due to missing data (!543).
+- Core: Context file evaluation now always runs in a sandboxed subprocess
+  (!517).
 
-[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.2.1...HEAD)
+[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.2.1...0.3.0)
 
 ## [0.2.1]
 
@@ -249,6 +267,7 @@ Fixed:
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/commits/0.1)
 
 
+[0.3.0]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.3.0
 [0.2.1]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2.1
 [0.2]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2
 [0.1.4]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.1.4
