@@ -245,7 +245,9 @@ def _expand_group(group):
             else:
                 annotations[arg_name] = annotation
 
-        new_var.tags = set(group.tags) | set(_normalize_tags(new_var.tags))
+        new_var.tags = tuple(sorted(
+            set(group.tags) | set(_normalize_tags(new_var.tags))
+        ))
         new_var._annotation_overrides = annotations
         expanded[new_var.name] = new_var
 
