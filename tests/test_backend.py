@@ -908,7 +908,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
          patch("ctxrunner.Results"):
         main(["exec", "1234", "42", "proc"])
 
-        open_run.assert_called_with(1234, 42, data="all")
+        open_run.assert_called_with(1234, 42)
     gather_all_fragments(db_dir)
 
 def test_custom_environment(mock_db, venv, monkeypatch, qtbot):

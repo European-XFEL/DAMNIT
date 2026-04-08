@@ -38,7 +38,6 @@ from damnit_ctx import (
     Skip,
     Variable,
     _normalize_tags,
-    build_context_from_code,
     is_group_instance,
     pipeline_scope,
 )

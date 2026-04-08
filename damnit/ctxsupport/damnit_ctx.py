@@ -844,11 +844,21 @@ class Pipeline:
         """Return variable metadata suitable for database storage."""
         return self.context.vars_to_dict(inc_transient=inc_transient)
 
-    def save_hdf5(self, path, reduced_only=False):
+    def save(self, path: Path, provenance: str | None = None):
         """Save the last Results to an HDF5 file."""
+        from damnit_writing import save_fragment
+
         if self._last_results is None:
             raise RuntimeError("No results available. Call execute() first.")
-        self._last_results.save_hdf5(path, reduced_only=reduced_only)
+
+        return save_fragment(
+            damnit_dir=path,
+            proposal=self.proposal,
+            run=self.run_number,
+            vars=self._last_results.cells,
+            errors=self._last_results.errors,
+            provenance=provenance or self.name or "unknown",
+        )
 
 
 @contextmanager
