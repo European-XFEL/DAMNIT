@@ -28,8 +28,8 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
-from damnit.gui.roles import LINE_DATA_ROLE
-from damnit.gui.table import STATIC_COLUMNS, SparklineDelegate, TableView
+from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE
+from damnit.gui.table import DamnitTableModel, STATIC_COLUMNS, TableView
 from damnit.gui.table_filter import (CategoricalFilter, FilterProxy,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
@@ -628,7 +628,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
             raise ValueError(f"Error in field_name: the variable name '{field_name}' is not of the form '[a-zA-Z_]\\w+'")
         return db.conn.execute(f"SELECT {field_name} FROM runs WHERE run = ?", (run_number,)).fetchone()[0]
 
-    # Check that editing is prevented when trying to modfiy a non-editable column 
+    # Check that editing is prevented when trying to modfiy a non-editable column
     assert open_editor_and_get_delegate("dep_number").widget is None
 
     # Check that editing is allowed when trying to modify a user editable column
@@ -642,7 +642,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert abs(get_value_from_db("user_number") - 15.4) < 1e-5
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     # Try to assign a value of the wrong type
@@ -650,7 +650,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value is still the same as before
     assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -660,7 +660,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_number") is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_integer").widget is not None
 
     change_to_value_and_close("42")
@@ -671,7 +671,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_integer") == 42
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_integer").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -681,7 +681,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_integer") is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_string").widget is not None
 
     change_to_value_and_close("Cool string")
@@ -691,7 +691,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_string") == "Cool string"
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_string").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -701,7 +701,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_string") is None
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     change_to_value_and_close("T")
@@ -711,14 +711,14 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean")
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     change_to_value_and_close("no")
     # Check that the value in the table is of the correct type and value
     assert not get_value_from_field("user_boolean")
 
-    # Check that editing is allowed when trying to modfiy a user editable column 
+    # Check that editing is allowed when trying to modfiy a user editable column
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
@@ -1706,7 +1706,7 @@ def test_sparkline_delegate_paint_smoke(qtbot):
         ptr.setsize(img.byteCount())
         return bytes(ptr)
 
-    delegate = SparklineDelegate(view)
+    delegate = view.itemDelegate()
 
     # Render without hover.
     image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
@@ -1727,3 +1727,66 @@ def test_sparkline_delegate_paint_smoke(qtbot):
     hover_bytes = image_bytes(hover_image)
 
     assert base_bytes != hover_bytes
+
+
+def test_adds_provenance_tooltip_to_items(mock_db, qtbot):
+    _, db = mock_db
+    model = DamnitTableModel(db, {}, None)
+
+    item = model.new_item(42, "scalar1", 0, {}, provenance="pytest")
+    assert item.data(PROVENANCE_ROLE) == "pytest"
+    assert item.toolTip() == "Provenance: pytest"
+
+    # html tooltip
+    item = model.itemPrototype().clone()
+    item.setToolTip('<img src="data:image/png;base64,abc">')
+    model._apply_provenance_style(item, "pytest")
+    assert item.data(PROVENANCE_ROLE) == "pytest"
+    assert item.toolTip() == '<img src="data:image/png;base64,abc"><br/>Provenance: pytest'
+
+    # skip default
+    item = model.new_item(42, "scalar1", 0, {}, provenance="context.py")
+    assert item.data(PROVENANCE_ROLE) is None
+    assert not item.toolTip()
+
+
+def test_item_delegate_paints_provenance_marker_smoke(qtbot):
+    view = TableView()
+    model = QtGui.QStandardItemModel(1, 1)
+    item = QtGui.QStandardItem("value")
+    model.setItem(0, 0, item)
+    view.setModel(model)
+    view.resize(200, 60)
+    qtbot.addWidget(view)
+    view.show()
+    qtbot.waitExposed(view)
+
+    index = view.model().index(0, 0)
+    option = QtWidgets.QStyleOptionViewItem()
+    option.rect = view.visualRect(index)
+    option.widget = view
+
+    def image_bytes(img):
+        ptr = img.constBits()
+        ptr.setsize(img.byteCount())
+        return bytes(ptr)
+
+    delegate = view.itemDelegate()
+
+    base_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
+    base_image.fill(Qt.transparent)
+    base_painter = QtGui.QPainter(base_image)
+    delegate.paint(base_painter, option, index)
+    base_painter.end()
+    base_bytes = image_bytes(base_image)
+
+    item.setData("pytest", PROVENANCE_ROLE)
+
+    marker_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
+    marker_image.fill(Qt.transparent)
+    marker_painter = QtGui.QPainter(marker_image)
+    delegate.paint(marker_painter, option, index)
+    marker_painter.end()
+    marker_bytes = image_bytes(marker_image)
+
+    assert base_bytes != marker_bytes

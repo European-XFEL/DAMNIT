@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import time
@@ -17,7 +18,7 @@ from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex, blob2nu
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import timestamp2str
-from .roles import LINE_DATA_ROLE
+from .roles import LINE_DATA_ROLE, PROVENANCE_ROLE
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
 from .util import delete_variable, StatusbarStylesheet
 
@@ -353,12 +354,46 @@ class FilterHeaderView(QtWidgets.QHeaderView):
             parent.viewport().update()
 
 
-class SparklineDelegate(QtWidgets.QStyledItemDelegate):
-    def paint(self, painter, option, index):
-        arr = index.data(LINE_DATA_ROLE)
-        if arr is None:
-            return super().paint(painter, option, index)
+class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
+        # Pre-compute equaly spaced color hues for provenance indicator
+        self.n_colors = 16
+        self.hues = [i / self.n_colors for i in range(self.n_colors)]
+        self.label_colors = {}
+
+    def _provenance_color(self, provenance: str) -> QtGui.QColor:
+        if provenance not in self.label_colors:
+            digest = hashlib.sha256(provenance.encode()).digest()
+            index = int.from_bytes(digest[:4], "big") % self.n_colors
+            hue = self.hues[index]
+            color = QtGui.QColor.fromHsl(int(255 * hue), 170, 200, 220)
+            self.label_colors[provenance] = color
+        return self.label_colors[provenance]
+
+    def _paint_provenance_marker(self, painter, option, index):
+        provenance = index.data(PROVENANCE_ROLE)
+        if not provenance:
+            return
+        rect = option.rect
+        color = self._provenance_color(provenance)
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        # draw corner triangle
+        x = rect.right()
+        y = rect.top() + 1
+        painter.setBrush(color)
+        painter.setPen(QtGui.QPen(color.darker(130)))
+        tri = QtGui.QPolygonF([
+            QtCore.QPointF(x, y),
+            QtCore.QPointF(x - 10, y),
+            QtCore.QPointF(x, y + 10),
+        ])
+        painter.drawPolygon(tri)
+        painter.restore()
+
+    def _paint_sparkline(self, data, painter, option, index):
         # Base item rendering (selection background, etc.)
         opt = QtWidgets.QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
@@ -373,11 +408,11 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
             return
 
         # Validate/prepare data.
-        if arr.ndim != 2 or arr.shape[0] != 2 or arr.shape[1] < 2:
+        if data.ndim != 2 or data.shape[0] != 2 or data.shape[1] < 2:
             return
 
-        x = np.asarray(arr[0], dtype=np.float64)
-        y = np.asarray(arr[1], dtype=np.float64)
+        x = np.asarray(data[0], dtype=np.float64)
+        y = np.asarray(data[1], dtype=np.float64)
 
         finite = np.isfinite(x) & np.isfinite(y)
         if not finite.any():
@@ -511,6 +546,14 @@ class SparklineDelegate(QtWidgets.QStyledItemDelegate):
                 )
         painter.restore()
 
+    def paint(self, painter, option, index):
+        data = index.data(LINE_DATA_ROLE)
+        if data is None:
+            super().paint(painter, option, index)
+        else:
+            self._paint_sparkline(data, painter, option, index)
+        self._paint_provenance_marker(painter, option, index)
+
 
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
@@ -531,7 +574,7 @@ class TableView(QtWidgets.QTableView):
         )
 
         self.verticalHeader().setMinimumSectionSize(ROW_HEIGHT)
-        self.setItemDelegate(SparklineDelegate(self))
+        self.setItemDelegate(ItemRendererDelegate(self))
         self.setMouseTracking(True)
 
         # Add the widgets to be used in the column settings dialog
@@ -1078,6 +1121,17 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         log.info(f"Got columns in {t1 - t0:.3f} s")
         return sorted_cols, column_titles
 
+    def _apply_provenance_style(self, item, provenance: str):
+        if provenance is None or provenance == "context.py":
+            return
+        item.setData(provenance, role=PROVENANCE_ROLE)
+        tip = item.toolTip() or ""
+        if tip.startswith("<"):
+            sep = "<br/>"
+        else:
+            sep = "\n" if tip else ""
+        item.setToolTip(f"{tip}{sep}Provenance: {provenance}")
+
     def text_item(self, value, display=None):
         if display is None:
             if value is None:
@@ -1130,20 +1184,20 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         item.setData(QtGui.QColor(colour), Qt.ItemDataRole.DecorationRole)
         return item
 
-    def new_item(self, value, column_id, max_diff, attrs, summary_type=None):
+    def new_item(self, value, column_id, max_diff, attrs, summary_type=None, provenance=None):
         if summary_type == "trendline":
-            return self.line_item(blob2numpy(value))
-        if summary_type == "numpy":
+            item = self.line_item(blob2numpy(value))
+        elif summary_type == "numpy":
             arr = blob2numpy(value)
-            return self.text_item(f"{arr.dtype}: {arr.shape}")
-        if is_png_bytes(value):
-            return self.image_item(value)
+            item = self.text_item(f"{arr.dtype}: {arr.shape}")
+        elif is_png_bytes(value):
+            item = self.image_item(value)
         elif column_id == 'comment':
-            return self.comment_item(value)
+            item = self.comment_item(value)
         elif column_id == 'start_time':
-            return self.text_item(value, timestamp2str(value))
+            item = self.text_item(value, timestamp2str(value))
         elif 'error' in attrs:
-            return self.error_item(attrs)
+            item = self.error_item(attrs)
         else:
             item = self.text_item(value)
             item.setEditable(column_id in self.editable_columns)
@@ -1154,7 +1208,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 item.setFont(self._bold_font)
             if (bg := attrs.get('background')) is not None:
                 item.setBackground(QtGui.QBrush(QtGui.QColor(*bg)))
-            return item
+
+        self._apply_provenance_style(item, provenance)
+        return item
 
     def _load_from_db(self):
         t0 = time.perf_counter()
@@ -1172,18 +1228,18 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.setItem(row_ix, 3, self.text_item(ts, timestamp2str(ts)))
 
         for (prop, run), grp in groupby(self.db.conn.execute("""
-            SELECT proposal, run, name, value, max_diff, summary_type, attributes FROM run_variables
+            SELECT proposal, run, name, value, max_diff, summary_type, attributes, provenance FROM run_variables
             ORDER BY proposal, run
         """).fetchall(), key=lambda r: r[:2]):  # Group by proposal & run
             row_ix = self.run_index[(prop, run)]
-            for *_, name, value, max_diff, summary_type, attr_json in grp:
+            for *_, name, value, max_diff, summary_type, attr_json, provenance in grp:
                 col_ix = self.column_index[name]
                 if name in self.user_variables:
                     value = self.user_variables[name].get_type_class().from_db_value(value)
                 if summary_type == "complex":
                     value = blob2complex(value)
                 attrs = json.loads(attr_json) if attr_json else {}
-                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs, summary_type))
+                self.setItem(row_ix, col_ix, self.new_item(value, name, max_diff, attrs, summary_type, provenance))
 
         self.setVerticalHeaderLabels(row_headers)
         t1 = time.perf_counter()
@@ -1269,13 +1325,16 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
 
-    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict, attrs: dict, summary_types: dict = None):
+    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict,
+                       attrs: dict, summary_types: dict = None,
+                       provenances: dict = None):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
         status_item.setCheckState(Qt.Checked)
         row = [status_item, self.text_item(proposal), self.text_item(run)]
 
         summary_types = summary_types or {}
+        provenances = provenances or {}
         for column_id in self.column_ids[3:]:
             if (value := contents.get(column_id, None)) is not None:
                 item = self.new_item(
@@ -1284,6 +1343,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                     max_diffs.get(column_id) or 0,
                     attrs.get(column_id) or {},
                     summary_types.get(column_id),
+                    provenances.get(column_id),
                 )
             elif column_id in self.editable_columns:
                 item = QtGui.QStandardItem()  # Editable by default
@@ -1313,7 +1373,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 return
             placeholders = ", ".join(["?"] * len(values))
             query = (
-                "SELECT name, value, max_diff, summary_type, attributes "
+                "SELECT name, value, max_diff, summary_type, attributes, provenance "
                 "FROM run_variables WHERE proposal=? AND run=? "
                 f"AND name IN ({placeholders})"
             )
@@ -1321,7 +1381,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         except KeyError:
             row_ix = None
             query = (
-                "SELECT name, value, max_diff, summary_type, attributes "
+                "SELECT name, value, max_diff, summary_type, attributes, provenance "
                 "FROM run_variables WHERE proposal=? AND run=?"
             )
             params = (proposal, run)
@@ -1330,12 +1390,14 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         max_diffs = {}
         attrs = {}
         summary_types = {}
+        provenances = {}
 
-        for name, value, max_diff, summary_type, attr_json in self.db.conn.execute(query, params):
+        for name, value, max_diff, summary_type, attr_json, provenance in self.db.conn.execute(query, params):
             data[name] = value
             max_diffs[name] = max_diff
             summary_types[name] = summary_type
             attrs[name] = json.loads(attr_json) if attr_json else {}
+            provenances[name] = provenance
 
         col_id_to_ix = {c: i for (i, c) in enumerate(self.column_ids)}
 
@@ -1349,9 +1411,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                     max_diffs.get(column_id) or 0,
                     attrs.get(column_id) or {},
                     summary_types.get(column_id),
+                    provenances.get(column_id),
                 ))
         else:
-            self.insert_run_row(proposal, run, data, max_diffs, attrs, summary_types)
+            self.insert_run_row(proposal, run, data, max_diffs, attrs, summary_types, provenances)
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
