@@ -62,7 +62,7 @@ def test_group_expands_variables_and_prefixes():
     assert "xgm_sa2.pulse_energy" in ctx.vars
     var = ctx.vars["xgm_sa2.pulse_energy"]
     assert var.title == "XGM Diag/Pulse Energy"
-    assert var.tags == {"XGM", "Energy"}
+    assert var.tags == ("Energy", "XGM")
 
 
 def test_group_linking_resolves_dependencies():
@@ -633,8 +633,8 @@ def test_group_execute_intra_dependencies_and_overrides(mock_run):
     assert results.cells["g.adjusted"].data == 15
     assert ctx.vars["g.adjusted"].arg_dependencies() == {"base": "g.base"}
     assert ctx.vars["g.adjusted"].title == "MyDiag/Adjusted"
-    assert ctx.vars["g.base"].tags == {"Override", "Base"}
-    assert ctx.vars["g.adjusted"].tags == {"Override"}
+    assert ctx.vars["g.base"].tags == ("Base", "Override")
+    assert ctx.vars["g.adjusted"].tags == ("Override",)
 
 
 def test_group_linking_exec_and_dependency_paths(mock_run):
@@ -905,11 +905,11 @@ def test_group_inheritance_and_reset(mock_run):
 
     assert ctx.vars["derived.base"].title == "derived/BaseVar"
     assert ctx.vars["derived.child"].title == "derived/ChildVar"
-    assert ctx.vars["derived.base"].tags == {"BaseTag"}
+    assert ctx.vars["derived.base"].tags == ("BaseTag",)
 
     assert ctx.vars["alt.base"].title == "Alt/BaseVar"
     assert ctx.vars["alt.alt"].title == "Alt/AltVar"
-    assert ctx.vars["alt.base"].tags == {"AltTag"}
+    assert ctx.vars["alt.base"].tags == ("AltTag",)
 
 
 def test_group_inherited_dataclass_fields(mock_run):
