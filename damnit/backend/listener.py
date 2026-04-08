@@ -154,6 +154,7 @@ class EventProcessor:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.kafka_cns.close()
+        self.db.close()
         return False
 
     def run(self):
