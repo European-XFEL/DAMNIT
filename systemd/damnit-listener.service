@@ -7,7 +7,7 @@ ConditionHost=max-exfl458.desy.de
 [Service]
 Type=notify
 WorkingDirectory=%h/srv/damnit-listener
-ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-mid/.pixi/envs/default/bin/damnit listen
+ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-beta/.pixi/envs/default/bin/damnit listen
 Restart=on-failure
 
 [Install]
