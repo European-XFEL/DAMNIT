@@ -360,7 +360,6 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
 
         # Pre-compute equaly spaced color hues for provenance indicator
         self.n_colors = 16
-        # self.hues = [16 * i / 266 for i in range(self.n_colors)]
         self.hues = [i / self.n_colors for i in range(self.n_colors)]
         self.label_colors = {}
 
