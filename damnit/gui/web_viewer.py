@@ -45,7 +45,8 @@ class UrlSchemeHandler(QWebEngineUrlSchemeHandler):
 
         mime = QByteArray(b"text/html")
         buffer = QBuffer(job)
-        buffer.setData(_data.to_html(include_plotlyjs="cdn").encode())
+        # Inline Plotly JS to avoid CORS issues from the custom `damn.it:` scheme.
+        buffer.setData(_data.to_html(include_plotlyjs=True).encode())
         buffer.open(QIODevice.OpenModeFlag.ReadOnly)
         job.reply(mime, buffer)
 
