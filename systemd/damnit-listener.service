@@ -9,6 +9,7 @@ Type=notify
 WorkingDirectory=%h/srv/damnit-listener
 ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-beta/.pixi/envs/default/bin/damnit listen
 Restart=on-failure
+SyslogIdentifier=listener
 
 [Install]
 WantedBy=damnit-services.target

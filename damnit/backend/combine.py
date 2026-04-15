@@ -134,6 +134,8 @@ class FileSubmissionProcessor:
         combine(src, dst)
 
         with DamnitDB.from_dir(damnit_dir) as db:
+            log.info("Updating database in %s with %s variables for p%d r%d from %s",
+                     damnit_dir, len(new_data), prop, run, provenance)
             add_to_db(new_data, db, prop, run, provenance=provenance)
             self.send_update(new_data, db.kafka_topic, prop, run)
 
@@ -192,6 +194,10 @@ def interrupted(signum, frame):
 
 
 def main():
+    logging.basicConfig(level=logging.DEBUG)
+    # Exclude debug level logging from kafka-python
+    logging.getLogger('kafka').setLevel(logging.INFO)
+
     # Treat SIGTERM like SIGINT (Ctrl-C) & do a clean shutdown
     signal.signal(signal.SIGTERM, interrupted)
 
