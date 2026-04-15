@@ -234,7 +234,7 @@ da-dev@xfel.eu"""
             }
             db[str(self._context_path)] = settings
 
-    def autoconfigure(self, path: Path):
+    def autoconfigure(self, path: Path, check_context=True):
         sqlite_path = db_path(path)
         # If the user selected an empty folder in the GUI, the database has been
         # created before we reach this point, so this is just a sanity check.
@@ -297,8 +297,9 @@ da-dev@xfel.eu"""
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
-        self.launch_update_computed_vars()
-        self.start_watching_context_file()
+        if check_context:
+            self.launch_update_computed_vars()
+            self.start_watching_context_file()
 
     def _save_context_finished(self, saved):
         if saved:
