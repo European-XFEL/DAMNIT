@@ -9,6 +9,7 @@ Type=notify
 WorkingDirectory=%h/srv/damnit-combiner
 ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-beta/.pixi/envs/default/bin/python -m damnit.backend.combine
 Restart=on-failure
+SyslogIdentifier=combiner
 
 [Install]
 WantedBy=damnit-services.target
