@@ -163,7 +163,7 @@ def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
         value_serializer=lambda d: json.dumps(d).encode('utf-8')
     )
     prod.send(FILE_SUBMIT_TOPIC, msg)
-    prod.flush(timeout=10)
+    prod.close(timeout=10)
 
 
 def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
