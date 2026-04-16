@@ -662,6 +662,9 @@ def mock_run():
 
 
 def main(argv=None):
+    # Set umask to let created files have 0o666 permissions by default
+    os.umask(0)
+
     ap = argparse.ArgumentParser()
     subparsers = ap.add_subparsers(required=True, dest="subcmd")
 
