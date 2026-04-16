@@ -57,6 +57,17 @@ def pid_dead(pid):
         return True
 
 
+@contextmanager
+def assert_sends_update(win, broker):
+    win.update_agent.kafka_prd.flush(timeout=3)  # Flush old messages before capture
+    with broker.assert_produces(win.db.kafka_topic) as new_records:
+        l = []
+        yield l
+        win.update_agent.kafka_prd.flush(timeout=3)  # Flush new messages
+
+    l.extend([json.loads(r.value) for r in new_records])
+
+
 def test_connect_to_kafka(mock_db, qtbot):
     db_dir, db = mock_db
     pkg = "damnit.gui.kafka"
@@ -482,7 +493,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
         add_to_db(reduced_data, db, proposal, run_number, provenance="test")
 
 
-    win = MainWindow()
+    win = MainWindow(background_activity=False)
     win.show()
     qtbot.addWidget(win)
 
@@ -503,7 +514,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
         db.add_user_variable(vv, exist_ok=True)
 
     # Loads the context file to do the other tests
-    win.autoconfigure(db_dir, check_context=False)
+    win.autoconfigure(db_dir)
 
     # After loading a context file the menu should be enabled
     assert create_user_menu.isEnabled()
@@ -636,12 +647,9 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
 
     @contextmanager
     def check_kafka_send(variable):
-        win.update_agent.kafka_prd.flush(timeout=3)  # Flush old messages before capture
-        with mock_kafka_broker.assert_produces(db.kafka_topic) as new_records:
+        with assert_sends_update(win, mock_kafka_broker) as msgs:
             yield
-            win.update_agent.kafka_prd.flush(timeout=3)  # Flush new messages
 
-        msgs = [json.loads(r.value) for r in new_records]
         assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
         assert set(msgs[0]['data']['values']) == {variable}
 
@@ -804,7 +812,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
     extract_mock_run(1)
 
     # Create window
-    win = MainWindow(db_dir, False)
+    win = MainWindow(db_dir, background_activity=False)
     qtbot.addWidget(win)
 
     # Helper function to get a QModelIndex from a variable title
@@ -844,7 +852,11 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
 
     # Edit a comment
     comment_index = get_index("Comment")
-    win.table.setData(comment_index, "Foo", Qt.EditRole)
+    with assert_sends_update(win, mock_kafka_broker) as msgs:
+        win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+    assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
+    assert set(msgs[0]['data']['values']) == {"comment"}
 
     # Check that 2D arrays are treated as images
     image_index = get_index("Image")

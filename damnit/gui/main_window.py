@@ -64,10 +64,13 @@ class MainWindow(QtWidgets.QMainWindow):
     db_id = None
     _columns_dialog = None
 
-    def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
+    def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True, background_activity=True):
         super().__init__()
 
         self._connect_to_kafka = connect_to_kafka
+        # Background activity includes watching the context file & parsing it
+        # in a child process; it can be disabled to make unit testing easier.
+        self._background_activity = background_activity
         self._updates_thread = None
         self._received_update = False
         self._context_path = None
@@ -234,7 +237,7 @@ da-dev@xfel.eu"""
             }
             db[str(self._context_path)] = settings
 
-    def autoconfigure(self, path: Path, check_context=True):
+    def autoconfigure(self, path: Path):
         sqlite_path = db_path(path)
         # If the user selected an empty folder in the GUI, the database has been
         # created before we reach this point, so this is just a sanity check.
@@ -297,12 +300,12 @@ da-dev@xfel.eu"""
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
-        if check_context:
+        if self._background_activity:
             self.launch_update_computed_vars()
             self.start_watching_context_file()
 
     def _save_context_finished(self, saved):
-        if saved:
+        if saved and self._background_activity:
             self.launch_update_computed_vars()
 
     def launch_update_computed_vars(self, ctx_size_mtime=None):
