@@ -12,6 +12,7 @@ import subprocess
 import textwrap
 from time import sleep, time
 from uuid import uuid4
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import h5py
@@ -37,6 +38,9 @@ from damnit.gui.main_window import MainWindow
 
 from .helpers import mkcontext, reduced_data_from_dict
 
+
+def path_filemode(p: Path):
+    return stat.filemode(p.stat().st_mode)
 
 def kill_pid(pid):
     """
@@ -66,7 +70,6 @@ def check_trendline(dset):
 def test_add_to_h5_file(tmp_path):
     path = tmp_path / "foo.h5"
     good_file_mode = "-rw-rw-rw-"
-    path_filemode = lambda p: stat.filemode(p.stat().st_mode)
 
     with pytest.raises(RuntimeError):
         with add_to_h5_file(path) as f:
@@ -822,8 +825,11 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Write context file
     no_summary_var = """
+    from pathlib import Path
+
     @Variable(title="Array")
     def array(run):
+        (Path.cwd() / "foo").touch()
         return np.random.rand(2, 2, 2, 2)
 
     @Variable(title="Scalar", cluster=True)
@@ -860,6 +866,12 @@ def test_extractor(mock_ctx, mock_db, mock_run, monkeypatch):
 
     # Check that a file was created
     assert out_path.is_file()
+
+    # Check that permissions for files created by the context file are not
+    # affected by the default umask
+    foo_path = db_dir / "foo"
+    assert foo_path.is_file()
+    assert path_filemode(foo_path) == "-rw-rw-rw-"
 
     with h5py.File(out_path) as f:
         assert f[".reduced"]["array"].asstr()[()] == "float64: (2, 2, 2, 2)"
@@ -959,7 +971,6 @@ def test_custom_environment(mock_db, venv, monkeypatch, qtbot):
 def test_initialize_proposal(tmp_path):
     db_dir = tmp_path / "foo"
     good_file_mode = "-rw-rw-rw-"
-    path_filemode = lambda p: stat.filemode(p.stat().st_mode)
 
     initialize_proposal(db_dir, 1234)
 
@@ -984,7 +995,6 @@ def test_initialize_proposal(tmp_path):
 def test_start_listener(tmp_path, bound_port, request):
     supervisord_config_path = tmp_path / "supervisord.conf"
     good_file_mode = "-rw-rw-rw-"
-    path_filemode = lambda p: stat.filemode(p.stat().st_mode)
 
     def mock_write_supervisord_conf(root_path, port=None):
         write_supervisord_conf(root_path)
