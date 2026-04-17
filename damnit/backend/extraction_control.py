@@ -304,6 +304,7 @@ class ExtractionSubmitter:
     def _slurm_shared_opts(self):
         return [
             "--clusters", "solaris",
+            "--time", self.db.metameta.get("slurm_time", "02:00:00"),
             # Default 4 CPU cores & 25 GB memory, can be overridden
             '--cpus-per-task', str(self.db.metameta.get('noncluster_cpus', '4')),
             '--mem', self.db.metameta.get('noncluster_mem', '25G'),
