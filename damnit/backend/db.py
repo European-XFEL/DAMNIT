@@ -125,10 +125,11 @@ class DamnitDB:
                 self.upgrade_schema(data_format_version)
 
         # A random ID for the update topic
-        if 'db_id' not in self.metameta:
+        if (db_id := self.metameta.get('db_id')) is None:
             # The ID is not a secret and doesn't need to be cryptographically
             # secure, but the secrets module is convenient to get a random string.
-            self.metameta.setdefault('db_id', token_hex(20))
+            db_id = self.metameta.setdefault('db_id', token_hex(20))
+        self._db_id = db_id
 
     @classmethod
     def from_dir(cls, path):
@@ -146,7 +147,7 @@ class DamnitDB:
 
     @property
     def kafka_topic(self):
-        return UPDATE_TOPIC.format(self.metameta['db_id'])
+        return UPDATE_TOPIC.format(self._db_id)
 
     @property
     def path(self):
