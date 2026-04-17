@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import struct
 import sys
+import time
 from collections.abc import ItemsView, MutableMapping, ValuesView
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -199,7 +200,7 @@ class DamnitDB:
         if added_at is None:
             added_at = datetime.now(tz=timezone.utc).timestamp()
 
-        with self.conn:
+        with time_db_transaction(self.conn, "ensure_run"):
             self.conn.execute("""
                 INSERT INTO run_info (proposal, run, start_time, added_at) VALUES (?, ?, ?, ?)
                 ON CONFLICT (proposal, run) DO NOTHING
@@ -380,7 +381,7 @@ class DamnitDB:
         col_values = ", ".join([f":{col}" for col in cols])
         col_updates = ", ".join([f"{col} = :{col}" for col in cols])
 
-        with self.conn:
+        with time_db_transaction(self.conn, f"set_variable {name}"):
             existing_variables = self.variable_names()
             is_new = name not in existing_variables
 
@@ -606,6 +607,35 @@ def initialize_proposal(root_path, proposal=None, context_file_src=None, user_va
         prev_db = DamnitDB(user_vars_src)
         for var in prev_db.get_user_variables().values():
             db.add_user_variable(var)
+
+
+class time_db_transaction:
+    """Record time taken to write to the database
+
+    Use as a context manager. When leaving the block, the transaction will be
+    committed (or rolled back, on error), and the time taken logged.
+    """
+    t_start = 0
+
+    def __init__(self, conn: sqlite3.Connection, label: str):
+        self.conn = conn
+        self.label = label
+
+    def __enter__(self):
+        self.conn.__enter__()
+        self.t_start = time.perf_counter()
+        return
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        t1 = time.perf_counter()
+        self.conn.__exit__(exc_type, exc_val, exc_tb)
+        t2 = time.perf_counter()
+        t_open = (t1 - self.t_start) * 1000
+        t_finish = (t2 - t1) * 1000
+        op = 'commit' if exc_val is None else 'rollback'
+        logging.debug("DB change (%s): %.1f ms in transaction, %.1f ms %s",
+                      self.label, t_open, t_finish, op)
+        return False
 
 # Old schemas for reference and migration
 
