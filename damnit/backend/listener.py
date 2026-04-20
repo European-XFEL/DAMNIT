@@ -215,20 +215,18 @@ class EventProcessor:
         allow_local_processing = self.db.settings["allow_local_processing"]
         for path in self.db.proposal_db_dirs(proposal):
             try:
-                # Note that we don't explicitly close this connection because
-                # it's passed to the ExtractionSubmitter.
-                db = DamnitDB.from_dir(path)
+                with DamnitDB.from_dir(path) as db:
+                    # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
+                    db.conn.execute("pragma user_version=0;")
 
-                # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
-                db.conn.execute("pragma user_version=0;")
+                    db.ensure_run(proposal, run, record.timestamp / 1000)
+                    log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
-                db.ensure_run(proposal, run, record.timestamp / 1000)
-                log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
+                    # Set the default to the stable DAMNIT module if not already set
+                    damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
+                    submitter = ExtractionSubmitter(db.path.parent, db)
+                    req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
 
-                # Set the default to the stable DAMNIT module if not already set
-                damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
-                submitter = ExtractionSubmitter(db.path.parent, db)
-                req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
                 try:
                     submitter.submit(req)
                 except Exception as e:

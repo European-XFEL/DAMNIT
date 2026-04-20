@@ -1392,7 +1392,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         summary_types = {}
         provenances = {}
 
-        for name, value, max_diff, summary_type, attr_json, provenance in self.db.conn.execute(query, params):
+        for name, value, max_diff, summary_type, attr_json, provenance in self.db.conn.execute(query, params).fetchall():
             data[name] = value
             max_diffs[name] = max_diff
             summary_types[name] = summary_type

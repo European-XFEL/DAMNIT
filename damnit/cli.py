@@ -350,7 +350,7 @@ def main(argv=None):
             return main()
         elif args.combiner_subcmd == 'now':
             from .backend.combine import gather_all_fragments
-            gather_all_fragments(args.damnit_dir)
+            gather_all_fragments(args.db_dir)
 
     elif args.subcmd == 'reprocess':
         # Hide some logging from Kafka to make things more readable

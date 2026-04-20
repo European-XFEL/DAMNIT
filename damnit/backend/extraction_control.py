@@ -142,17 +142,17 @@ class ExtractionRequest:
 
 class ExtractionSubmitter:
     """Submits extraction jobs to Slurm"""
-    def __init__(self, context_dir: Path, db=None):
+    def __init__(self, context_dir: Path, db: DamnitDB = None):
         self.context_dir = context_dir
-        self.db = db or DamnitDB.from_dir(context_dir)
-
-    _proposal = None
-
-    @property
-    def proposal(self):
-        if self._proposal is None:
-            self._proposal = self.db.metameta['proposal']
-        return self._proposal
+        if db is None:
+            db = DamnitDB.from_dir(context_dir)
+        self.proposal = db.metameta['proposal']
+        self._concurrent_jobs = db.metameta.get("concurrent_jobs", 15)
+        self._slurm_time = db.metameta.get("slurm_time", "02:00:00")
+        self._noncluster_cpus = db.metameta.get('noncluster_cpus', '4')
+        self._noncluster_mem = db.metameta.get('noncluster_mem', '25G')
+        self._slurm_reservation = db.metameta.get('slurm_reservation', '')
+        self._slurm_partition = db.metameta.get('slurm_partition', '')
 
     def _filter_env(self):
         env = os.environ.copy()
@@ -209,7 +209,7 @@ class ExtractionSubmitter:
         out = []
 
         if limit_running == -1:
-            limit_running = self.db.metameta.setdefault("concurrent_jobs", 15)
+            limit_running = self._concurrent_jobs
 
         assert len({r.cluster for r in reqs}) <= 1  # Don't mix cluster/non-cluster
 
@@ -304,23 +304,23 @@ class ExtractionSubmitter:
     def _slurm_shared_opts(self):
         return [
             "--clusters", "solaris",
-            "--time", self.db.metameta.get("slurm_time", "02:00:00"),
+            "--time", self._slurm_time,
             # Default 4 CPU cores & 25 GB memory, can be overridden
-            '--cpus-per-task', str(self.db.metameta.get('noncluster_cpus', '4')),
-            '--mem', self.db.metameta.get('noncluster_mem', '25G'),
+            '--cpus-per-task', str(self._noncluster_cpus),
+            '--mem', self._noncluster_mem,
         ]
 
     def _slurm_cluster_opts(self):
         # Maxwell (dedicated node)
         opts = [
             "--clusters", "maxwell",
-            "--time", self.db.metameta.get("slurm_time", "02:00:00")
+            "--time", self._slurm_time
         ]
 
-        if reservation := self.db.metameta.get('slurm_reservation', ''):
-            opts.extend(['--reservation', reservation])
+        if self._slurm_reservation:
+            opts.extend(['--reservation', self._slurm_reservation])
         else:
-            partition = self.db.metameta.get('slurm_partition', '') or default_slurm_partition()
+            partition = self._slurm_partition or default_slurm_partition()
             opts.extend(['--partition', partition])
 
         return opts
@@ -328,13 +328,13 @@ class ExtractionSubmitter:
 
 def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=-1):
     """Called by the 'damnit reprocess' subcommand"""
-    submitter = ExtractionSubmitter(Path.cwd())
-    if proposal is None:
-        proposal = submitter.proposal
+    with DamnitDB.from_dir(Path.cwd()) as db:
+        submitter = ExtractionSubmitter(Path.cwd(), db)
+        if proposal is None:
+            proposal = submitter.proposal
+        rows = db.conn.execute("SELECT proposal, run FROM runs").fetchall() if runs == ['all'] else None
 
     if runs == ['all']:
-        rows = submitter.db.conn.execute("SELECT proposal, run FROM runs").fetchall()
-
         # Dictionary of proposal numbers to sets of available runs
         available_runs = {}
         # Lists of (proposal, run) tuples

@@ -257,7 +257,7 @@ class DamnitDB:
             for row in self.conn.execute("""
                 SELECT name, title, type, description, attributes FROM variables
                 WHERE type IS NULL
-            """):
+            """).fetchall():
                 var = dict(row)
                 vars_in_db[var.pop("name")] = var
 
@@ -519,7 +519,7 @@ class KeyValueMapping(MutableMapping):
                 raise KeyError(key)
 
     def __iter__(self):
-        return (r[0] for r in self.conn.execute(f"SELECT key FROM {self.table}"))
+        return iter([r[0] for r in self.conn.execute(f"SELECT key FROM {self.table}").fetchall()])
 
     def __len__(self):
         return self.conn.execute(f"SELECT count(*) FROM {self.table}").fetchone()[0]
