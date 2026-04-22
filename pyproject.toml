@@ -34,6 +34,7 @@ backend = [
     "kaleido",  # used in plotly to convert figures to images
     "matplotlib",
     "numpy",
+    "psycopg[binary]>=3",
     "pyyaml",
     "requests",
     "supervisor",

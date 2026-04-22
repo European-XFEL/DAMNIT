@@ -367,7 +367,20 @@ def main(argv=None):
         Extractor(connect_to_kafka=not args.no_kafka).update_db_vars()
 
     elif args.subcmd == 'proposal':
-        from .backend.db import DamnitDB
+        from .backend.db import DamnitDB, pgpass_path
+        from .backend.pg_admin import request_pg
+
+        cwd = Path.cwd()
+        if not pgpass_path(cwd).is_file():
+            if args.proposal is None:
+                sys.exit(
+                    f"No DAMNIT database in {cwd}. Pass a proposal number to "
+                    "request one."
+                )
+            print(f"Requesting DAMNIT database for p{args.proposal:06d}...")
+            request_pg(args.proposal, cwd)
+            print("Database ready.")
+
         db = DamnitDB()
         currently_set = db.metameta.get('proposal', None)
         if args.proposal is None:

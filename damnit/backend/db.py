@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import shutil
-import sqlite3
 import struct
 import sys
 from collections.abc import ItemsView, MutableMapping, ValuesView
@@ -15,16 +14,19 @@ from secrets import token_hex
 from typing import Any, Optional
 
 import numpy as np
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from ..definitions import UPDATE_TOPIC, DEFAULT_CONTEXT_PYTHON
-from .db_migrations import apply_migrations, latest_version
+from .db_migrations import POSTGRES_BASELINE, POSTGRES_BASELINE_VERSION
 from .user_variables import UserEditableVariable
 
-DB_NAME = Path('runs.sqlite')
+PGPASS_NAME = Path('runs.pgpass')
 
 log = logging.getLogger(__name__)
 
-MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
+MIN_OPENABLE_VERSION = POSTGRES_BASELINE_VERSION  # anything older is a legacy sqlite DB; use the one-shot migrator
 
 
 class SummaryType(Enum):
@@ -74,66 +76,87 @@ def blob2complex(data: bytes) -> complex:
 
 
 def numpy2blob(arr: np.ndarray) -> bytes:
-    """Serialize a numpy array into .npy bytes for SQLite storage."""
+    """Serialize a numpy array into .npy bytes for database storage."""
     buff = io.BytesIO()
     np.save(buff, arr, allow_pickle=False)
     return buff.getvalue()
 
 
 def blob2numpy(data: bytes) -> np.ndarray:
-    """Deserialize .npy bytes from SQLite into a numpy array."""
+    """Deserialize .npy bytes from database storage into a numpy array."""
     buff = io.BytesIO(data)
     return np.load(buff, allow_pickle=False)
 
+def pgpass_path(root_path: Path) -> Path:
+    return root_path / PGPASS_NAME
 
-def db_path(root_path: Path):
-    return root_path / DB_NAME
+
+def read_pgpass(root_path: Path) -> str:
+    """Parse a `runs.pgpass` file into a psycopg connection string.
+
+    File format (one line): `host:port:dbname:user:password`. Matches the
+    libpq pgpass convention so it can also be consumed by `psql` / `pg_dump`
+    with PGPASSFILE pointing at the same file.
+    """
+    line = pgpass_path(root_path).read_text().strip().splitlines()[0]
+    host, port, dbname, user, password = line.split(':', 4)
+    return (
+        f"host={host} port={port} dbname={dbname} user={user} password={password}"
+    )
+
+
+def initialize_database(conn: psycopg.Connection, proposal: int) -> None:
+    """Apply POSTGRES_BASELINE and seed metameta on a freshly-created DB.
+
+    Called by the listener's provisioning handler. Not used by DamnitDB
+    itself — by the time DamnitDB connects, the DB is already set up.
+    """
+    with conn.transaction():
+        conn.execute(POSTGRES_BASELINE)
+        # Use the Python environment the database was created under by default.
+        # The db_id is not a secret and doesn't need to be cryptographically
+        # secure, but the secrets module is convenient to get a random string.
+        seed = {
+            "proposal": str(proposal),
+            "data_format_version": str(POSTGRES_BASELINE_VERSION),
+            "damnit_python": sys.executable,
+            "context_python": DEFAULT_CONTEXT_PYTHON,
+            "concurrent_jobs": "15",
+            "db_id": token_hex(20),
+        }
+        conn.cursor().executemany(
+            "INSERT INTO metameta (key, value) VALUES (%s, %s)",
+            list(seed.items()),
+        )
+
 
 class DamnitDB:
-    def __init__(self, path=DB_NAME, allow_old=False):
+    def __init__(self, path=PGPASS_NAME):
+        """Open a connection to a per-proposal Postgres database.
+
+        Accepts a path to a runs.pgpass file.
+        """
         self._path = path.absolute()
 
-        db_existed = path.exists()
-        log.debug("Opening database at %s", path)
-        self.conn = sqlite3.connect(path, timeout=30)
-        # Ensure the database is writable by everyone
-        if os.stat(path).st_uid == os.getuid():
-            os.chmod(path, 0o666)
-        # Enable foreign key enforcement for this connection
-        self.conn.execute("PRAGMA foreign_keys = ON;") 
+        log.debug("Connecting to Postgres database")
+        dsn = read_pgpass(Path(path))
+        self.conn = psycopg.connect(dsn, row_factory=dict_row)
 
-        self.conn.row_factory = sqlite3.Row
         self.metameta = KeyValueMapping(self.conn, "metameta")
-        if not db_existed:
-            # Note: we use from_version=-1 to indicate a new database as v0 is
-            # used for the legacy schema.
-            self.upgrade_schema(from_version=-1)
-            # Use the Python environment the database was created under by default
-            self.metameta.setdefault("damnit_python", sys.executable)
-            self.metameta.setdefault("concurrent_jobs", 15)
-        
-        data_format_version = int(self.metameta.get("data_format_version", 0))
 
-        # apply migrations if needed
-        if db_existed:
-            if not allow_old and data_format_version < MIN_OPENABLE_VERSION:
-                raise RuntimeError(
-                    f"Cannot open older (v{data_format_version}) database, please "
-                    "contact da-support@xfel.eu for help migrating"
-                )
-            elif MIN_OPENABLE_VERSION <= data_format_version < latest_version():
-                self.upgrade_schema(data_format_version)
+        data_format_version = int(self.metameta["data_format_version"])
+        if data_format_version < MIN_OPENABLE_VERSION:
+            raise RuntimeError(
+                f"Cannot open older (v{data_format_version}) database; "
+                "run the sqlite→postgres migrator on the source DB first."
+            )
 
         # A random ID for the update topic
-        if (db_id := self.metameta.get('db_id')) is None:
-            # The ID is not a secret and doesn't need to be cryptographically
-            # secure, but the secrets module is convenient to get a random string.
-            db_id = self.metameta.setdefault('db_id', token_hex(20))
-        self._db_id = db_id
+        self._db_id = self.metameta["db_id"]
 
     @classmethod
     def from_dir(cls, path):
-        return cls(Path(path, DB_NAME))
+        return cls(Path(path))
 
     def close(self):
         self.conn.close()
@@ -150,48 +173,23 @@ class DamnitDB:
         return UPDATE_TOPIC.format(self._db_id)
 
     @property
-    def path(self):
+    def path(self) -> Optional[Path]:
         return self._path
 
-    def _set_schema_version(self, version: int):
-        self.metameta["data_format_version"] = version
-
-    def upgrade_schema(self, from_version: int):
-        to_version = latest_version()
-
-        if from_version == 0:
-            raise RuntimeError(
-                "Database is at legacy format v0, please contact da-support@xfel.eu for help migrating")
-        elif from_version < 0:
-            log.info("Creating new database at %s with format v%d", self._path, to_version)
-        else:
-            log.info("Upgrading database format from v%d to v%d", from_version, to_version)
-
-        applied = apply_migrations(
-            self.conn,
-            from_version=from_version,
-            to_version=to_version,
-            set_version=self._set_schema_version,
-        )
-        if applied:
-            log.info(
-                "Applied %d migration(s): %s",
-                len(applied),
-                ", ".join(f"→v{m.to_version}" for m in applied),
-            )
-
-    def add_standalone_comment(self, ts: float, comment: str):
+    def add_standalone_comment(self, ts: float, comment: str) -> int:
         """Add a comment not associated with a specific run, return its ID."""
-        with self.conn:
-            cur = self.conn.execute(
-                "INSERT INTO time_comments VALUES (?, ?)", (ts, comment)
-            )
-        return cur.lastrowid
+        with self.conn.transaction():
+            row = self.conn.execute(
+                "INSERT INTO time_comments (timestamp, comment) VALUES (%s, %s) "
+                "RETURNING id",
+                (ts, comment),
+            ).fetchone()
+        return row["id"]
 
     def change_standalone_comment(self, comment_id: int, comment: str):
-        with self.conn:
+        with self.conn.transaction():
             self.conn.execute(
-                """UPDATE time_comments set comment=? WHERE rowid=?""",
+                """UPDATE time_comments SET comment = %s WHERE id = %s""",
                 (comment, comment_id),
             )
 
@@ -199,9 +197,9 @@ class DamnitDB:
         if added_at is None:
             added_at = datetime.now(tz=timezone.utc).timestamp()
 
-        with self.conn:
+        with self.conn.transaction():
             self.conn.execute("""
-                INSERT INTO run_info (proposal, run, start_time, added_at) VALUES (?, ?, ?, ?)
+                INSERT INTO run_info (proposal, run, start_time, added_at) VALUES (%s, %s, %s, %s)
                 ON CONFLICT (proposal, run) DO NOTHING
             """, (proposal, run, start_time, added_at))
 
@@ -210,8 +208,8 @@ class DamnitDB:
             if start_time is not None:
                 self.conn.execute("""
                 UPDATE run_info
-                SET start_time = ?
-                WHERE proposal = ? AND run = ?
+                SET start_time = %s
+                WHERE proposal = %s AND run = %s
                 """, (start_time, proposal, run))
 
     def change_run_comment(self, proposal: int, run: int, comment: str):
@@ -219,11 +217,17 @@ class DamnitDB:
 
     def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
         v = variable
-        with self.conn:
-            or_replace = ' OR REPLACE' if exist_ok else ''
+        with self.conn.transaction():
+            on_conflict = (
+                " ON CONFLICT (name) DO UPDATE SET "
+                "type = EXCLUDED.type, title = EXCLUDED.title, "
+                "description = EXCLUDED.description"
+                if exist_ok else ""
+            )
             self.conn.execute(
-                f"INSERT{or_replace} INTO variables (name, type, title, description) VALUES(?, ?, ?, ?)",
-                (v.name, v.variable_type, v.title, v.description)
+                f"INSERT INTO variables (name, type, title, description) "
+                f"VALUES (%s, %s, %s, %s){on_conflict}",
+                (v.name, v.variable_type, v.title, v.description),
             )
 
         self.update_views()
@@ -233,7 +237,7 @@ class DamnitDB:
         rows = self.conn.execute("""
             SELECT name, title, type, description, attributes FROM variables
             WHERE type IS NOT NULL
-        """)
+        """).fetchall()
         for rr in rows:
             var_name = rr["name"]
             new_var = UserEditableVariable(
@@ -249,15 +253,18 @@ class DamnitDB:
 
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
-        with self.conn:
-            # We want to read & write in the same transaction. This gets the
-            # write lock up front, to prevent deadlocks where two processes are
-            # both holding a read lock & waiting for a write lock.
-            self.conn.execute("BEGIN IMMEDIATE")
-            for row in self.conn.execute("""
+        with self.conn.transaction():
+            # We want to read & write in the same transaction. Locking the
+            # existing rows with FOR UPDATE up front prevents the deadlock
+            # where two processes are both holding a read snapshot & waiting
+            # to upgrade to a write (the same concern the sqlite
+            # BEGIN IMMEDIATE was protecting against).
+            rows = self.conn.execute("""
                 SELECT name, title, type, description, attributes FROM variables
                 WHERE type IS NULL
-            """):
+                FOR UPDATE
+            """).fetchall()
+            for row in rows:
                 var = dict(row)
                 vars_in_db[var.pop("name")] = var
 
@@ -268,17 +275,19 @@ class DamnitDB:
 
             # Write new & changed variables
             # TODO: what if a new computed variable name matches an existing user var?
-            self.conn.executemany("""
-                INSERT INTO variables VALUES (?, NULL, ?, ?, ?)
-                ON CONFLICT (name) DO UPDATE SET
-                    type=excluded.type,
-                    title=excluded.title,
-                    description=excluded.description,
-                    attributes=excluded.attributes
-            """, [
-                (n, v['title'], v['description'], v['attributes'])
-                for (n, v) in updates.items()
-            ])
+            if len(updates) > 0:
+                self.conn.cursor().executemany("""
+                    INSERT INTO variables (name, type, title, description, attributes)
+                    VALUES (%s, NULL, %s, %s, %s)
+                    ON CONFLICT (name) DO UPDATE SET
+                        type = EXCLUDED.type,
+                        title = EXCLUDED.title,
+                        description = EXCLUDED.description,
+                        attributes = EXCLUDED.attributes
+                """, [
+                    (n, v['title'], v['description'], _as_jsonb(v['attributes']))
+                    for (n, v) in updates.items()
+                ])
 
             for name, var in updates.items():
                 existing_tags = set(self.get_variable_tags(name))
@@ -300,13 +309,13 @@ class DamnitDB:
         return updates
 
     def variable_names(self):
-        names = { record[0] for record in
+        names = { r["name"] for r in
                   self.conn.execute("SELECT DISTINCT name FROM run_variables").fetchall() }
 
         # It could be that a user-editable variable was created but hasn't been
         # assigned yet, which means an entry for it won't have been created in
         # the run_variables table. Hence we look in the variables table as well.
-        names |= { record[0] for record in
+        names |= { r["name"] for r in
                    self.conn.execute("SELECT name FROM variables").fetchall() }
 
         return list(names)
@@ -314,25 +323,47 @@ class DamnitDB:
     def update_views(self):
         variables = self.variable_names()
 
-        col_select_sql = "max(CASE WHEN name='{var}' THEN {col} END) AS '{var}'"
-        runs_cols = ", ".join([col_select_sql.format(var=var, col="value")
-                               for var in variables])
-        max_diff_cols = ", ".join([col_select_sql.format(var=var, col="max_diff")
-                               for var in variables])
+        def quote_ident(ident: str) -> str:
+            return '"' + ident.replace('"', '""') + '"'
 
-        with self.conn:
-            self.conn.executescript(f"""
-                DROP VIEW IF EXISTS runs;
+        def quote_lit(lit: str) -> str:
+            return "'" + lit.replace("'", "''") + "'"
+
+        # `run_value(kind, scalar, blob)` (defined in POSTGRES_BASELINE)
+        # returns JSONB: scalars as their JSON, blobs as a small
+        # `{"kind": ..., "size": ...}` metadata object.
+        col_select_sql = (
+            "max(CASE WHEN name={lit} "
+            "THEN run_value(value_kind, value_scalar, value_blob) END) AS {ident}"
+        )
+        runs_cols = ", ".join(
+            col_select_sql.format(lit=quote_lit(v), ident=quote_ident(v))
+            for v in variables
+        )
+        max_diff_cols = ", ".join(
+            f"max(CASE WHEN name={quote_lit(v)} THEN max_diff END) AS {quote_ident(v)}"
+            for v in variables
+        )
+        # Postgres requires at least one column in the SELECT list; when there
+        # are no variables yet, emit a placeholder so CREATE VIEW succeeds.
+        if not variables:
+            runs_cols = "NULL::JSONB AS _placeholder"
+            max_diff_cols = "NULL::DOUBLE PRECISION AS _placeholder"
+
+        with self.conn.transaction():
+            self.conn.execute("DROP VIEW IF EXISTS runs")
+            self.conn.execute("DROP VIEW IF EXISTS max_diffs")
+            self.conn.execute(f"""
                 CREATE VIEW runs
                 AS SELECT run_info.proposal, run_info.run, start_time, added_at, {runs_cols}
                    FROM run_variables INNER JOIN run_info ON run_variables.proposal = run_info.proposal AND run_variables.run = run_info.run
-                   GROUP BY run_info.run;
-
-                DROP VIEW IF EXISTS max_diffs;
+                   GROUP BY run_info.proposal, run_info.run, start_time, added_at
+            """)
+            self.conn.execute(f"""
                 CREATE VIEW max_diffs
                 AS SELECT proposal, run, {max_diff_cols}
                    FROM run_variables
-                   GROUP BY run;
+                   GROUP BY proposal, run
             """)
 
     def set_variable(
@@ -341,46 +372,49 @@ class DamnitDB:
         timestamp = datetime.now(tz=timezone.utc).timestamp()
 
         variable = asdict(reduced)
+        kind, scalar, blob, summary_type = _encode_value(
+            variable["value"], variable["summary_type"]
+        )
+        variable["summary_type"] = summary_type
+        variable["value_kind"] = kind
+        variable["value_scalar"] = scalar
+        variable["value_blob"] = blob
+        del variable["value"]
 
         # If the value is None that implies that the variable should be
         # 'deleted', in which case we don't actually delete the row, but rather
         # set the value and all metadata fields in the database to NULL.
-        if variable["value"] is None:
-            for key in variable:
+        if kind == "null":
+            for key in ("max_diff", "summary_method", "summary_type", "attributes"):
                 variable[key] = None
-        elif isinstance(variable["value"], complex):
-            variable["value"] = complex2blob(variable["value"])
-            variable["summary_type"] = "complex"
-        elif isinstance(variable["value"], np.ndarray):
-            if variable["value"].dtype.hasobject:
-                raise TypeError("Unsupported array dtype for database storage")
-            variable["value"] = numpy2blob(variable["value"])
-            if variable["summary_type"] in (None, ""):
-                variable["summary_type"] = "numpy"
+        elif variable["attributes"] is not None:
+            variable["attributes"] = _as_jsonb(variable["attributes"])
 
         variable["proposal"] = proposal
         variable["run"] = run
         variable["name"] = name
         variable["timestamp"] = timestamp
         variable["provenance"] = provenance
-        variable["attributes"] = None
-        if reduced.attributes:
-            variable["attributes"] = json.dumps(reduced.attributes)
 
         # TODO: enable these code snippets when we add support for versioning
         # latest_version = self.conn.execute("""
         #     SELECT max(version) FROM run_variables
-        #     WHERE proposal=? AND run=? AND name=?
-        # """, (proposal, run, name)).fetchone()[0]
+        #     WHERE proposal=%s AND run=%s AND name=%s
+        # """, (proposal, run, name)).fetchone()["max"]
         variable["version"] = 1 # if latest_version is None else latest_version + 1
 
         # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "summary_type", "attributes"]
+        cols = [
+            "proposal", "run", "name", "version",
+            "value_kind", "value_scalar", "value_blob",
+            "timestamp", "max_diff", "provenance",
+            "summary_method", "summary_type", "attributes",
+        ]
         col_list = ", ".join(cols)
-        col_values = ", ".join([f":{col}" for col in cols])
-        col_updates = ", ".join([f"{col} = :{col}" for col in cols])
+        col_values = ", ".join([f"%({col})s" for col in cols])
+        col_updates = ", ".join([f"{col} = EXCLUDED.{col}" for col in cols])
 
-        with self.conn:
+        with self.conn.transaction():
             existing_variables = self.variable_names()
             is_new = name not in existing_variables
 
@@ -394,17 +428,17 @@ class DamnitDB:
                 self.update_views()
 
     def delete_variable(self, name: str):
-        with self.conn:
+        with self.conn.transaction():
             # First delete from the `variables` table
             self.conn.execute("""
             DELETE FROM variables
-            WHERE name = ?
+            WHERE name = %s
             """, (name,))
 
             # And then `run_variables`
             self.conn.execute("""
             DELETE FROM run_variables
-            WHERE name = ?
+            WHERE name = %s
             """, (name, ))
 
             self.update_views()
@@ -412,24 +446,29 @@ class DamnitDB:
     def add_tag(self, tag_name: str) -> int:
         """Add a new tag to the database if it doesn't exist.
         Returns the tag ID."""
-        with self.conn:
-            self.conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
-            cursor = self.conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
-            return cursor.fetchone()[0]
+        with self.conn.transaction():
+            row = self.conn.execute("""
+                INSERT INTO tags (name) VALUES (%s)
+                ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
+            """, (tag_name,)).fetchone()
+            return row["id"]
 
     def get_tag_id(self, tag_name: str) -> Optional[int]:
         """Get the ID of a tag by its name."""
-        with self.conn:
-            cursor = self.conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
-            result = cursor.fetchone()
-            return result[0] if result else None
+        with self.conn.transaction():
+            row = self.conn.execute(
+                "SELECT id FROM tags WHERE name = %s", (tag_name,)
+            ).fetchone()
+            return row["id"] if row else None
 
     def tag_variable(self, variable_name: str, tag_name: str):
         """Associate a tag with a variable."""
         tag_id = self.add_tag(tag_name)
-        with self.conn:
+        with self.conn.transaction():
             self.conn.execute(
-                "INSERT OR IGNORE INTO variable_tags (variable_name, tag_id) VALUES (?, ?)",
+                "INSERT INTO variable_tags (variable_name, tag_id) VALUES (%s, %s) "
+                "ON CONFLICT DO NOTHING",
                 (variable_name, tag_id)
             )
 
@@ -437,44 +476,85 @@ class DamnitDB:
         """Remove a tag association from a variable."""
         tag_id = self.get_tag_id(tag_name)
         if tag_id is not None:
-            with self.conn:
+            with self.conn.transaction():
                 self.conn.execute(
-                    "DELETE FROM variable_tags WHERE variable_name = ? AND tag_id = ?",
+                    "DELETE FROM variable_tags WHERE variable_name = %s AND tag_id = %s",
                     (variable_name, tag_id)
                 )
 
     def get_variable_tags(self, variable_name: str) -> list[str]:
         """Get all tags associated with a variable."""
-        with self.conn:
-            cursor = self.conn.execute("""
-                SELECT t.name
-                FROM tags t
-                JOIN variable_tags vt ON t.id = vt.tag_id
-                WHERE vt.variable_name = ?
-            """, (variable_name,))
-            return [row[0] for row in cursor.fetchall()]
+        rows = self.conn.execute("""
+            SELECT t.name
+            FROM tags t
+            JOIN variable_tags vt ON t.id = vt.tag_id
+            WHERE vt.variable_name = %s
+        """, (variable_name,)).fetchall()
+        return [r["name"] for r in rows]
 
     def get_variables_by_tag(self, tag_name: str) -> list[str]:
         """Get all variables that have a specific tag."""
-        with self.conn:
-            cursor = self.conn.execute("""
-                SELECT vt.variable_name
-                FROM variable_tags vt
-                JOIN tags t ON vt.tag_id = t.id
-                WHERE t.name = ?
-            """, (tag_name,))
-            return [row[0] for row in cursor.fetchall()]
+        rows = self.conn.execute("""
+            SELECT vt.variable_name
+            FROM variable_tags vt
+            JOIN tags t ON vt.tag_id = t.id
+            WHERE t.name = %s
+        """, (tag_name,)).fetchall()
+        return [r["variable_name"] for r in rows]
 
     def get_all_tags(self) -> list[str]:
         """Get all existing tags."""
-        with self.conn:
-            cursor = self.conn.execute("SELECT name FROM tags ORDER BY name")
-            return [row[0] for row in cursor.fetchall()]
+        rows = self.conn.execute("SELECT name FROM tags ORDER BY name").fetchall()
+        return [r["name"] for r in rows]
+
+
+def _encode_value(value: Any, summary_type: Optional[str]):
+    """Map a Python value to (value_kind, value_scalar, value_blob, summary_type).
+
+    `value_scalar` is wrapped in Jsonb(...) so psycopg3 adapts it to JSONB.
+    `value_blob` is raw bytes (psycopg3 adapts to BYTEA). `summary_type` is
+    returned so complex/numpy values can inherit the default tag, matching
+    the pre-port behaviour.
+    """
+    if value is None:
+        return "null", None, None, summary_type
+    if isinstance(value, bool):
+        return "int", Jsonb(int(value)), None, summary_type
+    if isinstance(value, int):
+        return "int", Jsonb(value), None, summary_type
+    if isinstance(value, float):
+        return "float", Jsonb(value), None, summary_type
+    if isinstance(value, str):
+        return "text", Jsonb(value), None, summary_type
+    if isinstance(value, complex):
+        return "complex", None, complex2blob(value), summary_type or "complex"
+    if isinstance(value, np.ndarray):
+        if value.dtype.hasobject:
+            raise TypeError("Unsupported array dtype for database storage")
+        return "numpy", None, numpy2blob(value), summary_type or "numpy"
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        return BlobTypes.identify(raw).value, None, raw, summary_type
+    raise TypeError(f"Unsupported value type: {type(value)!r}")
+
+
+def _as_jsonb(value):
+    """Wrap a value for a JSONB column; pass through None. Back-compat path
+    handles pre-serialised JSON strings left over from the sqlite era."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return Jsonb(json.loads(value))
+    return Jsonb(value)
 
 
 class KeyValueMapping(MutableMapping):
     """
-    Simple class that represents a dictionary backed by a SQLite table.
+    Simple class that represents a dictionary backed by a two-column table.
+
+    Values are coerced to `str` on write (the schema stores `value TEXT`);
+    callers that need typed values cast explicitly on read, e.g.
+    `int(db.metameta["proposal"])`.
 
     Note that the `table` argument is assumed to come from a trusted source, it
     isn't quoted into the internal SQL expressions.
@@ -486,60 +566,65 @@ class KeyValueMapping(MutableMapping):
 
     def __getitem__(self, key):
         row = self.conn.execute(
-            f"SELECT value FROM {self.table} WHERE key=?", (key,)
+            f"SELECT value FROM {self.table} WHERE key=%s", (key,)
         ).fetchone()
         if row is not None:
-            return row[0]
+            return row["value"]
         raise KeyError
 
     def __setitem__(self, key, value):
-        with self.conn:
+        with self.conn.transaction():
             self.conn.execute(
-                f"INSERT INTO {self.table} VALUES (:key, :value)"
-                "ON CONFLICT (key) DO UPDATE SET value=:value",
-                {'key': key, 'value': value}
+                f"INSERT INTO {self.table} (key, value) VALUES (%(key)s, %(value)s) "
+                "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                {'key': key, 'value': str(value)}
             )
 
     def update(self, other=(), **kwargs):
         # Override to do the update in one transaction
         d = {}
         d.update(other, **kwargs)
+        if not d:
+            return
 
-        with self.conn:
-            self.conn.executemany(
-                f"INSERT INTO {self.table} VALUES (:key, :value)"
-                "ON CONFLICT (key) DO UPDATE SET value=:value",
-                [{'key': k, 'value': v} for (k, v) in d.items()]
+        with self.conn.transaction():
+            self.conn.cursor().executemany(
+                f"INSERT INTO {self.table} (key, value) VALUES (%(key)s, %(value)s) "
+                "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                [{'key': k, 'value': str(v)} for (k, v) in d.items()]
             )
 
     def __delitem__(self, key):
-        with self.conn:
-            c = self.conn.execute(f"DELETE FROM {self.table} WHERE key=?", (key,))
+        with self.conn.transaction():
+            c = self.conn.execute(f"DELETE FROM {self.table} WHERE key=%s", (key,))
             if c.rowcount == 0:
                 raise KeyError(key)
 
     def __iter__(self):
-        return (r[0] for r in self.conn.execute(f"SELECT key FROM {self.table}"))
+        rows = self.conn.execute(f"SELECT key FROM {self.table}").fetchall()
+        return iter(r["key"] for r in rows)
 
     def __len__(self):
-        return self.conn.execute(f"SELECT count(*) FROM {self.table}").fetchone()[0]
+        row = self.conn.execute(f"SELECT count(*) AS n FROM {self.table}").fetchone()
+        return row["n"]
 
     def setdefault(self, key, default=None):
-        with self.conn:
-            try:
+        try:
+            with self.conn.transaction():
                 self.conn.execute(
-                    f"INSERT INTO {self.table} VALUES (:key, :value)",
-                    {'key': key, 'value': default}
+                    f"INSERT INTO {self.table} (key, value) VALUES (%s, %s)",
+                    (key, str(default))
                 )
-                value = default
-            except sqlite3.IntegrityError:
-                # The key is already present
-                value = self[key]
-
-        return value
+            return default
+        except psycopg.IntegrityError:
+            # The key is already present
+            return self[key]
 
     def to_dict(self):
-        return dict(self.conn.execute(f"SELECT * FROM {self.table}"))
+        rows = self.conn.execute(
+            f"SELECT key, value FROM {self.table}"
+        ).fetchall()
+        return {r["key"]: r["value"] for r in rows}
 
     # Reimplement .values() and .items() to use just one query.
     def values(self):
@@ -569,6 +654,9 @@ class MsgKind(Enum):
     # combiner service, unlike the other messages above.
     file_submission = 'file_submission'
 
+    # Sent on the admin topic; handled by the listener's provisioning path.
+    create_proposal_db = 'create_proposal_db'
+
 def msg_dict(kind: MsgKind, data: dict):
     return {'msg_kind': kind.value, 'data': data}
 
@@ -578,19 +666,16 @@ def initialize_proposal(root_path, proposal=None, context_file_src=None, user_va
     if root_path.stat().st_uid == os.getuid():
         os.chmod(root_path, 0o777)
 
-    # If the database doesn't exist, create it
-    if new_db := not db_path(root_path).is_file():
-        if proposal is None:
-            raise ValueError("Must pass a proposal number to `initialize_proposal()` if the database doesn't exist yet.")
+    # With Postgres, the DB itself is provisioned by the listener via Kafka.
+    # This function assumes `runs.pgpass` is already present; if not, the
+    # caller should request provisioning first.
+    if not pgpass_path(root_path).is_file():
+        raise RuntimeError(
+            f"No runs.pgpass in {root_path}. Request a Postgres database via "
+            f"`damnit proposal --request-pg {proposal}` first."
+        )
 
-        # Initialize database
-        db = DamnitDB.from_dir(root_path)
-        db.metameta["proposal"] = proposal
-        db.metameta["context_python"] = DEFAULT_CONTEXT_PYTHON
-    else:
-        # Otherwise, load the proposal number
-        db = DamnitDB.from_dir(root_path)
-        proposal = db.metameta["proposal"]
+    db = DamnitDB.from_dir(root_path)
 
     context_path = root_path / "context.py"
     # Copy initial context file if necessary
@@ -602,7 +687,7 @@ def initialize_proposal(root_path, proposal=None, context_file_src=None, user_va
         os.chmod(context_path, 0o666)
 
     # Copy user editable variables if requested
-    if new_db and (user_vars_src is not None):
+    if user_vars_src is not None:
         prev_db = DamnitDB(user_vars_src)
         for var in prev_db.get_user_variables().values():
             db.add_user_variable(var)

@@ -3,20 +3,21 @@ import json
 import logging
 import os
 import platform
-import sqlite3
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from socket import gethostname
 from threading import Thread
 
+import psycopg
+from psycopg.rows import dict_row
 from kafka import KafkaConsumer
 
 from ..context import RunData
-from ..definitions import DEFAULT_DAMNIT_PYTHON
+from ..definitions import ADMIN_TOPIC, DEFAULT_DAMNIT_PYTHON, UPDATE_BROKERS
 from ..api import find_proposal
-from .db import DamnitDB, KeyValueMapping, db_path
+from .db import DamnitDB, KeyValueMapping, MsgKind, db_path
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
+from .pg_admin import create_proposal_db
 from .service import notify_ready
 
 # For now, the migration & calibration events come via DESY's Kafka brokers,
@@ -34,14 +35,16 @@ KAFKA_CONF = {
         'events': ['daq_run_complete', 'online_correction_complete'],
     }
 }
-READONLY_WAIT_REOPEN = 2  # Wait N seconds to reopen after read-only error
-
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS proposal_databases(proposal, db_dir UNIQUE, official);
+CREATE TABLE IF NOT EXISTS proposal_databases(
+    proposal INTEGER,
+    db_dir TEXT UNIQUE,
+    official BOOLEAN
+);
 CREATE INDEX IF NOT EXISTS proposals ON proposal_databases (proposal);
 
 -- Settings for the listener
-CREATE TABLE IF NOT EXISTS settings(key PRIMARY KEY NOT NULL, value)
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY NOT NULL, value TEXT);
 """
 
 log = logging.getLogger(__name__)
@@ -80,9 +83,10 @@ def execute_direct(submitter, request):
 
 
 class ListenerDB:
-    def __init__(self, db_dir):
-        self.conn = sqlite3.connect(db_dir.absolute() / "listener.sqlite")
-        self.conn.executescript(SCHEMA)
+    def __init__(self, admin_dsn):
+        self.conn = psycopg.connect(admin_dsn, row_factory=dict_row)
+        with self.conn.transaction():
+            self.conn.execute(SCHEMA)
         self._settings = KeyValueMapping(self.conn, "settings")
 
         # To help prevent accidentally starting multiple listeners we default to
@@ -104,33 +108,42 @@ class ListenerDB:
         return self._settings
 
     def all_proposals(self):
-        rows = self.conn.execute("SELECT proposal, db_dir, official FROM proposal_databases").fetchall()
+        rows = self.conn.execute(
+            "SELECT proposal, db_dir, official FROM proposal_databases"
+        ).fetchall()
         result = { }
-        for proposal, db_dir, official in rows:
+        for row in rows:
+            proposal = row["proposal"]
             if proposal not in result:
                 result[proposal] = []
-            result[proposal].append(ProposalDBInfo(Path(db_dir), bool(official)))
+            result[proposal].append(
+                ProposalDBInfo(Path(row["db_dir"]), bool(row["official"]))
+            )
         return result
 
     def proposal_db_dirs(self, proposal: int):
-        rows = self.conn.execute("SELECT db_dir from proposal_databases WHERE proposal=?",
-                                 (proposal,)).fetchall()
-        return [Path(row[0]) for row in rows]
+        rows = self.conn.execute(
+            "SELECT db_dir from proposal_databases WHERE proposal=%s", (proposal,)
+        ).fetchall()
+        return [Path(row["db_dir"]) for row in rows]
 
     def add_proposal_db(self, proposal: int, db_dir, official: bool):
-        with self.conn:
+        with self.conn.transaction():
             self.conn.execute("""
-                INSERT INTO proposal_databases (proposal, db_dir, official) VALUES (?, ?, ?)
+                INSERT INTO proposal_databases (proposal, db_dir, official) VALUES (%s, %s, %s)
             """, (proposal, str(db_dir), official))
 
     def remove_proposal_db(self, db_dir):
-        with self.conn:
-            self.conn.execute("DELETE FROM proposal_databases WHERE db_dir=?", (str(db_dir),))
+        with self.conn.transaction():
+            self.conn.execute(
+                "DELETE FROM proposal_databases WHERE db_dir=%s", (str(db_dir),)
+            )
 
 class EventProcessor:
     def __init__(self, listener_dir: Path):
         self._listener_dir = listener_dir
-        self.db = ListenerDB(listener_dir)
+        self.admin_dsn = os.environ["DAMNIT_PG_ADMIN_DSN"]
+        self.db = ListenerDB(self.admin_dsn)
 
         hostname = gethostname()
         if hostname.startswith('exflonc'):
@@ -141,7 +154,7 @@ class EventProcessor:
 
         group_id = CONSUMER_ID.format(str(listener_dir).replace("/", "_"))
         client_id = CONSUMER_ID.format(f"{hostname}-{os.getpid()}")
-        self.kafka_cns = KafkaConsumer(*kafka_conf['topics'],
+        self.kafka_cns = KafkaConsumer(*kafka_conf['topics'], ADMIN_TOPIC,
                                        bootstrap_servers=kafka_conf['brokers'],
                                        group_id=group_id,
                                        client_id=client_id,
@@ -162,26 +175,35 @@ class EventProcessor:
             for record in self.kafka_cns:
                 try:
                     self._process_kafka_event(record)
-                except sqlite3.OperationalError as e:
-                    if e.sqlite_errorcode == sqlite3.SQLITE_READONLY:
-                        log.error("SQLite database is read only. Pause, reopen, retry.")
-                        self.db.close()
-                        time.sleep(READONLY_WAIT_REOPEN)
-                        self.db = ListenerDB(self._listener_dir)
-                        self._process_kafka_event(record)
-                    else:
-                        log.error("Unexpected error handling Kafka event.", exc_info=True)
                 except Exception:
                     log.error("Unexpected error handling Kafka event.", exc_info=True)
 
     def _process_kafka_event(self, record):
         msg = json.loads(record.value.decode())
+        if record.topic == ADMIN_TOPIC:
+            self._process_admin_message(msg)
+            return
         event = msg.get('event')
         if event in self.events:
             log.debug("Processing %s event from Kafka", event)
             getattr(self, f'handle_{event}')(record, msg)
         else:
             log.debug("Unexpected %s event from Kafka", event)
+
+    def _process_admin_message(self, msg: dict):
+        kind = msg.get('msg_kind')
+        data = msg.get('data', {})
+        if kind == MsgKind.create_proposal_db.value:
+            proposal = int(data['proposal'])
+            proposal_dir = Path(data['proposal_dir'])
+            requester = data.get('requester_username', '?')
+            log.info(
+                "Provisioning DAMNIT database for p%d (requested by %s)",
+                proposal, requester,
+            )
+            create_proposal_db(self.admin_dsn, proposal, proposal_dir)
+        else:
+            log.debug("Ignoring admin message kind %r", kind)
 
     def handle_daq_run_complete(self, record, msg: dict):
         self.handle_event(record, msg, RunData.RAW)
