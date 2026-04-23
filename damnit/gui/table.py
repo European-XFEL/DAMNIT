@@ -161,13 +161,20 @@ class FilterHeaderView(QtWidgets.QHeaderView):
                     continue
 
                 if is_group:
-                    self._paint_group_background(painter, visible_rect)
+                    self._paint_group_background(painter, group_rect, clip_rect=visible_rect)
 
-                text_rect = visible_rect.adjusted(4, 0, -4, 0)
+                text_rect = group_rect.adjusted(4, 0, -4, 0)
                 if text_rect.width() <= 0:
                     continue
 
-                painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignHCenter | Qt.TextWordWrap, text)
+                painter.save()
+                painter.setClipRect(visible_rect)
+                painter.drawText(
+                    text_rect,
+                    Qt.AlignVCenter | Qt.AlignHCenter | Qt.TextWordWrap,
+                    text,
+                )
+                painter.restore()
 
     def update_filtered_columns(self, filtered_cols):
         """Update the set of filtered columns and trigger repaint"""
@@ -264,8 +271,6 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         # Start drawing from the visual leader so the merged rect covers all siblings
         lead_index = self._group_lead_index(logical_index, level_idx)
         start = self.sectionViewportPosition(lead_index)
-        if start < 0:
-            return 0, 0
 
         width = 0
         visual = self.visualIndex(lead_index)
@@ -327,8 +332,11 @@ class FilterHeaderView(QtWidgets.QHeaderView):
             lead = prev_logical
         return lead
 
-    def _paint_group_background(self, painter, rect):
+    def _paint_group_background(self, painter, rect, clip_rect=None):
         # Ask the style engine for a header section so merged cells keep theme gradients/borders
+        painter.save()
+        if clip_rect is not None:
+            painter.setClipRect(clip_rect)
         option = QtWidgets.QStyleOptionHeader()
         self.initStyleOption(option)
         option.rect = rect
@@ -336,6 +344,7 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         option.state |= QtWidgets.QStyle.State_Raised
         option.state &= ~(QtWidgets.QStyle.State_Sunken | QtWidgets.QStyle.State_On)
         self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
+        painter.restore()
 
     def set_hierarchical_enabled(self, enabled: bool):
         if self._hierarchy_enabled == enabled:
