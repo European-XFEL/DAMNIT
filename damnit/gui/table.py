@@ -1300,7 +1300,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.db.ensure_run(proposal, run)
             self.db.set_variable(proposal, run, "comment", ReducedData(None), provenance="")
 
-            self.insert_run_row(proposal, run, {}, {}, {})
+            self.insert_run_row(proposal, run, {})
 
     def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
         if column_ids is None:
@@ -1325,30 +1325,18 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
 
-    def insert_run_row(self, proposal, run, contents: dict, max_diffs: dict,
-                       attrs: dict, summary_types: dict = None,
-                       provenances: dict = None):
+    def insert_run_row(self, proposal, run, items: dict):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
         status_item.setCheckState(Qt.Checked)
         row = [status_item, self.text_item(proposal), self.text_item(run)]
 
-        summary_types = summary_types or {}
-        provenances = provenances or {}
         for column_id in self.column_ids[3:]:
-            if (value := contents.get(column_id, None)) is not None:
-                item = self.new_item(
-                    value,
-                    column_id,
-                    max_diffs.get(column_id) or 0,
-                    attrs.get(column_id) or {},
-                    summary_types.get(column_id),
-                    provenances.get(column_id),
-                )
-            elif column_id in self.editable_columns:
-                item = QtGui.QStandardItem()  # Editable by default
-            else:
-                item = None
+            if (item := items.get(column_id, None)) is None:
+                if column_id in self.editable_columns:
+                    item = QtGui.QStandardItem()  # Editable by default
+                else:
+                    item = None
             row.append(item)
         # We add new rows at the end, a QSortFilterProxyModel shows them in
         # the correct position given the current sort.
@@ -1386,35 +1374,36 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             )
             params = (proposal, run)
 
-        data = {}
-        max_diffs = {}
-        attrs = {}
-        summary_types = {}
-        provenances = {}
+        items = {}
+        for (
+                name, value, max_diff, summary_type, attr_json, provenance
+        ) in self.db.conn.execute(query, params).fetchall():
+            items[name] = self.new_item(
+                value,
+                column_id=name,
+                max_diff=(max_diff or 0),
+                attrs=(json.loads(attr_json) if attr_json else {}),
+                summary_type=summary_type,
+                provenance=provenance,
+            )
 
-        for name, value, max_diff, summary_type, attr_json, provenance in self.db.conn.execute(query, params).fetchall():
-            data[name] = value
-            max_diffs[name] = max_diff
-            summary_types[name] = summary_type
-            attrs[name] = json.loads(attr_json) if attr_json else {}
-            provenances[name] = provenance
+        if 'start_time' in values or row_ix is None:
+            row = self.db.conn.execute(
+                "SELECT start_time FROM run_info WHERE proposal=? AND run=?",
+                (proposal, run)
+            ).fetchone()
+            if row is not None:
+                items['start_time'] = self.new_item(row[0], 'start_time', 0, {})
 
         col_id_to_ix = {c: i for (i, c) in enumerate(self.column_ids)}
 
         if row_ix is not None:
             log.debug("Update existing row %s for run %s", row_ix, run)
-            for column_id in values:
+            for column_id, item in items.items():
                 col_ix = col_id_to_ix[column_id]
-                self.setItem(row_ix, col_ix, self.new_item(
-                    data.get(column_id),
-                    column_id,
-                    max_diffs.get(column_id) or 0,
-                    attrs.get(column_id) or {},
-                    summary_types.get(column_id),
-                    provenances.get(column_id),
-                ))
+                self.setItem(row_ix, col_ix, item)
         else:
-            self.insert_run_row(proposal, run, data, max_diffs, attrs, summary_types, provenances)
+            self.insert_run_row(proposal, run, items)
 
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
@@ -1450,7 +1439,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             row_ix = self.find_row(proposal, run)
         except KeyError:
             if jobs_for_run:
-                row_ix = self.insert_run_row(proposal, run, {}, {}, {})
+                row_ix = self.insert_run_row(proposal, run, {})
             else:
                 return
 
