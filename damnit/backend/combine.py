@@ -163,7 +163,6 @@ class FileSubmissionProcessor:
         update_msg = msg_dict(MsgKind.run_values_updated, {
             'run': run, 'proposal': proposal, 'values': {
                 name: None for name in reduced_data.keys()
-                if name != 'start_time'
             }
         })
         self.producer.send(topic, update_msg)
