@@ -186,8 +186,10 @@ class Cell:
 
         isfig = isinstance_no_import(data, 'matplotlib.figure', 'Figure') or \
                 isinstance_no_import(data, 'plotly.graph_objs', 'Figure')
+        is_pandas = isinstance_no_import(data, 'pandas', 'Series') or \
+                    isinstance_no_import(data, 'pandas', 'DataFrame')
 
-        if not (isfig or isinstance(data, (xr.Dataset, xr.DataArray, str, type(None)))):
+        if not (isfig or is_pandas or isinstance(data, (xr.Dataset, xr.DataArray, str, type(None)))):
             data = np.asarray(data)
             # Numpy will wrap any Python object, but only native arrays
             # can be saved in HDF5, not those containing Python objects.
@@ -273,11 +275,17 @@ class Cell:
             downsample_line
         )
         data = self.preview if (self.preview is not None) else self.data
+        if isinstance_no_import(data, 'pandas', 'Series'):
+            data = data.to_xarray()
+
         if isinstance(data, str):
             return data
         elif isinstance(data, xr.Dataset):
             size = data.nbytes / 1e6
             return f"Dataset ({size:.2f}MB)"
+        elif isinstance_no_import(data, 'pandas', 'DataFrame'):
+            size = data.memory_usage(index=True, deep=True).sum() / 1e6
+            return f"DataFrame ({size:.2f}MB)"
         elif isinstance_no_import(data, 'matplotlib.figure', 'Figure'):
             # For the sake of space and memory we downsample images to a
             # resolution of THUMBNAIL_SIZE pixels on the larger dimension.
@@ -332,6 +340,8 @@ class Cell:
 
     def _max_diff(self):
         a = self.data
+        if isinstance_no_import(a, 'pandas', 'Series'):
+            a = a.to_numpy()
         if isinstance(a, (np.ndarray, xr.DataArray)) and a.size > 1:
             if np.issubdtype(a.dtype, np.bool_):
                 return 1. if (True in a) and (False in a) else 0.

@@ -1,3 +1,4 @@
+import json
 import os
 import os.path as osp
 from contextlib import contextmanager
@@ -17,6 +18,8 @@ from .util import isinstance_no_import
 class DataType(Enum):
     DataArray = "dataarray"
     Dataset = "dataset"
+    Series = "series"
+    DataFrame = "dataframe"
     Image = "image"
     Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
@@ -29,6 +32,17 @@ def find_proposal(propno):
         return Path(d)
 
     raise FileNotFoundError("Couldn't find proposal dir for {!r}".format(propno))
+
+
+def _decode_dataframe_columns(cols):
+    # pandas needs hashable labels (e.g. MultiIndex tuple columns).
+    # But tuples are saved as list in JSON.
+    def convert(item):
+        if isinstance(item, list):
+            return tuple(convert(v) for v in item)
+        return item
+
+    return [convert(c) for c in cols]
 
 
 class VariableData:
@@ -100,13 +114,14 @@ class VariableData:
             return DataType(hint_s)
         return None
 
-    def _read_netcdf(self, one_array=False):
+    def _read_netcdf(self, one_array=False, strip_internal_attrs=True):
         import xarray as xr
         load = xr.load_dataarray if one_array else xr.load_dataset
         obj = load(self._h5_path, group=self.name, engine="h5netcdf")
-        # Remove internal attributes from loaded object
-        obj.attrs = {k: v for (k, v) in obj.attrs.items()
-                     if not k.startswith('_damnit_')}
+        if strip_internal_attrs:
+            # Remove internal attributes from loaded object
+            obj.attrs = {k: v for (k, v) in obj.attrs.items()
+                         if not k.startswith('_damnit_')}
         return obj
 
     def read(self, deserialize_plotly=True):
@@ -123,8 +138,34 @@ class VariableData:
             type_hint = self._type_hint(group)
             if type_hint is DataType.Dataset:
                 return self._read_netcdf()
+            elif type_hint is DataType.DataFrame:
+                dataset = self._read_netcdf(strip_internal_attrs=False)
+                if len(dataset.dims) <= 1:
+                    dataframe = dataset.to_pandas()
+                else:
+                    dataframe = dataset.to_dataframe()
+
+                columns_json = dataset.attrs["_damnit_dataframe_columns"]
+                dataframe.columns = _decode_dataframe_columns(json.loads(columns_json))
+
+                index_names_json = dataset.attrs["_damnit_dataframe_index_names"]
+                index_names = json.loads(index_names_json)
+                dataframe.index = dataframe.index.set_names(index_names)
+
+                column_names_json = dataset.attrs["_damnit_dataframe_column_names"]
+                column_names = json.loads(column_names_json)
+                if len(column_names) == dataframe.columns.nlevels:
+                    dataframe.columns = dataframe.columns.set_names(column_names)
+                else:
+                    import pandas as pd
+                    dataframe.columns = pd.MultiIndex.from_tuples(
+                        dataframe.columns.tolist(), names=column_names
+                    )
+                return dataframe
             elif type_hint is DataType.DataArray:
                 return self._read_netcdf(one_array=True)
+            elif type_hint is DataType.Series:
+                return self._read_netcdf(one_array=True).to_pandas()
 
             dset = group["data"]
             if type_hint is DataType.PlotlyFigure:
@@ -196,9 +237,9 @@ class VariableData:
                 # Implicit: use data as preview if suitable
                 grp = f[self.name]
                 type_hint = self._type_hint(grp)
-                if type_hint is DataType.DataArray:
+                if type_hint in (DataType.DataArray, DataType.Series):
                     xarray_group = self.name
-                elif type_hint is DataType.Dataset:
+                elif type_hint in (DataType.Dataset, DataType.DataFrame):
                     return None
                 else:
                     dset = grp['data']
