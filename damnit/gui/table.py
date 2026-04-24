@@ -1092,10 +1092,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     @staticmethod
     def _load_columns(db: DamnitDB, col_settings):
         t0 = time.perf_counter()
-        column_ids = (
-                ["Status", "proposal", "run", "start_time", "comment"]
-                + sorted(set(db.variable_names()) - {'comment'})
-        )
+        static_cols = ["Status", "proposal", "run", "start_time", "comment"]
         col_id_to_title = {
             "run": "Run",
             "proposal": "Proposal",
@@ -1104,6 +1101,11 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         } | dict(
             db.conn.execute("""SELECT name, title FROM variables WHERE title NOT NULL""")
         )
+        non_static_cols = sorted(
+            set(db.variable_names()) - {"comment"},
+            key=lambda col: (col_id_to_title.get(col, col).casefold(), col.casefold()),
+        )
+        column_ids = static_cols + non_static_cols
         col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
 
         # Column settings store human friendly titles - convert to IDs
@@ -1116,7 +1118,6 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         # the beginning, followed by all the columns that have saved settings,
         # followed by all the other columns (i.e. comment_id and any new columns
         # added in between the last save and now).
-        non_static_cols = column_ids[5:]
         sorted_cols = column_ids[:5]
         # Static columns are saved too to store their visibility, but we filter
         # them out here because they've already been added to the list.
