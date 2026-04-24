@@ -1599,6 +1599,29 @@ def test_header_groups(qtbot):
     assert start0 == start2 == header.sectionViewportPosition(0)
 
 
+def test_header_groups_with_offscreen_lead(qtbot):
+    view, header = make_table_with_headers(
+        qtbot, ["Trigger/Open", "Trigger/Rep", "Trigger/Rotor", "A/B", "C"]
+    )
+
+    widths = [220, 220, 220, 220, 220]
+    for idx, width in enumerate(widths):
+        header.resizeSection(idx, width)
+    qtbot.waitUntil(lambda: header.sectionSize(4) == widths[4])
+
+    # Force horizontal scrolling so the first "Trigger" section starts off-screen.
+    view.horizontalScrollBar().setValue(widths[0] + 10)
+    QApplication.processEvents()
+    qtbot.waitUntil(lambda: header.sectionViewportPosition(0) == 0)
+
+    total = sum(widths[0:3])
+    start, width = header._group_geometry(2, 0)
+
+    assert start == 0
+    assert width == total
+    assert header._group_span_columns(2, 0) == 3
+
+
 def test_header_groups_toggle_resets_state(qtbot):
     _, header = make_table_with_headers(qtbot, ["Trigger/Open", "Trigger/Rep"])
 
