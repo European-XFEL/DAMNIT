@@ -518,7 +518,8 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
+    def execute(self, run_data, run_number, proposal, input_vars, *, label="") -> 'Results':
+        label = f"[{label}] " if label and label != 'default' else ""
         dep_results = {'start_time': 
             get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
         }
@@ -580,7 +581,10 @@ class ContextFile:
                         raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
 
                 if missing_deps:
-                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                    log.warning(
+                        "%sSkipping %s because of missing dependencies: %s",
+                        label, name, ", ".join(missing_deps)
+                    )
                     # get error message from transient dependencies
                     dep_errors = [(dep, errors[dep]) for dep in missing_deps if dep in errors]
                     if dep_errors:
@@ -590,16 +594,19 @@ class ContextFile:
                         errors[name] = Skip(f"Dependencies returned no data:{''.join(deps)}")
                     continue
                 elif missing_input:
-                    log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
+                    log.warning(
+                        "%sSkipping %s because of missing input variables: %s",
+                        label, name, ", ".join(missing_input)
+                    )
                     continue
 
                 cell = var.evaluate(run_data, kwargs)
             except Exception as e:
                 sys.stdout.flush()  # As in the else block
                 if isinstance(e, Skip):
-                    log.error("Skipped %s: %s", name, e)
+                    log.error("%sSkipped %s: %s", label, name, e)
                 else:
-                    log.error("Could not get data for %s", name, exc_info=True)
+                    log.error("%sCould not get data for %s", label, name, exc_info=True)
                 errors[name] = e
             else:
                 # When output is going to a file, stdout is block buffered, so
@@ -607,7 +614,7 @@ class ContextFile:
                 # message (on stderr) that the variable has finished.
                 sys.stdout.flush()
                 t1 = time.perf_counter()
-                log.info("Computed %s in %.03f s", name, t1 - t0)
+                log.info("%sComputed %s in %.03f s", label, name, t1 - t0)
                 if not var.transient:
                     res[name] = cell
                 if cell.data is not None:
@@ -762,6 +769,7 @@ def main(argv=None):
         ).with_context(
             proposal=args.proposal,
             run_number=args.run,
+            name="default"
         )
 
         sel = pipe_whole.select(

@@ -1,3 +1,5 @@
+import logging
+import re
 from textwrap import dedent
 
 import h5py
@@ -453,6 +455,48 @@ def test_pipeline_execute(mock_run):
     assert pipe.results is None
     res = pipe.execute(input_vars={"x": 2})
     assert res.cells["val"].data == 2
+
+
+def test_pipeline_execute_logs_name(mock_run, caplog):
+    # identify multiple pipelines running
+    @Variable
+    def inner(run):
+        return 1
+
+    @Variable
+    def outer(run):
+        nested = Pipeline(name="inner_pipe", proposal=1, run_number=2, data=run)
+        nested.add(inner)
+        return nested.execute().cells["inner"].data + 1
+
+    pipe = Pipeline(name="outer_pipe").add(outer).with_context(
+        data=mock_run,
+        proposal=1,
+        run_number=1,
+    )
+
+    with caplog.at_level(logging.INFO, logger="ctxrunner"):
+        pipe.execute()
+
+    assert "[inner_pipe] Computed inner" in caplog.text
+    assert "[outer_pipe] Computed outer" in caplog.text
+
+    # no pipeline name given -> generate unique id
+    @Variable
+    def val(run):
+        return 1
+
+    pipe = Pipeline().add(val).with_context(
+        data=mock_run,
+        proposal=1,
+        run_number=1,
+    )
+
+    with caplog.at_level(logging.INFO, logger="ctxrunner"):
+        pipe.execute()
+
+    matches = re.findall(r"\[\w{12}\] Computed val", caplog.text)
+    assert len(matches) == 1
 
 
 def test_pipeline_vars_to_dict():

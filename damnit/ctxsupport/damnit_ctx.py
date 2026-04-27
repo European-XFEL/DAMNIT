@@ -7,6 +7,7 @@ than the DAMNIT code in general, to allow running context files in other Python
 environments.
 """
 import contextvars
+import hashlib
 import logging
 import re
 import sys
@@ -544,7 +545,7 @@ class Pipeline:
             input_vars: dict for input# dependencies.
             _context: Precompiled context (e.g. from Pipeline.from_str() or select()).
         """
-        self.name = name
+        self._name = name
         self.proposal = proposal
         self.run_number = run_number
         self.data = data
@@ -591,9 +592,20 @@ class Pipeline:
         state.used = True
         return pipeline
 
+    @property
+    def name(self):
+        if self._name is not None:
+            return self._name
+
+        parts = list(self.input_vars) + [str(self.proposal), str(self.run_number)]
+        if self._context is not None:
+            parts += list(self._context.vars)
+        base = "|".join(parts)
+        return hashlib.sha256(base.encode("utf-8")).hexdigest()[:12]
+
     def copy(self):
         clone = Pipeline(
-            name=self.name,
+            name=self._name,
             proposal=self.proposal,
             run_number=self.run_number,
             data=self.data,
@@ -705,7 +717,7 @@ class Pipeline:
         """Return a new Pipeline with updated context fields."""
         new_pipe = self.copy()
         if name is not None:
-            new_pipe.name = name
+            new_pipe._name = name
         if proposal is not None:
             new_pipe.proposal = proposal
         if run_number is not None:
@@ -819,7 +831,10 @@ class Pipeline:
         merged_input = dict(self.input_vars)
         if input_vars is not None:
             merged_input.update(dict(input_vars))
-        res = ctx.execute(data_obj, self.run_number, self.proposal, merged_input)
+        res = ctx.execute(
+            data_obj, self.run_number, self.proposal, merged_input,
+            label=self.name
+        )
         self._last_results = res
         return res
 
@@ -843,22 +858,6 @@ class Pipeline:
     def vars_to_dict(self, inc_transient=False):
         """Return variable metadata suitable for database storage."""
         return self.context.vars_to_dict(inc_transient=inc_transient)
-
-    # def save(self, path: Path, provenance: str | None = None):
-    #     """Save the last Results to an HDF5 file."""
-    #     from damnit_writing import save_fragment
-
-    #     if self._last_results is None:
-    #         raise RuntimeError("No results available. Call execute() first.")
-
-    #     return save_fragment(
-    #         damnit_dir=path,
-    #         proposal=self.proposal,
-    #         run=self.run_number,
-    #         vars=self._last_results.cells,
-    #         errors=self._last_results.errors,
-    #         provenance=provenance or self.name or "unknown",
-    #     )
 
 
 @contextmanager
