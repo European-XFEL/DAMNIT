@@ -1061,6 +1061,67 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
         assert "array" not in f.keys()
         assert "array" not in f[".reduced"].keys()
 
+def test_delete_variable_with_tag_filter(
+    mock_db, tmp_path, qtbot, monkeypatch
+):
+    def _visible_count(tv):
+        count = 0
+        for col in range(tv.get_static_columns_count(), table_view.model().columnCount()):
+            if not tv.isColumnHidden(col):
+                count += 1
+        return count
+
+    def _delete_col(tv, col_name):
+        with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes):
+            tv.confirm_delete_variable(col_name)
+
+    db_dir, _db = mock_db
+    monkeypatch.chdir(db_dir)
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        win = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win)
+
+    table_view = win.table_view
+
+    initial_states = table_view.get_column_states()
+    assert "Array" in initial_states
+
+    # Apply a tag filter that hides non-scalar variables in the view only.
+    table_view.apply_tag_filter({"scalar"})
+    table_view.apply_tag_filter.flush()
+    assert table_view._current_tag_filter == {"scalar"}
+
+    # Delete a non-scalar variable while the filter is active.
+    _delete_col(table_view, "array")
+
+    expected_states = dict(initial_states)
+    del expected_states["Array"]
+
+    # Deletion should not convert temporarily filter-hidden columns into
+    # manually hidden settings.
+    assert table_view.get_column_states() == expected_states
+    assert table_view._current_tag_filter == {"scalar"}
+
+    # The active filter should still be applied after deleting a column.
+    assert _visible_count(table_view) == 2  # Scalar1 and Scalar2
+
+    # delete a scalar variable
+    _delete_col(table_view, "scalar2")
+    del expected_states["Scalar2"]
+    assert table_view.get_column_states() == expected_states
+    assert _visible_count(table_view) == 1  # Scalar1
+
+    # Verify persistence across GUI reload.
+    win.autoconfigure(db_dir)
+    assert win.table_view.get_column_states() == expected_states
+
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        win2 = MainWindow(db_dir, connect_to_kafka=False)
+    qtbot.addWidget(win2)
+    assert win2.table_view.get_column_states() == expected_states
+
+
 def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
