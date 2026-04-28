@@ -47,6 +47,13 @@ these arguments:
   reduce it to a single number. Internally it gets mapped to `np.<summary>()`,
   so you can use e.g. `sum` or `nanmean` to compute the summary with `np.sum()`
   or `np.nanmean()` respectively.
+- `units` (string): physical units metadata to save alongside the variable's
+  data and summary:
+  ```python
+  @Variable(title="XGM intensity", summary="mean", units="uJ")
+  def xgm_intensity(run):
+      ...
+  ```
 - `data` (string): this sets the trigger for the variable. By default
   `Variable`'s have `data="raw"`, which means they will be triggered by a
   migration of raw data to the offline cluster. But if you want to process
@@ -188,6 +195,8 @@ representation. A `Cell` takes these arguments:
   font in the table's cell
 - `background`: Cell background color as hex string (e.g. `'#ffcc00'`)
   or RGB sequence (0-255 values)
+- `units`: Units metadata for the saved data and summary. This overrides the
+  `units` value from `@Variable(...)` when both are set.
 - `preview`: What to show in a pop-up when the cell is double clicked.
   This can be a 1D or 2D array, or a Matplotlib or Plotly figure.
   If `data` is one of these types, it doesn't need to be specified again.
