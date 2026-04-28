@@ -1,3 +1,4 @@
+import json
 import os
 import os.path as osp
 from contextlib import contextmanager
@@ -80,6 +81,11 @@ class VariableData:
         """
         return self._h5_path
 
+    @property
+    def units(self) -> str | None:
+        """Physical units metadata for this variable, if available."""
+        return self._summary_attributes().get("units")
+
     def type_hint(self):
         """Type hint for this variable data.
 
@@ -99,6 +105,18 @@ class VariableData:
         if hint_s:
             return DataType(hint_s)
         return None
+
+    def _summary_attributes(self):
+        row = self._db.conn.execute("""
+            SELECT attributes FROM run_variables
+            WHERE proposal=? AND run=? AND name=?
+            ORDER BY version DESC LIMIT 1
+        """, (self.proposal, self.run, self.name)).fetchone()
+
+        if row is None or row[0] is None:
+            return {}
+
+        return json.loads(row[0])
 
     def _read_netcdf(self, one_array=False):
         import xarray as xr

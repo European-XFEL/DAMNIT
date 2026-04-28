@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, NoneType
 
 import h5py
 import numpy as np
@@ -73,13 +73,14 @@ class Variable:
 
     def __init__(
             self, title=None, description=None, summary=None, data=None,
-            cluster=False, tags=None, transient=False
+            cluster=False, tags=None, transient=False, units=None
     ):
         self.tags = (tags,) if isinstance(tags, str) else tags
         self.description = description
         self.summary = summary
         self.cluster = cluster
         self.transient = transient
+        self.units = units
         self._data = data
         self._annotation_overrides = None
 
@@ -125,6 +126,12 @@ class Variable:
                     f"tags={self.tags!r} for variable {self.name} "
                     "(must be a non-empty string or an iterable of strings)"
                 )
+        if self.units is not None:
+            if not isinstance(self.units, str) or self.units == "":
+                problems.append(
+                    f"units={self.units!r} for variable {self.name} "
+                    "(must be a non-empty string)"
+                )
 
         return problems
 
@@ -167,7 +174,8 @@ class Variable:
 
             if cell.summary is None:
                 cell.summary = self.summary
-
+            if cell.units is None:
+                cell.units = self.units
         return cell
 
 
@@ -196,11 +204,13 @@ class Cell:
         Whether to display cell in bold
     background : str or sequence, optional
         Cell background color as hex string ('#ffcc00') or RGB sequence (0-255)
+    units : str, optional
+        Physical units associated with the saved data and summary.
     preview : array or figure object, optional
         A plot, 1D or 2D array to show when double-clicking the table cell.
     """
     def __init__(self, data, summary=None, summary_value=None, bold=None, background=None,
-                 *, preview=None):
+                 *, preview=None, units=None):
         # If the user returns an Axes, save the whole Figure
         if isinstance_no_import(data, 'matplotlib.axes', 'Axes'):
             data = data.get_figure()
@@ -254,11 +264,17 @@ class Cell:
                 raise TypeError("preview must be an array or a figure object "
                                 f"(got {type(preview)})")
 
+        if units is None and isinstance(data, xr.DataArray):
+            units = data.attrs.get("units")
+        if not isinstance(units, (str, NoneType)):
+            raise TypeError(f"units should be a string, not {type(units)}")
+
         self.data = data
         self.summary = summary
         self.summary_value = summary_value
         self.bold = bold
         self.background = self._normalize_colour(background)
+        self.units = units
         self.preview = preview
 
     @staticmethod
@@ -366,6 +382,8 @@ class Cell:
             d['bold'] = self.bold
         if self.background is not None:
             d['background'] = self.background
+        if self.units is not None:
+            d['units'] = self.units
         if (max_diff := self._max_diff()) is not None:
             d['max_diff'] = max_diff
         return d

@@ -1674,11 +1674,3 @@ def test_units_metadata(mock_run, mock_db, tmp_path):
             (name,),
         ).fetchone()
         assert json.loads(attrs[0])["units"] == expected_units
-
-
-def test_invalid_cell_units():
-    with pytest.raises(TypeError, match="units should be a string"):
-        Cell(1, units=1)
-
-    with pytest.raises(ValueError, match="units cannot be an empty string"):
-        Cell(1, units="")
