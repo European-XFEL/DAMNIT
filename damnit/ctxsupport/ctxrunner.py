@@ -511,6 +511,15 @@ class ContextFile:
             }
             for (name, v) in self.vars.items()
             if not v.transient or inc_transient
+        } | {
+            name: {
+                'title': p.title,
+                'description': p.description,
+                'tags': p.tags,
+                'attributes': {'param_default': p.default},
+                'type': p.type_name(),
+            }
+            for (name, p) in self.params.items()
         }
 
     def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=()):
@@ -654,7 +663,7 @@ class ContextFile:
             if var.transient:
                 errors.pop(name, None)
 
-        return Results(res, errors, self)
+        return Results(res, errors, param_values, self)
 
 
 def get_start_time(xd_run):
@@ -737,14 +746,16 @@ def add_to_h5_file(path) -> h5py.File:
 
 
 class Results:
-    def __init__(self, cells, errors, ctx):
+    def __init__(self, cells, errors, param_values, ctx):
         self.cells = cells
         self.errors = errors
+        self.param_values = param_values
         self.ctx = ctx
 
     def save(self, damnit_dir: Path, proposal: int, run: int):
         return save_fragment(
-            damnit_dir, proposal, run, self.cells, self.errors, provenance="context.py"
+            damnit_dir, proposal, run, self.cells, self.errors, self.param_values,
+            provenance="context.py"
         )
 
 

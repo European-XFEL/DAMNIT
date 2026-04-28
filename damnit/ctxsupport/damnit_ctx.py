@@ -879,4 +879,20 @@ class Parameter:
     type_: type
     default: Any = None
     title: str | None = None
-    help: str = ""
+    description: str = ""
+    tags: tuple[str] = ()
+
+    def __post_init__(self):
+        if self.type_ not in (str, int, float, bool):
+            raise ValueError("Parameter type should be str/int/float/bool")
+
+    def type_name(self):  # Naming scheme matching user-editable variables
+        if self.type_ is str:
+            return 'string'
+        elif self.type_ is int:
+            return 'integer'
+        elif self.type_ is float:
+            return 'number'
+        elif self.type_ is bool:
+            return 'boolean'
+        raise ValueError(f"Unexpected parameter type {self.type_}")

@@ -121,6 +121,9 @@ def load_reduced_data(h5_path):
             )
             for name, dset in f['.reduced'].items()
         } | {
+            name: ReducedData(get_dset_value(dset))
+            for name, dset in f['.parameters'].items()
+        } | {
             name: ReducedData(None, attributes={
                 'error': get_dset_value(dset),
                 'error_cls': dset.attrs.get("type", "")

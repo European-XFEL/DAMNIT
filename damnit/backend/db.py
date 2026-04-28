@@ -239,13 +239,17 @@ class DamnitDB:
             WHERE type IS NOT NULL
         """)
         for rr in rows:
+            attrs = rr['attributes']
+            if attrs and ('param_default' in json.loads(attrs)):
+                continue  # This is a parameter
+
             var_name = rr["name"]
             new_var = UserEditableVariable(
                 var_name,
                 title=rr["title"],
                 variable_type=rr["type"],
                 description=rr["description"],
-                attributes=rr["attributes"],
+                attributes=attrs,
             )
             user_variables[var_name] = new_var
         log.debug("Loaded %d user variables", len(user_variables))
@@ -263,24 +267,30 @@ class DamnitDB:
                 WHERE type IS NULL
             """).fetchall():
                 var = dict(row)
+                if isinstance(var['attributes'], str):
+                    var['attributes'] = json.loads(var['attributes'])
                 vars_in_db[var.pop("name")] = var
 
             updates = {n: v for (n, v) in vars.items()
                        if v != vars_in_db.get(n, None)}
             log.debug("Updating stored metadata for %d computed variables",
                       len(updates))
+            for n, v in updates.items():
+                attrs = vars_in_db.get(n, {}).get('attributes') or {}
+                attrs |= (v['attributes'] or {})
+                v['attributes'] = (attrs or None)
 
             # Write new & changed variables
             # TODO: what if a new computed variable name matches an existing user var?
             self.conn.executemany("""
-                INSERT INTO variables VALUES (?, NULL, ?, ?, ?)
+                INSERT INTO variables VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (name) DO UPDATE SET
                     type=excluded.type,
                     title=excluded.title,
                     description=excluded.description,
                     attributes=excluded.attributes
             """, [
-                (n, v['title'], v['description'], v['attributes'])
+                (n, v['type'], v['title'], v['description'], v['attributes'])
                 for (n, v) in updates.items()
             ])
 
@@ -396,6 +406,23 @@ class DamnitDB:
 
             if is_new:
                 self.update_views()
+
+    def update_variables_attrs(self, vars_attrs: dict):
+        attrs_in_db = dict(
+            self.conn.execute("SELECT name, attributes FROM variables").fetchall()
+        )
+        to_set = []
+        for name, new_attrs in vars_attrs.items():
+            new_attrs = (attrs_in_db[name] or {}) | new_attrs
+            to_set.append({
+                'name': name, 'attributes': json.dumps(new_attrs) if new_attrs else None
+            })
+
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE variables SET attributes=:attributes WHERE name=:name",
+                to_set,
+            )
 
     def delete_variable(self, name: str):
         with self.conn:

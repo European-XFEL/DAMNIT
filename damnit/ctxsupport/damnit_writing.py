@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 from tempfile import mkstemp
+from typing import Any
 
 import h5py
 import numpy as np
@@ -232,6 +233,7 @@ class DamnitFileWriter:
         file.require_group('.reduced')  # Summaries
         file.require_group('.preview')
         file.require_group('.errors')
+        file.require_group('.parameters')
 
     def store_summary(self, name, obj, attrs):
         if isinstance(obj, PNGData):  # PNG thumbnail
@@ -288,9 +290,12 @@ class DamnitFileWriter:
         ds = self.file.create_dataset(f'.errors/{name}', data=str(exc))
         ds.attrs['type'] = type(exc).__name__
 
+    def store_parameter(self, name, value):
+        self.file[f'.errors/{name}'] = value
+
 
 def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
-           errors: dict[str, Exception], provenance=""):
+           errors: dict[str, Exception], param_values: dict[str, Any], provenance=""):
     """Save one or more results into a fragment file, to be combined later"""
     results_dir = damnit_dir / "extracted_data"
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -316,6 +321,9 @@ def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cel
 
         for name, exc in errors.items():
             writer.store_error(name, exc)
+
+        for name, val in param_values.items():
+            writer.store_parameter(name, exc)
 
     os.chmod(f.final_path, 0o666)
 
