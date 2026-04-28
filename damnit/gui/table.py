@@ -12,7 +12,7 @@ from PyQt5.QtCore import QProcess, Qt
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QAction, QMenu, QMessageBox
 from superqt.fonticon import icon
-from superqt.utils import qthrottled
+from superqt.utils import qthrottled, signals_blocked
 
 from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex, blob2numpy
 from ..backend.extraction_control import ExtractionJobTracker
@@ -837,16 +837,35 @@ class TableView(QtWidgets.QTableView):
 
     def on_columns_removed(self, _parent, _first, _last):
         col_header_view = self.horizontalHeader()
+        manual_column_states = self.get_column_states()
         cols = []
         for logical_idx, title in enumerate(self.damnit_model.column_titles):
             visual_idx = col_header_view.visualIndex(logical_idx)
-            visible = not col_header_view.isSectionHidden(logical_idx)
+            # Keep manual checkbox state as the source of truth. Header hidden
+            # state can include temporary tag-filter visibility.
+            visible = manual_column_states.get(
+                title, not col_header_view.isSectionHidden(logical_idx)
+            )
             cols.append((visual_idx, title, visible))
 
         # Put titles in display order (sort by visual indices)
         cols.sort()
 
-        self.set_columns([c[1] for c in cols], [c[2] for c in cols])
+        columns = [c[1] for c in cols]
+        statuses = [c[2] for c in cols]
+
+        # Rebuild widgets without triggering itemChanged.
+        with signals_blocked(self._columns_widget, self._static_columns_widget):
+            self.set_columns(columns, statuses)
+
+        for title, is_visible in zip(columns, statuses):
+            self.set_column_visibility(title, is_visible, save_settings=False)
+
+        if self._current_tag_filter:
+            self.apply_tag_filter(self._current_tag_filter)
+            self.apply_tag_filter.flush()
+
+        self.settings_changed.emit()
 
     def set_columns(self, columns, statuses):
         self._columns_widget.clear()

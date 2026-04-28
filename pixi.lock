@@ -5,6 +5,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -99,7 +101,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/19/e3/874b1cca3d3897b486d3afdccc475eb3a09815bf1015b01cf7fcb52a55f0/simplejson-3.20.1-cp313-cp313-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/4c/62/649b4cf6db60bcc43b192521565ac811b62601e5aa14bfa1f904dd2eeec6/superqt-0.7.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/e2/249d6b3752247c40391a37a079fe2e9f28bade72dca24503ec54f5c98248/superqt-0.8.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2c/7a/0ad3973941590c040475046fef37a2b08a76691e61aa59540828ee235a6e/supervisor-4.2.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/44/4a5f08c96eb108af5cb50b41f76142f0afa346dfa99d5296fe7202a11854/tabulate-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4f/bd/de8d508070629b6d84a30d01d57e4a65c69aa7f5abe7560b8fad3b50ea59/termcolor-3.1.0-py3-none-any.whl
@@ -116,6 +118,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -193,6 +197,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -300,7 +306,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/19/e3/874b1cca3d3897b486d3afdccc475eb3a09815bf1015b01cf7fcb52a55f0/simplejson-3.20.1-cp313-cp313-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/4c/62/649b4cf6db60bcc43b192521565ac811b62601e5aa14bfa1f904dd2eeec6/superqt-0.7.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/e2/249d6b3752247c40391a37a079fe2e9f28bade72dca24503ec54f5c98248/superqt-0.8.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2c/7a/0ad3973941590c040475046fef37a2b08a76691e61aa59540828ee235a6e/supervisor-4.2.5-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/44/4a5f08c96eb108af5cb50b41f76142f0afa346dfa99d5296fe7202a11854/tabulate-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4f/bd/de8d508070629b6d84a30d01d57e4a65c69aa7f5abe7560b8fad3b50ea59/termcolor-3.1.0-py3-none-any.whl
@@ -474,7 +480,7 @@ packages:
   requires_python: '>=3.8'
 - pypi: ./
   name: damnit
-  version: 0.2.1
+  version: 0.3.0
   sha256: 7f45445822d0e44c50b206950b077158ed8c3a496bd23aa23a027c0b03cd6964
   requires_dist:
   - fpcs
@@ -523,7 +529,6 @@ packages:
   - pytest-venv ; extra == 'test'
   - testpath ; extra == 'test'
   requires_python: '>=3.10'
-  editable: true
 - pypi: https://files.pythonhosted.org/packages/4e/8c/f3147f5c4b73e7550fe5f9352eaa956ae838d5c51eb58e7a25b9f3e2643b/decorator-5.2.1-py3-none-any.whl
   name: decorator
   version: 5.2.1
@@ -1996,56 +2001,30 @@ packages:
   - pygments ; extra == 'tests'
   - littleutils ; extra == 'tests'
   - cython ; extra == 'tests'
-- pypi: https://files.pythonhosted.org/packages/4c/62/649b4cf6db60bcc43b192521565ac811b62601e5aa14bfa1f904dd2eeec6/superqt-0.7.5-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/e1/e2/249d6b3752247c40391a37a079fe2e9f28bade72dca24503ec54f5c98248/superqt-0.8.1-py3-none-any.whl
   name: superqt
-  version: 0.7.5
-  sha256: e829cbddf547d7038edeffcd070d242e6c643a48a0a55e035148135a896621e0
+  version: 0.8.1
+  sha256: aadfb37cda7d23397f355fc7a5bf7607dd4199f96de798788ab6ec8d61f3a2fe
   requires_dist:
   - pygments>=2.4.0
-  - qtpy>=1.1.0
-  - typing-extensions>=3.7.4.3,!=3.10.0.0
-  - cmap>=0.1.1 ; extra == 'cmap'
-  - cmap ; extra == 'dev'
-  - ipython ; extra == 'dev'
-  - mypy ; extra == 'dev'
-  - numpy ; extra == 'dev'
-  - pdbpp ; extra == 'dev'
-  - pint ; extra == 'dev'
-  - pre-commit ; extra == 'dev'
-  - pyconify ; extra == 'dev'
-  - pydocstyle ; extra == 'dev'
-  - pyqt6<6.7 ; extra == 'dev'
-  - pytest ; extra == 'dev'
-  - pytest-cov ; extra == 'dev'
-  - pytest-qt ; extra == 'dev'
-  - rich ; extra == 'dev'
-  - ruff ; extra == 'dev'
-  - types-pygments ; extra == 'dev'
-  - cmap>=0.1.1 ; extra == 'docs'
-  - fonticon-fontawesome5 ; extra == 'docs'
-  - mkdocs-macros-plugin==1.3.7 ; extra == 'docs'
-  - mkdocs-material==9.5.49 ; extra == 'docs'
-  - mkdocstrings-python==1.13.0 ; extra == 'docs'
-  - mkdocstrings==0.27.0 ; extra == 'docs'
-  - pint ; extra == 'docs'
-  - fonticon-fontawesome5 ; extra == 'font-fa5'
-  - fonticon-fontawesome6 ; extra == 'font-fa6'
-  - fonticon-materialdesignicons6 ; extra == 'font-mi6'
-  - fonticon-materialdesignicons7 ; extra == 'font-mi7'
+  - qtpy>=2.4.0
+  - typing-extensions>=4.12.0 ; python_full_version >= '3.13'
+  - typing-extensions>=4.5.0
+  - cmap>=0.2 ; extra == 'cmap'
+  - fonticon-fontawesome5>=5.15.4 ; extra == 'font-fa5'
+  - fonticon-fontawesome6>=6.4.0 ; extra == 'font-fa6'
+  - fonticon-materialdesignicons6>=6.9.96 ; extra == 'font-mi6'
+  - fonticon-materialdesignicons7>=7.2.96 ; extra == 'font-mi7'
   - pyconify>=0.1.4 ; extra == 'iconify'
-  - pyqt5 ; extra == 'pyqt5'
-  - pyqt6<6.7 ; extra == 'pyqt6'
-  - pyside2 ; extra == 'pyside2'
-  - pyside6!=6.5.0,!=6.5.1,!=6.6.2,<6.8 ; extra == 'pyside6'
-  - pint ; extra == 'quantity'
-  - cmap ; extra == 'test'
-  - numpy ; extra == 'test'
-  - pint ; extra == 'test'
-  - pyconify ; extra == 'test'
-  - pytest ; extra == 'test'
-  - pytest-cov ; extra == 'test'
-  - pytest-qt ; extra == 'test'
-  requires_python: '>=3.9'
+  - pyqt5-qt5==5.15.2 ; sys_platform == 'win32' and extra == 'pyqt5'
+  - pyqt5-qt5>=5.15.16 ; sys_platform != 'win32' and extra == 'pyqt5'
+  - pyqt5>=5.15.10 ; extra == 'pyqt5'
+  - pyqt6>=6.4.0,!=6.6 ; extra == 'pyqt6'
+  - pyqt6!=6.6,>=6.7.0 ; python_full_version >= '3.12' and extra == 'pyqt6'
+  - pyside6>=6.4.0,!=6.5.0,!=6.5.1,!=6.6.2 ; extra == 'pyside6'
+  - pyside6>=6.7.0 ; python_full_version >= '3.12' and extra == 'pyside6'
+  - pint>=0.21 ; extra == 'quantity'
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/2c/7a/0ad3973941590c040475046fef37a2b08a76691e61aa59540828ee235a6e/supervisor-4.2.5-py2.py3-none-any.whl
   name: supervisor
   version: 4.2.5
