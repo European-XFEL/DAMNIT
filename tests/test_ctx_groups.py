@@ -3,7 +3,7 @@ from graphlib import CycleError
 import pytest
 
 from damnit.context import GroupError
-from damnit.ctxsupport.ctxrunner import expand_groups
+from damnit.ctxsupport.ctxrunner import find_vars_params
 from damnit.ctxsupport.damnit_ctx import (Group, GroupBoundVariable, Variable,
                                           is_group_instance)
 
@@ -38,7 +38,7 @@ def test_group_variable_reference():
     # group names aren't assigned yet
     assert group2.grp_ref.name is None
     
-    expand_groups({"group1": group1, "group2": group2,}, {"var": var})
+    find_vars_params({"var": var, "group1": group1, "group2": group2,})
 
     # now group names are assigned from context
     assert group2.grp_ref.grp_var.name == "group1.grp_var"
@@ -318,6 +318,10 @@ def test_group_nested_variable_field_chain(mock_run):
     outer = Outer(name="outer", mid=mid, factor=2)
     """
     ctx = mkcontext(code)
+    assert list(ctx.vars) == [  # In order of appearance
+        "base", "leaf.scaled", "mid.total", "outer.final", "outer.extra"
+    ]
+
     results = ctx.execute(mock_run, 1000, 123, {})
     assert results.cells["base"].data == 5
     assert results.cells["leaf.scaled"].data == 10

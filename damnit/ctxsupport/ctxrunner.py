@@ -33,6 +33,7 @@ from damnit_ctx import (
     Cell,
     GroupBoundVariable,
     GroupError,
+    Parameter,
     Pipeline,
     RunData,
     Skip,
@@ -342,6 +343,7 @@ def build_context_from_code(code, path):
         exec(codeobj, context)
 
     vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
+    vars_by_name |= {n: p for (n, p) in context.items() if isinstance(p, Parameter)}
 
     if state is None or not state.used:
         return _build_context_file(
@@ -360,8 +362,10 @@ def build_context_from_code(code, path):
 
 class ContextFile:
 
-    def __init__(self, vars, code):
-        self.vars = vars
+    def __init__(self, contents, code):
+        self.contents = contents
+        self.vars = {k: v for (k, v) in contents.items() if isinstance(v, Variable)}
+        self.params = {k: v for (k, v) in contents.items() if isinstance(v, Parameter)}
         self.code = code
 
         # Check for cycles

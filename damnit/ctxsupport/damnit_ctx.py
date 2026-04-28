@@ -872,3 +872,11 @@ def pipeline_scope():
     finally:
         # Reset default pipeline state
         _DEFAULT_PIPELINE_STATE.reset(token)
+
+
+@dataclass()
+class Parameter:
+    type_: type
+    default: Any = None
+    title: str | None = None
+    help: str = ""
