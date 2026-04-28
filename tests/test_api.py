@@ -32,7 +32,9 @@ def test_damnit(mock_db_with_data):
         damnit["foo"]
 
     assert isinstance(damnit[1], RunVariables)
+    assert isinstance(damnit[1234, 1], RunVariables)
     assert damnit[1, "scalar1"].name == "scalar1"
+    assert damnit[1234, 1, "scalar1"].name == "scalar1"
 
     # Test table()
     df = damnit.table()
