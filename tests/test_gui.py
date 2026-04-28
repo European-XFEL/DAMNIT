@@ -29,7 +29,7 @@ from damnit.gui.main_window import AddUserVariableDialog, MainWindow
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
-from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE
+from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
 from damnit.gui.table import (
     DamnitTableModel,
     STATIC_COLUMNS,
@@ -1972,3 +1972,67 @@ def test_variable_title_change(mock_db, mock_kafka_broker, monkeypatch, qtbot):
     assert win.table.find_column(new_title, by_title=True) == win.table.find_column(
         "scalar1", by_title=False
     )
+
+
+def test_numeric_items_store_units(mock_db):
+    _, db = mock_db
+    model = DamnitTableModel(db, {}, None)
+
+    item = model.new_item(42, "scalar1", 0, {"units": "mJ"})
+    assert item.data(Qt.DisplayRole) == "42"
+    assert item.data(Qt.UserRole) == 42
+    assert item.data(UNITS_ROLE) == "mJ"
+
+    item = model.new_item(3.14, "scalar2", 0, {"units": "uJ"})
+    assert item.data(Qt.DisplayRole) == "3.1400"
+    assert item.data(Qt.UserRole) == 3.14
+    assert item.data(UNITS_ROLE) == "uJ"
+
+    item = model.new_item("ready", "scalar1", 0, {"units": "mJ"})
+    assert item.data(Qt.DisplayRole) == "ready"
+    assert item.data(Qt.UserRole) == "ready"
+    assert item.data(UNITS_ROLE) is None
+
+
+def test_item_delegate_paints_units_smoke(qtbot):
+    view = TableView()
+    model = QtGui.QStandardItemModel(1, 1)
+    item = QtGui.QStandardItem()
+    item.setData(3.14, Qt.UserRole)
+    item.setData("3.1400", Qt.DisplayRole)
+    model.setItem(0, 0, item)
+    view.setModel(model)
+    view.resize(200, 60)
+    qtbot.addWidget(view)
+    view.show()
+    qtbot.waitExposed(view)
+
+    index = view.model().index(0, 0)
+    option = QtWidgets.QStyleOptionViewItem()
+    option.rect = view.visualRect(index)
+    option.widget = view
+
+    def image_bytes(img):
+        ptr = img.constBits()
+        ptr.setsize(img.byteCount())
+        return bytes(ptr)
+
+    delegate = view.itemDelegate()
+
+    base_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
+    base_image.fill(Qt.transparent)
+    base_painter = QtGui.QPainter(base_image)
+    delegate.paint(base_painter, option, index)
+    base_painter.end()
+    base_bytes = image_bytes(base_image)
+
+    item.setData("uJ", UNITS_ROLE)
+
+    units_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
+    units_image.fill(Qt.transparent)
+    units_painter = QtGui.QPainter(units_image)
+    delegate.paint(units_painter, option, index)
+    units_painter.end()
+    units_bytes = image_bytes(units_image)
+
+    assert base_bytes != units_bytes

@@ -566,6 +566,7 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
         painter.restore()
 
     def _paint_with_units(self, painter, option, index):
+        option = QtWidgets.QStyleOptionViewItem(option)
         value = index.data(Qt.DisplayRole)
         if (units := index.data(UNITS_ROLE)) is None:
             super().paint(painter, option, index)
