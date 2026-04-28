@@ -204,7 +204,8 @@ class Extractor:
 
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
-                 match=(), variables=(), mock=False, uuid=None, sandbox_args=None):
+                 match=(), variables=(), params=(), mock=False, uuid=None,
+                 sandbox_args=None):
         super().__init__(sandbox_args=sandbox_args)
         self.proposal = proposal
         self.run = run
@@ -212,6 +213,7 @@ class RunExtractor(Extractor):
         self.run_data = run_data
         self.match = match
         self.variables = variables
+        self.params = params
         self.mock = mock
         self.uuid = uuid or str(uuid4())
         self.sandbox_args = sandbox_args
@@ -282,6 +284,8 @@ class RunExtractor(Extractor):
             else:
                 for m in self.match:
                     args.extend(['--match', m])
+            for param in self.params:
+                args.extend(["--param", param])
 
             log.debug("Running extraction subprocess with args:\n%s", args)
             p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
@@ -345,6 +349,7 @@ def main(argv=None):
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--var',  action="append", default=[])
+    ap.add_argument('--params', type=json.loads, default="{}")
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     ap.add_argument('--processing-id', type=str)
@@ -380,6 +385,7 @@ def main(argv=None):
                         run_data=RunData(args.run_data),
                         match=args.match,
                         variables=args.var,
+                        params=args.params,
                         mock=args.mock,
                         uuid=args.processing_id,
                         sandbox_args=args.sandbox_args)

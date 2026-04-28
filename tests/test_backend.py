@@ -668,8 +668,7 @@ def test_results_empty_array(mock_run, tmp_path, caplog):
         assert caplog.records[0].msg.startswith("Failed to produce summary data")
 
 
-@pytest.mark.skip(reason="Depending on user variables is currently disabled")
-def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog):
+def test_results_with_params(mock_ctx_user, mock_user_vars, mock_run, caplog):
 
     proposal = 1234
     run_number = 1000
