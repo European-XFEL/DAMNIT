@@ -3,6 +3,7 @@
 See extract_data.py for what happens inside the jobs this launches.
 """
 import getpass
+import json
 import logging
 import os
 import shlex
@@ -98,6 +99,7 @@ class ExtractionRequest:
     cluster: bool = False
     match: tuple = ()
     variables: tuple = ()   # Overrides match if present
+    params: dict = field(default_factory=dict)
     mock: bool = False
     update_vars: bool = True
     processing_id: str = field(default_factory=lambda : str(uuid4()))
@@ -117,6 +119,8 @@ class ExtractionRequest:
         else:
             for m in self.match:
                 cmd.extend(['--match', m])
+        for n, v in self.params.items():
+            cmd.extend(['--param', f"{n}={v}"])
         if self.mock:
             cmd.append('--mock')
         if self.update_vars:
@@ -326,8 +330,23 @@ class ExtractionSubmitter:
         return opts
 
 
-def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=False, limit_running=-1):
+def reprocess(runs, proposal=None, match=(), params=(), mock=False, watch=False, direct=False, limit_running=-1):
     """Called by the 'damnit reprocess' subcommand"""
+    param_dict = {}
+    for p in params:
+        name, eq, value_s = p.partition("=")
+        if not eq:
+            raise ValueError(
+                f'Invalid parameter argument {p!r} (should be "name=value")'
+            )
+        if not all(part.isidentifier() for part in name.split(".")):
+            raise ValueError(f"{name!r} is not a valid parameter name")
+        if name in param_dict:
+            raise ValueError(f"Parameter {name} is defined more than once")
+        # We don't know the expected type here, but the way we pass it down
+        # will work just leaving it as a string.
+        param_dict[name] = value_s
+
     with DamnitDB.from_dir(Path.cwd()) as db:
         submitter = ExtractionSubmitter(Path.cwd(), db)
         if proposal is None:
@@ -377,7 +396,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
     reqs = [
-        ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
+        ExtractionRequest(run, prop, RunData.ALL, match=match, params=param_dict, mock=mock)
         for prop, run in props_runs
     ]
     # To reduce DB write contention, only update the computed variables in the

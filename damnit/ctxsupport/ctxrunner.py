@@ -422,6 +422,27 @@ class ContextFile:
         if problems:
             raise ContextFileErrors(problems)
 
+    def prepare_param_values(self, cli_params: list[str]) -> dict:
+        res = {}
+        for p in cli_params:
+            name, eq, value_s = p.partition("=")
+            if not eq:
+                raise ValueError(f"Malformed parameter specification {p!r}")
+            if (param_spec := self.params.get(name)) is None:
+                raise KeyError(f"No parameter named {name!r} in context file")
+
+            t = param_spec.type_
+            if t is str:
+                res[name] = value_s
+            elif (t is int) or (t is float):
+                res[name] = t(value_s)
+            elif t is bool:
+                res[name] = (value_s.lower() == 'true')
+            else:
+                TypeError(f"Unexpected type {t} for parameter {name}")
+
+        return res
+
     def direct_dependencies(self, variable: Variable) -> set[str]:
         """return a set of names of direct dependencies of the passed Variable
         """
@@ -522,14 +543,18 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, input_vars, *, label="") -> 'Results':
+    def execute(self, run_data, run_number, proposal, *, param_values, label="") -> 'Results':
         label = f"[{label}] " if label and label != 'default' else ""
-        dep_results = {'start_time': 
+        dep_results = {'start_time':
             get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
         }
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         metadata = None
+
+        for name, param in self.params.items():
+            if param.default is not None:
+                param_values.setdefault(name, param.default)
 
         for name in self.ordered_vars():
             t0 = time.perf_counter()
@@ -538,7 +563,7 @@ class ContextFile:
             try:
                 kwargs = {}
                 missing_deps = []
-                missing_input = []
+                missing_params = []
 
                 annotations = var.annotations()
                 for arg_name, param in inspect.signature(var.func).parameters.items():
@@ -561,12 +586,12 @@ class ContextFile:
                             missing_deps.extend(fnmatch.filter(self.vars, dep_name))
 
                     # Input variable passed from outside
-                    elif annotation.startswith("input#"):
-                        inp_name = annotation.removeprefix("input#")
-                        if inp_name in input_vars:
-                            kwargs[arg_name] = input_vars[inp_name]
+                    elif annotation.startswith("param#"):
+                        param_name = annotation.removeprefix("param#")
+                        if param_name in param_values:
+                            kwargs[arg_name] = param_values[param_name]
                         elif param.default is inspect.Parameter.empty:
-                            missing_input.append(inp_name)
+                            missing_params.append(param_name)
 
                     # Mymdc fields
                     elif annotation.startswith("mymdc#"):
@@ -597,10 +622,10 @@ class ContextFile:
                         deps = [f"{os.linesep}- '{d}'" for d in missing_deps]
                         errors[name] = Skip(f"Dependencies returned no data:{''.join(deps)}")
                     continue
-                elif missing_input:
+                elif missing_params:
                     log.warning(
-                        "%sSkipping %s because of missing input variables: %s",
-                        label, name, ", ".join(missing_input)
+                        "%sSkipping %s because of missing parameter values: %s",
+                        label, name, ", ".join(missing_params)
                     )
                     continue
 
@@ -757,6 +782,7 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
+    exec_ap.add_argument('--param', action="append", default=[])
     exec_ap.add_argument('--record-output', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
@@ -775,6 +801,7 @@ def main(argv=None):
             run_number=args.run,
             name="default"
         )
+        param_values = pipe_whole._context.prepare_param_values(args.param)
 
         sel = pipe_whole.select(
             run_data=RunData(args.run_data),
@@ -789,7 +816,7 @@ def main(argv=None):
         if args.mock:
             res = sel.execute(data=mock_run())
         else:
-            res = sel.execute()
+            res = sel.execute(param_values=param_values)
 
         frag_path = res.save(Path.cwd(), args.proposal, args.run)
         if args.record_output:
