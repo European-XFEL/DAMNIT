@@ -232,17 +232,14 @@ class DamnitDB:
 
         self.update_views()
 
-    def get_user_variables(self):
+    def _get_user_variables(self):
         user_variables = {}
         rows = self.conn.execute("""
             SELECT name, title, type, description, attributes FROM variables
             WHERE type IS NOT NULL
         """)
         for rr in rows:
-            attrs = rr['attributes']
-            if attrs and ('param_default' in json.loads(attrs)):
-                continue  # This is a parameter
-
+            attrs = json.loads(rr['attributes']) if rr['attributes'] else {}
             var_name = rr["name"]
             new_var = UserEditableVariable(
                 var_name,
@@ -255,6 +252,14 @@ class DamnitDB:
         log.debug("Loaded %d user variables", len(user_variables))
         return user_variables
 
+    def get_user_variables(self):
+        return {k: v for (k, v) in self._get_user_variables().items()
+                if ('param_default' not in v.attributes)}
+
+    def get_parameters(self):
+        return {k: v for (k, v) in self._get_user_variables().items()
+                if ('param_default' in v.attributes)}
+
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
         with self.conn:
@@ -264,7 +269,6 @@ class DamnitDB:
             self.conn.execute("BEGIN IMMEDIATE")
             for row in self.conn.execute("""
                 SELECT name, title, type, description, attributes FROM variables
-                WHERE type IS NULL
             """).fetchall():
                 var = dict(row)
                 if isinstance(var['attributes'], str):
@@ -278,7 +282,7 @@ class DamnitDB:
             for n, v in updates.items():
                 attrs = vars_in_db.get(n, {}).get('attributes') or {}
                 attrs |= (v['attributes'] or {})
-                v['attributes'] = (attrs or None)
+                v['attributes'] = (json.dumps(attrs) if attrs else None)
 
             # Write new & changed variables
             # TODO: what if a new computed variable name matches an existing user var?

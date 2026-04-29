@@ -76,7 +76,8 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None):
+    def __init__(self, proposal: str, runs: list[int], var_ids_titles,
+                 parameters=None, param_values=None, parent=None):
         super().__init__(parent)
 
         self.setWindowTitle("Process runs")
@@ -91,6 +92,12 @@ class ProcessingDialog(QtWidgets.QDialog):
         hbox1.addLayout(grid1)
         vbox2 = QtWidgets.QVBoxLayout()
         hbox1.addLayout(vbox2)
+        if parameters:
+            params_grp = QtWidgets.QGroupBox("Parameters", self)
+            params_grp.setLayout(
+                ParametersFormLayout(parameters, (param_values or {}))
+            )
+            hbox1.addWidget(params_grp)
 
         self.edit_prop = QtWidgets.QLineEdit(proposal)
         #self.edit_prop.setInputMask('999900;_')  # 4-6 digits
@@ -212,6 +219,59 @@ class ProcessingDialog(QtWidgets.QDialog):
         for req in requests[1:]:
             req.update_vars = False
         return requests
+
+class ParametersFormLayout(QtWidgets.QFormLayout):
+    def __init__(self, parameters: dict, values, parent=None):
+        super().__init__(parent)
+        self.widgets_by_name = {}
+        for name, param in parameters.items():
+            value = values.get(name)
+            w = self.widgets_by_name[name] = self.widget_for(param, value)
+            self.addRow(param.title or name, w)
+
+    @staticmethod
+    def widget_for(param, value=None):
+        if value is None:
+            value = param.attributes['param_default']
+        match param.variable_type:
+            case 'integer':
+                w = QtWidgets.QSpinBox()
+                if value is not None:
+                    w.setValue(value)
+            case 'number':
+                w = QtWidgets.QDoubleSpinBox()
+                if value is not None:
+                    w.setValue(value)
+            case 'string':
+                w = QtWidgets.QLineEdit()
+                if value is not None:
+                    w.setText(value)
+            case 'boolean':
+                w = QtWidgets.QCheckBox()
+                w.setCheckState(
+                    Qt.CheckState.Checked if value else Qt.CheckState.Unchecked
+                )
+            case x:
+                raise ValueError(f"Unexpected parameter type {x!r}")
+
+        if param.description:
+            w.setToolTip(param.description)
+        return w
+
+    def get_value(self, name):
+        w = self.widgets_by_name[name]
+        if isinstance(w, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+            return w.value()
+        elif isinstance(w, QtWidgets.QLineEdit):
+            return w.text()
+        elif isinstance(w, QtWidgets.QCheckBox):
+            return w.checkState() == Qt.CheckState.Checked
+        else:
+            raise ValueError(f"Unexpected widget type {w!r}")
+
+    def get_values(self):
+        return {n: self.get_value(n) for n in self.widgets_by_name}
+
 
 
 if __name__ == '__main__':

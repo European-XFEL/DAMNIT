@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -104,7 +104,7 @@ class UserEditableVariable:
     title: str  # Human friendly title: 'XGM intensity (μJ)
     variable_type: str   # e.g. 'integer', 'string' - see above
     description: Optional[str] = ""
-    attributes: Optional[str] = ""
+    attributes: dict = field(default_factory=dict)
 
     def get_type_class(self):
         return value_types_by_name[self.variable_type]
