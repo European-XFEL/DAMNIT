@@ -1020,7 +1020,12 @@ da-dev@xfel.eu"""
         var_ids_titles = zip(self.table.computed_columns(),
                              self.table.computed_columns(by_title=True))
 
-        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        dlg = ProcessingDialog(
+            str(prop), sel_runs,
+            var_ids_titles=var_ids_titles,
+            parameters=self.db.get_parameters(),
+            parent=self,
+        )
         if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
@@ -1069,7 +1074,11 @@ da-dev@xfel.eu"""
     def show_adeqt(self):
         from adeqt import AdeqtWindow
         if self.adeqt_window is None:
-            ns = {'window': self, 'table': self.table, 'editor': self._editor}
+            ns = {'window': self,
+                  'table': self.table,
+                  'editor': self._editor,
+                  'db': self.db,
+            }
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 

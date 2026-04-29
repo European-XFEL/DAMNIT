@@ -352,7 +352,7 @@ def main(argv=None):
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--var',  action="append", default=[])
-    ap.add_argument('--params', type=json.loads, default="{}")
+    ap.add_argument('--param', action="append", default=[])
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     ap.add_argument('--processing-id', type=str)
@@ -388,7 +388,7 @@ def main(argv=None):
                         run_data=RunData(args.run_data),
                         match=args.match,
                         variables=args.var,
-                        params=args.params,
+                        params=args.param,
                         mock=args.mock,
                         uuid=args.processing_id,
                         sandbox_args=args.sandbox_args)

@@ -290,7 +290,7 @@ class DamnitFileWriter:
         ds.attrs['type'] = type(exc).__name__
 
     def store_parameter(self, name, value):
-        self.file[f'.errors/{name}'] = value
+        self.file[f'.parameters/{name}'] = value
 
 
 def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cell],
@@ -322,7 +322,7 @@ def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cel
             writer.store_error(name, exc)
 
         for name, val in param_values.items():
-            writer.store_parameter(name, exc)
+            writer.store_parameter(name, val)
 
     os.chmod(f.final_path, 0o666)
 
