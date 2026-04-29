@@ -550,6 +550,9 @@ class ContextFile:
         # Add back any dependencies of the selected variables
         new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
+        # Add back any parameters
+        new_vars.update(self.params)
+
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, *, param_values, label="") -> 'Results':
@@ -663,7 +666,7 @@ class ContextFile:
             if var.transient:
                 errors.pop(name, None)
 
-        return Results(res, errors, param_values, self)
+        return Results(res, errors, param_values=param_values, ctx=self)
 
 
 def get_start_time(xd_run):
@@ -754,7 +757,10 @@ class Results:
 
     def save(self, damnit_dir: Path, proposal: int, run: int):
         return save_fragment(
-            damnit_dir, proposal, run, self.cells, self.errors, self.param_values,
+            damnit_dir, proposal, run,
+            vars=self.cells,
+            errors=self.errors,
+            param_values=self.param_values,
             provenance="context.py"
         )
 
