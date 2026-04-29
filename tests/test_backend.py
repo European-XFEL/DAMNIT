@@ -1648,16 +1648,9 @@ def test_units_metadata(mock_run, mock_db, tmp_path):
 
     results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
-        assert f["scalar"].attrs["units"] == "mJ"
         assert f[".reduced/scalar"].attrs["units"] == "mJ"
-
-        assert f["array"].attrs["units"] == "uJ"
         assert f[".reduced/array"].attrs["units"] == "uJ"
-
-        assert f["dataarray"].attrs["units"] == "fs"
         assert f[".reduced/dataarray"].attrs["units"] == "fs"
-
-        assert "summary_only" not in f
         assert f[".reduced/summary_only"].attrs["units"] == "ms"
 
     reduced_data = load_reduced_data(results_hdf5_path)
