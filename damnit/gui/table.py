@@ -29,6 +29,15 @@ THUMBNAIL_SIZE = (100, 35)  # w, h (pixels)
 STATIC_COLUMNS = ["Status", "Proposal", "Run", "Timestamp", "Comment"]
 
 
+def best_text_color(background: QtGui.QColor) -> QtGui.QColor:
+    brightness = (
+        background.red() * 299
+        + background.green() * 587
+        + background.blue() * 114
+    ) / 1000
+    return QtGui.QColor(Qt.black) if brightness >= 186 else QtGui.QColor(Qt.white)
+
+
 class FilterHeaderView(QtWidgets.QHeaderView):
     def __init__(self, parent=None):
         super().__init__(Qt.Horizontal, parent)
@@ -1236,7 +1245,9 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             if bold:
                 item.setFont(self._bold_font)
             if (bg := attrs.get('background')) is not None:
-                item.setBackground(QtGui.QBrush(QtGui.QColor(*bg)))
+                bg_color = QtGui.QColor(*bg)
+                item.setBackground(QtGui.QBrush(bg_color))
+                item.setForeground(QtGui.QBrush(best_text_color(bg_color)))
 
         self._apply_provenance_style(item, provenance)
         return item
