@@ -24,6 +24,7 @@ df = db.table(with_titles=True)
 The variables themselves can be read by indexing `db`:
 ```python
 run_vars = db[100] # Index by run number
+run_vars = db[1234, 100]  # Or by proposal & run
 run_vars.keys()    # Get all available variables for this run
 
 myvar = db[100, "myvar"] # Equivalent to run_vars["myvar"]

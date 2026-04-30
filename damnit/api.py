@@ -295,9 +295,9 @@ class RunVariables:
     ```
     """
 
-    def __init__(self, db_dir, run):
+    def __init__(self, db_dir, run, proposal=None):
         self._db = DamnitDB.from_dir(db_dir)
-        self._proposal = self._db.metameta["proposal"]
+        self._proposal = proposal or self._db.metameta["proposal"]
         self._run = run
         self._data_format_version = self._db.metameta["data_format_version"]
         self._h5_path = Path(db_dir) / f"extracted_data/p{self._proposal}_r{self._run}.h5"
@@ -407,9 +407,10 @@ class Damnit:
     ```python
     db = Damnit(1234)
 
-    # Index by run number to get a RunVariables object
+    # Index by run number (or proposal & run number) to get a RunVariables object
     run_vars = db[100]
-    # Or by run number and variable name/title to get a VariableData object
+    run_vars = db[1234, 100]
+    # You can add a variable name/title to get a VariableData object
     myvar = db[100, "myvar"]
     ```
     """
@@ -440,17 +441,23 @@ class Damnit:
         self._db = DamnitDB(self._db_path)
 
     def __getitem__(self, obj):
+        proposal = variable = None
         if isinstance(obj, int):
-            run, variable = obj, None
+            run = obj
         elif isinstance(obj, tuple) and len(obj) == 2:
-            run, variable = obj
+            if isinstance(obj[1], str):
+                run, variable = obj
+            else:
+                proposal, run = obj
+        elif isinstance(obj, tuple) and len(obj) == 3:
+            proposal, run, variable = obj
         else:
             raise TypeError(f"Unrecognised key type: {type(obj)}")
 
         if run not in self.runs():
             raise KeyError(f"Unknown run number for p{self.proposal}")
 
-        run_vars = RunVariables(self._db_dir, run)
+        run_vars = RunVariables(self._db_dir, run, proposal=proposal)
         return run_vars[variable] if variable is not None else run_vars
 
     @property

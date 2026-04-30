@@ -662,7 +662,8 @@ da-dev@xfel.eu"""
         )
 
         try:
-            preview = RunVariables(self.context_dir, run)[quantity].preview_data()
+            run_vars = RunVariables(self.context_dir, run, proposal=proposal)
+            preview = run_vars[quantity].preview_data()
         except FileNotFoundError:
             self.show_status_message(f"Couldn't get run variables for p{proposal}, r{run}",
                                      timeout=7000,
