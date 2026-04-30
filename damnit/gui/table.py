@@ -1260,9 +1260,25 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             SELECT proposal, run, name, value, max_diff, summary_type, attributes, provenance FROM run_variables
             ORDER BY proposal, run
         """).fetchall(), key=lambda r: r[:2]):  # Group by proposal & run
-            row_ix = self.run_index[(prop, run)]
+            try:
+                row_ix = self.run_index[(prop, run)]
+            except KeyError:
+                # This can happen if an entry gets into run_variables without
+                # a corresponding run_info entry. Add a row for it.
+                status_item = self.itemPrototype().clone()
+                status_item.setCheckable(True)
+                status_item.setCheckState(Qt.CheckState.Checked)
+                self.appendRow([status_item, self.text_item(prop), self.text_item(run)])
+                row_ix = self.run_index[(prop, run)] = self.rowCount() - 1
+
             for *_, name, value, max_diff, summary_type, attr_json, provenance in grp:
-                col_ix = self.column_index[name]
+                try:
+                    col_ix = self.column_index[name]
+                except KeyError:
+                    # Shouldn't happen, but make sure we can still launch the GUI
+                    log.warning("Column %r not found (loading p%s r%s)",
+                                name, prop, run)
+                    continue
                 if name in self.user_variables:
                     value = self.user_variables[name].get_type_class().from_db_value(value)
                 if summary_type == "complex":
