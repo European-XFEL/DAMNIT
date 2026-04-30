@@ -407,9 +407,10 @@ class Damnit:
     ```python
     db = Damnit(1234)
 
-    # Index by run number to get a RunVariables object
+    # Index by run number (or proposal & run number) to get a RunVariables object
     run_vars = db[100]
-    # Or by run number and variable name/title to get a VariableData object
+    run_vars = db[1234, 100]
+    # You can add a variable name/title to get a VariableData object
     myvar = db[100, "myvar"]
     ```
     """
