@@ -29,7 +29,12 @@ from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE
-from damnit.gui.table import DamnitTableModel, STATIC_COLUMNS, TableView
+from damnit.gui.table import (
+    DamnitTableModel,
+    STATIC_COLUMNS,
+    TableView,
+    best_text_color,
+)
 from damnit.gui.table_filter import (CategoricalFilter, FilterProxy,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
@@ -1874,3 +1879,16 @@ def test_item_delegate_paints_provenance_marker_smoke(qtbot):
     marker_bytes = image_bytes(marker_image)
 
     assert base_bytes != marker_bytes
+
+
+def test_best_text_color_for_custom_background(mock_db):
+    _, db = mock_db
+    model = DamnitTableModel(db, {}, None)
+
+    dark_item = model.new_item(42, "scalar1", 0, {"background": [12, 12, 12]})
+    assert dark_item.background().color() == QColor(12, 12, 12)
+    assert dark_item.foreground().color() == QColor(Qt.white)
+
+    light_item = model.new_item(42, "scalar1", 0, {"background": [240, 240, 240]})
+    assert light_item.background().color() == QColor(240, 240, 240)
+    assert light_item.foreground().color() == QColor(Qt.black)
