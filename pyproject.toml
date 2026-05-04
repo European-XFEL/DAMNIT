@@ -86,6 +86,16 @@ filterwarnings = [
     "ignore:unclosed database in <sqlite3:ResourceWarning",
 ]
 
+[tool.coverage.run]
+source = ["damnit"]
+relative_files = true
+sigterm = true
+
+[tool.coverage.report]
+exclude_also = [
+    'if __name__ == .__main__.:',
+]
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
@@ -101,4 +111,4 @@ test = { features = ["test", "backend", "gui"], solve-group = "default" }
 [tool.pixi.tasks]
 
 [tool.pixi.feature.test.tasks]
-test = "python -m pytest -v --cov=damnit --cov-report=xml"
+test = "python -m pytest -v --cov= --cov-config=pyproject.toml --cov-report=xml"
