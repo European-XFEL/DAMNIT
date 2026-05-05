@@ -2,6 +2,7 @@ import argparse
 
 import inspect
 import logging
+import re
 import sys
 import textwrap
 import traceback
@@ -42,6 +43,19 @@ def excepthook(exc_type, value, tb):
     import IPython
     IPython.start_ipython(argv=[], display_banner=False,
                           user_ns=target_frame.f_locals | target_frame.f_globals | {"__tb": lambda: print(tb_msg)})
+
+
+def get_existing_damnit_dir(proposal_or_dir: str | None):
+    if proposal_or_dir is None:
+        return None
+    elif (path := Path(proposal_or_dir)).is_dir():
+        return path
+    elif proposal_or_dir.isdigit():
+        proposal_name = f"p{int(proposal_or_dir):06d}"
+        return Path(find_proposal(proposal_name)) / "usr/Shared/amore"
+    else:
+        sys.exit(f"{proposal_or_dir} is not a proposal number or DAMNIT database directory")
+
 
 def handle_config_args(args, kv, converters={}):
     key = args.key
@@ -128,16 +142,7 @@ class GuiSubcmd(Subcommand):
 
     @staticmethod
     def run(args: argparse.Namespace):
-        if args.proposal_or_dir is not None:
-            if (path := Path(args.proposal_or_dir)).is_dir():
-                context_dir = path
-            elif args.proposal_or_dir.isdigit():
-                proposal_name = f"p{int(args.proposal_or_dir):06d}"
-                context_dir = Path(find_proposal(proposal_name)) / "usr/Shared/amore"
-            else:
-                sys.exit(f"{args.proposal_or_dir} is not a proposal number or DAMNIT database directory")
-        else:
-            context_dir = None
+        context_dir = get_existing_damnit_dir(args.proposal_or_dir)
 
         from .gui.main_window import run_app
         return run_app(context_dir,
@@ -512,6 +517,70 @@ class MigrateSubcmd(Subcommand):
             migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
 
 
+class InitSubcmd(Subcommand):
+    name = "init"
+    help = "Set up a new DAMNIT folder"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            'proposal_or_dir',
+            help="Either a proposal number or a directory path."
+        )
+        parser.add_argument(
+            '--proposal', type=int,
+            help="Proposal number (if not in a proposal directory)"
+        )
+        parser.add_argument(
+            '--like',
+            help="Proposal number or DAMNIT directory to copy context file & "
+                 "user-editable variables from"
+        )
+        parser.add_argument(
+            '--context',
+            help="Context file to copy to the new location"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.db import initialize_proposal
+
+        if args.proposal_or_dir.isdigit():
+            proposal_num = int(args.proposal_or_dir)
+            damnit_dir = Path(find_proposal(f"p{proposal_num:06d}")) / "usr/Shared/amore"
+        else:
+            damnit_dir = Path(args.proposal_or_dir).resolve()
+            if args.proposal is not None:
+                proposal_num = args.proposal
+            elif m := re.match(r"/gpfs/exfel/u/.*/p([0-9]+)/", str(damnit_dir)):
+                proposal_num = int(m[1])
+            else:
+                sys.exit("--proposal is required if not in a proposal directory")
+
+        def check_file(p: Path):
+            if not p.is_file():
+                sys.exit(f"{p} is not a file")
+            return p
+
+        context_file_src = user_vars_src = None
+        if like_dir := get_existing_damnit_dir(args.like):
+            context_file_src = check_file(like_dir / "context.py")
+            user_vars_src = check_file(like_dir / "damnit.py")
+
+        if args.context is not None:
+            context_file_src = check_file(args.context)
+
+        damnit_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Setting up DAMNIT in {damnit_dir}")
+
+        initialize_proposal(
+            damnit_dir,
+            proposal=proposal_num,
+            context_file_src=context_file_src,
+            user_vars_src=user_vars_src,
+        )
+
+
 def main(argv=None):
     # Check if script was called as amore-proto and show deprecation warning
     if Path(sys.argv[0]).name == 'amore-proto':
@@ -534,6 +603,7 @@ def main(argv=None):
         NewIdSubcmd,
         DbConfigSubcmd,
         MigrateSubcmd,
+        InitSubcmd,
     ]
     subcmd_map = {}
     for subcmd in subcmds:
