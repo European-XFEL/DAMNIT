@@ -214,7 +214,7 @@ def migrate_v0_to_v1(db, db_dir, dry_run):
 
     new_db_path = db_dir / "runs.v1.sqlite"
     new_db_path.unlink(missing_ok=True)  # Clear any previous attempt
-    new_db = DamnitDB(new_db_path)
+    new_db = DamnitDB(new_db_path, create=True)
 
     # Copy the metadata
     for k, v in db.metameta.items():
@@ -309,7 +309,7 @@ def migrate_intermediate_v1(db, db_dir, dry_run):
     # Create a new database, overwriting any previous attempts
     new_db_path = db_dir / "runs.v1.sqlite"
     new_db_path.unlink(missing_ok=True)
-    new_db = DamnitDB(new_db_path)
+    new_db = DamnitDB(new_db_path, create=True)
 
     # Copy everything but `run_variables` to the new database
     for k, v in db.metameta.items():

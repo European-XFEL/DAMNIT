@@ -172,7 +172,7 @@ def mock_run():
 
 @pytest.fixture
 def mock_db(tmp_path, mock_ctx, monkeypatch):
-    db = DamnitDB.from_dir(tmp_path)
+    db = DamnitDB.from_dir(tmp_path, create=True)
     db.metameta['proposal'] = 1234
 
     (tmp_path / "context.py").write_text(mock_ctx.code)

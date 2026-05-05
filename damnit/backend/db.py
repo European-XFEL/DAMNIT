@@ -91,10 +91,13 @@ def db_path(root_path: Path):
     return root_path / DB_NAME
 
 class DamnitDB:
-    def __init__(self, path=DB_NAME, allow_old=False):
+    def __init__(self, path=DB_NAME, *, allow_old=False, create=False):
         self._path = path.absolute()
 
         db_existed = path.exists()
+        if (not create) and (not db_existed):
+            raise FileNotFoundError(path)
+
         log.debug("Opening database at %s", path)
         self.conn = sqlite3.connect(path, timeout=30)
         # Ensure the database is writable by everyone
@@ -133,8 +136,8 @@ class DamnitDB:
         self._db_id = db_id
 
     @classmethod
-    def from_dir(cls, path):
-        return cls(Path(path, DB_NAME))
+    def from_dir(cls, path, *, create=False):
+        return cls(Path(path, DB_NAME), create=create)
 
     def close(self):
         self.conn.close()
@@ -585,7 +588,7 @@ def initialize_proposal(root_path, proposal=None, context_file_src=None, user_va
             raise ValueError("Must pass a proposal number to `initialize_proposal()` if the database doesn't exist yet.")
 
         # Initialize database
-        db = DamnitDB.from_dir(root_path)
+        db = DamnitDB.from_dir(root_path, create=True)
         db.metameta["proposal"] = proposal
         db.metameta["context_python"] = DEFAULT_CONTEXT_PYTHON
     else:
