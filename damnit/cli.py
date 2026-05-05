@@ -1,9 +1,11 @@
+import argparse
+
 import inspect
 import logging
 import sys
 import textwrap
 import traceback
-from argparse import ArgumentParser, SUPPRESS
+from argparse import ArgumentParser
 from pathlib import Path
 
 from termcolor import colored
@@ -70,215 +72,62 @@ def handle_config_args(args, kv, converters={}):
         for k, v in kv.items():
             print(f"{k}={v!r}")
 
-def main(argv=None):
-    # Check if script was called as amore-proto and show deprecation warning
-    if Path(sys.argv[0]).name == 'amore-proto':
-        print(colored("Warning: 'amore-proto' has been renamed to 'damnit'. Please update your scripts.", 'yellow'), file=sys.stderr)
 
-    ap = ArgumentParser()
-    ap.add_argument('--debug', action='store_true',
-                    help="Show debug logs.")
-    ap.add_argument('--debug-repl', action='store_true',
-                    help="Drop into an IPython repl if an exception occurs. Local variables at the point of the exception will be available.")
-    subparsers = ap.add_subparsers(required=True, dest='subcmd')
+class Subcommand:
+    name: str
+    help: str | None = None
 
-    gui_ap = subparsers.add_parser('gui', help="Launch application")
-    gui_ap.add_argument(
-        'proposal_or_dir', nargs='?',
-        help="Either a proposal number or a database directory."
-    )
-    gui_ap.add_argument(
-        '--no-kafka', action='store_true',
-        help="Don't try connecting to XFEL's Kafka broker"
-    )
-    gui_ap.add_argument(
-        "--software-opengl", action="store_true",
-        help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
-             "Active by default on Maxwell if not started on a display node."
-    )
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        pass
 
-    listen_ap = subparsers.add_parser(
-        'listen', help="Watch for new runs & extract data from them"
-    )
-    listen_args_grp = listen_ap.add_mutually_exclusive_group()
-    listen_args_grp.add_argument(
-        "listener_dir", type=Path, default=Path.cwd(), nargs="?",
-        help="Path to the listener database directory"
-    )
-    listen_args_grp.add_argument(
-        '--test', action='store_true',
-        help="Manually enter 'migrated' runs for testing"
-    )
-    listen_args_grp.add_argument(
-        '--daemonize', action='store_true',
-        help="Start the listener under a separate process managed by supervisord."
-    )
+    @staticmethod
+    def run(args: argparse.Namespace):
+        raise NotImplementedError
 
-    listener_ap = subparsers.add_parser("listener", help="Manage the DAMNIT listener.")
-    listener_subparser = listener_ap.add_subparsers(dest="listener_subcmd", required=True)
 
-    listener_config_ap = listener_subparser.add_parser(
-        "config", help="See or change the config for the DAMNIT listener"
-    )
-    listener_config_ap.add_argument(
-        '-d', '--delete', action='store_true',
-        help="Delete the specified key",
-    )
-    listener_config_ap.add_argument(
-        '--num', action='store_true',
-        help="Set the given value as a number instead of a string"
-    )
-    listener_config_ap.add_argument(
-        'key', nargs='?',
-        help="The config key to see/change. If not given, list the whole configuration"
-    )
-    listener_config_ap.add_argument(
-        'value', nargs='?',
-        help="A new value for the given key"
-    )
+class SubcommandGroup(Subcommand):
+    subcmds: list
+    cmd_dest: str
 
-    add_grp = listener_subparser.add_parser("add", help="Add a database to monitor")
-    add_grp.add_argument(
-        "proposal", type=int,
-        help="Proposal number"
-    )
-    add_grp.add_argument(
-        "db_dir", type=Path, nargs='?',
-        help="Path to the database directory"
-    )
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.subcmd_map = {sc.name: sc for sc in cls.subcmds}
 
-    remove_grp = listener_subparser.add_parser("rm", help="Remove a database from being monitored")
-    remove_grp.add_argument(
-        "db_dir", type=Path,
-        help="Path to the database directory to remove"
-    )
+    @classmethod
+    def arguments(cls, parser: argparse.ArgumentParser):
+        subparsers = parser.add_subparsers(dest=cls.cmd_dest, required=True)
+        for subcmd in cls.subcmds:
+            sub_ap = subparsers.add_parser(subcmd.name, help=subcmd.help)
+            subcmd.arguments(sub_ap)
 
-    databases_grp = listener_subparser.add_parser(
-        "databases",
-        help="Display the DAMNIT databases currently being monitored"
-    )
+    @classmethod
+    def run(cls, args: argparse.Namespace):
+        return cls.subcmd_map[getattr(args, cls.cmd_dest)].run(args)
 
-    combiner_ap = subparsers.add_parser("combiner", help="Manage the DAMNIT combiner.")
-    combiner_subparser = combiner_ap.add_subparsers(dest="combiner_subcmd", required=True)
-    combiner_start_grp = combiner_subparser.add_parser("run", help="Run the DAMNIT combiner")
 
-    combiner_now_grp = combiner_subparser.add_parser("now",
-         help="Combine files in the specified DAMNIT directory now. "
-              "Can cause corruption if the combiner is running at the same time."
-    )
-    combiner_now_grp.add_argument("db_dir", type=Path)
+class GuiSubcmd(Subcommand):
+    name = "gui"
+    help = "Launch application"
 
-    reprocess_ap = subparsers.add_parser(
-        'reprocess',
-        help="Extract data from specified runs. This does not send live updates yet."
-    )
-    reprocess_ap.add_argument(
-        "--mock", action="store_true",
-        help="Use a fake run object instead of loading one from disk."
-             " Note: do not use the passed `run` object in your context file with this"
-             " flag enabled, it will not contain any useful data."
-    )
-    reprocess_ap.add_argument(
-        '--proposal', type=int,
-        help="Proposal number, e.g. 1234"
-    )
-    reprocess_ap.add_argument(
-        '--match', type=str, action="append", default=[],
-        help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
-    )
-    reprocess_ap.add_argument(
-        '--watch', action='store_true',
-        help="Run jobs one-by-one with live output in the terminal"
-    )
-    reprocess_ap.add_argument(
-        '--direct', action='store_true',
-        help="Run processing in subprocesses on this node, instead of via Slurm"
-    )
-    reprocess_ap.add_argument(
-        '--concurrent-jobs', type=int, default=-1,
-        help="The maximum number of jobs that will run at once (default is the `concurrent_jobs` database setting)"
-    )
-    reprocess_ap.add_argument(
-        'run', nargs='+',
-        help="Run number, e.g. 96. Multiple runs can be specified at once, "
-             "or pass 'all' to reprocess all runs in the database."
-    )
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            'proposal_or_dir', nargs='?',
+            help="Either a proposal number or a database directory."
+        )
+        parser.add_argument(
+            '--no-kafka', action='store_true',
+            help="Don't try connecting to XFEL's Kafka broker"
+        )
+        parser.add_argument(
+            "--software-opengl", action="store_true",
+            help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
+                 "Active by default on Maxwell if not started on a display node."
+        )
 
-    readctx_ap = subparsers.add_parser(
-        'read-context',
-        help="Re-read the context file and update variables in the database"
-    )
-    readctx_ap.add_argument(
-        '--no-kafka', action='store_true',
-        help="Don't try connecting to XFEL's Kafka broker"
-    )
-
-    proposal_ap = subparsers.add_parser(
-        'proposal',
-        help="Get or set the proposal number to collect metadata from"
-    )
-    proposal_ap.add_argument(
-        'proposal', nargs='?', type=int,
-        help="Proposal number to set, e.g. 1234"
-    )
-
-    new_id_ap = subparsers.add_parser(
-        'new-id',
-        help="Set a new (random) database ID. Useful if a copy has been made which should not share an ID with the original."
-    )
-    new_id_ap.add_argument(
-        'db_dir', type=Path, default=Path.cwd(), nargs='?',
-        help="Path to the database directory"
-    )
-
-    config_ap = subparsers.add_parser(
-        'db-config',
-        help="See or change config in this database"
-    )
-    config_ap.add_argument(
-        '-d', '--delete', action='store_true',
-        help="Delete the specified key",
-    )
-    config_ap.add_argument(
-        '--num', action='store_true',
-        help="Set the given value as a number instead of a string"
-    )
-    config_ap.add_argument(
-        'key', nargs='?',
-        help="The config key to see/change. If not given, list all config"
-    )
-    config_ap.add_argument(
-        'value', nargs='?',
-        help="A new value for the given key"
-    )
-
-    migrate_ap = subparsers.add_parser(
-        "migrate",
-        help="Execute migrations to help upgrading. Do NOT execute a migration unless you know what you're doing."
-    )
-    migrate_ap.add_argument(
-        "--dry-run", action="store_true"
-    )
-    migrate_subparsers = migrate_ap.add_subparsers(dest="migrate_subcmd")
-    migrate_subparsers.add_parser(
-        "v0-to-v1",
-        help="Migrate the SQLite database and HDF5 files from v0 to v1."
-    )
-    migrate_subparsers.add_parser(
-        "intermediate-v1",
-        help="Migrate the SQLite database HDF5 files from an initial implementation of v1 to the final"
-             " v1. Don't use this unless you know what you're doing."
-    )
-
-    args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
-                        format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
-                        datefmt="%Y-%m-%d %H:%M:%S")
-
-    if args.debug_repl:
-        sys.excepthook = excepthook
-
-    if args.subcmd == 'gui':
+    @staticmethod
+    def run(args: argparse.Namespace):
         if args.proposal_or_dir is not None:
             if (path := Path(args.proposal_or_dir)).is_dir():
                 context_dir = path
@@ -295,7 +144,29 @@ def main(argv=None):
                        software_opengl=args.software_opengl,
                        connect_to_kafka=not args.no_kafka)
 
-    elif args.subcmd == 'listen':
+
+class ListenSubcmd(Subcommand):
+    name = "listen"
+    help = "Watch for new runs & extract data from them"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        listen_args_grp = parser.add_mutually_exclusive_group()
+        listen_args_grp.add_argument(
+            "listener_dir", type=Path, default=Path.cwd(), nargs="?",
+            help="Path to the listener database directory"
+        )
+        listen_args_grp.add_argument(
+            '--test', action='store_true',
+            help="Manually enter 'migrated' runs for testing"
+        )
+        listen_args_grp.add_argument(
+            '--daemonize', action='store_true',
+            help="Start the listener under a separate process managed by supervisord."
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from .backend import start_listener
 
         if args.daemonize:
@@ -308,51 +179,201 @@ def main(argv=None):
 
             return listen(args.listener_dir)
 
-    elif args.subcmd == "listener":
+
+class ListenerConfigSubcmd(Subcommand):
+    name = "config"
+    help = "See or change the config for the DAMNIT listener"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            '-d', '--delete', action='store_true',
+            help="Delete the specified key",
+        )
+        parser.add_argument(
+            '--num', action='store_true',
+            help="Set the given value as a number instead of a string"
+        )
+        parser.add_argument(
+            'key', nargs='?',
+            help="The config key to see/change. If not given, list the whole configuration"
+        )
+        parser.add_argument(
+            'value', nargs='?',
+            help="A new value for the given key"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from .backend.listener import ListenerDB
 
         db = ListenerDB(Path.cwd())
-        if args.listener_subcmd == "config":
-            handle_config_args(args, db.settings,
-                               # Convert `static_mode` to a bool
-                               dict(static_mode=lambda x: bool(int(x))))
-        elif args.listener_subcmd == "add":
-            official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
+        handle_config_args(args, db.settings,
+                           # Convert `static_mode` to a bool
+                           dict(static_mode=lambda x: bool(int(x))))
 
-            if args.db_dir is None:
-                db_dir = official_dir
-                official = True
+
+class ListenerAddSubcmd(Subcommand):
+    name = "add"
+    help = "Add a database to monitor"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "proposal", type=int,
+            help="Proposal number"
+        )
+        parser.add_argument(
+            "db_dir", type=Path, nargs='?',
+            help="Path to the database directory"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.listener import ListenerDB
+
+        db = ListenerDB(Path.cwd())
+        official_dir = Path(find_proposal(f"p{args.proposal:06d}")) / "usr/Shared/amore"
+
+        if args.db_dir is None:
+            db_dir = official_dir
+            official = True
+        else:
+            db_dir = args.db_dir
+            official = db_dir == official_dir
+
+        db.add_proposal_db(args.proposal, db_dir, official=official)
+        print(f"Added proposal {args.proposal} at {db_dir}")
+
+
+class ListenerRmSubcmd(Subcommand):
+    name = "rm"
+    help = "Remove a database from being monitored"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "db_dir", type=Path,
+            help="Path to the database directory to remove"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.listener import ListenerDB
+
+        db = ListenerDB(Path.cwd())
+        db.remove_proposal_db(args.db_dir)
+        print(f"Removed database at {args.db_dir}")
+
+
+class ListenerDatabasesSubcmd(Subcommand):
+    name = "databases"
+    help = "Display the DAMNIT databases currently being monitored"
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.listener import ListenerDB
+
+        db = ListenerDB(Path.cwd())
+        all_proposals = db.all_proposals()
+        sorted_proposals = sorted(all_proposals.keys())
+        for p in sorted_proposals:
+            if len(all_proposals[p]) > 1:
+                print(f"p{p}:")
+                for x in all_proposals[p]:
+                    print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
             else:
-                db_dir = args.db_dir
-                official = db_dir == official_dir
+                x = all_proposals[p][0]
+                print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
 
-            db.add_proposal_db(args.proposal, db_dir, official=official)
-            print(f"Added proposal {args.proposal} at {db_dir}")
-        elif args.listener_subcmd == "rm":
-            db.remove_proposal_db(args.db_dir)
-            print(f"Removed database at {args.db_dir}")
-        elif args.listener_subcmd == "databases":
-            db = ListenerDB(Path.cwd())
-            all_proposals = db.all_proposals()
-            sorted_proposals = sorted(all_proposals.keys())
-            for p in sorted_proposals:
-                if len(all_proposals[p]) > 1:
-                    print(f"p{p}:")
-                    for x in all_proposals[p]:
-                        print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
-                else:
-                    x = all_proposals[p][0]
-                    print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
 
-    elif args.subcmd == "combiner":
-        if args.combiner_subcmd == 'run':
-            from .backend.combine import main
-            return main()
-        elif args.combiner_subcmd == 'now':
-            from .backend.combine import gather_all_fragments
-            gather_all_fragments(args.db_dir)
+class ListenerSubcmd(SubcommandGroup):
+    name = "listener"
+    help = "Manage the DAMNIT listener."
+    cmd_dest = "listener_subcmd"
+    subcmds = [
+        ListenerConfigSubcmd,
+        ListenerAddSubcmd,
+        ListenerRmSubcmd,
+        ListenerDatabasesSubcmd,
+    ]
 
-    elif args.subcmd == 'reprocess':
+
+class CombinerRunSubcmd(Subcommand):
+    name = "run"
+    help = "Run the DAMNIT combiner"
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.combine import main
+        return main()
+
+
+class CombinerNowSubcmd(Subcommand):
+    name = "now",
+    help=("Combine files in the specified DAMNIT directory now. "
+          "Can cause corruption if the combiner is running at the same time.")
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument("db_dir", type=Path)
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.combine import gather_all_fragments
+        gather_all_fragments(args.db_dir)
+
+
+class CombinerSubcmd(SubcommandGroup):
+    name = "combiner"
+    help = "Manage the DAMNIT combiner."
+    cmd_dest = "combiner_subcmd"
+    subcmds = [
+        CombinerRunSubcmd,
+        CombinerNowSubcmd,
+    ]
+
+
+class ReprocessSubcmd(Subcommand):
+    name = "reprocess"
+    help = "Extract data from specified runs."
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "--mock", action="store_true",
+            help="Use a fake run object instead of loading one from disk."
+                 " Note: do not use the passed `run` object in your context file with this"
+                 " flag enabled, it will not contain any useful data."
+        )
+        parser.add_argument(
+            '--proposal', type=int,
+            help="Proposal number, e.g. 1234"
+        )
+        parser.add_argument(
+            '--match', type=str, action="append", default=[],
+            help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
+        )
+        parser.add_argument(
+            '--watch', action='store_true',
+            help="Run jobs one-by-one with live output in the terminal"
+        )
+        parser.add_argument(
+            '--direct', action='store_true',
+            help="Run processing in subprocesses on this node, instead of via Slurm"
+        )
+        parser.add_argument(
+            '--concurrent-jobs', type=int, default=-1,
+            help="The maximum number of jobs that will run at once (default is the `concurrent_jobs` database setting)"
+        )
+        parser.add_argument(
+            'run', nargs='+',
+            help="Run number, e.g. 96. Multiple runs can be specified at once, "
+                 "or pass 'all' to reprocess all runs in the database."
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
 
@@ -362,11 +383,37 @@ def main(argv=None):
             limit_running=args.concurrent_jobs,
         )
 
-    elif args.subcmd == 'read-context':
+
+class ReadctxSubcmd(Subcommand):
+    name = "read-context"
+    help="Re-read the context file and update variables in the database"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            '--no-kafka', action='store_true',
+            help="Don't try connecting to XFEL's Kafka broker"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from .backend.extract_data import Extractor
         Extractor(connect_to_kafka=not args.no_kafka).update_db_vars()
 
-    elif args.subcmd == 'proposal':
+
+class ProposalSubcmd(Subcommand):
+    name = "proposal"
+    help="Get or set the proposal number to collect metadata from"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            'proposal', nargs='?', type=int,
+            help="Proposal number to set, e.g. 1234"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from .backend.db import DamnitDB
         db = DamnitDB()
         currently_set = db.metameta.get('proposal', None)
@@ -378,20 +425,82 @@ def main(argv=None):
             db.metameta['proposal'] = args.proposal
             print(f"Changed proposal to {args.proposal} (was {currently_set})")
 
-    elif args.subcmd == 'new-id':
+
+class NewIdSubcmd(Subcommand):
+    name = "new-id"
+    help=("Set a new (random) database ID. Useful if a copy has been made "
+          "which should not share an ID with the original.")
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            'db_dir', type=Path, default=Path.cwd(), nargs='?',
+            help="Path to the database directory"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from secrets import token_hex
         from .backend.db import DamnitDB
 
         db = DamnitDB.from_dir(args.db_dir)
         db.metameta["db_id"] = token_hex(20)
 
-    elif args.subcmd == 'db-config':
+
+class DbConfigSubcmd(Subcommand):
+    name = "db-config"
+    help = "See or change config in this database"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            '-d', '--delete', action='store_true',
+            help="Delete the specified key",
+        )
+        parser.add_argument(
+            '--num', action='store_true',
+            help="Set the given value as a number instead of a string"
+        )
+        parser.add_argument(
+            'key', nargs='?',
+            help="The config key to see/change. If not given, list all config"
+        )
+        parser.add_argument(
+            'value', nargs='?',
+            help="A new value for the given key"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from .backend.db import DamnitDB
 
         db = DamnitDB()
         handle_config_args(args, db.metameta)
 
-    elif args.subcmd == "migrate":
+
+class MigrateSubcmd(Subcommand):
+    name = "migrate"
+    help = ("Execute migrations to help upgrading. Do NOT execute a migration "
+            "unless you know what you're doing.")
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "--dry-run", action="store_true"
+        )
+        migrate_subparsers = parser.add_subparsers(dest="migrate_subcmd")
+        migrate_subparsers.add_parser(
+            "v0-to-v1",
+            help="Migrate the SQLite database and HDF5 files from v0 to v1."
+        )
+        migrate_subparsers.add_parser(
+            "intermediate-v1",
+            help="Migrate the SQLite database HDF5 files from an initial implementation of v1 to the final"
+                 " v1. Don't use this unless you know what you're doing."
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
         from .backend.db import DamnitDB
         from .migrations import migrate_intermediate_v1, migrate_v0_to_v1
 
@@ -401,6 +510,47 @@ def main(argv=None):
             migrate_v0_to_v1(db, Path.cwd(), args.dry_run)
         elif args.migrate_subcmd == "intermediate-v1":
             migrate_intermediate_v1(db, Path.cwd(), args.dry_run)
+
+
+def main(argv=None):
+    # Check if script was called as amore-proto and show deprecation warning
+    if Path(sys.argv[0]).name == 'amore-proto':
+        print(colored("Warning: 'amore-proto' has been renamed to 'damnit'. Please update your scripts.", 'yellow'), file=sys.stderr)
+
+    ap = ArgumentParser()
+    ap.add_argument('--debug', action='store_true',
+                    help="Show debug logs.")
+    ap.add_argument('--debug-repl', action='store_true',
+                    help="Drop into an IPython repl if an exception occurs. Local variables at the point of the exception will be available.")
+    subparsers = ap.add_subparsers(required=True, dest='subcmd')
+    subcmds = [
+        GuiSubcmd,
+        ListenSubcmd,
+        ListenerSubcmd,
+        CombinerSubcmd,
+        ReprocessSubcmd,
+        ReadctxSubcmd,
+        ProposalSubcmd,
+        NewIdSubcmd,
+        DbConfigSubcmd,
+        MigrateSubcmd,
+    ]
+    subcmd_map = {}
+    for subcmd in subcmds:
+        sub_ap = subparsers.add_parser(subcmd.name, help=subcmd.help)
+        subcmd.arguments(sub_ap)
+        subcmd_map[subcmd.name] = subcmd
+
+    args = ap.parse_args(argv)
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
+                        format="%(asctime)s %(levelname)-8s %(name)-38s %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
+
+    if args.debug_repl:
+        sys.excepthook = excepthook
+
+    return subcmd_map[args.subcmd].run(args)
+
 
 if __name__ == '__main__':
     sys.exit(main())
