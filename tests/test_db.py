@@ -105,7 +105,7 @@ def test_tag_cleanup(tmp_path):
     Tests that the SQLite trigger correctly cleans up orphaned tags
     when variable-tag associations are removed or variables are deleted.
     """
-    db = DamnitDB.from_dir(tmp_path)
+    db = DamnitDB.from_dir(tmp_path, create=True)
 
     # helper function
     def _var_def(title, tags=None):
@@ -196,7 +196,7 @@ def test_numpy_blob_conversion():
 
 
 def test_numpy_summary_type_and_storage(tmp_path):
-    db = DamnitDB.from_dir(tmp_path)
+    db = DamnitDB.from_dir(tmp_path, create=True)
     db.ensure_run(1234, 1)
     arr = np.arange(10, dtype=np.float64)
 
@@ -219,7 +219,7 @@ def test_numpy_summary_type_and_storage(tmp_path):
 
 
 def test_new_db_schema_is_latest(tmp_path):
-    db = DamnitDB.from_dir(tmp_path)
+    db = DamnitDB.from_dir(tmp_path, create=True)
 
     # Schema version should match the latest known migration
     assert db.metameta["data_format_version"] == latest_version()
@@ -241,7 +241,7 @@ def test_new_db_schema_is_latest(tmp_path):
 
 def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
     # Start with a fresh (latest) DB, then downgrade state to v2 (no tags tables, no trigger)
-    db = DamnitDB.from_dir(tmp_path)
+    db = DamnitDB.from_dir(tmp_path, create=True)
     with db.conn:
         db.conn.execute("DROP TRIGGER IF EXISTS delete_orphan_tags_after_variable_tag_delete")
         db.conn.execute("DROP TABLE IF EXISTS variable_tags")
@@ -283,7 +283,7 @@ def test_min_openable_version_guard(tmp_path):
 
 
 def test_open_readonly(tmp_path):
-    db = DamnitDB.from_dir(tmp_path)
+    db = DamnitDB.from_dir(tmp_path, create=True)
     # Delete a known recent addition to the schema that old databases will not have
     del db.metameta["damnit_python"]
     db.close()

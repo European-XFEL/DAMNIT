@@ -447,7 +447,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
-    DamnitDB.from_dir(db_dir)
+    DamnitDB.from_dir(db_dir, create=True)
 
     # Autoconfigure with database present
     with helper_patch() as initialize_proposal:
