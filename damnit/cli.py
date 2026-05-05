@@ -2,6 +2,7 @@ import argparse
 
 import inspect
 import logging
+import os
 import re
 import sys
 import textwrap
@@ -346,14 +347,14 @@ class ReprocessSubcmd(Subcommand):
     @staticmethod
     def arguments(parser: argparse.ArgumentParser):
         parser.add_argument(
-            "--mock", action="store_true",
-            help="Use a fake run object instead of loading one from disk."
-                 " Note: do not use the passed `run` object in your context file with this"
-                 " flag enabled, it will not contain any useful data."
+            '--in', dest="proposal_or_dir",
+            help="Proposal number or DAMNIT directory in which to run. By "
+                 "default, uses the CWD."
         )
         parser.add_argument(
             '--proposal', type=int,
-            help="Proposal number, e.g. 1234"
+            help="Proposal number, e.g. 1234, to include data from another proposal. "
+                 "By default, uses the proposal number configured in the database."
         )
         parser.add_argument(
             '--match', type=str, action="append", default=[],
@@ -372,6 +373,12 @@ class ReprocessSubcmd(Subcommand):
             help="The maximum number of jobs that will run at once (default is the `concurrent_jobs` database setting)"
         )
         parser.add_argument(
+            "--mock", action="store_true",
+            help="Use a fake run object instead of loading one from disk."
+                 " Note: do not use the passed `run` object in your context file with this"
+                 " flag enabled, it will not contain any useful data."
+        )
+        parser.add_argument(
             'run', nargs='+',
             help="Run number, e.g. 96. Multiple runs can be specified at once, "
                  "or pass 'all' to reprocess all runs in the database."
@@ -381,6 +388,9 @@ class ReprocessSubcmd(Subcommand):
     def run(args: argparse.Namespace):
         # Hide some logging from Kafka to make things more readable
         logging.getLogger('kafka').setLevel(logging.WARNING)
+
+        if damnit_dir := get_existing_damnit_dir(args.proposal_or_dir):
+            os.chdir(damnit_dir)
 
         from .backend.extraction_control import reprocess
         reprocess(
