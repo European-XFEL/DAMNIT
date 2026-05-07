@@ -2,6 +2,7 @@ import logging
 import re
 from pathlib import Path
 
+import numpy as np
 from extra_data.read_machinery import find_proposal
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import Qt
@@ -18,6 +19,9 @@ log = logging.getLogger(__name__)
 run_range_re = re.compile(r"(\d+)(-\d+)?$")
 
 RUNS_MSG = "Enter run numbers & ranges e.g. '17, 20-32'"
+
+INT_MIN = -2147483648
+
 
 deselected_vars = set()
 
@@ -78,8 +82,9 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles,
-                 parameters=None, param_values=None, parent=None):
+    def __init__(self, proposal: int, runs: list[int], var_ids_titles,
+                 db: DamnitDB, parent=None):
+        self.db = db
         super().__init__(parent)
 
         self.setWindowTitle("Process runs")
@@ -94,15 +99,18 @@ class ProcessingDialog(QtWidgets.QDialog):
         hbox1.addLayout(grid1)
         vbox2 = QtWidgets.QVBoxLayout()
         hbox1.addLayout(vbox2)
-        if parameters:
-            params_grp = QtWidgets.QGroupBox("Parameters", self)
-            params_grp.setLayout(
-                ParametersFormLayout(parameters, (param_values or {}))
-            )
-            hbox1.addWidget(params_grp)
+        self.parameters = db.get_parameters()
+        self.params_form = None
+        if self.parameters:
+            self.params_box = QtWidgets.QGroupBox("Parameters", self)
+            self.params_box.setLayout(QtWidgets.QVBoxLayout())
+            hbox1.addWidget(self.params_box)
+        else:
+            self.params_box = None
 
-        self.edit_prop = QtWidgets.QLineEdit(proposal)
+        self.edit_prop = QtWidgets.QLineEdit(str(proposal))
         #self.edit_prop.setInputMask('999900;_')  # 4-6 digits
+        self.edit_prop.textChanged.connect(self.validate_runs)
         grid1.addWidget(QtWidgets.QLabel("Proposal:"), 0, 0)
         grid1.addWidget(self.edit_prop, 0, 1)
 
@@ -158,6 +166,7 @@ class ProcessingDialog(QtWidgets.QDialog):
             self.runs_hint.setText(msg)
         else:
             self.runs_hint.setText(RUNS_MSG)
+        self.set_params_form()
         self.validate()
 
     def validate_vars(self):
@@ -171,6 +180,26 @@ class ProcessingDialog(QtWidgets.QDialog):
     def validate(self):
         valid = bool(self.selected_runs) and not self.no_vars_selected
         self.dlg_buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(valid)
+
+    def set_params_form(self):
+        if self.params_box is None:
+            return
+
+        param_value_sets = self.db.get_parameter_values([
+            (self.proposal_num(), r) for r in self.selected_runs
+        ])
+        # Use ... as a marker for varying
+        param_values = {
+            n: s.pop() if len(s) == 1 else ... for (n, s) in param_value_sets.items()
+        }
+        param_layout = self.params_box.layout()
+        while (child := param_layout.takeAt(0)) is not None:
+            if w := child.widget():
+                w.deleteLater()
+
+        new_form = ParametersForm(self.parameters, param_values, parent=self)
+        param_layout.addWidget(new_form)
+        self.params_form = new_form
 
     def _var_list_items(self):
         for i in range(self.vars_list.count()):
@@ -201,15 +230,15 @@ class ProcessingDialog(QtWidgets.QDialog):
         super().reject()
 
     # Results (along with .selected_runs)
-    def proposal_num(self) -> str:
-        return self.edit_prop.text()
+    def proposal_num(self) -> int:
+        return int(self.edit_prop.text())
 
     def selected_vars(self):
         return [itm.data(Qt.ItemDataRole.UserRole) for itm in self._var_list_items()
                 if itm.checkState() == Qt.CheckState.Checked]
 
     def extraction_requests(self) -> list[ExtractionRequest]:
-        prop = int(self.proposal_num())
+        prop = self.proposal_num()
         # If all variables are selected, don't specify them explicitly, so that
         # newly added functions will also be executed.
         if self.all_vars_selected:
@@ -222,9 +251,11 @@ class ProcessingDialog(QtWidgets.QDialog):
             req.update_vars = False
         return requests
 
-class ParametersFormLayout(QtWidgets.QFormLayout):
+class ParametersForm(QtWidgets.QWidget):
     def __init__(self, parameters: dict, values, parent=None):
         super().__init__(parent)
+        form_layout = QtWidgets.QFormLayout()
+        self.setLayout(form_layout)
         self.widgets_by_name = {}
         self.initial_values = {}
         for name, param in parameters.items():
@@ -233,31 +264,45 @@ class ParametersFormLayout(QtWidgets.QFormLayout):
                 value = param.attributes[VariableAttributes.PARAM_DEFAULT]
             self.initial_values[name] = value
             w = self.widgets_by_name[name] = self.widget_for(param, value)
-            self.addRow(param.title or name, w)
+            form_layout.addRow(param.title or name, w)
 
     def widget_for(self, param, value=None):
         match param.variable_type:
             case 'integer':
                 w = QtWidgets.QSpinBox()
+                w.setMinimum(INT_MIN)
                 changed_sig = w.valueChanged
-                if value is not None:
-                    w.setValue(value)
+                if value is ...:
+                    w.setSpecialValueText("Multiple values")
+                    w.setValue(INT_MIN)  # Special value
+                else:
+                    w.setValue(value or 0)
             case 'number':
                 w = QtWidgets.QDoubleSpinBox()
+                w.setMinimum(-np.inf)
                 changed_sig = w.valueChanged
-                if value is not None:
-                    w.setValue(value)
+                if value is ...:
+                    w.setSpecialValueText("Multiple values")
+                    w.setValue(-np.inf)  # Special value
+                else:
+                    w.setValue(value or 0.)
             case 'string':
                 w = QtWidgets.QLineEdit()
                 changed_sig = w.textChanged
-                if value is not None:
-                    w.setText(value)
+                if value is ...:
+                    w.setPlaceholderText("Multiple values")
+                else:
+                    w.setText(value or '')
             case 'boolean':
                 w = QtWidgets.QCheckBox()
                 changed_sig = w.stateChanged
-                w.setCheckState(
-                    Qt.CheckState.Checked if value else Qt.CheckState.Unchecked
-                )
+                if value is ...:
+                    w.setTristate(True)
+                    w.setCheckState(Qt.CheckState.PartiallyChecked)
+                else:
+                    w.setCheckState(
+                        Qt.CheckState.Checked if value else Qt.CheckState.Unchecked
+                    )
             case x:
                 raise ValueError(f"Unexpected parameter type {x!r}")
 
@@ -267,19 +312,28 @@ class ParametersFormLayout(QtWidgets.QFormLayout):
         return w
 
     def mark_changed(self):
+        layout = self.layout()
         for name, widget in self.widgets_by_name.items():
-            label = self.labelForField(widget)
+            label = layout.labelForField(widget)
             changed = self.get_value(name) != self.initial_values[name]
             label.setStyleSheet("QLabel {font-weight: bold}" if changed else "")
 
     def get_value(self, name):
         w = self.widgets_by_name[name]
         if isinstance(w, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
-            return w.value()
+            val = w.value()
+            if w.specialValueText() and val == w.minimum():
+                return ...
+            return val
         elif isinstance(w, QtWidgets.QLineEdit):
-            return w.text()
+            val = w.text()
+            if (not val) and w.placeholderText():
+                return ...
         elif isinstance(w, QtWidgets.QCheckBox):
-            return w.checkState() == Qt.CheckState.Checked
+            state = w.checkState()
+            if state == Qt.CheckState.PartiallyChecked:
+                return ...
+            return state == Qt.CheckState.Checked
         else:
             raise ValueError(f"Unexpected widget type {w!r}")
 
@@ -306,8 +360,8 @@ class ParamsNewRunsDialog(QtWidgets.QDialog):
             n: v for (n, p) in params_dict.items()
             if (v := p.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)) is not None
         }
-        self.form = ParametersFormLayout(params_dict, values)
-        vbox.addLayout(self.form)
+        self.form = ParametersForm(params_dict, values)
+        vbox.addWidget(self.form)
 
         info = QtWidgets.QLabel(
             "The values here will be used for new runs."
