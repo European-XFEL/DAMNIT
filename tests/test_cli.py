@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import pytest
 from testpath import MockCommand
 
+from damnit.backend.db import DamnitDB
 from damnit.backend.listener import ListenerDB
 from damnit.cli import main, excepthook as ipython_excepthook
 
@@ -204,3 +205,17 @@ def test_cli_command_name(capsys, monkeypatch):
         captured = capsys.readouterr()
         assert "Warning: 'amore-proto' has been renamed to 'damnit'" in captured.err  # Shows deprecation
         assert 'usage:' in captured.out  # Help text is shown
+
+
+def test_init(tmp_path):
+    ctx_code = "a = 3\n"
+    egctx = (tmp_path / "egctx.py")
+    egctx.write_text(ctx_code)
+    damnit_dir = tmp_path / 'new'
+
+    main(["init", str(damnit_dir), "--context", str(egctx), "--proposal", "4321"])
+
+    assert (damnit_dir / "context.py").read_text() == ctx_code
+    assert (damnit_dir / "runs.sqlite").is_file()
+    with DamnitDB.from_dir(damnit_dir) as db:
+        assert db.metameta['proposal'] == 4321
