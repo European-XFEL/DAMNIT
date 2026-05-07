@@ -186,10 +186,13 @@ class ProcessingDialog(QtWidgets.QDialog):
         if self.params_box is None:
             return
 
-        param_value_sets = self.db.get_parameter_values([
-            (self.proposal_num(), r) for r in self.selected_runs
-        ])
-        # Use ... as a marker for varying
+        prop = self.proposal_num()
+        param_value_sets = {n: set() for n in self.parameters}
+        for run in self.selected_runs:
+            run_params = self.db.get_parameter_values(prop, run, self.parameters)
+            for k, v in run_params.items():
+                param_value_sets[k].add(v)
+        # Use ... as a marker for varying values
         param_values = {
             n: s.pop() if len(s) == 1 else ... for (n, s) in param_value_sets.items()
         }
@@ -246,10 +249,21 @@ class ProcessingDialog(QtWidgets.QDialog):
             var_ids = ()
         else:
             var_ids = tuple(self.selected_vars())
-        l = [ExtractionRequest(r, prop, RunData.ALL, variables=var_ids)
-             for r in self.selected_runs]
-        for req in l[1:]:
-            req.update_vars = False
+        if self.params_form:
+            set_params = self.params_form.get_modified_values()
+        else:
+            set_params = {}
+
+        l = [ExtractionRequest(
+            r,
+            prop,
+            RunData.ALL,
+            variables=var_ids,
+            params=self.db.get_parameter_values(prop, r, self.parameters) | set_params,
+            update_vars=False,
+        ) for r in self.selected_runs]
+        if l:
+            l[0].update_vars = True
         return l
 
 
