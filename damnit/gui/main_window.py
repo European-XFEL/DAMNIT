@@ -34,7 +34,7 @@ from .open_dialog import OpenDBDialog
 from .plot import (
     ImagePlotWindow, PlottingControls, ScatterPlotWindow, Xarray1DPlotWindow
 )
-from .process import ProcessingDialog
+from .process import ProcessingDialog, ParamsNewRunsDialog
 from .standalone_comments import TimeComment
 from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
@@ -197,6 +197,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _menu_create_user_var(self) -> None:
         dialog = AddUserVariableDialog(self)
+        dialog.exec()
+
+    def _menu_edit_params_new_runs(self) -> None:
+        dialog = ParamsNewRunsDialog(self.db, self)
         dialog.exec()
 
     def _menu_bar_help(self) -> None:
@@ -426,6 +430,9 @@ da-dev@xfel.eu"""
         self.action_create_var.setStatusTip("Create user editable variable")
         self.action_create_var.triggered.connect(self._menu_create_user_var)
 
+        self.action_params_new_runs = QtGui.QAction("Edit parameters for new runs", self)
+        self.action_params_new_runs.triggered.connect(self._menu_edit_params_new_runs)
+
         self.action_export = QtGui.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
         self.action_export.setStatusTip("Export to Excel/CSV")
         self.action_export.triggered.connect(self.export_table)
@@ -451,6 +458,7 @@ da-dev@xfel.eu"""
         )
         fileMenu.addAction(action_open)
         fileMenu.addAction(self.action_create_var)
+        fileMenu.addAction(self.action_params_new_runs)
         fileMenu.addAction(self.action_process)
         fileMenu.addAction(self.action_export)
         fileMenu.addAction(action_adeqt)

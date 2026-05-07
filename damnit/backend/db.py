@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC
+from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC, VariableAttributes
 from .db_migrations import apply_migrations, latest_version
 from .user_variables import UserEditableVariable
 
@@ -254,11 +254,11 @@ class DamnitDB:
 
     def get_user_variables(self):
         return {k: v for (k, v) in self._get_user_variables().items()
-                if ('param_default' not in v.attributes)}
+                if (VariableAttributes.PARAM_DEFAULT not in v.attributes)}
 
     def get_parameters(self):
         return {k: v for (k, v) in self._get_user_variables().items()
-                if ('param_default' in v.attributes)}
+                if (VariableAttributes.PARAM_DEFAULT in v.attributes)}
 
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
@@ -467,7 +467,8 @@ class DamnitDB:
         )
         to_set = []
         for name, new_attrs in vars_attrs.items():
-            new_attrs = (attrs_in_db[name] or {}) | new_attrs
+            old_attrs = json.loads(attrs_in_db[name]) if attrs_in_db[name] else {}
+            new_attrs = old_attrs | new_attrs
             to_set.append({
                 'name': name, 'attributes': json.dumps(new_attrs) if new_attrs else None
             })
