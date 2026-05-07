@@ -15,7 +15,7 @@ from PyQt5 import QtWidgets
 from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file
-from ..context import ContextFile
+from ..context import Pipeline
 from ..ctxsupport.ctxrunner import extract_error_info
 from .theme import Theme, ThemeManager, set_lexer_theme
 
@@ -51,7 +51,7 @@ class ContextFileCheckerThread(QThread):
         # context file directly.
         if self.context_python is None:
             try:
-                ContextFile.from_str(self.code)
+                Pipeline.from_str(self.code)
             except:
                 # Extract the error information
                 error_info = extract_error_info(*sys.exc_info())

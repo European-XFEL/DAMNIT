@@ -30,8 +30,16 @@ import h5py
 import numpy as np
 
 from damnit_ctx import (
-    Cell, GroupBoundVariable, GroupError, RunData, Skip, Variable,
-    _normalize_tags, is_group_instance
+    Cell,
+    GroupBoundVariable,
+    GroupError,
+    Pipeline,
+    RunData,
+    Skip,
+    Variable,
+    _normalize_tags,
+    is_group_instance,
+    pipeline_scope,
 )
 from damnit_exceptions import ContextFileErrors, DependencyError
 from damnit_writing import save_fragment
@@ -288,6 +296,68 @@ def expand_groups(
     return expanded
 
 
+def _build_context_file(
+        *,
+        vars_by_name: dict[str, "Variable"],
+        code: str | None,
+        group_items=None,
+        context=None,
+):
+    """Build and optionally validate a ContextFile."""
+    if group_items is not None and context is not None:
+        raise ValueError("Provide either group_items or context, not both")
+
+    vars_by_name = dict(vars_by_name)
+
+    if group_items:
+        group_list = list(group_items)
+        for group in group_list:
+            _group_name(group)
+
+        seen_names = {}
+        for group in group_list:
+            existing = seen_names.get(group.name)
+            if existing is not None and existing is not group:
+                raise GroupError(
+                    f"Group name {group.name!r} is used by multiple group instances"
+                )
+            seen_names[group.name] = group
+
+        group_context = {group.name: group for group in group_list}
+        vars_by_name.update(expand_groups(group_context, vars_by_name))
+
+    elif context is not None:
+        vars_by_name.update(expand_groups(context, vars_by_name))
+
+    ctx = ContextFile(vars_by_name, code or "")
+    ctx.check()
+    return ctx
+
+
+def build_context_from_code(code, path):
+    """Execute context code and return ContextFile."""
+    context = {}
+    codeobj = compile(code, path, 'exec')
+    with pipeline_scope() as state:
+        exec(codeobj, context)
+
+    vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
+
+    if state is None or not state.used:
+        return _build_context_file(
+            vars_by_name=vars_by_name,
+            code=code,
+            context=context,
+        )
+
+    _assign_group_names(context)
+    groups = [obj for obj in context.values() if is_group_instance(obj)]
+    pipe = state.pipeline
+    if not state.explicit:
+        pipe.add(*vars_by_name.values(), *groups)
+    return pipe._build_context(code_override=code)
+
+
 class ContextFile:
 
     def __init__(self, vars, code):
@@ -396,13 +466,9 @@ class ContextFile:
 
     @classmethod
     def from_str(cls, code: str, path='<string>'):
-        d = {}
-        codeobj = compile(code, path, 'exec')
-        exec(codeobj, d)
-        vars = {v.name: v for v in d.values() if isinstance(v, Variable)}
-        vars.update(expand_groups(d, vars))
-        log.debug("Loaded %d variables", len(vars))
-        return cls(vars, code)
+        ctx = build_context_from_code(code, path)
+        log.debug("Loaded %d variables", len(ctx.vars))
+        return ctx
 
     def vars_to_dict(self, inc_transient=False):
         """Get a plain dict of variable metadata to store in the database
@@ -452,8 +518,11 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, input_vars) -> 'Results':
-        dep_results = {'start_time': get_start_time(run_data)}
+    def execute(self, run_data, run_number, proposal, input_vars, *, label="") -> 'Results':
+        label = f"[{label}] " if label and label != 'default' else ""
+        dep_results = {'start_time': 
+            get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
+        }
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         metadata = None
@@ -512,7 +581,10 @@ class ContextFile:
                         raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
 
                 if missing_deps:
-                    log.warning(f"Skipping {name} because of missing dependencies: {', '.join(missing_deps)}")
+                    log.warning(
+                        "%sSkipping %s because of missing dependencies: %s",
+                        label, name, ", ".join(missing_deps)
+                    )
                     # get error message from transient dependencies
                     dep_errors = [(dep, errors[dep]) for dep in missing_deps if dep in errors]
                     if dep_errors:
@@ -522,16 +594,19 @@ class ContextFile:
                         errors[name] = Skip(f"Dependencies returned no data:{''.join(deps)}")
                     continue
                 elif missing_input:
-                    log.warning(f"Skipping {name} because of missing input variables: {', '.join(missing_input)}")
+                    log.warning(
+                        "%sSkipping %s because of missing input variables: %s",
+                        label, name, ", ".join(missing_input)
+                    )
                     continue
 
                 cell = var.evaluate(run_data, kwargs)
             except Exception as e:
                 sys.stdout.flush()  # As in the else block
                 if isinstance(e, Skip):
-                    log.error("Skipped %s: %s", name, e)
+                    log.error("%sSkipped %s: %s", label, name, e)
                 else:
-                    log.error("Could not get data for %s", name, exc_info=True)
+                    log.error("%sCould not get data for %s", label, name, exc_info=True)
                 errors[name] = e
             else:
                 # When output is going to a file, stdout is block buffered, so
@@ -539,7 +614,7 @@ class ContextFile:
                 # message (on stderr) that the variable has finished.
                 sys.stdout.flush()
                 t1 = time.perf_counter()
-                log.info("Computed %s in %.03f s", name, t1 - t0)
+                log.info("%sComputed %s in %.03f s", label, name, t1 - t0)
                 if not var.transient:
                     res[name] = cell
                 if cell.data is not None:
@@ -595,11 +670,13 @@ def extract_error_info(exc_type, e, tb):
     return (stacktrace, lineno, offset)
 
 
-def get_proposal_path(xd_run):
-    files = [f.filename for f in xd_run.files]
-    p = Path(files[0])
+def get_proposal_path(xd_run) -> str:
+    if isinstance(xd_run, extra_data.DataCollection):
+        files = [f.filename for f in xd_run.files]
+        p = Path(files[0])
 
-    return Path(*p.parts[:-3])
+        return Path(*p.parts[:-3])
+    return ""
 
 
 @contextmanager
@@ -686,45 +763,29 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
-        # Check if we have proc data
-        proc_available = False
-        if args.mock:
-            # If we want to mock a run, assume it's available
-            proc_available = True
-        else:
-            # Otherwise check with open_run()
-            try:
-                extra_data.open_run(args.proposal, args.run, data="proc")
-                proc_available = True
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                log.warning(f"Error when checking if proc data available: {e}")
 
-        run_data = RunData(args.run_data)
-        if run_data == RunData.ALL and not proc_available:
-            log.warning("Proc data is unavailable, only raw variables will be executed.")
-            run_data = RunData.RAW
+        pipe_whole = Pipeline.from_context_file(
+            Path('context.py')
+        ).with_context(
+            proposal=args.proposal,
+            run_number=args.run,
+            name="default"
+        )
 
-        ctx_whole = ContextFile.from_py_file(Path('context.py'))
-        ctx_whole.check()
-        ctx = ctx_whole.filter(
-            run_data=run_data, cluster=args.cluster_job, name_matches=args.match,
+        sel = pipe_whole.select(
+            run_data=RunData(args.run_data),
+            cluster=args.cluster_job,
+            match=args.match,
             variables=args.var,
         )
         log.info("Using %d variables (of %d) from context file %s",
-             len(ctx.vars), len(ctx_whole.vars),
+             len(sel.vars), len(pipe_whole.vars),
              "" if args.cluster_job else "(cluster variables will be processed later)")
 
         if args.mock:
-            run_dc = mock_run()
+            res = sel.execute(data=mock_run())
         else:
-            # Make sure that we always select the most data possible, so proc
-            # variables have access to raw data too.
-            actual_run_data = RunData.ALL if run_data == RunData.PROC else run_data
-            run_dc = extra_data.open_run(args.proposal, args.run, data=actual_run_data.value)
-
-        res = ctx.execute(run_dc, args.run, args.proposal, input_vars={})
+            res = sel.execute()
 
         frag_path = res.save(Path.cwd(), args.proposal, args.run)
         if args.record_output:
@@ -733,7 +794,8 @@ def main(argv=None):
         error_info = None
 
         try:
-            ctx = ContextFile.from_py_file(args.context_file)
+            pipe = Pipeline.from_context_file(args.context_file)
+            ctx = pipe.context
 
             # Strip the functions from the Variable's, these cannot always be
             # pickled.
