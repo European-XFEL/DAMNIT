@@ -547,7 +547,7 @@ class InitSubcmd(Subcommand):
                  "user-editable variables from"
         )
         parser.add_argument(
-            '--context',
+            '--context', type=Path,
             help="Context file to copy to the new location"
         )
 
