@@ -260,6 +260,30 @@ class DamnitDB:
         return {k: v for (k, v) in self._get_user_variables().items()
                 if (VariableAttributes.PARAM_DEFAULT in v.attributes)}
 
+    def get_parameter_values(self, proposals_runs):
+        params = self.get_parameters()
+        res = {}
+        new_runs = False
+        for prop, run in proposals_runs:
+            rows = self.conn.execute(
+                "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
+                (prop, run)
+            ).fetchall()
+            if not rows:
+                new_runs = True
+            for name, value in rows:
+                if name in params:
+                    res.setdefault(name, set()).add(value)
+
+        if new_runs:
+            for name, var in params.items():
+                value = (
+                    var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN) or
+                    var.attributes[VariableAttributes.PARAM_DEFAULT]
+                )
+                res.setdefault(name, set()).add(value)
+        return res
+
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
         with self.conn:
