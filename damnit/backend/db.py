@@ -260,28 +260,28 @@ class DamnitDB:
         return {k: v for (k, v) in self._get_user_variables().items()
                 if (VariableAttributes.PARAM_DEFAULT in v.attributes)}
 
-    def get_parameter_values(self, proposals_runs):
-        params = self.get_parameters()
-        res = {}
-        new_runs = False
-        for prop, run in proposals_runs:
+    def get_parameter_values(self, proposal: int, run: int, params: dict):
+        res = {n: v.attributes[VariableAttributes.PARAM_DEFAULT]
+               for (n, v) in params.items()}
+        run_in_db = self.conn.execute(
+            "SELECT count(*) FROM run_info WHERE proposal=? AND RUN=?",
+            (proposal, run)
+        ).fetchone()[0]
+        if run_in_db:
             rows = self.conn.execute(
                 "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
-                (prop, run)
+                (proposal, run)
             ).fetchall()
-            if not rows:
-                new_runs = True
             for name, value in rows:
                 if name in params:
-                    res.setdefault(name, set()).add(value)
-
-        if new_runs:
+                    res[name] = value
+        else:
+            # New run
             for name, var in params.items():
-                value = (
-                    var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN) or
-                    var.attributes[VariableAttributes.PARAM_DEFAULT]
-                )
-                res.setdefault(name, set()).add(value)
+                vnr = var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+                if vnr is not None:
+                    res[name] = vnr
+
         return res
 
     def update_computed_variables(self, vars: dict):
