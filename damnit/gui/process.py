@@ -9,8 +9,10 @@ from PyQt5.QtWidgets import QDialogButtonBox
 from extra_data.read_machinery import find_proposal
 from superqt import QSearchableListWidget
 
+from damnit.backend.db import DamnitDB
 from ..context import RunData
 from ..backend.extraction_control import ExtractionRequest
+from ..definitions import VariableAttributes
 
 log = logging.getLogger(__name__)
 
@@ -226,39 +228,51 @@ class ParametersFormLayout(QtWidgets.QFormLayout):
     def __init__(self, parameters: dict, values, parent=None):
         super().__init__(parent)
         self.widgets_by_name = {}
+        self.initial_values = {}
         for name, param in parameters.items():
             value = values.get(name)
+            if value is None:
+                value = param.attributes[VariableAttributes.PARAM_DEFAULT]
+            self.initial_values[name] = value
             w = self.widgets_by_name[name] = self.widget_for(param, value)
             self.addRow(param.title or name, w)
 
-    @staticmethod
-    def widget_for(param, value=None):
-        if value is None:
-            value = param.attributes['param_default']
+    def widget_for(self, param, value=None):
         match param.variable_type:
             case 'integer':
                 w = QtWidgets.QSpinBox()
+                changed_sig = w.valueChanged
                 if value is not None:
                     w.setValue(value)
             case 'number':
                 w = QtWidgets.QDoubleSpinBox()
+                changed_sig = w.valueChanged
                 if value is not None:
                     w.setValue(value)
             case 'string':
                 w = QtWidgets.QLineEdit()
+                changed_sig = w.textChanged
                 if value is not None:
                     w.setText(value)
             case 'boolean':
                 w = QtWidgets.QCheckBox()
+                changed_sig = w.stateChanged
                 w.setCheckState(
                     Qt.CheckState.Checked if value else Qt.CheckState.Unchecked
                 )
             case x:
                 raise ValueError(f"Unexpected parameter type {x!r}")
 
+        changed_sig.connect(self.mark_changed)
         if param.description:
             w.setToolTip(param.description)
         return w
+
+    def mark_changed(self):
+        for name, widget in self.widgets_by_name.items():
+            label = self.labelForField(widget)
+            changed = self.get_value(name) != self.initial_values[name]
+            label.setStyleSheet("QLabel {font-weight: bold}" if changed else "")
 
     def get_value(self, name):
         w = self.widgets_by_name[name]
@@ -273,6 +287,48 @@ class ParametersFormLayout(QtWidgets.QFormLayout):
 
     def get_values(self):
         return {n: self.get_value(n) for n in self.widgets_by_name}
+
+    def get_modified_values(self):
+        return {n: v for (n, v) in self.get_values().items()
+                if v != self.initial_values[n]}
+
+
+class ParamsNewRunsDialog(QtWidgets.QDialog):
+    def __init__(self, db: DamnitDB, parent=None):
+        self.db = db
+        super().__init__(parent)
+
+        self.setWindowTitle("Parameters for new runs")
+        self.setMinimumSize(200, 200)
+        vbox = QtWidgets.QVBoxLayout()
+        self.setLayout(vbox)
+
+        params_dict = db.get_parameters()
+        values = {
+            n: v for (n, p) in params_dict.items()
+            if (v := p.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)) is not None
+        }
+        self.form = ParametersFormLayout(params_dict, values)
+        vbox.addLayout(self.form)
+
+        info = QtWidgets.QLabel(
+            "The values here will be used for new runs."
+            "They will not affect reprocessing runs already in DAMNIT."
+        )
+        info.setWordWrap(True)
+        vbox.addWidget(info)
+
+        dlg_buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        dlg_buttons.accepted.connect(self.accept)
+        dlg_buttons.rejected.connect(self.reject)
+        vbox.addWidget(dlg_buttons)
+
+    def accept(self):
+        self.db.update_variables_attrs({
+            n: {VariableAttributes.PARAM_VALUE_NEW_RUN: v}
+            for (n, v) in self.form.get_modified_values().items()
+        })
+        super().accept()
 
 
 
