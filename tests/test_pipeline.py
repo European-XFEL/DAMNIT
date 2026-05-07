@@ -516,27 +516,6 @@ def test_pipeline_vars_to_dict():
     assert set(pipe.vars_to_dict(inc_transient=True)) == {"keep", "transient_var"}
 
 
-# def test_pipeline_save(tmp_path, mock_run):
-#     code = dedent("""
-#         from damnit_ctx import Variable
-
-#         @Variable
-#         def a(run):
-#             return 1
-#     """)
-#     pipe = Pipeline.from_str(code).with_context(data=mock_run, proposal=1, run_number=1, name="test_pipeline")
-
-#     with pytest.raises(RuntimeError, match="Call execute\\(\\) first"):
-#         pipe.save(tmp_path)
-
-#     pipe.execute()
-#     fpath = pipe.save(tmp_path)
-
-#     with h5py.File(fpath) as f:
-#         assert f['a/data'][()] == 1
-#         assert f.attrs['provenance'] == "test_pipeline"
-
-
 def test_pipeline_copy():
     @Variable
     def a(run):

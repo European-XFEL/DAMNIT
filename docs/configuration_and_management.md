@@ -616,19 +616,19 @@ Pipelines can be instantiated and executed inside variable. This may be useful
 to reuse a set of variable with a different pipeline context.
 
 ```python
-
 @Variable
-def calibrate_data(run, run_nb: 'meta#run_number'):
-    return calibration(run, run_nb)
+def calibrate_data(run, run_nb: 'meta#run_number', threshold: 'input#threshold' = 0.):
+    return calibration(run, run_nb, threshold)
 
 
 @Variable
 def baseline(run, run_nb: 'meta#run_number', proposal: 'meta#proposal'):
     dark_run = get_last_dark(run_nb)
+    threshold = calculate_threshold(run)
 
     pipe = Pipeline(proposal=proposal, run_number=dark_run)
     pipe.add(calibrate_data)
-    pipe.execute()
+    pipe.execute(input_vars={'threshold': threshold})
     return pipe.results.cells['calibrate_data'].data
 
 
