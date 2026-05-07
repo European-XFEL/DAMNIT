@@ -316,7 +316,7 @@ class CombinerRunSubcmd(Subcommand):
 
 
 class CombinerNowSubcmd(Subcommand):
-    name = "now",
+    name = "now"
     help=("Combine files in the specified DAMNIT directory now. "
           "Can cause corruption if the combiner is running at the same time.")
 
@@ -575,7 +575,7 @@ class InitSubcmd(Subcommand):
         context_file_src = user_vars_src = None
         if like_dir := get_existing_damnit_dir(args.like):
             context_file_src = check_file(like_dir / "context.py")
-            user_vars_src = check_file(like_dir / "damnit.py")
+            user_vars_src = check_file(like_dir / "runs.sqlite")
 
         if args.context is not None:
             context_file_src = check_file(args.context)
