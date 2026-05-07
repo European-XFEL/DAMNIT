@@ -219,3 +219,17 @@ def test_init(tmp_path):
     assert (damnit_dir / "runs.sqlite").is_file()
     with DamnitDB.from_dir(damnit_dir) as db:
         assert db.metameta['proposal'] == 4321
+
+
+def test_init_prop_num(tmp_path, mock_db, monkeypatch):
+    old_dir, _ = mock_db
+    prop_dir = tmp_path / "p4321"
+    monkeypatch.setattr("damnit.cli.find_proposal", lambda p: prop_dir)
+
+    main(["init", "4321", "--like", str(old_dir)])  # Smoketest --like
+
+    damnit_dir = prop_dir / "usr" / "Shared" / "amore"
+    assert damnit_dir.is_dir()
+    assert (damnit_dir / "context.py").is_file()
+    with DamnitDB.from_dir(damnit_dir) as db:
+        assert db.metameta['proposal'] == 4321
