@@ -1029,9 +1029,9 @@ da-dev@xfel.eu"""
                              self.table.computed_columns(by_title=True))
 
         dlg = ProcessingDialog(
-            str(prop), sel_runs,
+            prop, sel_runs,
             var_ids_titles=var_ids_titles,
-            parameters=self.db.get_parameters(),
+            db=self.db,
             parent=self,
         )
         if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
