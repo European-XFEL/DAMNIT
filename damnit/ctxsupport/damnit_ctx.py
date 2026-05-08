@@ -17,7 +17,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, NoneType
+from types import NoneType
+from typing import Any
 
 import h5py
 import numpy as np
@@ -265,7 +266,9 @@ class Cell:
                                 f"(got {type(preview)})")
 
         if units is None and isinstance(data, xr.DataArray):
-            units = data.attrs.get("units")
+            da_units = data.attrs.get("units")
+            if isinstance(da_units, str):
+                units = da_units
         if not isinstance(units, (str, NoneType)):
             raise TypeError(f"units should be a string, not {type(units)}")
 

@@ -280,9 +280,8 @@ def test_context_file(mock_ctx, tmp_path):
     def var(run):
         return 42
     """
-    ctx = mkcontext(invalid_var_units)
     with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
-        ctx.check()
+        mkcontext(invalid_var_units)
 
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
