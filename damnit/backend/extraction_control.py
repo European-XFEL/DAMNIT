@@ -455,11 +455,12 @@ def reprocess(runs, proposal=None, match=(), params=(), mock=False, watch=False,
         # will work just leaving it as a string.
         param_dict[name] = value_s
 
-    with DamnitDB.from_dir(Path.cwd()) as db:
-        submitter = ExtractionSubmitter(Path.cwd(), db)
-        if proposal is None:
-            proposal = submitter.proposal
-        rows = db.conn.execute("SELECT proposal, run FROM runs").fetchall() if runs == ['all'] else None
+    db = DamnitDB.from_dir(Path.cwd())
+    submitter = ExtractionSubmitter(Path.cwd(), db)
+    if proposal is None:
+        proposal = submitter.proposal
+
+    param_info = db.get_parameters()
 
     if runs == ['all']:
         # Dictionary of proposal numbers to sets of available runs
@@ -467,6 +468,8 @@ def reprocess(runs, proposal=None, match=(), params=(), mock=False, watch=False,
         # Lists of (proposal, run) tuples
         props_runs = []
         unavailable_runs = []
+
+        rows = db.conn.execute("SELECT proposal, run FROM run_info").fetchall()
 
         if mock:
             props_runs = rows
@@ -503,14 +506,18 @@ def reprocess(runs, proposal=None, match=(), params=(), mock=False, watch=False,
 
         props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
 
-    reqs = [
-        ExtractionRequest(run, prop, RunData.ALL, match=match, params=param_dict, mock=mock)
-        for prop, run in props_runs
-    ]
+    reqs = [ExtractionRequest(
+        run, prop, RunData.ALL,
+        match=match,
+        params=db.get_parameter_values(prop, run, param_info) | param_dict,
+        mock=mock
+    ) for prop, run in props_runs]
     # To reduce DB write contention, only update the computed variables in the
     # first job when we're submitting a whole bunch.
     for req in reqs[1:]:
         req.update_vars = False
+
+    db.close()
 
     if direct:
         for req in reqs:

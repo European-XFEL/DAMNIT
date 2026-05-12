@@ -306,9 +306,38 @@ class RunExtractor(Extractor):
             for line in tf:
                 pth = line.decode().strip()
                 if pth and Path(pth).is_file():
-                    self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
-                        self.db.path.parent, self.proposal, self.run, pth
-                    ))
+                    if os.environ.get("DAMNIT_SELF_COMBINE") == "1":
+                        self._self_combine(Path(pth))
+                    else:
+                        # Normal: tell the combiner service about the new file
+                        self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
+                            self.db.path.parent, self.proposal, self.run, pth
+                        ))
+
+    def _self_combine(self, src: Path):
+        """For testing, used with DAMNIT_SELF_COMBINE=1
+
+        File corruption can occur if the combiner service writes to the same
+        file at the same time.
+        """
+        from .combine import combine
+
+        dst = Path.cwd() / "extracted_data" / f"p{self.proposal}_r{self.run}.h5"
+
+        with h5py.File(src) as f:
+            provenance = f.attrs.get("provenance", "")
+        new_data = load_reduced_data(src)
+        combine(src, dst)
+
+        log.info("Updating database in %s with %s variables for p%d r%d from %s",
+                 Path.cwd(), len(new_data), self.proposal, self.run, provenance)
+        add_to_db(new_data, self.db, self.proposal, self.run, provenance=provenance)
+        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+            MsgKind.run_values_updated, {
+                'run': self.run,
+                'proposal': self.proposal,
+                'values': {name: None for name in new_data.keys()}
+        }))
 
     def extract_and_ingest(self):
         self._notify_running()
