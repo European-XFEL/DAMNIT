@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 import traceback
 from enum import Enum
@@ -86,10 +87,9 @@ class ContextFileCheckerThread(QThread):
         # Disgusting hack to avoid getting warnings for "var#foo", "meta#foo",
         # and "mymdc#foo" type annotations. This needs some tweaking to avoid
         # missing real errors.
+        undef_annotation_re = re.compile(r"undefined name '(var|self|meta|mymdc)'$")
         pyflakes_output = "\n".join([line for line in out_buffer.getvalue().split("\n")
-                                     if not line.endswith("undefined name 'var'") \
-                                     and not line.endswith("undefined name 'meta'") \
-                                     and not line.endswith("undefined name 'mymdc'")])
+                                     if not undef_annotation_re.search(line)])
 
         if len(pyflakes_output) > 0:
             res, info = ContextTestResult.WARNING, pyflakes_output
