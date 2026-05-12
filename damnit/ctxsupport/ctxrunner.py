@@ -555,7 +555,7 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, *, param_values, label="") -> 'Results':
+    def execute(self, run_data, run_number, proposal, param_values, *, label="") -> 'Results':
         label = f"[{label}] " if label and label != 'default' else ""
         dep_results = {'start_time':
             get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
