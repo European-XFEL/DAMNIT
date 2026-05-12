@@ -274,6 +274,8 @@ class DamnitDB:
             ).fetchall()
             for name, value in rows:
                 if name in params:
+                    if params[name].variable_type == 'boolean':
+                        value = bool(value)  # 1/0 -> True/False
                     res[name] = value
         else:
             # New run
