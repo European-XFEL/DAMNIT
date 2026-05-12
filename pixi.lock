@@ -260,7 +260,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/8f/8e/9ad090d3553c280a8060fbf6e24dc1c0c29704ee7d1c372f0c174aa59285/matplotlib_inline-0.1.7-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/45/53dbdd7013a1b84bec5ae0cea432ea212cd29d7a85a1baa42cf0ac079aac/mpl_pan_zoom-1.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c7/a4/070512af1bbf73de4d2648bbfc355619abf27dd468dba6dae35805a05b43/mplcursors-0.6-py3-none-any.whl
-      - pypi: git+https://git.xfel.eu/kluyvert/nafka#b30aa9ca81a034822be2e86f96711ddb9c255938
+      - pypi: https://files.pythonhosted.org/packages/42/0f/a53925bd0bcdb01649fe8462f21338ea411959cc71166cf41587c6129ab0/nafka-0.1-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7f/26/43caf834e47c63883a5eddc02893b7fdbe6a0a4508ff6dc401907f3cc085/narwhals-2.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ef/82/7a9d0550484a62c6da82858ee9419f3dd1ccc9aa1c26a1e43da3ecd20b0d/natsort-8.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1d/0f/571b2c7a3833ae419fe69ff7b479a78d313581785203cc70a8db90121b9a/numpy-2.3.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -482,7 +482,7 @@ packages:
 - pypi: ./
   name: damnit
   version: 0.3.0
-  sha256: c6c50e2826d59190d0443f7e46978131df4892d9d0529b5c6e59e67659ee010b
+  sha256: 327eab2b41e5d7fc515244a9c4f1e56156f62d20c8e83f4093232c8fa7dec087
   requires_dist:
   - fpcs
   - h5netcdf>=1.4.1
@@ -529,7 +529,7 @@ packages:
   - pytest-timeout ; extra == 'test'
   - pytest-venv ; extra == 'test'
   - testpath ; extra == 'test'
-  - nafka @ git+https://git.xfel.eu/kluyvert/nafka ; extra == 'test'
+  - nafka ; extra == 'test'
   requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/4e/8c/f3147f5c4b73e7550fe5f9352eaa956ae838d5c51eb58e7a25b9f3e2643b/decorator-5.2.1-py3-none-any.whl
   name: decorator
@@ -1240,9 +1240,10 @@ packages:
   - sphinx ; extra == 'docs'
   - sphinx-gallery ; extra == 'docs'
   requires_python: '>=3.7'
-- pypi: git+https://git.xfel.eu/kluyvert/nafka#b30aa9ca81a034822be2e86f96711ddb9c255938
+- pypi: https://files.pythonhosted.org/packages/42/0f/a53925bd0bcdb01649fe8462f21338ea411959cc71166cf41587c6129ab0/nafka-0.1-py2.py3-none-any.whl
   name: nafka
   version: '0.1'
+  sha256: 2158e953a213df6fa30fbda9ba34552ee962fe22fd978c39fedbbe52412e334c
   requires_dist:
   - kafka-python>=2,<3
 - pypi: https://files.pythonhosted.org/packages/7f/26/43caf834e47c63883a5eddc02893b7fdbe6a0a4508ff6dc401907f3cc085/narwhals-2.0.1-py3-none-any.whl

@@ -836,18 +836,15 @@ def test_extractor(mock_ctx, mock_db, mock_run, mock_kafka_broker, monkeypatch):
 
     extractor = RunExtractor(1234, 42, cluster=False, run_data=RunData.ALL)
 
-    kafka_offset = mock_kafka_broker.next_offset(db.kafka_topic)
-
-    # Test regular variables and slurm variables are executed
-    reduced_data = reduced_data_from_dict({ "n": 53 })
-    with patch(f"{pkg}.RunExtractor.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
-         MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
-        extractor.extract_and_ingest()
+    with mock_kafka_broker.assert_produces(db.kafka_topic):
+        # Test regular variables and slurm variables are executed
+        reduced_data = reduced_data_from_dict({ "n": 53 })
+        with patch(f"{pkg}.RunExtractor.extract_in_subprocess", return_value=reduced_data) as extract_in_subprocess, \
+             MockCommand.fixed_output("sbatch", "9876; maxwell") as sbatch:
+            extractor.extract_and_ingest()
 
     extract_in_subprocess.assert_called_once()
     sbatch.assert_called()
-    new_kafka_records = mock_kafka_broker.records(db.kafka_topic, kafka_offset)
-    assert new_kafka_records != []
 
     # This works because we loaded damnit.context above
     from ctxrunner import main
