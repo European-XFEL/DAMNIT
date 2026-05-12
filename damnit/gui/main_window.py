@@ -300,6 +300,12 @@ da-dev@xfel.eu"""
         self.launch_update_computed_vars()
         self.start_watching_context_file()
 
+        if m := re.match(r"/gpfs/exfel/u/usr/.*/p(\d+)/Shared/amore$",
+                         str(self.context_dir.resolve())):
+            self.setWindowTitle(f"DAMNIT: p{m[1].lstrip('0')}")
+        else:
+            self.setWindowTitle(f"DAMNIT: {self.context_dir.absolute()}")
+
     def _save_context_finished(self, saved):
         if saved:
             self.launch_update_computed_vars()
