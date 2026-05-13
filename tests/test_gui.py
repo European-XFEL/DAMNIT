@@ -1922,15 +1922,16 @@ def test_best_text_color_for_custom_background(mock_db):
     assert light_item.foreground().color() == QColor(Qt.black)
 
 
-def test_variable_title_change(mock_db, monkeypatch, qtbot):
+def test_variable_title_change(mock_db, mock_kafka_broker, monkeypatch, qtbot):
     db_dir, _ = mock_db
     ctx_path = db_dir / "context.py"
 
     old_title = "Scalar1"
     new_title = "Scalar1 updated"
 
-    win = MainWindow(db_dir, False)
+    win = MainWindow(db_dir)
     qtbot.addWidget(win)
+    qtbot.waitUntil(lambda: win.update_agent.running, timeout=1000)
 
     def combo_items(combo_box):
         return [combo_box.itemText(i) for i in range(combo_box.count())]
@@ -1949,20 +1950,7 @@ def test_variable_title_change(mock_db, monkeypatch, qtbot):
         m.chdir(db_dir)
         amore_proto(["read-context"])
 
-    with DamnitDB.from_dir(db_dir) as fresh_db:
-        variable_update = dict(
-            fresh_db.conn.execute("""
-                SELECT name, title, type, description, attributes
-                FROM variables
-                WHERE name = 'scalar1'
-            """).fetchone()
-        )
-
-    win.handle_update({
-        "msg_kind": MsgKind.variable_set.value,
-        "data": variable_update,
-    })
-
+    qtbot.waitUntil(lambda: new_title in combo_items(win.plot._combo_box_y_axis), timeout=1000)
     assert new_title in combo_items(win.plot._combo_box_y_axis)
     assert old_title not in combo_items(win.plot._combo_box_y_axis)
     assert win.table.find_column(new_title, by_title=True) == win.table.find_column(
