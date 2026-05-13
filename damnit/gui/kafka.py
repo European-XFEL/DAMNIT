@@ -64,6 +64,7 @@ class UpdateAgent(QtCore.QObject):
                            {
                                "name": name,
                                "title": title,
+                               "description": description,
                                "attributes": None,
                                "type": variable_type
                            })

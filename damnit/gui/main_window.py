@@ -372,7 +372,7 @@ da-dev@xfel.eu"""
         self.table.user_variables[name] = variable
         self.db.add_user_variable(variable)
         self.table.insert_columns(
-            before_pos, [title], [name], variable.get_type_class(), editable=True
+            before_pos, [title], [name], [description], editable=True
         )
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(name)
