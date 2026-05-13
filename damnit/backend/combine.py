@@ -14,7 +14,7 @@ from kafka import KafkaConsumer, KafkaProducer
 from xarray.backends import H5NetCDFStore
 
 from ..context import DataType
-from ..definitions import FILE_SUBMIT_TOPIC, UPDATE_BROKERS
+from ..definitions import FILE_SUBMIT_TOPIC, update_brokers
 from .db import DamnitDB, MsgKind, msg_dict
 from .extract_data import load_reduced_data, add_to_db
 from .service import notify_ready
@@ -72,15 +72,16 @@ def combine(src: Path, dst: Path):
 
 
 class FileSubmissionProcessor:
-    def __init__(self):
+    def __init__(self, consumer_config=None):
         self.consumer = KafkaConsumer(
             FILE_SUBMIT_TOPIC,
-            bootstrap_servers=UPDATE_BROKERS,
+            bootstrap_servers=update_brokers(),
             group_id='xfel-da-damnit-combiner',
             consumer_timeout_ms=600_000,
+            **(consumer_config or {})
         )
         self.producer = KafkaProducer(
-            bootstrap_servers=UPDATE_BROKERS,
+            bootstrap_servers=update_brokers(),
             value_serializer=lambda d: json.dumps(d).encode('utf-8')
         )
 
@@ -97,19 +98,25 @@ class FileSubmissionProcessor:
 
     def run(self):
         while True:
-            for record in self.consumer:
-                try:
-                    ts = datetime.fromtimestamp(record.timestamp / 1000, tz=timezone.utc)
-                    msg = json.loads(record.value.decode())
-                    if msg['msg_kind'] == MsgKind.file_submission.value:
-                        self.process_file_submission_msg(msg['data'], ts)
-                    else:
-                        log.info("Unexpected message kind %r", msg['msg_kind'])
-                except Exception:
-                    log.error(
-                        "Unexpected error processing file submission message",
-                        exc_info=True,
-                    )
+            try:
+                self.handle_one_message()
+            except StopIteration:
+                pass  # consumer timeout was reached
+
+    def handle_one_message(self):
+        record  = next(self.consumer)
+        try:
+            ts = datetime.fromtimestamp(record.timestamp / 1000, tz=timezone.utc)
+            msg = json.loads(record.value.decode())
+            if msg['msg_kind'] == MsgKind.file_submission.value:
+                self.process_file_submission_msg(msg['data'], ts)
+            else:
+                log.info("Unexpected message kind %r", msg['msg_kind'])
+        except Exception:
+            log.error(
+                "Unexpected error processing file submission message",
+                exc_info=True,
+            )
 
     def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
         """Handle a notification from Kafka"""

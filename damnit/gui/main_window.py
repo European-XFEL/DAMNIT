@@ -25,7 +25,7 @@ from ..backend import initialize_proposal
 from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
 from ..backend.user_variables import UserEditableVariable
-from ..definitions import UPDATE_BROKERS
+from ..definitions import update_brokers
 from ..util import isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
@@ -64,10 +64,13 @@ class MainWindow(QtWidgets.QMainWindow):
     db_id = None
     _columns_dialog = None
 
-    def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True):
+    def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True, background_activity=True):
         super().__init__()
 
         self._connect_to_kafka = connect_to_kafka
+        # Background activity includes watching the context file & parsing it
+        # in a child process; it can be disabled to make unit testing easier.
+        self._background_activity = background_activity
         self._updates_thread = None
         self._received_update = False
         self._context_path = None
@@ -297,8 +300,9 @@ da-dev@xfel.eu"""
         self._tab_widget.setEnabled(True)
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
-        self.launch_update_computed_vars()
-        self.start_watching_context_file()
+        if self._background_activity:
+            self.launch_update_computed_vars()
+            self.start_watching_context_file()
 
         if m := re.match(r"/gpfs/exfel/u/usr/.*/p(\d+)/Shared/amore$",
                          str(self.context_dir.resolve())):
@@ -307,7 +311,7 @@ da-dev@xfel.eu"""
             self.setWindowTitle(f"DAMNIT: {self.context_dir.absolute()}")
 
     def _save_context_finished(self, saved):
-        if saved:
+        if saved and self._background_activity:
             self.launch_update_computed_vars()
 
     def launch_update_computed_vars(self, ctx_size_mtime=None):
@@ -619,7 +623,7 @@ da-dev@xfel.eu"""
             self.update_agent = UpdateAgent(self.db_id)
         except NoBrokersAvailable:
             QtWidgets.QMessageBox.warning(self, "Broker connection failed",
-                                          f"Could not connect to any Kafka brokers at: {' '.join(UPDATE_BROKERS)}\n\n" +
+                                          f"Could not connect to any Kafka brokers at: {' '.join(update_brokers())}\n\n" +
                                           "DAMNIT can operate offline, but it will not receive any updates from new or reprocessed runs.")
             return
 

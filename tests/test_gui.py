@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -54,6 +55,17 @@ def pid_dead(pid):
         return False
     except ProcessLookupError:
         return True
+
+
+@contextmanager
+def assert_sends_update(win, broker):
+    win.update_agent.kafka_prd.flush(timeout=3)  # Flush old messages before capture
+    with broker.assert_produces(win.db.kafka_topic) as new_records:
+        l = []
+        yield l
+        win.update_agent.kafka_prd.flush(timeout=3)  # Flush new messages
+
+    l.extend([json.loads(r.value) for r in new_records])
 
 
 def test_connect_to_kafka(mock_db, qtbot):
@@ -383,7 +395,7 @@ def test_handle_update(mock_db, qtbot):
     assert len(headers) + 1 == len(get_headers())
     assert "unexpected_var" in get_headers()
 
-def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
+def test_handle_update_plots(mock_db_with_data, mock_kafka_broker, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
@@ -457,7 +469,7 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
         win.autoconfigure.assert_called_once_with(db_dir)
         initialize_proposal.assert_not_called()
 
-def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
+def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qtbot):
 
     proposal = 1234
     run_number = 1000
@@ -481,7 +493,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
         add_to_db(reduced_data, db, proposal, run_number, provenance="test")
 
 
-    win = MainWindow(connect_to_kafka=False)
+    win = MainWindow(background_activity=False)
     win.show()
     qtbot.addWidget(win)
 
@@ -633,13 +645,23 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
             raise ValueError(f"Error in field_name: the variable name '{field_name}' is not of the form '[a-zA-Z_]\\w+'")
         return db.conn.execute(f"SELECT {field_name} FROM runs WHERE run = ?", (run_number,)).fetchone()[0]
 
+    @contextmanager
+    def check_kafka_send(variable):
+        with assert_sends_update(win, mock_kafka_broker) as msgs:
+            yield
+
+        assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
+        assert set(msgs[0]['data']['values']) == {variable}
+
+
     # Check that editing is prevented when trying to modfiy a non-editable column
     assert open_editor_and_get_delegate("dep_number").widget is None
 
     # Check that editing is allowed when trying to modify a user editable column
     assert open_editor_and_get_delegate("user_number").widget is not None
 
-    change_to_value_and_close("15.4")
+    with check_kafka_send("user_number"):
+        change_to_value_and_close("15.4")
 
     # Check that the value in the table is of the correct type and value
     assert abs(get_value_from_field("user_number") - 15.4) < 1e-5
@@ -727,13 +749,14 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, qtbot):
     assert open_editor_and_get_delegate("user_boolean").widget is not None
 
     # Try to assign an empty value (i.e. deletes the cell)
-    change_to_value_and_close("")
+    with check_kafka_send("user_boolean"):
+        change_to_value_and_close("")
     assert pd.isna(get_value_from_field("user_boolean"))
 
     # Check that the value in the db matches what was typed in the table
     assert get_value_from_db("user_boolean") is None
 
-def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, qtbot):
+def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_broker, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
@@ -789,7 +812,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
     extract_mock_run(1)
 
     # Create window
-    win = MainWindow(db_dir, False)
+    win = MainWindow(db_dir, background_activity=False)
     qtbot.addWidget(win)
 
     # Helper function to get a QModelIndex from a variable title
@@ -829,7 +852,11 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, monkeypatch, 
 
     # Edit a comment
     comment_index = get_index("Comment")
-    win.table.setData(comment_index, "Foo", Qt.EditRole)
+    with assert_sends_update(win, mock_kafka_broker) as msgs:
+        win.table.setData(comment_index, "Foo", Qt.EditRole)
+
+    assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
+    assert set(msgs[0]['data']['values']) == {"comment"}
 
     # Check that 2D arrays are treated as images
     image_index = get_index("Image")
@@ -992,7 +1019,7 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         messenger.send_table.assert_called_once()
 
 @pytest.mark.parametrize("extension", [".xlsx", ".csv"])
-def test_exporting(mock_db_with_data, qtbot, monkeypatch, extension):
+def test_exporting(mock_db_with_data, mock_kafka_broker, qtbot, monkeypatch, extension):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 

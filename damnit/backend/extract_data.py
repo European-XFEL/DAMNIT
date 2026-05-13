@@ -27,7 +27,7 @@ import numpy as np
 from kafka import KafkaProducer
 
 from ..context import ContextFile, Pipeline, RunData
-from ..definitions import UPDATE_BROKERS, FILE_SUBMIT_TOPIC
+from ..definitions import update_brokers, FILE_SUBMIT_TOPIC
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
@@ -159,11 +159,11 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
 def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
     msg = file_submit_msg(damnit_dir, proposal, run, file_path)
     prod = KafkaProducer(
-        bootstrap_servers=UPDATE_BROKERS,
+        bootstrap_servers=update_brokers(),
         value_serializer=lambda d: json.dumps(d).encode('utf-8')
     )
     prod.send(FILE_SUBMIT_TOPIC, msg)
-    prod.flush(timeout=10)
+    prod.close(timeout=10)
 
 
 def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
@@ -187,7 +187,7 @@ class Extractor:
         self.db = DamnitDB()
         if connect_to_kafka:
             self.kafka_prd = KafkaProducer(
-                bootstrap_servers=UPDATE_BROKERS,
+                bootstrap_servers=update_brokers(),
                 value_serializer=lambda d: json.dumps(d).encode('utf-8'),
             )
         else:
