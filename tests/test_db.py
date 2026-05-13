@@ -44,6 +44,16 @@ def test_run_comment(mock_db):
     assert runs == [(1234, 5, 'Test comment')]
 
 
+def test_variable_description(mock_db):
+    _, db = mock_db
+
+    row = db.conn.execute(
+        "SELECT description FROM variables WHERE name = 'scalar1'"
+    ).fetchone()
+
+    assert row["description"] == "Primary scalar value for GUI description tests."
+
+
 def test_standalone_comment(mock_db):
     _, db = mock_db
 

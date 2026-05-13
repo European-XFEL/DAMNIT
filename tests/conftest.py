@@ -25,6 +25,7 @@ def mock_ctx():
 
     @Variable(title="Scalar1", tags=['scalar', 'integer'])
     def scalar1(run, run_nr: 'meta#run_number'):
+        '''Primary scalar value for GUI description tests.'''
         if run_nr == 2:
             return None
         elif run_nr == 3:
