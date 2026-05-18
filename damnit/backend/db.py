@@ -315,6 +315,10 @@ class DamnitDB:
 
         return list(names)
 
+    def variable_descriptions(self):
+        rows = self.conn.execute("SELECT name, description FROM variables")
+        return {name: description for name, description in rows if description}
+
     def update_views(self):
         variables = self.variable_names()
 

@@ -396,7 +396,23 @@ def test_handle_update(mock_db, qtbot):
     assert len(headers) + 1 == len(get_headers())
     assert "unexpected_var" in get_headers()
 
-def test_handle_update_plots(mock_db_with_data, mock_kafka_broker, monkeypatch, qtbot):
+
+def test_header_tooltip(mock_db, qtbot):
+    db_dir, db = mock_db
+
+    win = MainWindow(db_dir, False)
+    qtbot.addWidget(win)
+    win.show()
+    qtbot.waitExposed(win)
+
+    description = "Primary scalar value for GUI description tests."
+    col_ix = win.table.find_column("Scalar1", by_title=True)
+    assert win.table_view.model().headerData(col_ix, Qt.Horizontal, Qt.ToolTipRole) == description
+    col_ix = win.table.find_column("Scalar2", by_title=True)
+    assert win.table_view.model().headerData(col_ix, Qt.Horizontal, Qt.ToolTipRole) == None
+
+
+def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 

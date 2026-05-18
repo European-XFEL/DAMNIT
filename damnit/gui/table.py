@@ -1075,6 +1075,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def __init__(self, db: DamnitDB, column_settings: dict, parent):
         self.column_ids, self.column_titles = self._load_columns(db, column_settings)
+        self.column_descriptions = db.variable_descriptions()
         n_run_rows = db.conn.execute("SELECT count(*) FROM run_info").fetchone()[0]
         log.info(f"Table will have {n_run_rows} runs")
 
@@ -1169,6 +1170,13 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         else:
             sep = "\n" if tip else ""
         item.setToolTip(f"{tip}{sep}Provenance: {provenance}")
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal and role == Qt.ToolTipRole:
+            if 0 <= section < len(self.column_ids):
+                return self.column_descriptions.get(self.column_ids[section])
+            return None
+        return super().headerData(section, orientation, role)
 
     def text_item(self, value, display=None):
         if display is None:
@@ -1358,11 +1366,23 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
             self.insert_run_row(proposal, run, {})
 
-    def insert_columns(self, before: int, titles, column_ids=None, type_cls=None, editable=False):
+    def insert_columns(
+        self,
+        before: int,
+        titles,
+        column_ids=None,
+        column_descriptions=None,
+        editable=False
+    ):
         if column_ids is None:
             column_ids = titles
         else:
             assert len(column_ids) == len(titles)
+
+        if column_descriptions is not None:
+            assert len(column_descriptions) == len(column_ids)
+            for col_id, desc in zip(column_ids, column_descriptions):
+                self.column_descriptions[col_id] = desc
 
         self.column_ids[before:before] = column_ids
         self.column_titles[before:before] = titles
@@ -1376,8 +1396,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             self.setHorizontalHeaderItem(before, QtGui.QStandardItem(title))
 
     def removeColumn(self, column: int, parent=QtCore.QModelIndex()):
+        column_id = self.column_ids[column]
         del self.column_ids[column]
         del self.column_titles[column]
+        self.column_descriptions.pop(column_id, None)
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
 
@@ -1464,24 +1486,24 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def handle_variable_set(self, var_info: dict):
         col_id = var_info['name']
         title = var_info['title'] or col_id
+        description = var_info.get('description')
         try:
             col_ix = self.find_column(col_id)
         except KeyError:
             # New column
             end = self.columnCount()
-            if var_info['type'] is None:
-                self.insert_columns(end, [title], [col_id])
-            else:
-                type_cls = value_types_by_name[var_info['type']]
-                self.insert_columns(
-                    end, [title], [col_id], type_cls=type_cls, editable=True
-                )
+            self.insert_columns(
+                end, [title], [col_id], [description],
+                editable=var_info['type'] is not None
+            )
         else:
             # Update existing column
             old_title = self.column_title(col_ix)
             if title != old_title:
                 self.column_titles[col_ix] = title
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
+
+            self.column_descriptions[col_id] = description
 
     def handle_processing_state_set(self, info):
         self.processing_jobs.on_processing_state_set(info)

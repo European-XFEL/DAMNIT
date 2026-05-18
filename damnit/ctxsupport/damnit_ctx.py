@@ -8,6 +8,7 @@ environments.
 """
 import contextvars
 import hashlib
+import inspect
 import logging
 import re
 import sys
@@ -96,6 +97,8 @@ class Variable:
         self.name = func.__name__
         if self.title is None:
             self.title = self.name
+        if self.description is None:
+            self.description = inspect.getdoc(func)
         return self
 
     def __get__(self, instance, owner):
