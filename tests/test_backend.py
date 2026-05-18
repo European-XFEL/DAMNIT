@@ -273,6 +273,16 @@ def test_context_file(mock_ctx, tmp_path):
     with pytest.raises(ValueError):
         mkcontext(invalid_var_data)
 
+    invalid_var_units = """
+    from damnit_ctx import Variable
+
+    @Variable(units="")
+    def var(run):
+        return 42
+    """
+    with pytest.raises(ContextFileErrors, match='must be a non-empty string'):
+        mkcontext(invalid_var_units)
+
 
 def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
     # Track all error messages during creation. This is necessary because a
@@ -1601,3 +1611,58 @@ def test_pattern_matching_dependency(mock_run):
     results = ctx.execute(mock_run, 1000, 123, {})
 
     assert results.cells['foo'].data == 42
+
+
+def test_units_metadata(mock_run, mock_db, tmp_path):
+    _, db = mock_db
+
+    ctx_code = """
+    from damnit_ctx import Cell, Variable
+    import numpy as np
+    import xarray as xr
+
+    @Variable(units="mJ")
+    def scalar(run):
+        return 42
+
+    @Variable(summary="sum", units="mJ")
+    def array(run):
+        return Cell(np.arange(4), units="uJ")
+
+    @Variable()
+    def dataarray(run):
+        return xr.DataArray([1, 2, 3], attrs={"units": "fs"})
+
+    @Variable(units="s")
+    def summary_only(run):
+        return Cell(None, summary_value=7, units="ms")
+    """
+    ctx = mkcontext(ctx_code)
+    results = ctx.execute(mock_run, 1000, 123, {})
+
+    assert results.cells["scalar"].units == "mJ"
+    assert results.cells["array"].units == "uJ"
+    assert results.cells["dataarray"].units == "fs"
+    assert results.cells["summary_only"].units == "ms"
+
+    results_hdf5_path = results.save(tmp_path, 1000, 123)
+    with h5py.File(results_hdf5_path) as f:
+        assert f[".reduced/scalar"].attrs["units"] == "mJ"
+        assert f[".reduced/array"].attrs["units"] == "uJ"
+        assert f[".reduced/dataarray"].attrs["units"] == "fs"
+        assert f[".reduced/summary_only"].attrs["units"] == "ms"
+
+    reduced_data = load_reduced_data(results_hdf5_path)
+    add_to_db(reduced_data, db, 1000, 123, provenance="test")
+
+    for name, expected_units in {
+        "scalar": "mJ",
+        "array": "uJ",
+        "dataarray": "fs",
+        "summary_only": "ms",
+    }.items():
+        attrs = db.conn.execute(
+            "SELECT attributes FROM run_variables WHERE proposal=1000 AND run=123 AND name=?",
+            (name,),
+        ).fetchone()
+        assert json.loads(attrs[0])["units"] == expected_units

@@ -30,6 +30,7 @@ run_vars.keys()    # Get all available variables for this run
 myvar = db[100, "myvar"] # Equivalent to run_vars["myvar"]
 data = myvar.read()
 summary = myvar.summary()
+units = myvar.units
 ```
 
 ## API reference

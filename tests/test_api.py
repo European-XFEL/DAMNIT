@@ -118,6 +118,22 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     @Variable(title="Line")
     def line(run):
         return np.linspace(0, 1, 15000)
+
+    @Variable(title="Explicit units", units="mJ")
+    def explicit_units(run):
+        return 42
+
+    @Variable(title="Cell units", units="mJ")
+    def cell_units(run):
+        return Cell(np.arange(4), units="uJ")
+
+    @Variable(title="Summary units", units="s")
+    def summary_units(run):
+        return Cell(None, summary_value=7, units="ms")
+
+    @Variable(title="Array units")
+    def array_units(run):
+        return xr.DataArray([1, 2, 3], attrs={"units": "fs"})
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -151,6 +167,18 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     summary = rv["dataset"].summary()
     assert isinstance(summary, complex)
     assert summary == complex(5, 6)
+    assert rv["dataset"].units is None
+
+    assert rv["explicit_units"].read() == 42
+    assert rv["explicit_units"].units == "mJ"
+    assert rv["cell_units"].units == "uJ"
+    assert rv["summary_units"].summary() == 7
+    assert rv["summary_units"].units == "ms"
+
+    array_units = rv["array_units"].read()
+    assert isinstance(array_units, xr.DataArray)
+    assert array_units.attrs["units"] == "fs"
+    assert rv["array_units"].units == "fs"
 
     fig = rv['plotly_mc_plotface'].read()
     assert isinstance(fig, PlotlyFigure)

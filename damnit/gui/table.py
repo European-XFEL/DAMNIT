@@ -4,6 +4,7 @@ import logging
 import time
 from base64 import b64encode
 from itertools import groupby
+from numbers import Number
 
 import numpy as np
 from fonticon_fa6 import FA6S
@@ -18,7 +19,7 @@ from ..backend.db import BlobTypes, DamnitDB, ReducedData, blob2complex, blob2nu
 from ..backend.extraction_control import ExtractionJobTracker
 from ..backend.user_variables import value_types_by_name
 from ..util import timestamp2str
-from .roles import LINE_DATA_ROLE, PROVENANCE_ROLE
+from .roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
 from .util import delete_variable, StatusbarStylesheet
 
@@ -564,12 +565,49 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
                 )
         painter.restore()
 
-    def paint(self, painter, option, index):
-        data = index.data(LINE_DATA_ROLE)
-        if data is None:
+    def _paint_with_units(self, painter, option, index):
+        option = QtWidgets.QStyleOptionViewItem(option)
+        value = index.data(Qt.DisplayRole)
+        if (units := index.data(UNITS_ROLE)) is None:
             super().paint(painter, option, index)
+            return
+
+        self.initStyleOption(option, index)
+
+        # Draw everything except the text
+        option.text = ""
+        style = option.widget.style()
+        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, option, painter, option.widget)
+
+        if option.state & QtWidgets.QStyle.State_Selected:
+            value_color = option.palette.color(QtGui.QPalette.HighlightedText)
+            unit_color = option.palette.color(QtGui.QPalette.HighlightedText)
         else:
+            value_color = option.palette.color(QtGui.QPalette.Text)
+            unit_color = option.palette.color(QtGui.QPalette.Mid)
+
+        doc = QtGui.QTextDocument()
+        doc.setDefaultFont(option.font)
+        doc.setHtml(
+            f'<span style="color:{value_color.name()};">{value}</span> '
+            f'<span style="color:{unit_color.name()}; font-style:italic; opacity:0.6;">{units}</span>'
+        )
+
+        # Get the exact text rect Qt would have used
+        text_rect = style.subElementRect(QtWidgets.QStyle.SE_ItemViewItemText, option, option.widget)
+
+        painter.save()
+        painter.translate(text_rect.topLeft())
+        doc.setTextWidth(text_rect.width())
+        doc.drawContents(painter)
+        painter.restore()
+
+    def paint(self, painter, option, index):
+        if (data := index.data(LINE_DATA_ROLE)) is not None:
             self._paint_sparkline(data, painter, option, index)
+        else:
+            self._paint_with_units(painter, option, index)
+
         self._paint_provenance_marker(painter, option, index)
 
 
@@ -1178,18 +1216,25 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             return None
         return super().headerData(section, orientation, role)
 
-    def text_item(self, value, display=None):
+    def text_item(self, value, display=None, attrs=None):
         if display is None:
             if value is None:
                 display = ''
-            elif isinstance(value, float):
-                display = prettify_notation(value)
             else:
-                display = str(value)
+                display = prettify_notation(value)
+
         item = self.itemPrototype().clone()
         # We will use UserRole data for sorting
         item.setData(value, role=Qt.ItemDataRole.UserRole)
         item.setData(display, role=Qt.ItemDataRole.DisplayRole)
+
+        units = attrs.get("units") if attrs else None
+        if (
+            isinstance(units, str) and units != ""
+            and isinstance(value, Number)
+        ):
+            item.setData(units, role=UNITS_ROLE)
+
         return item
 
     def image_item(self, png_data: bytes):
@@ -1245,7 +1290,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         elif 'error' in attrs:
             item = self.error_item(attrs)
         else:
-            item = self.text_item(value)
+            item = self.text_item(value, attrs=attrs)
             item.setEditable(column_id in self.editable_columns)
             bold = attrs.get("bold")
             if bold is None:

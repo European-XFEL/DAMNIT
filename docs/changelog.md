@@ -4,6 +4,13 @@
 
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.3.0...HEAD)
 
+Added:
+
+- API/Core: Variables and Cells can now persist `units` metadata alongside
+  saved data and expose it through `VariableData.units` (!564).
+- GUI: Numeric summary cells now render unit suffixes when `units` metadata
+  is available (!564).
+
 ## [0.3.0]
 
 Added:
