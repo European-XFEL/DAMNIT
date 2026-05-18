@@ -600,6 +600,7 @@ da-dev@xfel.eu"""
             self.table_view.apply_tag_filter(
                 self.table_view._current_tag_filter
             )
+            self.plot.update_columns()
         elif msg_kind == MsgKind.processing_state_set:
             self.table.handle_processing_state_set(data)
         elif msg_kind == MsgKind.processing_finished:
