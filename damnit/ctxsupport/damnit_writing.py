@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from contextlib import contextmanager
 from enum import Enum
@@ -161,6 +162,8 @@ def downsample_line(data):
 class DataType(Enum):
     DataArray = "dataarray"
     Dataset = "dataset"
+    Series = "series"
+    DataFrame = "dataframe"
     Image = "image"
     Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
@@ -193,7 +196,7 @@ def save_dataset_netcdf(f: h5py.File, group: str, dset):
     # HDF5 doesn't allow slashes in names :(
     vars_names = {}
     for var_name, dataarray in dset.items():
-        if var_name is not None and "/" in var_name:
+        if isinstance(var_name, str) and "/" in var_name:
             vars_names[var_name] = var_name.replace("/", "_")
     dset = dset.rename_vars(vars_names)
 
@@ -224,6 +227,25 @@ def save_dataarray_netcdf(f: h5py.File, group: str, darr):
     # ------------
 
     save_dataset_netcdf(f, group, dataset)
+
+
+def prepare_dataframe_netcdf(dataframe):
+    # NetCDF requires string variable names. Store deterministic names and
+    # keep original columns metadata to restore in the API.
+    data = dataframe.copy()
+    data.columns = [f"_damnit_col_{i:06d}" for i in range(data.columns.size)]
+    dataset = data.to_xarray()
+
+    columns = dataframe.columns.tolist()
+    dataset.attrs["_damnit_dataframe_columns"] = json.dumps(columns)
+    dataset.attrs["_damnit_dataframe_index_names"] = json.dumps(
+        list(dataframe.index.names)
+    )
+    dataset.attrs["_damnit_dataframe_column_names"] = json.dumps(
+        list(dataframe.columns.names)
+    )
+
+    return dataset
 
 
 class DamnitFileWriter:
@@ -262,7 +284,13 @@ class DamnitFileWriter:
 
     def store_data(self, name, obj):
         grp = self.file.create_group(name)
-        if isinstance_no_import(obj, 'xarray', 'DataArray'):
+        if isinstance_no_import(obj, 'pandas', 'Series'):
+            attrs = {OBJTYPE_ATTR: DataType.Series.value}
+            save_dataarray_netcdf(self.file, name, obj.to_xarray())
+        elif isinstance_no_import(obj, 'pandas', 'DataFrame'):
+            attrs = {OBJTYPE_ATTR: DataType.DataFrame.value}
+            save_dataset_netcdf(self.file, name, prepare_dataframe_netcdf(obj))
+        elif isinstance_no_import(obj, 'xarray', 'DataArray'):
             attrs = {OBJTYPE_ATTR: DataType.DataArray.value}
             save_dataarray_netcdf(self.file, name, obj)
         elif isinstance_no_import(obj, 'xarray', 'Dataset'):

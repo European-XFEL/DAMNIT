@@ -35,7 +35,12 @@ def copy_h5_obj(fsrc: h5py.File, fdst: h5py.File, path: str):
     fdst.pop(path, None)
 
     objtype = fsrc[path].attrs.get('_damnit_objtype', '')
-    if objtype in (DataType.DataArray.value, DataType.Dataset.value):
+    if objtype in (
+        DataType.DataArray.value,
+        DataType.Dataset.value,
+        DataType.Series.value,
+        DataType.DataFrame.value,
+    ):
         with h5netcdf.File(fsrc) as nf:
             with H5NetCDFStore(nf, path, mode='r') as store:
                 xobj = xr.load_dataset(store)
