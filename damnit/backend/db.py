@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ..definitions import UPDATE_TOPIC, DEFAULT_CONTEXT_PYTHON
+from ..definitions import UPDATE_TOPIC, DEFAULT_CONTEXT_PYTHON, VariableAttributes
 from .db_migrations import apply_migrations, latest_version
 from .user_variables import UserEditableVariable
 
@@ -232,24 +232,59 @@ class DamnitDB:
 
         self.update_views()
 
-    def get_user_variables(self):
+    def _get_user_variables(self):
         user_variables = {}
         rows = self.conn.execute("""
             SELECT name, title, type, description, attributes FROM variables
             WHERE type IS NOT NULL
         """)
         for rr in rows:
+            attrs = json.loads(rr['attributes']) if rr['attributes'] else {}
             var_name = rr["name"]
             new_var = UserEditableVariable(
                 var_name,
                 title=rr["title"],
                 variable_type=rr["type"],
                 description=rr["description"],
-                attributes=rr["attributes"],
+                attributes=attrs,
             )
             user_variables[var_name] = new_var
         log.debug("Loaded %d user variables", len(user_variables))
         return user_variables
+
+    def get_user_variables(self):
+        return {k: v for (k, v) in self._get_user_variables().items()
+                if (VariableAttributes.PARAM_DEFAULT not in v.attributes)}
+
+    def get_parameters(self):
+        return {k: v for (k, v) in self._get_user_variables().items()
+                if (VariableAttributes.PARAM_DEFAULT in v.attributes)}
+
+    def get_parameter_values(self, proposal: int, run: int, params: dict):
+        res = {n: v.attributes[VariableAttributes.PARAM_DEFAULT]
+               for (n, v) in params.items()}
+        run_in_db = self.conn.execute(
+            "SELECT count(*) FROM run_info WHERE proposal=? AND RUN=?",
+            (proposal, run)
+        ).fetchone()[0]
+        if run_in_db:
+            rows = self.conn.execute(
+                "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
+                (proposal, run)
+            ).fetchall()
+            for name, value in rows:
+                if name in params:
+                    if params[name].variable_type == 'boolean':
+                        value = bool(value)  # 1/0 -> True/False
+                    res[name] = value
+        else:
+            # New run
+            for name, var in params.items():
+                vnr = var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+                if vnr is not None:
+                    res[name] = vnr
+
+        return res
 
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
@@ -260,27 +295,32 @@ class DamnitDB:
             self.conn.execute("BEGIN IMMEDIATE")
             for row in self.conn.execute("""
                 SELECT name, title, type, description, attributes FROM variables
-                WHERE type IS NULL
             """).fetchall():
                 var = dict(row)
+                if isinstance(var['attributes'], str):
+                    var['attributes'] = json.loads(var['attributes'])
                 vars_in_db[var.pop("name")] = var
 
             updates = {n: v for (n, v) in vars.items()
                        if v != vars_in_db.get(n, None)}
             log.debug("Updating stored metadata for %d computed variables",
                       len(updates))
+            for n, v in updates.items():
+                attrs = vars_in_db.get(n, {}).get('attributes') or {}
+                attrs |= (v['attributes'] or {})
+                v['attributes'] = (json.dumps(attrs) if attrs else None)
 
             # Write new & changed variables
             # TODO: what if a new computed variable name matches an existing user var?
             self.conn.executemany("""
-                INSERT INTO variables VALUES (?, NULL, ?, ?, ?)
+                INSERT INTO variables VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (name) DO UPDATE SET
                     type=excluded.type,
                     title=excluded.title,
                     description=excluded.description,
                     attributes=excluded.attributes
             """, [
-                (n, v['title'], v['description'], v['attributes'])
+                (n, v['type'], v['title'], v['description'], v['attributes'])
                 for (n, v) in updates.items()
             ])
 
@@ -400,6 +440,24 @@ class DamnitDB:
 
             if is_new:
                 self.update_views()
+
+    def update_variables_attrs(self, vars_attrs: dict):
+        attrs_in_db = dict(
+            self.conn.execute("SELECT name, attributes FROM variables").fetchall()
+        )
+        to_set = []
+        for name, new_attrs in vars_attrs.items():
+            old_attrs = json.loads(attrs_in_db[name]) if attrs_in_db[name] else {}
+            new_attrs = old_attrs | new_attrs
+            to_set.append({
+                'name': name, 'attributes': json.dumps(new_attrs) if new_attrs else None
+            })
+
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE variables SET attributes=:attributes WHERE name=:name",
+                to_set,
+            )
 
     def delete_variable(self, name: str):
         with self.conn:

@@ -33,7 +33,7 @@ from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
 from .plot import (ImagePlotWindow, PlottingControls, ScatterPlotWindow,
                    Xarray1DPlotWindow)
-from .process import ProcessingDialog
+from .process import ProcessingDialog, ParamsNewRunsDialog
 from .standalone_comments import TimeComment
 from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
@@ -195,6 +195,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _menu_create_user_var(self) -> None:
         dialog = AddUserVariableDialog(self)
+        dialog.exec()
+
+    def _menu_edit_params_new_runs(self) -> None:
+        dialog = ParamsNewRunsDialog(self.db, self)
         dialog.exec()
 
     def _menu_bar_help(self) -> None:
@@ -425,6 +429,11 @@ da-dev@xfel.eu"""
         self.action_create_var.setEnabled(False)
         self.context_dir_changed.connect(lambda _: self.action_create_var.setEnabled(True))
 
+        self.action_params_new_runs = QtWidgets.QAction("Edit parameters for new runs", self)
+        self.action_params_new_runs.triggered.connect(self._menu_edit_params_new_runs)
+        self.action_params_new_runs.setEnabled(False)
+        self.context_dir_changed.connect(lambda _: self.action_params_new_runs.setEnabled(True))
+
         self.action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
         self.action_export.setStatusTip("Export to Excel/CSV")
         self.action_export.setEnabled(False)
@@ -452,6 +461,7 @@ da-dev@xfel.eu"""
         )
         fileMenu.addAction(action_autoconfigure)
         fileMenu.addAction(self.action_create_var)
+        fileMenu.addAction(self.action_params_new_runs)
         fileMenu.addAction(self.action_process)
         fileMenu.addAction(self.action_export)
         fileMenu.addAction(action_adeqt)
@@ -1014,7 +1024,12 @@ da-dev@xfel.eu"""
         var_ids_titles = zip(self.table.computed_columns(),
                              self.table.computed_columns(by_title=True))
 
-        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        dlg = ProcessingDialog(
+            prop, sel_runs,
+            var_ids_titles=var_ids_titles,
+            db=self.db,
+            parent=self,
+        )
         if dlg.exec() == QtWidgets.QDialog.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
@@ -1040,7 +1055,11 @@ da-dev@xfel.eu"""
     def show_adeqt(self):
         from adeqt import AdeqtWindow
         if self.adeqt_window is None:
-            ns = {'window': self, 'table': self.table, 'editor': self._editor}
+            ns = {'window': self,
+                  'table': self.table,
+                  'editor': self._editor,
+                  'db': self.db,
+            }
             self.adeqt_window = AdeqtWindow(ns, parent=self)
         self.adeqt_window.show()
 
