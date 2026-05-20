@@ -499,6 +499,109 @@ class Damnit:
         displayed in the GUI:
 
         - Images will be replaced with an `<image>` string.
+        - Trendline summaries will be replaced with a `<sparkline>` string.
+        - Runs that were pre-created through the GUI but never taken by the DAQ
+          will not be included.
+
+        Args:
+            with_titles (bool): Whether to use variable titles instead of names
+                for the columns in the dataframe.
+        """
+        import pandas as pd
+        df = pd.read_sql_query("""
+            SELECT proposal, run, start_time, added_at
+            FROM run_info
+            WHERE start_time IS NOT NULL
+            ORDER BY proposal, run
+        """, self._db.conn)
+
+        # Get variable values from `run_variables` and pivot them into columns
+        variable_data = pd.read_sql_query("""
+            SELECT
+                v.proposal,
+                v.run,
+                v.name,
+                CASE
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'complex' THEN v.value
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'trendline' THEN '<sparkline>'
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'numpy' THEN '<ndarray>'
+                    -- If the summary type is missing, we assume the blobs are thumbnails (PNG or numpy)
+                    -- TODO: should we always add summary types for blobs in the future?
+                    WHEN typeof(v.value) = 'blob' AND (v.summary_type IS NULL OR v.summary_type = '') THEN '<thumbnail>'
+                    WHEN typeof(v.value) = 'blob' THEN '<blob>'
+                    ELSE v.value
+                END AS value,
+                v.summary_type
+            FROM run_variables AS v
+            INNER JOIN (
+                SELECT proposal, run, name, max(version) AS version
+                FROM run_variables
+                GROUP BY proposal, run, name
+            ) AS latest
+            ON latest.proposal = v.proposal
+            AND latest.run = v.run
+            AND latest.name = v.name
+            AND latest.version = v.version
+            ORDER BY v.proposal, v.run
+        """, self._db.conn)
+
+        summary_types_by_run = {}
+        if not variable_data.empty:
+            values_wide = variable_data.pivot(index=["proposal", "run"],
+                                              columns="name",
+                                              values="value").reset_index()
+            # Keep run start time from `run_info`.
+            values_wide.drop(columns=["start_time"], errors="ignore", inplace=True)
+            df = df.merge(values_wide, on=["proposal", "run"], how="left")
+    
+            for row in variable_data.itertuples(index=False):
+                if row.summary_type is not None:
+                    key = (row.proposal, row.run)
+                    summary_types_by_run.setdefault(key, {})[row.name] = row.summary_type
+
+        # Keep all known variables as columns, even if they have no value yet.
+        for name in self._db.variable_names():
+            if name not in ("proposal", "run", "start_time", "added_at") and name not in df:
+                df[name] = None
+
+        # Convert the start_time into a datetime column
+        start_time = pd.to_datetime(df["start_time"], unit="s", utc=True)
+        df["start_time"] = start_time.dt.tz_convert("Europe/Berlin")
+
+        # Delete added_at, this is internal
+        del df["added_at"]
+
+        # Ensure that there's always a comment column for consistency, it may
+        # not be present if no comments were made.
+        if "comment" not in df:
+            df.insert(3, "comment", None)
+
+        def interpret_blobs(row):
+            summary_types = summary_types_by_run.get((row["proposal"], row["run"]), {})
+
+            for col in row.keys():
+                if summary_types.get(col) == "complex":
+                    row[col] = blob2complex(row[col])
+            return row
+
+        df = df.apply(interpret_blobs, axis=1)
+
+        # Use the full variable titles
+        if with_titles:
+            results = self._db.conn.execute("SELECT name, title FROM variables").fetchall()
+            renames = { row[0]: row[1] for row in results }
+            renames["proposal"] = "Proposal"
+            renames["run"] = "Run"
+            renames["start_time"] = "Timestamp"
+
+            df.rename(columns=renames, inplace=True)
+        return df
+
+    def __repr__(self):
+        return f"<Damnit database for p{self.proposal}>"
+
+
+        - Images will be replaced with an `<image>` string.
         - Runs that were pre-created through the GUI but never taken by the DAQ
           will not be included.
 
@@ -558,9 +661,6 @@ class Damnit:
             df.rename(columns=renames, inplace=True)
 
         return df
-
-    def __repr__(self):
-        return f"<Damnit database for p{self.proposal}>"
 
 
 def submit(proposal: int, run: int, variables, *, provenance,
