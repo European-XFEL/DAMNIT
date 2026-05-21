@@ -20,6 +20,7 @@ from .extract_data import load_reduced_data, add_to_db
 from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
+SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
 
 # If the file doesn't exist N seconds after the Kafka message was sent, move on
 NO_FILE_TIMEOUT = 30
@@ -32,8 +33,6 @@ log = logging.getLogger(__name__)
 # reading such objects back to an xarray dataset and saving them again.
 # https://github.com/HDFGroup/hdf5/issues/6200
 def copy_h5_obj(fsrc: h5py.File, fdst: h5py.File, path: str):
-    fdst.pop(path, None)
-
     objtype = fsrc[path].attrs.get('_damnit_objtype', '')
     if objtype in (DataType.DataArray.value, DataType.Dataset.value):
         with h5netcdf.File(fsrc) as nf:
@@ -45,6 +44,30 @@ def copy_h5_obj(fsrc: h5py.File, fdst: h5py.File, path: str):
                 xobj.dump_to_store(store)
     else:
         fsrc.copy(path, fdst, path, expand_refs=True)
+
+
+def fragment_variables(fsrc: h5py.File) -> set[str]:
+    """Return names of all modified variables from the fragment file.
+    """
+    names = {key for key in fsrc if not key.startswith(".")}
+    for special_grp in SPECIAL_GROUPS:
+        names |= set(fsrc.get(special_grp, ()))
+    return names
+
+
+def delete_variable(fdst: h5py.File, name):
+    fdst.pop(name, None)
+    for special_grp in SPECIAL_GROUPS:
+        fdst.pop(f"{special_grp}/{name}", None)
+
+
+def copy_variable(fsrc: h5py.File, fdst: h5py.File, name: str):
+    if name in fsrc:
+        copy_h5_obj(fsrc, fdst, name)
+
+    for special_grp in SPECIAL_GROUPS:
+        if name in fsrc.get(special_grp, ()):
+            copy_h5_obj(fsrc, fdst, f"{special_grp}/{name}") 
 
 
 def combine(src: Path, dst: Path):
@@ -60,13 +83,9 @@ def combine(src: Path, dst: Path):
         return
 
     with h5py.File(src) as fsrc, h5py.File(dst, 'r+') as fdst:
-        for grp in fsrc:
-            if not grp.startswith("."):
-                copy_h5_obj(fsrc, fdst, grp)
-
-        for special_grp in [".reduced", ".preview", ".errors"]:
-            for k in fsrc.get(special_grp, ()):
-                copy_h5_obj(fsrc, fdst, f"{special_grp}/{k}")
+        for name in fragment_variables(fsrc):
+            delete_variable(fdst, name)
+            copy_variable(fsrc, fdst, name)
 
     src.unlink()
 
