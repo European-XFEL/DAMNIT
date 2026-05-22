@@ -3,6 +3,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import pytest
 import xarray as xr
@@ -14,7 +15,7 @@ from damnit.context import Pipeline
 from .helpers import extract_mock_run
 
 
-def test_damnit(mock_db_with_data):
+def test_damnit(mock_db_with_data, monkeypatch):
     db_dir, db = mock_db_with_data
 
     damnit = Damnit(db_dir)
@@ -43,6 +44,28 @@ def test_damnit(mock_db_with_data):
 
     df = damnit.table(with_titles=True)
     assert "Scalar1" in df.columns
+
+    # test missing run variable cells are represented as pd.NA
+    monkeypatch.chdir(db_dir)
+    extract_mock_run(2)
+    extract_mock_run(3)
+    extract_mock_run(4)
+
+    # Simulate a run where this variable has no row in `run_variables`.
+    with db.conn:
+        db.conn.execute(
+            "DELETE FROM run_variables WHERE proposal=? AND run=? AND name=?",
+            (db.metameta["proposal"], 4, "scalar1"),
+        )
+
+    df = Damnit(db_dir).table().set_index("run")
+    assert df.loc[1, "scalar1"] == 42
+    assert df.loc[3, "scalar1"] is None
+    assert df.loc[4, "scalar1"] is pd.NA
+
+    assert df.loc[4, "trendline"] == "<sparkline>"
+    assert df.loc[4, "array_preview"] == "<thumbnail>"
+
 
 def test_run_variables(mock_db_with_data, mock_kafka_broker, monkeypatch):
     db_dir, db = mock_db_with_data
