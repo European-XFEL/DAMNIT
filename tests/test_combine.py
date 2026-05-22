@@ -1,45 +1,138 @@
 import json
 
+import h5py
 import numpy as np
-from kafka import TopicPartition
 
 from damnit.api import Damnit, submit
+from damnit.context import Cell
 from damnit.backend.combine import FileSubmissionProcessor
 from damnit.backend.db import MsgKind
 from damnit.definitions import FILE_SUBMIT_TOPIC
 
+
+class SubmitHelper:
+    def __init__(self, broker, db, db_dir):
+        self.broker = broker
+        self.db = db
+        self.db_dir = db_dir
+        self.combiner = FileSubmissionProcessor(
+            consumer_config={'auto_offset_reset': 'earliest'}
+        )
+
+    def submit_and_combine(self, proposal, run, data, provenance='test', errors=None):
+        with self.broker.assert_produces(FILE_SUBMIT_TOPIC):
+            submit(proposal, run, data,
+                   provenance=provenance,
+                   damnit_dir=self.db_dir,
+                   errors=errors,
+            )
+
+        with self.broker.assert_produces(self.db.kafka_topic) as new_records:
+            self.combiner.handle_one_message()
+            self.combiner.producer.flush(timeout=5)
+
+        return new_records
+
+    def shutdown(self):
+        self.combiner.shutdown()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
+
 def test_combiner_service(mock_db, mock_kafka_broker):
     db_dir, db = mock_db
 
-    combiner = FileSubmissionProcessor(consumer_config={
-        'auto_offset_reset': 'earliest',  # Read from the 1st submission message
-    })
-
-    with mock_kafka_broker.assert_produces(FILE_SUBMIT_TOPIC):
-        submit(1234, 56, {
+    with SubmitHelper(mock_kafka_broker, db, db_dir) as sh:
+        new_records = sh.submit_and_combine(1234, 56, {
             # We need start_time in the DB for the API to see the run
             "array": np.arange(10), "start_time": 1776335722
-        }, provenance="test", damnit_dir=db_dir)
+        })
 
-    with mock_kafka_broker.assert_produces(db.kafka_topic) as new_records:
-        combiner.handle_one_message()
-        combiner.producer.flush(timeout=5)
+        msgs = [json.loads(r.value) for r in new_records]
+        assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
+        assert set(msgs[0]['data']['values']) == {"array", "start_time"}
 
-    msgs = [json.loads(r.value) for r in new_records]
-    assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
-    assert set(msgs[0]['data']['values']) == {"array", "start_time"}
+        api_obj = Damnit(db_dir)
+        np.testing.assert_array_equal(api_obj[56, "array"].read(), np.arange(10))
 
-    api_obj = Damnit(db_dir)
-    np.testing.assert_array_equal(api_obj[56, "array"].read(), np.arange(10))
+        sh.submit_and_combine(1234, 56, {"array": np.arange(15)})
 
-    # Overwrite the variable with a second fragment
-    with mock_kafka_broker.assert_produces(FILE_SUBMIT_TOPIC):
-        submit(
-            1234, 56, {"array": np.arange(15)}, provenance="test", damnit_dir=db_dir
+        np.testing.assert_array_equal(api_obj[56, "array"].read(), np.arange(15))
+
+
+def test_combiner_clears_previous_data(mock_db, mock_kafka_broker):
+    db_dir, db = mock_db
+    h5_path = db_dir / "extracted_data" / "p1234_r56.h5"
+
+    with SubmitHelper(mock_kafka_broker, db, db_dir) as sh:
+
+        sh.submit_and_combine(1234, 56, {
+            "array": np.arange(10),
+            "start_time": 1776335722,
+        })
+
+        with h5py.File(h5_path) as f:
+            assert "array" in f
+            assert ".reduced/array" in f
+            assert ".errors/array" not in f
+
+        sh.submit_and_combine(
+            1234, 56, {}, errors={"array": RuntimeError("boom")}
         )
 
-    with mock_kafka_broker.assert_produces(db.kafka_topic):
-        combiner.handle_one_message()
-        combiner.producer.flush(timeout=5)
+        with h5py.File(h5_path) as f:
+            assert "array" not in f
+            assert ".reduced/array" not in f
+            assert ".errors/array" in f
 
-    np.testing.assert_array_equal(api_obj[56, "array"].read(), np.arange(15))
+        attrs = db.conn.execute(
+            "SELECT attributes FROM run_variables WHERE proposal=? AND run=? AND name=?",
+            (1234, 56, "array"),
+        ).fetchone()[0]
+        assert json.loads(attrs) == {
+            "error": "boom",
+            "error_cls": "RuntimeError",
+        }
+
+        sh.submit_and_combine(
+            1234, 56, {"array": np.arange(15)},
+        )
+
+        with h5py.File(h5_path) as f:
+            assert "array" in f
+            assert ".reduced/array" in f
+            assert ".errors/array" not in f
+            np.testing.assert_array_equal(f["array/data"][()], np.arange(15))
+
+        attrs = db.conn.execute(
+            "SELECT attributes FROM run_variables WHERE proposal=? AND run=? AND name=?",
+            (1234, 56, "array"),
+        ).fetchone()[0]
+        assert attrs is None
+
+
+def test_combine_special_group_only(mock_db, mock_kafka_broker):
+    db_dir, db = mock_db
+    h5_path = db_dir / "extracted_data" / "p1234_r56.h5"
+
+    with SubmitHelper(mock_kafka_broker, db, db_dir) as sh:
+
+        sh.submit_and_combine(1234, 56,
+            {"summary_only": Cell(data=None, summary_value=7), "preview_only": Cell(data=None, preview=np.arange(4))},
+            errors={"error_only": Exception("boom")}
+        )
+
+        with h5py.File(h5_path) as f:
+            assert ".reduced/summary_only" in f
+            assert ".preview/preview_only" in f
+            assert ".errors/error_only" in f
+            assert "summary_only" not in f
+            assert "preview_only" not in f
+            assert "error_only" not in f
+            assert f[".reduced/summary_only"][()] == 7
+            np.testing.assert_array_equal(f[".preview/preview_only"][()], np.arange(4))
+            assert f[".errors/error_only"].asstr()[()] == "boom"
