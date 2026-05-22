@@ -508,6 +508,7 @@ class Damnit:
                 for the columns in the dataframe.
         """
         import pandas as pd
+
         df = pd.read_sql_query("""
             SELECT proposal, run, start_time, added_at
             FROM run_info
@@ -549,11 +550,16 @@ class Damnit:
         if not variable_data.empty:
             values_wide = variable_data.pivot(index=["proposal", "run"],
                                               columns="name",
-                                              values="value").reset_index()
-            # Keep run start time from `run_info`.
-            values_wide.drop(columns=["start_time"], errors="ignore", inplace=True)
-            df = df.merge(values_wide, on=["proposal", "run"], how="left")
-    
+                                              values="value")
+            missing_cells = variable_data.assign(_present=True).pivot(
+                index=["proposal", "run"], columns="name", values="_present"
+            ).isna()
+
+            for name in missing_cells.columns[missing_cells.any()]:
+                values_wide[name] = values_wide[name].astype(object)
+                values_wide.loc[missing_cells[name], name] = pd.NA
+            df = df.merge(values_wide.reset_index(), on=["proposal", "run"], how="left")
+
             for row in variable_data.itertuples(index=False):
                 if row.summary_type is not None:
                     key = (row.proposal, row.run)
@@ -595,72 +601,11 @@ class Damnit:
             renames["start_time"] = "Timestamp"
 
             df.rename(columns=renames, inplace=True)
+
         return df
 
     def __repr__(self):
         return f"<Damnit database for p{self.proposal}>"
-
-
-        - Images will be replaced with an `<image>` string.
-        - Runs that were pre-created through the GUI but never taken by the DAQ
-          will not be included.
-
-        Args:
-            with_titles (bool): Whether to use variable titles instead of names
-                for the columns in the dataframe.
-        """
-        import pandas as pd
-
-        df = pd.read_sql_query("SELECT * FROM runs", self._db.conn)
-
-        # Convert the start_time into a datetime column
-        start_time = pd.to_datetime(df["start_time"], unit="s", utc=True)
-        df["start_time"] = start_time.dt.tz_convert("Europe/Berlin")
-
-        # Delete added_at, this is internal
-        del df["added_at"]
-
-        # Ensure that there's always a comment column for consistency, it may
-        # not be present if no comments were made.
-        if "comment" not in df:
-            df.insert(3, "comment", None)
-
-        # interpret blobs
-        def blob2type(value, summary_type=None):
-            if isinstance(value, bytes):
-                if summary_type == "complex":
-                    return blob2complex(value)
-                match BlobTypes.identify(value):
-                    case BlobTypes.png | BlobTypes.numpy:
-                        return "<image>"
-                    case BlobTypes.unknown | _:
-                        return "<unknown>"
-            else:
-                return value
-
-        def interpret_blobs(row):
-            summary_types = self._db.conn.execute(
-                "SELECT name, summary_type FROM run_variables WHERE proposal=? AND run=? AND summary_type IS NOT NULL",
-                (row["proposal"], row["run"])).fetchall()
-            summary_types = { row[0]: row[1] for row in summary_types }
-
-            for col in row.keys():
-                row[col] = blob2type(row[col], summary_types.get(col))
-            return row
-
-        df = df.apply(interpret_blobs, axis=1)
-
-        # Use the full variable titles
-        if with_titles:
-            results = self._db.conn.execute("SELECT name, title FROM variables").fetchall()
-            renames = { row[0]: row[1] for row in results }
-            renames["proposal"] = "Proposal"
-            renames["run"] = "Run"
-            renames["start_time"] = "Timestamp"
-
-            df.rename(columns=renames, inplace=True)
-
-        return df
 
 
 def submit(proposal: int, run: int, variables, *, provenance,
