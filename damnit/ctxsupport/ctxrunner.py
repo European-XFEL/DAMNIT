@@ -763,6 +763,12 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO)
 
     if args.subcmd == "exec":
+        if args.mock:
+            log.info("Using mock run for testing")
+        log.info("proposal=%d, run=%d, run_data=%s, cluster_job=%s%s%s",
+                 args.proposal, args.run, args.run_data, args.cluster_job,
+                 f", match={args.match}" if args.match else "",
+                 f", var={args.var}" if args.var else "")
 
         pipe_whole = Pipeline.from_context_file(
             Path('context.py')
@@ -778,9 +784,13 @@ def main(argv=None):
             match=args.match,
             variables=args.var,
         )
-        log.info("Using %d variables (of %d) from context file %s",
-             len(sel.vars), len(pipe_whole.vars),
-             "" if args.cluster_job else "(cluster variables will be processed later)")
+        log.info(
+            "Using %d variables (of %d) from context file%s: %s",
+            len(sel.vars),
+            len(pipe_whole.vars),
+            "" if args.cluster_job else " (cluster variables will be processed later)",
+            sorted(sel.vars),
+        )
 
         if args.mock:
             res = sel.execute(data=mock_run())

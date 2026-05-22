@@ -296,6 +296,7 @@ class RunExtractor(Extractor):
                 for m in self.match:
                     args.extend(['--match', m])
 
+            log.debug("Running extraction subprocess with args:\n%s", args)
             p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
 
             while True:
@@ -375,13 +376,17 @@ def main(argv=None):
                            capture_output=True, check=True, text=True)
         username = p.stdout.strip()
 
-    print(f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {hostname} -----", file=sys.stderr)
-    log.info(f"run_data={args.run_data}, match={args.match}")
-    if args.mock:
-        log.info("Using mock run object for testing")
-    if args.cluster_job:
-        log.info("Extracting cluster variables in Slurm job %s",
-                 os.environ.get('SLURM_JOB_ID', '?'))
+    job_cluster = os.environ.get('SLURM_CLUSTER_NAME', '')
+    job_id = os.environ.get('SLURM_JOB_ID', '')
+    if job_id:
+        node_info = f"{hostname} (job id: {job_id}, cluster: {job_cluster})"
+    else:
+        node_info = f"{hostname} (subprocess)"
+
+    print(
+        f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {node_info} -----",
+        file=sys.stderr
+    )
 
     extr = RunExtractor(args.proposal, args.run,
                         cluster=args.cluster_job,
