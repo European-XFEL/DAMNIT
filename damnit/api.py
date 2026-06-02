@@ -499,6 +499,7 @@ class Damnit:
         displayed in the GUI:
 
         - Images will be replaced with an `<image>` string.
+        - Trendline summaries will be replaced with a `<sparkline>` string.
         - Runs that were pre-created through the GUI but never taken by the DAQ
           will not be included.
 
@@ -508,7 +509,66 @@ class Damnit:
         """
         import pandas as pd
 
-        df = pd.read_sql_query("SELECT * FROM runs", self._db.conn)
+        df = pd.read_sql_query("""
+            SELECT proposal, run, start_time, added_at
+            FROM run_info
+            WHERE start_time IS NOT NULL
+            ORDER BY proposal, run
+        """, self._db.conn)
+
+        # Get variable values from `run_variables` and pivot them into columns
+        variable_data = pd.read_sql_query("""
+            SELECT
+                v.proposal,
+                v.run,
+                v.name,
+                CASE
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'complex' THEN v.value
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'trendline' THEN '<sparkline>'
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'numpy' THEN '<ndarray>'
+                    -- If the summary type is missing, we assume the blobs are thumbnails (PNG or numpy)
+                    -- TODO: should we always add summary types for blobs in the future?
+                    WHEN typeof(v.value) = 'blob' AND (v.summary_type IS NULL OR v.summary_type = '') THEN '<thumbnail>'
+                    WHEN typeof(v.value) = 'blob' THEN '<blob>'
+                    ELSE v.value
+                END AS value,
+                v.summary_type
+            FROM run_variables AS v
+            INNER JOIN (
+                SELECT proposal, run, name, max(version) AS version
+                FROM run_variables
+                GROUP BY proposal, run, name
+            ) AS latest
+            ON latest.proposal = v.proposal
+            AND latest.run = v.run
+            AND latest.name = v.name
+            AND latest.version = v.version
+            ORDER BY v.proposal, v.run
+        """, self._db.conn)
+
+        summary_types_by_run = {}
+        if not variable_data.empty:
+            values_wide = variable_data.pivot(index=["proposal", "run"],
+                                              columns="name",
+                                              values="value")
+            missing_cells = variable_data.assign(_present=True).pivot(
+                index=["proposal", "run"], columns="name", values="_present"
+            ).isna()
+
+            for name in missing_cells.columns[missing_cells.any()]:
+                values_wide[name] = values_wide[name].astype(object)
+                values_wide.loc[missing_cells[name], name] = pd.NA
+            df = df.merge(values_wide.reset_index(), on=["proposal", "run"], how="left")
+
+            for row in variable_data.itertuples(index=False):
+                if row.summary_type is not None:
+                    key = (row.proposal, row.run)
+                    summary_types_by_run.setdefault(key, {})[row.name] = row.summary_type
+
+        # Keep all known variables as columns, even if they have no value yet.
+        for name in self._db.variable_names():
+            if name not in ("proposal", "run", "start_time", "added_at") and name not in df:
+                df[name] = None
 
         # Convert the start_time into a datetime column
         start_time = pd.to_datetime(df["start_time"], unit="s", utc=True)
@@ -522,27 +582,12 @@ class Damnit:
         if "comment" not in df:
             df.insert(3, "comment", None)
 
-        # interpret blobs
-        def blob2type(value, summary_type=None):
-            if isinstance(value, bytes):
-                if summary_type == "complex":
-                    return blob2complex(value)
-                match BlobTypes.identify(value):
-                    case BlobTypes.png | BlobTypes.numpy:
-                        return "<image>"
-                    case BlobTypes.unknown | _:
-                        return "<unknown>"
-            else:
-                return value
-
         def interpret_blobs(row):
-            summary_types = self._db.conn.execute(
-                "SELECT name, summary_type FROM run_variables WHERE proposal=? AND run=? AND summary_type IS NOT NULL",
-                (row["proposal"], row["run"])).fetchall()
-            summary_types = { row[0]: row[1] for row in summary_types }
+            summary_types = summary_types_by_run.get((row["proposal"], row["run"]), {})
 
             for col in row.keys():
-                row[col] = blob2type(row[col], summary_types.get(col))
+                if summary_types.get(col) == "complex":
+                    row[col] = blob2complex(row[col])
             return row
 
         df = df.apply(interpret_blobs, axis=1)
