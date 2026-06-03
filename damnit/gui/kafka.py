@@ -1,11 +1,11 @@
 import json
 import logging
 
-from kafka import KafkaConsumer, KafkaProducer
 from PyQt5 import QtCore
 
 from ..backend.db import MsgKind, msg_dict
-from ..definitions import update_brokers, UPDATE_TOPIC
+from ..definitions import UPDATE_TOPIC
+from ..util import kafka_producer, kafka_consumer
 
 log = logging.getLogger(__name__)
 
@@ -13,17 +13,11 @@ log = logging.getLogger(__name__)
 class UpdateAgent(QtCore.QObject):
     message = QtCore.pyqtSignal(object)
 
-    def __init__(self, db_id: str) -> None:
+    def __init__(self, db_id: str, dummy=False) -> None:
         QtCore.QObject.__init__(self)
         self.update_topic = UPDATE_TOPIC.format(db_id)
-
-        self.kafka_cns = KafkaConsumer(
-            self.update_topic, bootstrap_servers=update_brokers()
-        )
-        self.kafka_prd = KafkaProducer(
-            bootstrap_servers=update_brokers(),
-            value_serializer=lambda d: json.dumps(d).encode('utf-8')
-        )
+        self.kafka_prd = kafka_producer(dummy=dummy)
+        self.kafka_cns = kafka_consumer(self.update_topic, dummy=dummy)
         self.running = False
 
     def listen_loop(self) -> None:

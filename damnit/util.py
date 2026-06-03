@@ -1,9 +1,11 @@
+import json
 import sys
+import time
 from datetime import datetime, timezone
 
-import numpy as np
 import pandas as pd
-from pandas.api.types import infer_dtype
+
+from .definitions import update_brokers
 
 
 def timestamp2str(timestamp):
@@ -22,3 +24,49 @@ def isinstance_no_import(obj, mod: str, cls: str):
         return False
 
     return isinstance(obj, getattr(m, cls))
+
+
+class StubKafkaProducer:
+    def send(self, *args, **kwargs):
+        pass
+
+    def flush(self, *args, **kwargs):
+        pass
+
+    def close(self, *args, **kwargs):
+        pass
+
+
+def kafka_producer(dummy=False, **kwargs):
+    """Create a KafkaProducer, or a dummy
+
+    Pass dummy=True or set AMORE_BROKER=none to use the dummy
+    """
+    brokers = update_brokers()
+    if dummy or brokers == ["none"]:
+        return StubKafkaProducer()
+
+    from kafka import KafkaProducer
+    return KafkaProducer(
+        bootstrap_servers=update_brokers(),
+        value_serializer=lambda d: json.dumps(d).encode('utf-8')
+    )
+
+
+class StubKafkaConsumer:
+    def poll(self, timeout_ms=0, **kwargs):
+        time.sleep(timeout_ms / 1000)
+        return {}
+
+
+def kafka_consumer(*topics, dummy=False, **kwargs):
+    """Create a KafkaProducer, or a dummy
+
+    Pass dummy=True or set AMORE_BROKER=none to use the dummy
+    """
+    brokers = update_brokers()
+    if dummy or brokers == ["none"]:
+        return StubKafkaConsumer()
+
+    from kafka import KafkaConsumer
+    return KafkaConsumer(*topics, bootstrap_servers=brokers, **kwargs)

@@ -132,10 +132,6 @@ class GuiSubcmd(Subcommand):
             help="Either a proposal number or a database directory."
         )
         parser.add_argument(
-            '--no-kafka', action='store_true',
-            help="Don't try connecting to XFEL's Kafka broker"
-        )
-        parser.add_argument(
             "--software-opengl", action="store_true",
             help="Force software OpenGL. Use this if displaying interactive Plotly plots shows a black screen."
                  "Active by default on Maxwell if not started on a display node."
@@ -147,8 +143,7 @@ class GuiSubcmd(Subcommand):
 
         from .gui.main_window import run_app
         return run_app(context_dir,
-                       software_opengl=args.software_opengl,
-                       connect_to_kafka=not args.no_kafka)
+                       software_opengl=args.software_opengl)
 
 
 class ListenSubcmd(Subcommand):
@@ -404,16 +399,9 @@ class ReadctxSubcmd(Subcommand):
     help="Re-read the context file and update variables in the database"
 
     @staticmethod
-    def arguments(parser: argparse.ArgumentParser):
-        parser.add_argument(
-            '--no-kafka', action='store_true',
-            help="Don't try connecting to XFEL's Kafka broker"
-        )
-
-    @staticmethod
     def run(args: argparse.Namespace):
         from .backend.extract_data import Extractor
-        Extractor(connect_to_kafka=not args.no_kafka).update_db_vars()
+        Extractor().update_db_vars()
 
 
 class ProposalSubcmd(Subcommand):

@@ -64,17 +64,17 @@ def test_gui(monkeypatch):
     # Check passing neither a proposal number or directory
     with patch("damnit.gui.main_window.run_app") as run_app:
         main(["gui"])
-        run_app.assert_called_with(None, software_opengl=False, connect_to_kafka=ANY)
+        run_app.assert_called_with(None, software_opengl=False)
 
     # Check passing a proposal number
     with patch("damnit.gui.main_window.run_app") as run_app:
         main(["gui", "1234"])
-        run_app.assert_called_with(Path("/tmp/usr/Shared/amore"), software_opengl=False, connect_to_kafka=ANY)
+        run_app.assert_called_with(Path("/tmp/usr/Shared/amore"), software_opengl=False)
 
     # Check passing a directory
     with patch("damnit.gui.main_window.run_app") as run_app:
         main(["gui", "/tmp"])
-        run_app.assert_called_with(Path("/tmp"), software_opengl=False, connect_to_kafka=ANY)
+        run_app.assert_called_with(Path("/tmp"), software_opengl=False)
 
     # Check invalid argument
     with patch("damnit.gui.main_window.run_app") as run_app:
