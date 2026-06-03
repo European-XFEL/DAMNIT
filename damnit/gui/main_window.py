@@ -64,7 +64,7 @@ class MainWindow(QtWidgets.QMainWindow):
     db_id = None
     _columns_dialog = None
 
-    def __init__(self, context_dir: Path = None, background_activity=True):
+    def __init__(self, context_dir: Path, background_activity=True):
         super().__init__()
 
         # Background activity includes watching the context file & parsing it
@@ -98,8 +98,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tab_widget.addTab(self._editor_parent_widget, "Context file")
         self._tab_widget.currentChanged.connect(self.on_tab_changed)
 
-        # Disable the main window at first since we haven't loaded any database yet
-        self._tab_widget.setEnabled(False)
         self.setCentralWidget(self._tab_widget)
 
         self.save_context_finished.connect(self._save_context_finished)
@@ -113,8 +111,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.configure_editor()
         self.center_window()
 
-        if context_dir is not None:
-            self.autoconfigure(context_dir)
+        self.autoconfigure(context_dir)
 
         self._canvas_inspect = []
 
@@ -296,7 +293,6 @@ da-dev@xfel.eu"""
                                     [col_settings.get(col, True) for col in titles])
         self.plot.update_columns()
 
-        self._tab_widget.setEnabled(True)
         self.show_default_status_message()
         self.context_dir_changed.emit(str(path))
         if self._background_activity:
@@ -418,13 +414,9 @@ da-dev@xfel.eu"""
         self.action_create_var.setShortcut("Shift+U")
         self.action_create_var.setStatusTip("Create user editable variable")
         self.action_create_var.triggered.connect(self._menu_create_user_var)
-        self.action_create_var.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: self.action_create_var.setEnabled(True))
 
         self.action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
         self.action_export.setStatusTip("Export to Excel/CSV")
-        self.action_export.setEnabled(False)
-        self.context_dir_changed.connect(lambda _: self.action_export.setEnabled(True))
         self.action_export.triggered.connect(self.export_table)
         self.action_process = QtWidgets.QAction("Reprocess runs", self)
         self.action_process.triggered.connect(self.process_runs)
@@ -956,10 +948,6 @@ da-dev@xfel.eu"""
         self.editor_ctx_size_mtime = ctx_size_mtime or self.get_context_size_mtime()
 
     def save_value(self, prop, run, name, value):
-        if self.db is None:
-            log.warning("No SQLite database in use, value not saved")
-            return
-
         log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
         self.db.set_variable(prop, run, name, ReducedData(value), provenance="manual-input")
         self.update_agent.run_values_updated(prop, run, name)
