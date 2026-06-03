@@ -53,7 +53,6 @@ class Settings(Enum):
 
 class MainWindow(QtWidgets.QMainWindow):
 
-    context_dir_changed = QtCore.pyqtSignal(str)
     save_context_finished = QtCore.pyqtSignal(bool)  # True if saved
     check_context_file_timer = None
     vars_ctx_size_mtime = None
@@ -210,7 +209,7 @@ da-dev@xfel.eu"""
         )
         dialog.exec()
 
-    def _menu_bar_autoconfigure(self) -> None:
+    def _menu_bar_open(self) -> None:
         open_dialog = OpenDBDialog(self)
         context_dir, prop_no = open_dialog.run_get_result()
         if context_dir is None:
@@ -219,7 +218,8 @@ da-dev@xfel.eu"""
             # User said no to setting up a new database
             return
 
-        self.autoconfigure(context_dir)
+        new_window = MainWindow(context_dir)
+        new_window.show()
 
     def save_settings(self):
         self._settings_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +294,6 @@ da-dev@xfel.eu"""
         self.plot.update_columns()
 
         self.show_default_status_message()
-        self.context_dir_changed.emit(str(path))
         if self._background_activity:
             self.launch_update_computed_vars()
             self.start_watching_context_file()
@@ -397,14 +396,14 @@ da-dev@xfel.eu"""
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
 
-        action_autoconfigure = QtWidgets.QAction(
-            QtGui.QIcon("autoconfigure.png"), "Connect with &autoconfiguration", self
+        action_open = QtWidgets.QAction(
+            QtGui.QIcon("autoconfigure.png"), "Open &another DAMNIT folder", self
         )
-        action_autoconfigure.setShortcut("Shift+A")
-        action_autoconfigure.setStatusTip(
-            "Autoconfigure AMORE by selecting the proposal folder."
+        action_open.setShortcut("Shift+A")
+        action_open.setStatusTip(
+            "Open another DAMNIT proposal or folder in a new window."
         )
-        action_autoconfigure.triggered.connect(self._menu_bar_autoconfigure)
+        action_open.triggered.connect(self._menu_bar_open)
 
         self.action_create_var = QtWidgets.QAction(
             QtGui.QIcon.fromTheme("accessories-text-editor"),
@@ -438,7 +437,7 @@ da-dev@xfel.eu"""
         fileMenu = menu_bar.addMenu(
             QtGui.QIcon(icon_path("AMORE.png")), "&AMORE"
         )
-        fileMenu.addAction(action_autoconfigure)
+        fileMenu.addAction(action_open)
         fileMenu.addAction(self.action_create_var)
         fileMenu.addAction(self.action_process)
         fileMenu.addAction(self.action_export)
