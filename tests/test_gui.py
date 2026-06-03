@@ -25,7 +25,7 @@ from damnit.backend.db import DamnitDB, MsgKind, ReducedData
 from damnit.backend.extract_data import add_to_db
 from damnit.context import Pipeline
 from damnit.gui.editor import ContextTestResult
-from damnit.gui.main_window import AddUserVariableDialog, MainWindow
+from damnit.gui.main_window import AddUserVariableDialog, MainWindow, prompt_setup_db
 from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
@@ -449,10 +449,8 @@ def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
     db.set_variable(msg_data["proposal"], msg_data["run"], "scalar1", ReducedData(42), provenance="test")
     win.handle_update(msg)
 
-def test_autoconfigure(tmp_path, bound_port, request, qtbot):
+def test_prompt_setup_db(tmp_path, bound_port, request, qtbot):
     db_dir = tmp_path / "usr/Shared/amore"
-    win = MainWindow(None, False)
-    qtbot.addWidget(win)
     pkg = "damnit.gui.main_window"
     template_path = Path(damnit.__file__).parent / 'ctx-templates' / 'SA1_base.py'
 
@@ -460,31 +458,23 @@ def test_autoconfigure(tmp_path, bound_port, request, qtbot):
     def helper_patch():
         # Patch things such that the GUI thinks we're on GPFS trying to open
         # p1234, and the user always wants to create a database.
-        with (patch(f"{pkg}.OpenDBDialog.run_get_result", return_value=(db_dir, 1234)),
-              patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=(template_path, None)),
+        with (patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=(template_path, None)),
               patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
-              patch(f"{pkg}.initialize_proposal") as initialize_proposal,
-              patch.object(win, "autoconfigure")):
+              patch(f"{pkg}.initialize_proposal") as initialize_proposal):
             yield initialize_proposal
 
-    # Autoconfigure from scratch
+    # Set up a new DAMNIT directory
     with helper_patch() as initialize_proposal:
-        win._menu_bar_autoconfigure()
-
-        # We expect the database to be initialized
-        win.autoconfigure.assert_called_once_with(db_dir)
+        prompt_setup_db(db_dir, prop_no=1234)
         initialize_proposal.assert_called_once_with(db_dir, 1234, template_path, None)
 
     # Create the directory and database file to fake the database already existing
     db_dir.mkdir(parents=True)
-    DamnitDB.from_dir(db_dir, create=True)
+    DamnitDB.from_dir(db_dir, create=True).close()
 
     # Autoconfigure with database present
     with helper_patch() as initialize_proposal:
-        win._menu_bar_autoconfigure()
-
-        # We expect the database to be initialized
-        win.autoconfigure.assert_called_once_with(db_dir)
+        prompt_setup_db(db_dir, prop_no=1234)
         initialize_proposal.assert_not_called()
 
 def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qtbot):
@@ -510,8 +500,11 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
     with db.conn:
         add_to_db(reduced_data, db, proposal, run_number, provenance="test")
 
+    # Adds the variables to the db
+    for vv in mock_user_vars.values():
+        db.add_user_variable(vv, exist_ok=True)
 
-    win = MainWindow(background_activity=False)
+    win = MainWindow(db_dir, background_activity=False)
     win.show()
     qtbot.addWidget(win)
 
@@ -524,15 +517,6 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
 
     # Check that we found the actual menu
     assert create_user_menu is not None
-    # The menu should not be enabled if the context file is not loaded
-    assert not create_user_menu.isEnabled()
-
-    # Adds the variables to the db
-    for vv in mock_user_vars.values():
-        db.add_user_variable(vv, exist_ok=True)
-
-    # Loads the context file to do the other tests
-    win.autoconfigure(db_dir)
 
     # After loading a context file the menu should be enabled
     assert create_user_menu.isEnabled()
