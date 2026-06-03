@@ -75,14 +75,7 @@ def test_connect_to_kafka(mock_db, qtbot):
 
     with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
          patch(f"{pkg}.KafkaProducer") as kafka_prd:
-        win = MainWindow(db_dir, False)
-        qtbot.addWidget(win)
-        kafka_cns.assert_not_called()
-        kafka_prd.assert_not_called()
-
-    with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
-         patch(f"{pkg}.KafkaProducer") as kafka_prd:
-        win = MainWindow(db_dir, True)
+        win = MainWindow(db_dir, background_activity=False)
         qtbot.addWidget(win, before_close_func=lambda _: win.stop_update_listener_thread())
         kafka_cns.assert_called_once()
         kafka_prd.assert_called_once()
@@ -1056,7 +1049,7 @@ def test_exporting(mock_db_with_data, mock_kafka_broker, qtbot, monkeypatch, ext
     (db_dir / "context.py").write_text(ctx.code)
     extract_mock_run(1)
 
-    win = MainWindow(db_dir, connect_to_kafka=False)
+    win = MainWindow(db_dir)
     qtbot.addWidget(win)
 
     export_path = db_dir / f"export{extension}"
@@ -1070,13 +1063,13 @@ def test_exporting(mock_db_with_data, mock_kafka_broker, qtbot, monkeypatch, ext
     df = pd.read_excel(export_path) if extension == ".xlsx" else pd.read_csv(export_path)
     assert df["Image"][0] == "<image>"
 
-def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
+def test_delete_variable(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broker):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
     # We'll delete the 'array' variable
     assert "array" in db.variable_names()
-    win = MainWindow(db_dir, connect_to_kafka=False)
+    win = MainWindow(db_dir)
     qtbot.addWidget(win)
     tbl = win.table
     column_ids_before = [tbl.column_id(i) for i in range(tbl.columnCount())]
@@ -1111,7 +1104,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch):
         assert "array" not in f[".reduced"].keys()
 
 def test_delete_variable_with_tag_filter(
-    mock_db, tmp_path, qtbot, monkeypatch
+    mock_db, tmp_path, qtbot, monkeypatch, mock_kafka_broker
 ):
     def _visible_count(tv):
         count = 0
@@ -1128,7 +1121,7 @@ def test_delete_variable_with_tag_filter(
     monkeypatch.chdir(db_dir)
 
     with patch("pathlib.Path.home", return_value=tmp_path):
-        win = MainWindow(db_dir, connect_to_kafka=False)
+        win = MainWindow(db_dir, background_activity=False)
     qtbot.addWidget(win)
 
     table_view = win.table_view
@@ -1166,16 +1159,16 @@ def test_delete_variable_with_tag_filter(
     assert win.table_view.get_column_states() == expected_states
 
     with patch("pathlib.Path.home", return_value=tmp_path):
-        win2 = MainWindow(db_dir, connect_to_kafka=False)
+        win2 = MainWindow(db_dir)
     qtbot.addWidget(win2)
     assert win2.table_view.get_column_states() == expected_states
 
 
-def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch):
+def test_precreate_runs(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broker):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
 
-    win = MainWindow(db_dir, connect_to_kafka=False)
+    win = MainWindow(db_dir, background_activity=False)
     qtbot.addWidget(win)
     get_n_runs = lambda: db.conn.execute("SELECT COUNT(run) FROM runs").fetchone()[0]
     n_runs = get_n_runs()
@@ -1510,9 +1503,9 @@ def test_filter_menu(mock_db_with_data, qtbot):
     assert model.filters[thumb_col] == thumb_filter
 
 
-def test_processing_status(mock_db_with_data, qtbot):
+def test_processing_status(mock_db_with_data, qtbot, mock_kafka_broker):
     db_dir, db = mock_db_with_data
-    win = MainWindow(db_dir, connect_to_kafka=False)
+    win = MainWindow(db_dir, background_activity=False)
     qtbot.addWidget(win)
     tbl = win.table
 
@@ -1578,9 +1571,9 @@ def test_theme(mock_db, qtbot, tmp_path):
         assert win2.palette() != dark_palette  # Light theme should have different colors
 
 
-def test_filter_header(mock_db_with_data, qtbot):
+def test_filter_header(mock_db_with_data, qtbot, mock_kafka_broker):
     """Test that the filter header shows icons when filters are active."""
-    window = MainWindow(mock_db_with_data[0], connect_to_kafka=False)
+    window = MainWindow(mock_db_with_data[0], background_activity=False)
     qtbot.addWidget(window)
     window.show()
 
@@ -1945,7 +1938,7 @@ def test_variable_title_change(mock_db, mock_kafka_broker, monkeypatch, qtbot):
     old_title = "Scalar1"
     new_title = "Scalar1 updated"
 
-    win = MainWindow(db_dir)
+    win = MainWindow(db_dir, background_activity=False)
     qtbot.addWidget(win)
     qtbot.waitUntil(lambda: win.update_agent.running, timeout=1000)
 
