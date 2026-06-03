@@ -7,7 +7,6 @@ file (see ctxrunner.py).
 import argparse
 import copy
 import getpass
-import json
 import os
 import logging
 import pickle
@@ -24,10 +23,9 @@ from uuid import uuid4
 import h5py
 import numpy as np
 
-from kafka import KafkaProducer
-
 from ..context import ContextFile, Pipeline, RunData
-from ..definitions import update_brokers, FILE_SUBMIT_TOPIC
+from ..definitions import FILE_SUBMIT_TOPIC
+from ..util import kafka_producer
 from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
@@ -158,10 +156,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
 
 def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
     msg = file_submit_msg(damnit_dir, proposal, run, file_path)
-    prod = KafkaProducer(
-        bootstrap_servers=update_brokers(),
-        value_serializer=lambda d: json.dumps(d).encode('utf-8')
-    )
+    prod = kafka_producer()
     prod.send(FILE_SUBMIT_TOPIC, msg)
     prod.close(timeout=10)
 
@@ -183,15 +178,9 @@ def file_submit_msg(damnit_dir: Path, proposal: int, run: int, file_path: str):
 class Extractor:
     _proposal = None
 
-    def __init__(self, sandbox_args=None, connect_to_kafka=True):
+    def __init__(self, sandbox_args=None):
         self.db = DamnitDB()
-        if connect_to_kafka:
-            self.kafka_prd = KafkaProducer(
-                bootstrap_servers=update_brokers(),
-                value_serializer=lambda d: json.dumps(d).encode('utf-8'),
-            )
-        else:
-            self.kafka_prd = None
+        self.kafka_prd = kafka_producer()
 
         context_python = self.db.metameta.get("context_python")
         self.pipe_whole, error_info = get_context_file(
@@ -208,12 +197,11 @@ class Extractor:
     def update_db_vars(self):
         updates = self.db.update_computed_variables(self.pipe_whole.vars_to_dict())
 
-        if self.kafka_prd is not None:
-            for name, var in updates.items():
-                self.kafka_prd.send(self.db.kafka_topic, msg_dict(
-                    MsgKind.variable_set, {'name': name} | var
-                ))
-            self.kafka_prd.flush()
+        for name, var in updates.items():
+            self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+                MsgKind.variable_set, {'name': name} | var
+            ))
+        self.kafka_prd.flush()
 
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,

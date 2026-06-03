@@ -69,16 +69,25 @@ def assert_sends_update(win, broker):
     l.extend([json.loads(r.value) for r in new_records])
 
 
-def test_connect_to_kafka(mock_db, qtbot):
+def test_connect_to_kafka(mock_db, qtbot, monkeypatch):
     db_dir, db = mock_db
-    pkg = "damnit.gui.kafka"
 
-    with patch(f"{pkg}.KafkaConsumer") as kafka_cns, \
-         patch(f"{pkg}.KafkaProducer") as kafka_prd:
+    with patch(f"kafka.KafkaConsumer") as kafka_cns, \
+         patch(f"kafka.KafkaProducer") as kafka_prd:
         win = MainWindow(db_dir, background_activity=False)
-        qtbot.addWidget(win, before_close_func=lambda _: win.stop_update_listener_thread())
+        win.close()
+        qtbot.addWidget(win)
         kafka_cns.assert_called_once()
         kafka_prd.assert_called_once()
+
+    monkeypatch.setenv("AMORE_BROKER", "none")
+    with patch(f"kafka.KafkaConsumer") as kafka_cns, \
+         patch(f"kafka.KafkaProducer") as kafka_prd:
+        win = MainWindow(db_dir, background_activity=False)
+        win.close()
+        qtbot.addWidget(win)
+        kafka_cns.assert_not_called()
+        kafka_prd.assert_not_called()
 
 def test_editor(mock_db, mock_ctx, qtbot):
     db_dir, db = mock_db
@@ -86,17 +95,16 @@ def test_editor(mock_db, mock_ctx, qtbot):
     ctx_path.write_text(mock_ctx.code)
 
     win = MainWindow(db_dir, False)
-    win.show()
-    qtbot.addWidget(win)
-    editor = win._editor
-    status_bar = win._status_bar
-
     # If the context file is not saved, the window will prompt the user about
     # it. This makes the tests hang, so before closing the window we manually
     # mark the context as saved. Useful if a test fails for some reason while
     # the context is changed.
     qtbot.addWidget(win, before_close_func=lambda win: win.mark_context_saved())
+    win.show()
     qtbot.waitExposed(win)
+
+    editor = win._editor
+    status_bar = win._status_bar
 
     # Loading a database should also load the context file
     assert editor.text() == mock_ctx.code

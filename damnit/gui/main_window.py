@@ -64,10 +64,9 @@ class MainWindow(QtWidgets.QMainWindow):
     db_id = None
     _columns_dialog = None
 
-    def __init__(self, context_dir: Path = None, connect_to_kafka: bool = True, background_activity=True):
+    def __init__(self, context_dir: Path = None, background_activity=True):
         super().__init__()
 
-        self._connect_to_kafka = connect_to_kafka
         # Background activity includes watching the context file & parsing it
         # in a child process; it can be disabled to make unit testing easier.
         self._background_activity = background_activity
@@ -327,8 +326,6 @@ da-dev@xfel.eu"""
         proc.finished.connect(proc.deleteLater)
         proc.setWorkingDirectory(str(self.context_dir))
         read_context_args = ['-m', 'damnit.cli', 'read-context']
-        if not self._connect_to_kafka:
-            read_context_args.append("--no-kafka")
         proc.start(sys.executable, read_context_args)
         proc.closeWriteChannel()
         # The subprocess will send updates for any changes: see .handle_update()
@@ -377,8 +374,7 @@ da-dev@xfel.eu"""
         self.table_view.add_new_columns([title], [True], [before_pos - n_static_cols - 1])
         self.table.add_editable_column(name)
 
-        if self._connect_to_kafka:
-            self.update_agent.variable_set(name, title, description, variable_type)
+        self.update_agent.variable_set(name, title, description, variable_type)
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
@@ -615,9 +611,6 @@ da-dev@xfel.eu"""
 
 
     def _updates_thread_launcher(self) -> None:
-        if not self._connect_to_kafka:
-            return
-
         assert self.db_id is not None
 
         try:
@@ -626,6 +619,7 @@ da-dev@xfel.eu"""
             QtWidgets.QMessageBox.warning(self, "Broker connection failed",
                                           f"Could not connect to any Kafka brokers at: {' '.join(update_brokers())}\n\n" +
                                           "DAMNIT can operate offline, but it will not receive any updates from new or reprocessed runs.")
+            self.update_agent = UpdateAgent(self.db_id, dummy=True)
             return
 
         self._updates_thread = QtCore.QThread()
@@ -968,8 +962,7 @@ da-dev@xfel.eu"""
 
         log.debug("Saving data for variable %s for prop %d run %d", name, prop, run)
         self.db.set_variable(prop, run, name, ReducedData(value), provenance="manual-input")
-        if self._connect_to_kafka:
-            self.update_agent.run_values_updated(prop, run, name)
+        self.update_agent.run_values_updated(prop, run, name)
 
     def check_zulip_messenger(self):
         if not isinstance(self.zulip_messenger, ZulipMessenger):
@@ -1029,11 +1022,10 @@ da-dev@xfel.eu"""
                 self.show_status_message(
                     f"Launched processing for {len(reqs)} runs", 10_000
                 )
-                if self._connect_to_kafka:
-                    for req, (job_id, cluster) in zip(reqs, submitted):
-                        self.update_agent.processing_submitted(
-                            req.submitted_info(cluster, job_id)
-                        )
+                for req, (job_id, cluster) in zip(reqs, submitted):
+                    self.update_agent.processing_submitted(
+                        req.submitted_info(cluster, job_id)
+                    )
 
     adeqt_window = None
 
@@ -1237,7 +1229,7 @@ def prompt_setup_db(context_dir: Path, prop_no=None, parent=None):
     return True
 
 
-def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
+def run_app(context_dir, software_opengl=False):
     QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
@@ -1270,7 +1262,7 @@ def run_app(context_dir, software_opengl=False, connect_to_kafka=True):
     profile = QWebEngineProfile.defaultProfile()
     scheme_handler.install(profile)
 
-    window = MainWindow(context_dir=context_dir, connect_to_kafka=connect_to_kafka)
+    window = MainWindow(context_dir=context_dir)
     window.show()
     return application.exec()
 
