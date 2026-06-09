@@ -788,6 +788,7 @@ def test_add_to_db(mock_db):
     ).fetchone()
     assert json.loads(row["attributes"]) == {"background": [255, 0, 0]}
 
+
 def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
     db_dir, db = mock_db
 

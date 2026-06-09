@@ -346,7 +346,71 @@ class DamnitDB:
     def set_variable(
             self, proposal: int, run: int, name: str, reduced, provenance: str
     ):
+        self.set_variables(
+            proposal,
+            run,
+            {name: reduced},
+            provenance,
+        )
+
+    def set_variables(
+            self,
+            proposal: int,
+            run: int,
+            reduced_data: dict[str, ReducedData],
+            provenance: str,
+            *,
+            added_at: float=None,
+            start_time: float=None,
+    ):
         timestamp = datetime.now(tz=timezone.utc).timestamp()
+        rows = [
+            self._prepare_variable_row(
+                proposal, run, name, reduced, provenance, timestamp
+            )
+            for name, reduced in reduced_data.items()
+        ]
+
+        with time_db_transaction(self.conn, f"set_variables p{proposal} r{run}"):
+            self.ensure_run(
+                proposal,
+                run,
+                added_at=added_at,
+                start_time=start_time,
+            )
+            existing_variables = set(self.variable_names())
+
+            if rows:
+                # These columns should match those in the run_variables table
+                cols = [
+                    "proposal", "run", "name", "version", "value",
+                    "timestamp", "max_diff", "provenance", "summary_method",
+                    "summary_type", "attributes",
+                ]
+                col_list = ", ".join(cols)
+                col_values = ", ".join([f":{col}" for col in cols])
+                col_updates = ", ".join([f"{col} = :{col}" for col in cols])
+
+                self.conn.executemany(f"""
+                    INSERT INTO run_variables ({col_list})
+                    VALUES ({col_values})
+                    ON CONFLICT (proposal, run, name, version) DO UPDATE SET {col_updates}
+                """, rows)
+
+        if any(name not in existing_variables for name in reduced_data):
+            self.update_views()
+
+    def _prepare_variable_row(
+            self,
+            proposal: int,
+            run: int,
+            name: str,
+            reduced: ReducedData,
+            provenance: str,
+            timestamp: float,
+    ):
+        if not isinstance(reduced.value, (int, float, str, bytes, complex, np.ndarray, type(None))):
+            raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
 
         variable = asdict(reduced)
 
@@ -380,26 +444,8 @@ class DamnitDB:
         #     SELECT max(version) FROM run_variables
         #     WHERE proposal=? AND run=? AND name=?
         # """, (proposal, run, name)).fetchone()[0]
-        variable["version"] = 1 # if latest_version is None else latest_version + 1
-
-        # These columns should match those in the run_variables table
-        cols = ["proposal", "run", "name", "version", "value", "timestamp", "max_diff", "provenance", "summary_method", "summary_type", "attributes"]
-        col_list = ", ".join(cols)
-        col_values = ", ".join([f":{col}" for col in cols])
-        col_updates = ", ".join([f"{col} = :{col}" for col in cols])
-
-        with time_db_transaction(self.conn, f"set_variable {name}"):
-            existing_variables = self.variable_names()
-            is_new = name not in existing_variables
-
-            self.conn.execute(f"""
-                INSERT INTO run_variables ({col_list})
-                VALUES ({col_values})
-                ON CONFLICT (proposal, run, name, version) DO UPDATE SET {col_updates}
-            """, variable)
-
-            if is_new:
-                self.update_views()
+        variable["version"] = 1  # if latest_version is None else latest_version + 1
+        return variable
 
     def delete_variable(self, name: str):
         with self.conn:

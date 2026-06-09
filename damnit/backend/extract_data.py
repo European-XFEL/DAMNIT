@@ -130,7 +130,6 @@ def load_reduced_data(h5_path):
 
 
 def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
-    db.ensure_run(proposal, run)
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))
 
@@ -146,14 +145,14 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
 
     # Handle the start_time variable specially
     start_time = reduced_data.pop("start_time", None)
-    if start_time is not None:
-        db.ensure_run(proposal, run, start_time=start_time.value)
 
-    for name, reduced in reduced_data.items():
-        if not isinstance(reduced.value, (int, float, str, bytes, complex, np.ndarray, type(None))):
-            raise TypeError(f"Unsupported type for database: {type(reduced.value)}")
-
-        db.set_variable(proposal, run, name, reduced, provenance=provenance)
+    db.set_variables(
+        proposal,
+        run,
+        reduced_data,
+        provenance=provenance,
+        start_time=None if start_time is None else start_time.value,
+    )
 
 
 def notify_new_file(damnit_dir, proposal: int, run: int, file_path: str):
