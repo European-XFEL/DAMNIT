@@ -28,18 +28,9 @@ import extra_data
 import extra_proposal
 import h5py
 import numpy as np
-
 from damnit_ctx import (
-    Cell,
-    GroupBoundVariable,
-    GroupError,
-    Pipeline,
-    RunData,
-    Skip,
-    Variable,
-    _normalize_tags,
-    is_group_instance,
-    pipeline_scope,
+    Cell, GroupBoundVariable, GroupError, Pipeline, RunData, Skip, Variable,
+    _normalize_tags, is_group_instance, pipeline_scope
 )
 from damnit_exceptions import ContextFileErrors, DependencyError
 from damnit_writing import save_fragment

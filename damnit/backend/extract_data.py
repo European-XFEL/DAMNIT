@@ -7,8 +7,8 @@ file (see ctxrunner.py).
 import argparse
 import copy
 import getpass
-import os
 import logging
+import os
 import pickle
 import shlex
 import socket
@@ -26,7 +26,7 @@ import numpy as np
 from ..context import ContextFile, Pipeline, RunData
 from ..definitions import FILE_SUBMIT_TOPIC
 from ..util import kafka_producer
-from .db import DamnitDB, ReducedData, BlobTypes, MsgKind, msg_dict
+from .db import BlobTypes, DamnitDB, MsgKind, ReducedData, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 log = logging.getLogger(__name__)

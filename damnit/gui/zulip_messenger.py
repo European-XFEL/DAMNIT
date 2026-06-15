@@ -1,12 +1,12 @@
-import logging
-import traceback
-import requests
 import json
+import logging
 import re
-import pandas as pd
-
+import traceback
 from configparser import ConfigParser
-from PyQt5 import QtWidgets, QtCore
+
+import pandas as pd
+import requests
+from PyQt5 import QtCore, QtWidgets
 
 log = logging.getLogger(__name__)
 MSG_MAX_CHAR = 10000

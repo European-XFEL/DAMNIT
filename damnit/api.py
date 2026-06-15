@@ -147,6 +147,7 @@ class VariableData:
             dset = group["data"]
             if type_hint is DataType.PlotlyFigure:
                 import plotly.io as pio
+
                 # plotly figures are json serialized and saved as uint8 arrays
                 # to enable compression in HDF5
                 byte_array = dset[()].tobytes()

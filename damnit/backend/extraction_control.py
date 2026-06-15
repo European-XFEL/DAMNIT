@@ -18,8 +18,8 @@ from uuid import uuid4
 
 from extra_data.read_machinery import find_proposal
 
-from .db import DamnitDB
 from ..context import RunData
+from .db import DamnitDB
 
 log = logging.getLogger(__name__)
 

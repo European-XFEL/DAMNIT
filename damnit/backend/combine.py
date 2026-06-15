@@ -7,8 +7,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import h5py
 import h5netcdf
+import h5py
 import xarray as xr
 from kafka import KafkaConsumer, KafkaProducer
 from xarray.backends import H5NetCDFStore
@@ -16,7 +16,7 @@ from xarray.backends import H5NetCDFStore
 from ..context import DataType
 from ..definitions import FILE_SUBMIT_TOPIC, update_brokers
 from .db import DamnitDB, MsgKind, msg_dict
-from .extract_data import load_reduced_data, add_to_db
+from .extract_data import add_to_db, load_reduced_data
 from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")

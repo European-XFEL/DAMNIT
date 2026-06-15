@@ -7,7 +7,6 @@ from tempfile import mkstemp
 
 import h5py
 import numpy as np
-
 from damnit_ctx import Cell, isinstance_no_import
 
 OBJTYPE_ATTR = '_damnit_objtype'

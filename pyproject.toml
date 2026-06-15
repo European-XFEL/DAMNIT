@@ -87,6 +87,9 @@ filterwarnings = [
     "ignore:unclosed database in <sqlite3:ResourceWarning",
 ]
 
+[tool.isort]
+multi_line_output=5
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]

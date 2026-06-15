@@ -1,5 +1,4 @@
 import argparse
-
 import inspect
 import logging
 import os
@@ -10,9 +9,8 @@ import traceback
 from argparse import ArgumentParser
 from pathlib import Path
 
-from termcolor import colored
-
 from extra_data.read_machinery import find_proposal
+from termcolor import colored
 
 
 def excepthook(exc_type, value, tb):
@@ -444,6 +442,7 @@ class NewIdSubcmd(Subcommand):
     @staticmethod
     def run(args: argparse.Namespace):
         from secrets import token_hex
+
         from .backend.db import DamnitDB
 
         db = DamnitDB.from_dir(args.db_dir)

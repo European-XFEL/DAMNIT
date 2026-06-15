@@ -2,11 +2,12 @@ import logging
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QUrl
-from PyQt5.QtWebEngineCore import (QWebEngineUrlRequestJob,
-                                   QWebEngineUrlScheme,
-                                   QWebEngineUrlSchemeHandler)
-from PyQt5.QtWebEngineWidgets import (QWebEnginePage, QWebEngineProfile,
-                                      QWebEngineView)
+from PyQt5.QtWebEngineCore import (
+    QWebEngineUrlRequestJob, QWebEngineUrlScheme, QWebEngineUrlSchemeHandler
+)
+from PyQt5.QtWebEngineWidgets import (
+    QWebEnginePage, QWebEngineProfile, QWebEngineView
+)
 
 from ..api import Damnit
 from .widgets import QtWaitingSpinner

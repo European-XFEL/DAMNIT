@@ -23,7 +23,6 @@ from typing import Any
 import h5py
 import numpy as np
 import xarray as xr
-
 from damnit_exceptions import GroupError, Skip
 
 __all__ = [
@@ -309,8 +308,8 @@ class Cell:
 
         # If a summary wasn't specified, try some default fallbacks
         from damnit_writing import (
-            figure2png, plotly2png, generate_thumbnail, line_thumbnail,
-            downsample_line
+            downsample_line, figure2png, generate_thumbnail, line_thumbnail,
+            plotly2png
         )
         data = self.preview if (self.preview is not None) else self.data
         if isinstance(data, str):

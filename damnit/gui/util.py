@@ -6,6 +6,7 @@ from sklearn.neighbors import KernelDensity
 
 from ..context import add_to_h5_file
 
+
 class StatusbarStylesheet(Enum):
     NORMAL = "QStatusBar {}"
     ERROR = "QStatusBar {background: red; color: white; font-weight: bold;}"
