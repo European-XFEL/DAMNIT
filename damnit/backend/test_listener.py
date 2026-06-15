@@ -4,8 +4,8 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
-from damnit.backend.listener import EventProcessor
 from damnit.backend.extract_data import RunData
+from damnit.backend.listener import EventProcessor
 
 log = logging.getLogger(__name__)
 

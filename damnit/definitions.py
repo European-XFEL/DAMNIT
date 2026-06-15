@@ -1,5 +1,6 @@
 import os
 
+
 # Kafka for sending updates around
 def update_brokers():
     if "AMORE_BROKER" in os.environ:

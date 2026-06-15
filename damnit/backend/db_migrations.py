@@ -1,11 +1,10 @@
 import shutil
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 from typing import Callable, Iterable
-
-import sqlite3
 
 
 @dataclass(frozen=True)

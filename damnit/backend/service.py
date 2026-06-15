@@ -1,8 +1,9 @@
 """Utilities for running services"""
 
-import os
 import errno
+import os
 import socket
+
 
 def notify(message):
     if not message:

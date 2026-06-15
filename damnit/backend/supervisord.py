@@ -1,14 +1,13 @@
-import os
-import time
-import socket
-import secrets
-import logging
-import subprocess
 import configparser
+import logging
+import os
+import secrets
+import socket
+import subprocess
+import time
 from pathlib import Path
 
-from .db import db_path, DamnitDB
-
+from .db import DamnitDB, db_path
 
 log = logging.getLogger(__name__)
 

@@ -1,9 +1,12 @@
 import logging
 
-from PyQt5.QtCore import (QAbstractTableModel, QDateTime, QModelIndex, Qt,
-                          QVariant)
-from PyQt5.QtWidgets import (QDateTimeEdit, QDialog, QHBoxLayout, QLineEdit,
-                             QPushButton, QTableView, QVBoxLayout, QHeaderView)
+from PyQt5.QtCore import (
+    QAbstractTableModel, QDateTime, QModelIndex, Qt, QVariant
+)
+from PyQt5.QtWidgets import (
+    QDateTimeEdit, QDialog, QHBoxLayout, QHeaderView, QLineEdit, QPushButton,
+    QTableView, QVBoxLayout
+)
 
 log = logging.getLogger(__name__)
 

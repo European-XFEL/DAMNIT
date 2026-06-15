@@ -4,8 +4,8 @@ import h5py
 import numpy as np
 import xarray as xr
 
-from .backend.db import DamnitDB, DB_NAME
-from .backend.extract_data import add_to_db, ReducedData
+from .backend.db import DB_NAME, DamnitDB
+from .backend.extract_data import ReducedData, add_to_db
 from .context import DataType, add_to_h5_file, generate_thumbnail
 
 

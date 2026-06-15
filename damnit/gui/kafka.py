@@ -5,7 +5,7 @@ from PyQt5 import QtCore
 
 from ..backend.db import MsgKind, msg_dict
 from ..definitions import UPDATE_TOPIC
-from ..util import kafka_producer, kafka_consumer
+from ..util import kafka_consumer, kafka_producer
 
 log = logging.getLogger(__name__)
 
