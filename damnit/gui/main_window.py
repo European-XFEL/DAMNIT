@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import shelve
 import sys
@@ -18,7 +17,6 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
 from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
 from PyQt6.QtSvgWidgets import QSvgWidget
-from PyQt6.QtWebEngineCore import QWebEngineProfile
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
 from ..api import RunVariables
@@ -41,7 +39,7 @@ from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
 from .util import StatusbarStylesheet, icon_path
-from .web_viewer import PlotlyPlot, UrlSchemeHandler
+from .web_viewer import PlotlyPlot
 from .zulip_messenger import ZulipMessenger
 
 log = logging.getLogger(__name__)
@@ -138,7 +136,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.stop_update_listener_thread()
         self.stop_watching_context_file()
+        self.close_inspect_windows()
         super().closeEvent(event)
+
+    def close_inspect_windows(self):
+        for window in self._canvas_inspect:
+            window.close()
+            window.deleteLater()
+
+        self._canvas_inspect.clear()
 
     def stop_update_listener_thread(self):
         if self._updates_thread is not None:
@@ -1225,15 +1231,12 @@ def run_app(context_dir, software_opengl=False):
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
 
-    # Required for the WebViewer to load pages
-    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox'
-
     if software_opengl or re.match(r'^max-exfl\d{3}.desy.de$', gethostname()):
         log.info('Use software OpenGL.')
         QtWidgets.QApplication.setAttribute(
             Qt.ApplicationAttribute.AA_UseSoftwareOpenGL
         )
-        QQuickWindow.setSceneGraphBackend(QSGRendererInterface.Software)
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
 
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
@@ -1246,11 +1249,6 @@ def run_app(context_dir, software_opengl=False):
         if not prompt_setup_db(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
-
-    # configure webviewer url engine
-    scheme_handler = UrlSchemeHandler(parent=application)
-    profile = QWebEngineProfile.defaultProfile()
-    scheme_handler.install(profile)
 
     window = MainWindow(context_dir=context_dir)
     window.show()
