@@ -3,8 +3,12 @@ from itertools import pairwise
 
 import numpy as np
 from PyQt6.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QDoubleValidator
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QLineEdit, QHBoxLayout
+from PyQt6.QtGui import (
+    QBrush, QColor, QDoubleValidator, QPainter, QPen, QPixmap
+)
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+)
 from superqt import QDoubleRangeSlider
 from superqt.utils import signals_blocked
 

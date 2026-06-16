@@ -1,9 +1,12 @@
 import json
 import logging
 import re
+import requests
 import traceback
 from configparser import ConfigParser
-from PyQt6 import QtWidgets, QtCore
+
+import pandas as pd
+from PyQt6 import QtCore, QtWidgets
 
 log = logging.getLogger(__name__)
 MSG_MAX_CHAR = 10000
@@ -90,7 +93,8 @@ class ZulipMessenger():
         dialog.setWindowTitle("Error")
         dialog.setText(msg)
         dialog.exec()
-        
+
+
 # This class handles the zulip request within a QDialog. One instance is created
 # per right click action (from e.g. the table view or the plot canvas) 
 class ZulipConfig(QtWidgets.QDialog):    
@@ -277,6 +281,7 @@ class ZulipConfig(QtWidgets.QDialog):
             output_lines.append('|'.join(processed_cells))
 
         return '\n'.join(output_lines)
+
 
 class CheckableListWidget(QtWidgets.QWidget):
     def __init__(self, items, selected_columns):

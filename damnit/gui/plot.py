@@ -13,7 +13,7 @@ from matplotlib.colorbar import Colorbar
 from matplotlib.figure import Figure
 from mpl_pan_zoom import MouseButton, PanManager, zoom_factory
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import Qt, QObject
+from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter
 from PyQt6.QtWidgets import QMessageBox
 

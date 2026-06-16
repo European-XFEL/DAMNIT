@@ -10,8 +10,7 @@ import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import QProcess, Qt
-from PyQt6.QtGui import QCursor
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QCursor
 from PyQt6.QtWidgets import QMenu, QMessageBox
 from superqt.fonticon import icon
 from superqt.utils import qthrottled, signals_blocked

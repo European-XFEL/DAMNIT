@@ -2,10 +2,10 @@ import logging
 
 from PyQt6 import QtCore, QtWidgets
 from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QUrl
-from PyQt6.QtWebEngineCore import (QWebEnginePage, QWebEngineProfile,
-                                   QWebEngineUrlRequestJob,
-                                   QWebEngineUrlScheme,
-                                   QWebEngineUrlSchemeHandler)
+from PyQt6.QtWebEngineCore import (
+    QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestJob,
+    QWebEngineUrlScheme, QWebEngineUrlSchemeHandler
+)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from ..api import Damnit

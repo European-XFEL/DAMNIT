@@ -14,12 +14,11 @@ import xarray as xr
 from kafka.errors import NoBrokersAvailable
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.Qsci import QsciLexerPython, QsciScintilla
-from PyQt6.QtCore import Qt
-from PyQt6.QtCore import QTimer
-from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
-from PyQt6.QtWebEngineCore import QWebEngineProfile
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
+from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
 from PyQt6.QtSvgWidgets import QSvgWidget
+from PyQt6.QtWebEngineCore import QWebEngineProfile
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
 from ..api import RunVariables

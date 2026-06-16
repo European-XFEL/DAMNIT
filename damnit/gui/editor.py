@@ -9,10 +9,10 @@ from tempfile import NamedTemporaryFile
 
 from pyflakes.api import check as pyflakes_check
 from pyflakes.reporter import Reporter
-from PyQt6.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
-from PyQt6.QtCore import QKeyCombination, Qt, QProcess, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
 from PyQt6 import QtWidgets
+from PyQt6.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
+from PyQt6.QtCore import QKeyCombination, QProcess, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QFont
 from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file

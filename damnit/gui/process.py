@@ -2,11 +2,10 @@ import logging
 import re
 from pathlib import Path
 
+from extra_data.read_machinery import find_proposal
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialogButtonBox
-
-from extra_data.read_machinery import find_proposal
 from superqt import QSearchableListWidget
 
 from ..backend.extraction_control import ExtractionRequest

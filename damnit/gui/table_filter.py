@@ -9,15 +9,8 @@ from PyQt6 import QtCore
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QColor, QPixmap
 from PyQt6.QtWidgets import (
-    QCheckBox,
-    QHBoxLayout,
-    QListWidgetItem,
-    QMenu,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-    QWidgetAction,
-    QGroupBox,
+    QCheckBox, QGroupBox, QHBoxLayout, QListWidgetItem, QMenu, QPushButton,
+    QVBoxLayout, QWidget, QWidgetAction
 )
 from superqt import QSearchableListWidget as SuperQListWidget
 from superqt.fonticon import icon
