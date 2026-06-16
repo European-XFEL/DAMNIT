@@ -19,7 +19,6 @@ from ..backend.db import (
     BlobTypes, DamnitDB, ReducedData, blob2complex, blob2numpy
 )
 from ..backend.extraction_control import ExtractionJobTracker
-from ..backend.user_variables import value_types_by_name
 from ..util import timestamp2str
 from .roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
 from .table_filter import FilterMenu, FilterProxy, FilterStatus

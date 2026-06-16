@@ -358,7 +358,7 @@ da-dev@xfel.eu"""
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
         before_pos = n_static_cols
-        if before == None:
+        if before is None:
             before_pos += self.table_view.get_movable_columns_count()
         else:
             before_pos += before
@@ -511,7 +511,7 @@ da-dev@xfel.eu"""
     def scroll_to_run(self, run):
         try:
             run = int(run)
-        except:
+        except Exception:
             log.info("Invalid input when searching run.")
             return
 

@@ -52,7 +52,7 @@ class ContextFileCheckerThread(QThread):
         if self.context_python is None:
             try:
                 Pipeline.from_str(self.code)
-            except:
+            except Exception:
                 # Extract the error information
                 error_info = extract_error_info(*sys.exc_info())
 
@@ -65,7 +65,7 @@ class ContextFileCheckerThread(QThread):
 
                 try:
                     ctx, error_info = self.context_getter(ctx_path, self.context_python)
-                except:
+                except Exception:
                     # Not a failure to evalute the context file, but a failure
                     # to *attempt* to evaluate the context file (e.g. because of
                     # a missing dependency).

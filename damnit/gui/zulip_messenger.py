@@ -1,11 +1,11 @@
 import json
 import logging
 import re
-import requests
 import traceback
 from configparser import ConfigParser
 
 import pandas as pd
+import requests
 from PyQt6 import QtCore, QtWidgets
 
 log = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class ZulipMessenger():
         
         try: 
             response = requests.get(self.url + '/me', headers=headers, timeout=2)
-        except Exception as exc:
+        except Exception:
             log.error("Can't connect to Logbook proxy server." , exc_info=True)
             self.error_dialog("Can't connect to server.")
             return False

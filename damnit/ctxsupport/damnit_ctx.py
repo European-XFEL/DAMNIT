@@ -324,7 +324,7 @@ class Cell:
             zoom_ratio = min(1, THUMBNAIL_SIZE / max(image_shape))
             try:
                 return figure2png(data, dpi=(data.dpi * zoom_ratio))
-            except:
+            except Exception:
                 logging.error("Error generating thumbnail for %s", log_name, exc_info=True)
                 return "<thumbnail error>"
         elif isinstance_no_import(data, 'plotly.graph_objs', 'Figure'):
@@ -344,11 +344,11 @@ class Cell:
                     try:
                         # fall back to generating thumbnail
                         return line_thumbnail(data)
-                    except:
+                    except Exception:
                         logging.error(
                             "Error generating thumbnail for %s", log_name, exc_info=True)
                         return "<thumbnail error>"
-                except:
+                except Exception:
                     logging.error(
                         "Error generating trendline for %s", log_name, exc_info=True)
                     return "<trendline error>"
@@ -360,7 +360,7 @@ class Cell:
 
                 try:
                     return generate_thumbnail(data)
-                except:
+                except Exception:
                     logging.error("Error generating thumbnail for %s", log_name, exc_info=True)
                     return "<thumbnail error>"
             else:

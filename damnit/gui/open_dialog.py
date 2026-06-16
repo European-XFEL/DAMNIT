@@ -16,7 +16,7 @@ class ProposalFinder(QObject):
         if propnum.isdecimal() and len(propnum) >= 4:
             try:
                 dir = find_proposal(f"p{int(propnum):06}")
-            except:
+            except Exception:
                 dir = ''
         else:
             dir = ''

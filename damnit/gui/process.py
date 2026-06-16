@@ -65,7 +65,7 @@ def find_runs(runs: list[int], propnum: str) -> list[int]:
     try:
         prop_dir = Path(find_proposal(f"p{int(propnum):06}"))
         raw_runs = {p.name for p in (prop_dir / 'raw').iterdir()}
-    except:  # E.g. propnum is not numeric or permission denied
+    except Exception:  # E.g. propnum is not numeric or permission denied
         return []
 
     return [run for run in runs if f'r{run:04}' in raw_runs]
@@ -207,12 +207,11 @@ class ProcessingDialog(QtWidgets.QDialog):
             var_ids = ()
         else:
             var_ids = tuple(self.selected_vars())
-        l = [ExtractionRequest(r, prop, RunData.ALL, variables=var_ids)
-             for r in self.selected_runs]
-        for req in l[1:]:
+        requests = [ExtractionRequest(r, prop, RunData.ALL, variables=var_ids)
+                    for r in self.selected_runs]
+        for req in requests[1:]:
             req.update_vars = False
-        return l
-
+        return requests
 
 
 if __name__ == '__main__':

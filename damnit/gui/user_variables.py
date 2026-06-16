@@ -6,6 +6,10 @@ from ..backend.user_variables import value_types_by_name
 from .util import icon_path
 
 
+def format_text(text: str) -> str:
+    return f"<span style='color: gray; font-size: 10px;'>{text}</span>"
+
+
 class AddUserVariableDialog(QtWidgets.QDialog):
 
     formStatusChanged = QtCore.pyqtSignal(bool)
@@ -107,7 +111,6 @@ class AddUserVariableDialog(QtWidgets.QDialog):
     def _set_dynamic_type_information(self, current_type):
 
         label = self.variable_example
-        format_text = lambda x: f"<span style='color: gray; font-size: 10px;'>{x}</span>"
         cur_type_class = value_types_by_name[current_type]
         type_examples = cur_type_class.examples
         joined_examples = ', '.join(type_examples)
