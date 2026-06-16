@@ -13,7 +13,7 @@ class ThemeManager:
     @staticmethod
     def get_theme_palette(theme: Theme) -> QPalette:
         palette = QPalette()
-        
+
         if theme == Theme.DARK:
             # Dark theme colors
             palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
@@ -31,20 +31,8 @@ class ThemeManager:
             palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
         else:
             # Light theme colors
-            palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
-            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.black)
-            palette.setColor(QPalette.ColorRole.Base, Qt.GlobalColor.white)
-            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
-            palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
-            palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.black)
-            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.black)
-            palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
-            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.black)
-            palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
-            palette.setColor(QPalette.ColorRole.Link, QColor(0, 0, 255))
-            palette.setColor(QPalette.ColorRole.Highlight, QColor(48, 140, 198))
-            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
-        
+            pass
+
         return palette
 
     @staticmethod

@@ -37,7 +37,7 @@ class UrlSchemeHandler(QWebEngineUrlSchemeHandler):
         db_path = '/'.join(db_path)
         if db_path == '':
             db_path = int(proposal)
- 
+
         try:
             _data = Damnit(db_path)[int(run), name].preview_data()
         except Exception as ex:

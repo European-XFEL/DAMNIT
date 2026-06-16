@@ -37,7 +37,7 @@ def test_group_variable_reference():
 
     # group names aren't assigned yet
     assert group2.grp_ref.name is None
-    
+
     expand_groups({"group1": group1, "group2": group2,}, {"var": var})
 
     # now group names are assigned from context
@@ -116,7 +116,7 @@ def test_group_glob(mock_run):
     """
     ctx = mkcontext(code)
     results = ctx.execute(mock_run, 1000, 123, {})
-    
+
     assert ctx.vars["g.total"].arg_dependencies() == {"data": "blah.var_*"}
     assert set(ctx.vars) == {"blah.var_a", "blah.var_b", "g.total"}
     assert results.cells["g.total"].data == 3
@@ -1005,18 +1005,18 @@ def test_group_ambiguous_assignment_raises():
 def test_duplicate_group_var_name():
     code = """
     from damnit_ctx import Variable, Group
-    
+
     @Variable
     def dummy(run):
         return 42
     dummy.name = "g.var"
-    
+
     @Group
     class G:
         @Variable
         def var(self, run):
             return -42
-    
+
     g = G()
     """
     with pytest.raises(GroupError, match="Duplicate variable name"):

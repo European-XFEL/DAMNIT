@@ -69,7 +69,7 @@ class CommentModel(QAbstractTableModel):
         """Sort table by given column number."""
         self._sort_column = column
         self._sort_order = order
-        
+
         self.layoutAboutToBeChanged.emit()
         self._data = sorted(self._data,
                             key=lambda x: x[column],

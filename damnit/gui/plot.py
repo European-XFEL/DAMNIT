@@ -47,7 +47,7 @@ class PlotWindow(QtWidgets.QDialog):
             Qt.WindowType.WindowMaximizeButtonHint |
             Qt.WindowType.WindowCloseButtonHint
         )
-        
+
         self.main_window = parent
         self.layout = QtWidgets.QVBoxLayout(self)
 
@@ -142,23 +142,23 @@ class PlotWindow(QtWidgets.QDialog):
                 cursor.remove()
 
             self._cursors.clear()
-            
+
     def contextMenuEvent(self, event):
         self.menu = QtWidgets.QMenu(self)
         self.zulip_action = QtGui.QAction('Send plot to the Logbook', self)
         self.zulip_action.triggered.connect(self.export_plot_to_zulip)
         self.menu.addAction(self.zulip_action)
         self.menu.popup(QtGui.QCursor.pos())
-    
+
     def export_plot_to_zulip(self):
         zulip_ok = self.main_window.check_zulip_messenger()
         if not zulip_ok:
             return
-            
+
         _, path_name = tempfile.mkstemp()
         file_name = path_name + '.png'
         self.figure.savefig(file_name, dpi=150, bbox_inches = "tight")
-        
+
         with open(file_name, 'rb') as fn:
             self.main_window.zulip_messenger.send_figure(img = fn)
 
@@ -656,7 +656,7 @@ class PlottingControls:
 
         self.dialog = QtWidgets.QDialog(main_window)
         self.dialog.setWindowTitle("Plot Controls")
-        
+
         plot_vertical_layout = QtWidgets.QVBoxLayout()
         plot_horizontal_layout = QtWidgets.QHBoxLayout()
         plot_parameters_horizontal_layout = QtWidgets.QHBoxLayout()
@@ -703,7 +703,7 @@ class PlottingControls:
         plot_parameters_horizontal_layout.addWidget(self._toggle_probability_density)
 
         plot_vertical_layout.addLayout(plot_parameters_horizontal_layout)
-        
+
         self.dialog.setLayout(plot_vertical_layout)
         self.dialog.setVisible(False)
 

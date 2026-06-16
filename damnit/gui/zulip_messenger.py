@@ -22,43 +22,43 @@ class ZulipMessenger():
         self.ok = self.fetch_config()
         if not self.ok:
             return
-        
+
         self.last_topic = None
         self.ok = True
         self.selected_columns = []
-            
+
     def send_table(self, tb):
         config_dialog = ZulipConfig(self.main_window, self, table = tb, kind = 'table')
         config_dialog.exec()
-        
+
     def send_figure(self, img):
         config_dialog =  ZulipConfig(self.main_window, self, img=img, kind='figure')
         config_dialog.exec()
-        
+
     def fetch_config(self):
         if not self.config_path.is_file():
             self.error_dialog("Please provide a configuration file for the Logbook to enable posting data.")
             return False
-        
+
         config = ConfigParser()
         try:
             config.read(self.config_path)
             # Only mandatory fields should be in this block
             self.key = config['ZULIP']['key']
             self.url = config['ZULIP']['url']
-                        
+
         except Exception as exc:
             log.error(exc, exc_info=True)
             self.error_dialog("Malformed Logbook configuration file. Check the logs")
             return False 
-    
+
         if 'topics' in config['ZULIP']:
             self.topics = json.loads(config['ZULIP']['topics'])
         else:
             self.topics = self.fetch_topics()
-          
+
         return self.fetch_stream()  
-    
+
     def fetch_stream(self):
         # This is not only intend to fetch the stream name 
         # but also to check the serves' health
@@ -66,23 +66,23 @@ class ZulipMessenger():
            "accept": "application/json",
            "X-API-key" : self.key,
         }
-        
+
         try: 
             response = requests.get(self.url + '/me', headers=headers, timeout=2)
         except Exception:
             log.error("Can't connect to Logbook proxy server." , exc_info=True)
             self.error_dialog("Can't connect to server.")
             return False
-        
+
         if response.status_code == 200:
             response = json.loads(response.text)
             self.stream = response['stream']
             return True
-        
+
         log.error("Can't connect to Logbook proxy server. Receiving: " + response.text)
         self.error_dialog("Can't connect to server.")
         return False
-    
+
     def fetch_topics(self):
         # not yet implement, since there's some discussion on this yet. 
         # One could add the topics in the config file for the time being.
@@ -109,7 +109,7 @@ class ZulipConfig(QtWidgets.QDialog):
         self.img = img
         self.kind = kind
         self.table = table
-        
+
         self.setWindowTitle(f"Post {self.kind} on Logbook")
 
         layout = QtWidgets.QGridLayout()        
@@ -122,22 +122,22 @@ class ZulipConfig(QtWidgets.QDialog):
         self.output = QtWidgets.QPlainTextEdit()
         self.show_default_msg()
         self.output.setReadOnly(True)
-                
+
         self.edit_stream = QtWidgets.QLineEdit()
         self.edit_stream.setEnabled(False)
-        
+
         self._edit_topic = QtWidgets.QLineEdit()        
         self.edit_topic = QtWidgets.QComboBox()
         self.edit_topic.setEditable(True)
         self.edit_topic.setLineEdit(self._edit_topic)
         self.edit_topic.addItems(self.messenger.topics)
-                
+
         self.edit_title =  QtWidgets.QLineEdit()
-          
+
         self.edit_stream.setText(self.messenger.stream)
         if self.messenger.last_topic is not None:
             self._edit_topic.setText(self.messenger.last_topic)
-                        
+
         layout.addWidget(QtWidgets.QLabel("<b>Stream</b>"), 0, 0)
         layout.addWidget(self.edit_stream, 0, 1)
         layout.addWidget(QtWidgets.QLabel("<b>Topic</b>*"), 1, 0)
@@ -148,7 +148,7 @@ class ZulipConfig(QtWidgets.QDialog):
         layout.addWidget(self.cancel_button, 3, 0, 1, 1)
         layout.addWidget(self.ok_button, 3, 1, 1, 2)
         layout.addWidget(self.output, 4,0,1,3)
-        
+
         if self.kind == 'table':
             line_frame = QtWidgets.QFrame()
             line_frame.setFrameShape(QtWidgets.QFrame.Shape.VLine)
@@ -174,10 +174,10 @@ class ZulipConfig(QtWidgets.QDialog):
             columns_scroll_area.setWidget(self.columns)
             layout.addWidget(columns_scroll_area, 1, 4, 7, 2)
             layout.setColumnMinimumWidth(4, 300)
-        
+
         self.cancel_button.clicked.connect(self.reject)
         self.ok_button.clicked.connect(self.handle_form)
-        
+
     def show_msg(self, msg, level = 'error'):
         if level == 'error':
             self.output.setStyleSheet("""QPlainTextEdit { color: red };""")
@@ -187,29 +187,29 @@ class ZulipConfig(QtWidgets.QDialog):
             self.output.setStyleSheet("""QPlainTextEdit { color: gray };""")
 
         self.output.setPlainText(msg)
-        
+
     def show_default_msg(self):
         self.show_msg('Logs will be printed here', level='debug')
-    
+
     def handle_form(self):
         files = None 
         if self.kind == 'table':
             self.messenger.selected_columns = self.columns.get_selected_columns()
             _table = pd.DataFrame(self.table,columns=self.messenger.selected_columns)
             self.msg = self.split_md_table(_table)
-            
+
             if self.edit_title.text() != '':
                 self.msg[0] = f"### {self.edit_title.text()}" + "\n" + self.msg[0]
-                    
+
         if self.kind == "figure":
             self.msg = self.edit_title.text()
             files = { 'image' : self.img }
-        
+
         headers =  {
            "accept": "application/json",
            "X-API-key" : self.messenger.key,
         }
-        
+
         if not isinstance(self.msg, list):
             params = {'topic' : self.edit_topic.currentText()}
             data = {'content' : self.msg}
@@ -220,7 +220,7 @@ class ZulipConfig(QtWidgets.QDialog):
                 data = {'content' : msg}
                 print([len(i) for i in self.msg])
                 self._send_msg(headers, params, data, files)
-                
+
     def _send_msg(self, headers, params, data, files):
         try:         
             response = requests.post(self.messenger.url + '/send_message',
@@ -241,11 +241,11 @@ class ZulipConfig(QtWidgets.QDialog):
                 else:
                     log.error("Message not sent to Logbook: " + response['msg'])
                     self.show_msg(response['msg'])
-                    
+
             else:
                 self.show_msg(response.reason)
                 log.error("Message not sent to Logbook: " + response.reason)
-       
+
         except Exception as exc:
             self.show_msg(traceback.format_exc())
             log.error(exc, exc_info=True)

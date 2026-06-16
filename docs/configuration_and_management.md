@@ -115,7 +115,7 @@ the `var#<name>` annotation:
 def foo(run, run_no: "meta#run_number"):
     # Just return the run number
     return run_no
-    
+
 @Variable(title="bar")
 def bar(run, value: "var#foo"):
     # Now bar() will be executed after foo(), and we can use its return value
