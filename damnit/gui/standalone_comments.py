@@ -1,12 +1,9 @@
 import logging
 
-from PyQt5.QtCore import (
-    QAbstractTableModel, QDateTime, QModelIndex, Qt, QVariant
-)
-from PyQt5.QtWidgets import (
-    QDateTimeEdit, QDialog, QHBoxLayout, QHeaderView, QLineEdit, QPushButton,
-    QTableView, QVBoxLayout
-)
+from PyQt6.QtCore import (QAbstractTableModel, QDateTime, QModelIndex, Qt,
+                          QVariant)
+from PyQt6.QtWidgets import (QDateTimeEdit, QDialog, QHBoxLayout, QLineEdit,
+                             QPushButton, QTableView, QVBoxLayout, QHeaderView)
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +15,7 @@ class CommentModel(QAbstractTableModel):
         self._data = []
         self._headers = ['#', 'Timestamp', 'Comment']
         self._sort_column = 1  # Default sort by timestamp
-        self._sort_order = Qt.DescendingOrder
+        self._sort_order = Qt.SortOrder.DescendingOrder
         self.load_comments()
 
     def load_comments(self):
@@ -30,8 +27,8 @@ class CommentModel(QAbstractTableModel):
 
         self.layoutChanged.emit()
 
-    def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DisplayRole:
             row = index.row()
             col = index.column()
 
@@ -44,7 +41,7 @@ class CommentModel(QAbstractTableModel):
         return QVariant()
 
     def headerData(self, section, orientation, role):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
             return self._headers[section]
         return QVariant()
 
@@ -73,7 +70,7 @@ class CommentModel(QAbstractTableModel):
         self.layoutAboutToBeChanged.emit()
         self._data = sorted(self._data,
                             key=lambda x: x[column],
-                            reverse=(order == Qt.DescendingOrder))
+                            reverse=(order == Qt.SortOrder.DescendingOrder))
         self.layoutChanged.emit()
 
 
@@ -98,7 +95,7 @@ class TimeComment(QDialog):
         # Set word wrap for the comment column
         self.tableView.setWordWrap(True)
         # Ensure rows resize properly
-        self.tableView.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tableView.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
         # Dialog layout
         layout.addWidget(self.tableView)

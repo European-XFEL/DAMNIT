@@ -9,10 +9,10 @@ from tempfile import NamedTemporaryFile
 
 from pyflakes.api import check as pyflakes_check
 from pyflakes.reporter import Reporter
-from PyQt5 import QtWidgets
-from PyQt5.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
-from PyQt5.QtCore import QProcess, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt6.Qsci import QsciCommand, QsciLexerPython, QsciScintilla
+from PyQt6.QtCore import QKeyCombination, Qt, QProcess, QThread, pyqtSignal
+from PyQt6.QtGui import QFont
+from PyQt6 import QtWidgets
 from superqt.utils import signals_blocked
 
 from ..backend.extract_data import get_context_file
@@ -119,11 +119,14 @@ class Editor(QsciScintilla):
 
         # Set Ctrl + D to delete a line
         commands = self.standardCommands()
-        ctrl_d = commands.boundTo(Qt.ControlModifier | Qt.Key_D)
+        ctrl_d_key = QKeyCombination(
+            Qt.KeyboardModifier.ControlModifier, Qt.Key.Key_D
+        ).toCombined()
+        ctrl_d = commands.boundTo(ctrl_d_key)
         ctrl_d.setKey(0)
 
-        line_del = commands.find(QsciCommand.LineDelete)
-        line_del.setKey(Qt.ControlModifier | Qt.Key_D)
+        line_del = commands.find(QsciCommand.Command.LineDelete)
+        line_del.setKey(ctrl_d_key)
 
     def setText(self, p_str):
         # Rough attempt to restore the scroll position, should work for small changes

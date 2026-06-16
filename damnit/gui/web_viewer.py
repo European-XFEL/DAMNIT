@@ -1,13 +1,12 @@
 import logging
 
-from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QUrl
-from PyQt5.QtWebEngineCore import (
-    QWebEngineUrlRequestJob, QWebEngineUrlScheme, QWebEngineUrlSchemeHandler
-)
-from PyQt5.QtWebEngineWidgets import (
-    QWebEnginePage, QWebEngineProfile, QWebEngineView
-)
+from PyQt6 import QtCore, QtWidgets
+from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QUrl
+from PyQt6.QtWebEngineCore import (QWebEnginePage, QWebEngineProfile,
+                                   QWebEngineUrlRequestJob,
+                                   QWebEngineUrlScheme,
+                                   QWebEngineUrlSchemeHandler)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from ..api import Damnit
 from .widgets import QtWaitingSpinner
@@ -91,4 +90,3 @@ class PlotlyPlot(QtWidgets.QWidget):
             geom.setSize(QtCore.QSize(1024, 768))
             geom.moveCenter(self.main_window.geometry().center())
             QtCore.QTimer.singleShot(0, lambda: self.setGeometry(geom))
-

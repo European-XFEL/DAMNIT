@@ -3,10 +3,7 @@ import logging
 import re
 import traceback
 from configparser import ConfigParser
-
-import pandas as pd
-import requests
-from PyQt5 import QtCore, QtWidgets
+from PyQt6 import QtWidgets, QtCore
 
 log = logging.getLogger(__name__)
 MSG_MAX_CHAR = 10000
@@ -150,8 +147,8 @@ class ZulipConfig(QtWidgets.QDialog):
         
         if self.kind == 'table':
             line_frame = QtWidgets.QFrame()
-            line_frame.setFrameShape(QtWidgets.QFrame.VLine)
-            line_frame.setFrameShadow(QtWidgets.QFrame.Sunken)
+            line_frame.setFrameShape(QtWidgets.QFrame.Shape.VLine)
+            line_frame.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
             layout.addWidget(line_frame, 0, 3, 8, 1)
 
             self.columns = CheckableListWidget(self.table.columns, self.messenger.selected_columns)
@@ -290,7 +287,7 @@ class CheckableListWidget(QtWidgets.QWidget):
         for item in items:
             checkbox = QtWidgets.QCheckBox(item)
             if item in selected_columns:
-                checkbox.setCheckState(QtCore.Qt.Checked)
+                checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
 
             self.checkboxes.append(checkbox)
             layout.addWidget(checkbox)
@@ -303,14 +300,14 @@ class CheckableListWidget(QtWidgets.QWidget):
     def get_selected_columns(self):
         selected_columns = []
         for checkbox in self.checkboxes:
-            if checkbox.checkState() == QtCore.Qt.Checked:
+            if checkbox.checkState() == QtCore.Qt.CheckState.Checked:
                 selected_columns.append(checkbox.text())
         return selected_columns
 
     def select_all(self):
         for checkbox in self.checkboxes:
-            checkbox.setCheckState(QtCore.Qt.Checked)
+            checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
 
     def deselect_all(self):
         for checkbox in self.checkboxes:
-            checkbox.setCheckState(QtCore.Qt.Unchecked)
+            checkbox.setCheckState(QtCore.Qt.CheckState.Unchecked)

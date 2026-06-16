@@ -2,7 +2,7 @@
 from math import inf
 
 import numpy as np
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 
 from damnit.gui.widgets import PlotLineWidget, ValueRangeWidget
 

@@ -2,10 +2,11 @@ import logging
 import re
 from pathlib import Path
 
+from PyQt6 import QtWidgets
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialogButtonBox
+
 from extra_data.read_machinery import find_proposal
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialogButtonBox
 from superqt import QSearchableListWidget
 
 from ..backend.extraction_control import ExtractionRequest
@@ -100,7 +101,7 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.edit_runs = QtWidgets.QLineEdit(fmt_run_ranges(runs))
         self.edit_runs.textChanged.connect(self.validate_runs)
         self.runs_hint = QtWidgets.QLabel(RUNS_MSG)
-        self.runs_hint.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.runs_hint.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.runs_hint.setWordWrap(True)
         grid1.addWidget(QtWidgets.QLabel("Runs:"), 1, 0)
         grid1.addWidget(self.edit_runs, 1, 1)
@@ -120,16 +121,16 @@ class ProcessingDialog(QtWidgets.QDialog):
         hbox_select_btns.addWidget(self.btn_deselect_all)
         vbox2.addLayout(hbox_select_btns)
 
-        self.dlg_buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.dlg_buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+        self.dlg_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.dlg_buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
         self.dlg_buttons.accepted.connect(self.accept)
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
         for var_id, title in var_ids_titles:
             itm = QtWidgets.QListWidgetItem(title)
-            itm.setData(Qt.UserRole, var_id)
-            itm.setCheckState(Qt.Unchecked if var_id in deselected_vars else Qt.Checked)
+            itm.setData(Qt.ItemDataRole.UserRole, var_id)
+            itm.setCheckState(Qt.CheckState.Unchecked if var_id in deselected_vars else Qt.CheckState.Checked)
             self.vars_list.addItem(itm)
 
         self.vars_list.itemChanged.connect(self.validate_vars)
@@ -152,7 +153,7 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.validate()
 
     def validate_vars(self):
-        checks = [itm.checkState() == Qt.Checked for itm in self._var_list_items()]
+        checks = [itm.checkState() == Qt.CheckState.Checked for itm in self._var_list_items()]
         self.all_vars_selected = all_sel = all(checks)
         self.no_vars_selected = none_sel = not any(checks)
         self.btn_select_all.setEnabled(not all_sel)
@@ -161,7 +162,7 @@ class ProcessingDialog(QtWidgets.QDialog):
 
     def validate(self):
         valid = bool(self.selected_runs) and not self.no_vars_selected
-        self.dlg_buttons.button(QDialogButtonBox.Ok).setEnabled(valid)
+        self.dlg_buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(valid)
 
     def _var_list_items(self):
         for i in range(self.vars_list.count()):
@@ -169,18 +170,18 @@ class ProcessingDialog(QtWidgets.QDialog):
 
     def select_all(self):
         for itm in self._var_list_items():
-            itm.setCheckState(Qt.Checked)
+            itm.setCheckState(Qt.CheckState.Checked)
 
     def deselect_all(self):
         for itm in self._var_list_items():
-            itm.setCheckState(Qt.Unchecked)
+            itm.setCheckState(Qt.CheckState.Unchecked)
 
     def save_vars_selection(self):
         # We save the deselected variables, so new variables are selected
         global deselected_vars
         deselected_vars = {
-            itm.data(Qt.UserRole) for itm in self._var_list_items()
-            if itm.checkState() == Qt.Unchecked
+            itm.data(Qt.ItemDataRole.UserRole) for itm in self._var_list_items()
+            if itm.checkState() == Qt.CheckState.Unchecked
         }
 
     def accept(self):
@@ -196,8 +197,8 @@ class ProcessingDialog(QtWidgets.QDialog):
         return self.edit_prop.text()
 
     def selected_vars(self):
-        return [itm.data(Qt.UserRole) for itm in self._var_list_items()
-                if itm.checkState() == Qt.Checked]
+        return [itm.data(Qt.ItemDataRole.UserRole) for itm in self._var_list_items()
+                if itm.checkState() == Qt.CheckState.Checked]
 
     def extraction_requests(self) -> list[ExtractionRequest]:
         prop = int(self.proposal_num())
@@ -220,7 +221,7 @@ if __name__ == '__main__':
     dlg = ProcessingDialog("1234", [3, 4, 5, 6, 10],
         [("test_var", "Test variable"), ("n_trains", "Trains")]
     )
-    if dlg.exec() == QtWidgets.QDialog.Accepted:
+    if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
         print("Proposal:", dlg.proposal_num())
         print("Runs:", dlg.selected_runs)
         print("Variables:", dlg.selected_vars())

@@ -3,8 +3,8 @@ from socket import gethostname
 from typing import Optional, Tuple
 
 from extra_data.read_machinery import find_proposal
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 from .open_dialog_ui import Ui_Dialog
 

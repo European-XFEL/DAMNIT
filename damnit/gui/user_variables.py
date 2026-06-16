@@ -1,6 +1,6 @@
 import re
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ..backend.user_variables import value_types_by_name
 from .util import icon_path
@@ -64,7 +64,9 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.variable_title.textChanged.connect(lambda x: self._update_form_status('title', len(x) > 0))
         self.variable_name.textChanged.connect(lambda x: self._update_form_status('name', self.variable_name.hasAcceptableInput() > 0))
 
-        self.name_action = self.variable_name.addAction(self._icons["closed"], QtWidgets.QLineEdit.TrailingPosition)
+        self.name_action = self.variable_name.addAction(
+            self._icons["closed"], QtWidgets.QLineEdit.ActionPosition.TrailingPosition
+        )
         self.name_action.setToolTip("Set name manually")
 
         self.name_action.triggered.connect(self._set_field_status)
@@ -87,11 +89,11 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self.variable_type = QtWidgets.QComboBox()
 
         self.variable_example = QtWidgets.QLabel()
-        self.variable_example.setAlignment(self.variable_example.alignment() | QtCore.Qt.AlignRight)
+        self.variable_example.setAlignment(self.variable_example.alignment() | QtCore.Qt.AlignmentFlag.AlignRight)
 
         for ii, (kk, vv) in enumerate(value_types_by_name.items()):
             self.variable_type.addItem(kk)
-            self.variable_type.setItemData(ii, vv.description, QtCore.Qt.ToolTipRole)
+            self.variable_type.setItemData(ii, vv.description, QtCore.Qt.ItemDataRole.ToolTipRole)
 
         self._set_dynamic_type_information(self.variable_type.currentText())
 
@@ -116,7 +118,7 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         label_font.setPixelSize(10)
         metrics = QtGui.QFontMetrics(label_font)
 
-        clipped_text = metrics.elidedText(joined_examples, QtCore.Qt.ElideRight, label.width() - 5)
+        clipped_text = metrics.elidedText(joined_examples, QtCore.Qt.TextElideMode.ElideRight, label.width() - 5)
 
         label.setText(format_text(clipped_text))
         label.setToolTip(f'<b>Examples of values for type {current_type}</b>: {format_text(joined_examples)}')
@@ -191,4 +193,3 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         )
 
         self.accept()
-

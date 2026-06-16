@@ -1,7 +1,7 @@
 import textwrap
 from pathlib import Path
 
-from PyQt5 import QtGui, QtWidgets
+from PyQt6 import QtGui, QtWidgets
 
 from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import DamnitDB

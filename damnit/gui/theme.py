@@ -1,8 +1,8 @@
 from enum import Enum
 
-from PyQt5.Qsci import QsciLexerPython
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPalette
+from PyQt6.Qsci import QsciLexerPython
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QPalette
 
 
 class Theme(Enum):
@@ -16,22 +16,34 @@ class ThemeManager:
         
         if theme == Theme.DARK:
             # Dark theme colors
-            palette.setColor(QPalette.Window, QColor(53, 53, 53))
-            palette.setColor(QPalette.WindowText, Qt.white)
-            palette.setColor(QPalette.Base, QColor(35, 35, 35))
-            palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
-            palette.setColor(QPalette.ToolTipBase, QColor(35, 35, 35))
-            palette.setColor(QPalette.ToolTipText, Qt.white)
-            palette.setColor(QPalette.Text, Qt.white)
-            palette.setColor(QPalette.Button, QColor(53, 53, 53))
-            palette.setColor(QPalette.ButtonText, Qt.white)
-            palette.setColor(QPalette.BrightText, Qt.red)
-            palette.setColor(QPalette.Link, QColor(42, 130, 218))
-            palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
-            palette.setColor(QPalette.HighlightedText, Qt.black)
+            palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
+            palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35))
+            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(35, 35, 35))
+            palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
+            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
+            palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
+            palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
+            palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
         else:
-            # Light theme - use default system palette
-            pass
+            # Light theme colors
+            palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
+            palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.black)
+            palette.setColor(QPalette.ColorRole.Base, Qt.GlobalColor.white)
+            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
+            palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
+            palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.black)
+            palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.black)
+            palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+            palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.black)
+            palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
+            palette.setColor(QPalette.ColorRole.Link, QColor(0, 0, 255))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(48, 140, 198))
+            palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
         
         return palette
 
