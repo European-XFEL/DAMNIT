@@ -2,8 +2,8 @@ name: Tests
 
 on:
   push:
-    branches: [master]
-    tags: ["*"]
+    # branches: [master]
+    # tags: ["*"]
   pull_request:
 
 env:
