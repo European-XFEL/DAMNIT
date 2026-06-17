@@ -9,6 +9,7 @@ class Theme(Enum):
     LIGHT = "light"
     DARK = "dark"
 
+
 class ThemeManager:
     @staticmethod
     def get_theme_palette(theme: Theme) -> QPalette:
@@ -34,100 +35,6 @@ class ThemeManager:
             pass
 
         return palette
-
-    @staticmethod
-    def get_theme_stylesheet(theme: Theme) -> str:
-        if theme == Theme.DARK:
-            return """
-            QToolTip { 
-                color: #ffffff; 
-                background-color: #2a2a2a; 
-                border: 1px solid #767676; 
-            }
-            QTableView, QTreeView {
-                background-color: #232323;
-                alternate-background-color: #2a2a2a;
-                color: #ffffff;
-                gridline-color: #353535;
-            }
-            QHeaderView::section {
-                background-color: #353535;
-                color: #ffffff;
-                padding: 5px;
-            }
-            QTabWidget::pane {
-                border: 1px solid #353535;
-            }
-            QTabBar::tab {
-                background-color: #353535;
-                color: #ffffff;
-                padding: 8px 20px;
-            }
-            QTabBar::tab:selected {
-                background-color: #454545;
-            }
-            QScrollBar {
-                background-color: #2a2a2a;
-            }
-            QScrollBar::handle {
-                background-color: #454545;
-            }
-            QPlainTextEdit, QTextEdit {
-                background-color: #232323;
-                color: #ffffff;
-            }
-            QLineEdit {
-                background-color: #232323;
-                color: #ffffff;
-                padding: 5px;
-                border: 1px solid #353535;
-                border-radius: 2px;
-            }
-            QPushButton {
-                background-color: #353535;
-                color: #ffffff;
-                padding: 6px 12px;
-                border-radius: 2px;
-            }
-            QPushButton:hover {
-                background-color: #454545;
-            }
-            QPushButton:pressed {
-                background-color: #555555;
-            }
-            QComboBox {
-                background-color: #353535;
-                color: #ffffff;
-                padding: 5px;
-                border: 1px solid #454545;
-                border-radius: 2px;
-            }
-            QComboBox::down-arrow {
-                width: 12px;
-                height: 12px;
-            }
-            QMenu {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                border: 1px solid #353535;
-            }
-            QMenu::item:selected {
-                background-color: #454545;
-            }
-            QToolBar {
-                background-color: #353535;
-                color: #ffffff;
-            }
-            QToolButton {
-                background-color: #353535;
-                color: #ffffff;
-            }
-            QToolButton:hover {
-                background-color: #454545;
-            }
-            """
-        else:
-            return ""  # Use default system style for light theme
 
     @staticmethod
     def get_syntax_highlighting_colors(theme: Theme):

@@ -1563,6 +1563,7 @@ def test_theme(mock_db, qtbot, tmp_path):
 
         # Test theme toggle back to light
         win2._toggle_theme(False)
+        QApplication.processEvents()
         assert win2.current_theme == Theme.LIGHT
         assert win2.palette().color(QPalette.ColorRole.Window).name() != dark_window_color
 

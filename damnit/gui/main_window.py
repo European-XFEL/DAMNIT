@@ -83,7 +83,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Load theme from settings
         self.current_theme = self._load_theme()
-        self.apply_theme(self.current_theme)
 
         self._view_widget = QtWidgets.QWidget(self)
         self._editor = Editor()
@@ -174,7 +173,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar.messageChanged.connect(self.on_status_message_changed)
 
-        self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage("Autoconfigure AMORE.")
         self.setStatusBar(self._status_bar)
 
@@ -1041,32 +1039,24 @@ da-dev@xfel.eu"""
         self.current_theme = theme
         self._save_theme(theme)
 
-        app = QtWidgets.QApplication.instance()
-
         # Apply palette
         palette = ThemeManager.get_theme_palette(theme)
-        app.setPalette(palette)
-        self.setPalette(palette)
-
-        # Apply stylesheet
-        app.setStyleSheet(ThemeManager.get_theme_stylesheet(theme))
-
-        # Update status bar style
-        self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
+        QtWidgets.QApplication.instance().setPalette(palette)
+        # somehow the status bar needs special care...
+        sb = self.statusBar()
+        sb.style().unpolish(sb)
+        sb.style().polish(sb)
 
         # Update editor theme
-        if hasattr(self, '_editor'):
-            self._editor.update_theme(theme)
+        self._editor.update_theme(theme)
 
         # Update error widget lexer theme
-        if hasattr(self, '_error_widget_lexer'):
-            set_lexer_theme(self._error_widget_lexer, self.current_theme)
+        set_lexer_theme(self._error_widget_lexer, theme)
 
         # Update plot windows
-        if hasattr(self, '_canvas_inspect'):
-            for window in self._canvas_inspect:
-                if window.isVisible():
-                    window.update_theme(theme)
+        for window in self._canvas_inspect:
+            if window.isVisible():
+                window.update_theme(theme)
 
     def _load_theme(self):
         """Load theme setting from shelve file."""
