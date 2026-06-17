@@ -2,12 +2,12 @@ name: Tests
 
 on:
   push:
-    # branches: [master]
-    # tags: ["*"]
+    branches: [master]
+    tags: ["*"]
   pull_request:
 
 env:
-  SYSTEM_PACKAGES: gcc g++ xvfb qtbase5-dev
+  SYSTEM_PACKAGES: gcc g++ xvfb libegl1
 
 jobs:
   tests:
@@ -25,6 +25,7 @@ jobs:
       with:
         pixi-version: v0.70.0
         cache: true
+
     - run: pixi run test
 
     - name: Upload coverage reports to Codecov
