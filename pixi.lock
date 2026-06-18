@@ -624,7 +624,7 @@ packages:
   - extra-data ; extra == 'backend'
   - extra-proposal ; extra == 'backend'
   - ipython ; extra == 'backend'
-  - kafka-python ; extra == 'backend'
+  - kafka-python<3 ; extra == 'backend'
   - kaleido ; extra == 'backend'
   - matplotlib ; extra == 'backend'
   - numpy ; extra == 'backend'
