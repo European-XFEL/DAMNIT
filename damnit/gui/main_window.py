@@ -5,6 +5,7 @@ import sys
 from argparse import ArgumentParser
 from enum import Enum
 from pathlib import Path
+from pickle import UnpicklingError
 from socket import gethostname
 
 import h5py
@@ -268,7 +269,12 @@ da-dev@xfel.eu"""
             with shelve.open(str(self._settings_db_path)) as db:
                 key = str(self._context_path)
                 if key in db:
-                    stored_settings = db[key]
+                    try:
+                        stored_settings = db[key]
+                    except UnpicklingError:
+                        log.warning("Failed to read settings for %s", key)
+                        del db[key]
+                        stored_settings = {}
                     col_settings = stored_settings.get(Settings.COLUMNS.value, {})
                     column_widths = stored_settings.get(Settings.COLUMN_WIDTHS.value, {})
                     hierarchical_header = stored_settings.get(
