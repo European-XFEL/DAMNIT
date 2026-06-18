@@ -46,10 +46,10 @@ gui = [
     "mpl-pan-zoom",
     "natsort",
     "openpyxl",  # for spreadsheet export
-    "PyQt5",
-    "PyQtWebEngine",
+    "PyQt6",
+    "PyQt6-WebEngine",
     "pyflakes",  # for checking context file in editor
-    "QScintilla==2.13",
+    "PyQt6-QScintilla",
     "scikit-learn",
     "superqt",
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
@@ -105,4 +105,4 @@ test = { features = ["test", "backend", "gui"], solve-group = "default" }
 [tool.pixi.tasks]
 
 [tool.pixi.feature.test.tasks]
-test = "python -m pytest -v --cov=damnit --cov-report=xml"
+test = "QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg python -m pytest -v --cov=damnit --cov-report=xml"

@@ -38,7 +38,7 @@ def is_png_data(obj):
     # attribute.
     try:
         return obj.data.startswith(b'\x89PNG\r\n\x1a\n')
-    except:
+    except Exception:
         return False
 
 
@@ -179,7 +179,7 @@ def atomic_create_h5(dir, prefix):
             yield f
 
         os.replace(tmp_path, final_path)
-    except:
+    except Exception:
         os.unlink(tmp_path)
         raise
 

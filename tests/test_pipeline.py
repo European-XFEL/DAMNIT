@@ -563,7 +563,7 @@ def test_reuse_vars(mock_run):
     """
     ctx = mkcontext(code)
     res = ctx.execute(mock_run, 1, 1, {})
-    
+
     assert set(ctx.vars) == {'source', 'target'}
     assert res.cells['source'].data == 20
     assert res.cells['target'].data == 21

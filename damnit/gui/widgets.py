@@ -2,11 +2,11 @@ import math
 from itertools import pairwise
 
 import numpy as np
-from PyQt5.QtCore import QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import (
+from PyQt6.QtCore import QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
     QBrush, QColor, QDoubleValidator, QPainter, QPen, QPixmap
 )
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 )
 from superqt import QDoubleRangeSlider
@@ -23,7 +23,7 @@ class Arrow(QLabel):
         super().__init__()
 
         self.setMaximumHeight(20)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.open = True
         self.update()
@@ -51,7 +51,7 @@ class Arrow(QLabel):
 
         pixmap = QPixmap(img_path)
         self.setPixmap(
-            pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         )
 
 
@@ -283,7 +283,7 @@ class PlotLineWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Get widget dimensions
         w = self.width()
@@ -360,7 +360,7 @@ class ValueRangeWidget(QWidget):
             self.plot = PlotLineWidget(x, y)
 
             # Slider
-            self.slider = QDoubleRangeSlider(Qt.Horizontal)
+            self.slider = QDoubleRangeSlider(Qt.Orientation.Horizontal)
             self.slider.setRange(vmin, vmax)
             self.slider.setValue((vmin, vmax))
         else:
@@ -375,7 +375,7 @@ class ValueRangeWidget(QWidget):
 
         # Create and set validator for numerical input
         validator = QDoubleValidator()
-        validator.setNotation(QDoubleValidator.StandardNotation)
+        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
         self.min_input.setValidator(validator)
         self.max_input.setValidator(validator)
 

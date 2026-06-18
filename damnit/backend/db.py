@@ -115,7 +115,7 @@ class DamnitDB:
             # Use the Python environment the database was created under by default
             self.metameta.setdefault("damnit_python", sys.executable)
             self.metameta.setdefault("concurrent_jobs", 15)
-        
+
         data_format_version = int(self.metameta.get("data_format_version", 0))
 
         # apply migrations if needed

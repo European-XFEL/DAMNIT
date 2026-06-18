@@ -8,10 +8,10 @@ from numbers import Number
 
 import numpy as np
 from fonticon_fa6 import FA6S
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import QProcess, Qt
-from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QAction, QMenu, QMessageBox
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import QProcess, Qt
+from PyQt6.QtGui import QAction, QCursor
+from PyQt6.QtWidgets import QMenu, QMessageBox
 from superqt.fonticon import icon
 from superqt.utils import qthrottled, signals_blocked
 
@@ -19,7 +19,6 @@ from ..backend.db import (
     BlobTypes, DamnitDB, ReducedData, blob2complex, blob2numpy
 )
 from ..backend.extraction_control import ExtractionJobTracker
-from ..backend.user_variables import value_types_by_name
 from ..util import timestamp2str
 from .roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
@@ -38,12 +37,12 @@ def best_text_color(background: QtGui.QColor) -> QtGui.QColor:
         + background.green() * 587
         + background.blue() * 114
     ) / 1000
-    return QtGui.QColor(Qt.black) if brightness >= 186 else QtGui.QColor(Qt.white)
+    return QtGui.QColor(Qt.GlobalColor.black) if brightness >= 186 else QtGui.QColor(Qt.GlobalColor.white)
 
 
 class FilterHeaderView(QtWidgets.QHeaderView):
     def __init__(self, parent=None):
-        super().__init__(Qt.Horizontal, parent)
+        super().__init__(Qt.Orientation.Horizontal, parent)
         self.filtered_columns = set()
         self.filter_icon = icon(FA6S.filter)
         # Cache split titles per section so we only parse once per repaint
@@ -113,7 +112,7 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         option.text = ""
         option.section = logicalIndex
 
-        self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
+        self.style().drawControl(QtWidgets.QStyle.ControlElement.CE_HeaderSection, option, painter, self)
 
         if logicalIndex in self.filtered_columns:
             self._draw_filter_hint(painter, rect)
@@ -131,8 +130,8 @@ class FilterHeaderView(QtWidgets.QHeaderView):
 
         # Second pass overlays the text so parent bands can span multiple columns
         painter = QtGui.QPainter(self.viewport())
-        painter.setRenderHint(QtGui.QPainter.TextAntialiasing, True)
-        painter.setPen(self.palette().color(QtGui.QPalette.ButtonText))
+        painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing, True)
+        painter.setPen(self.palette().color(QtGui.QPalette.ColorRole.ButtonText))
 
         header_rect = self.viewport().rect()
         row_tops, row_heights = self._row_positions(header_rect)
@@ -143,7 +142,7 @@ class FilterHeaderView(QtWidgets.QHeaderView):
 
             levels = self._levels_by_section.get(logical_index)
             if levels is None:
-                title = self.model().headerData(logical_index, Qt.Horizontal, Qt.DisplayRole)
+                title = self.model().headerData(logical_index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
                 levels = self._split_title(title)
                 self._levels_by_section[logical_index] = levels
             for level_idx, text in enumerate(levels):
@@ -183,7 +182,7 @@ class FilterHeaderView(QtWidgets.QHeaderView):
                 painter.setClipRect(visible_rect)
                 painter.drawText(
                     text_rect,
-                    Qt.AlignVCenter | Qt.AlignHCenter | Qt.TextWordWrap,
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap,
                     text,
                 )
                 painter.restore()
@@ -194,7 +193,7 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         self.viewport().update()
 
     def _handle_header_change(self, orientation, _first, _last):
-        if orientation == Qt.Horizontal:
+        if orientation == Qt.Orientation.Horizontal:
             self._rebuild_hierarchy()
 
     def _handle_model_change(self, *args, **kwargs):
@@ -212,7 +211,7 @@ class FilterHeaderView(QtWidgets.QHeaderView):
 
         section_count = self.count()
         for index in range(section_count):
-            title = model.headerData(index, Qt.Horizontal, Qt.DisplayRole)
+            title = model.headerData(index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
             levels = self._split_title(title)
             self._levels_by_section[index] = levels
             max_levels = max(max_levels, len(levels))
@@ -353,9 +352,9 @@ class FilterHeaderView(QtWidgets.QHeaderView):
         self.initStyleOption(option)
         option.rect = rect
         option.text = ""
-        option.state |= QtWidgets.QStyle.State_Raised
-        option.state &= ~(QtWidgets.QStyle.State_Sunken | QtWidgets.QStyle.State_On)
-        self.style().drawControl(QtWidgets.QStyle.CE_HeaderSection, option, painter, self)
+        option.state |= QtWidgets.QStyle.StateFlag.State_Raised
+        option.state &= ~(QtWidgets.QStyle.StateFlag.State_Sunken | QtWidgets.QStyle.StateFlag.State_On)
+        self.style().drawControl(QtWidgets.QStyle.ControlElement.CE_HeaderSection, option, painter, self)
         painter.restore()
 
     def set_hierarchical_enabled(self, enabled: bool):
@@ -400,7 +399,7 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
         rect = option.rect
         color = self._provenance_color(provenance)
         painter.save()
-        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         # draw corner triangle
         x = rect.right()
         y = rect.top() + 1
@@ -421,7 +420,7 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
         opt.text = ""
 
         style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
-        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+        style.drawControl(QtWidgets.QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
 
         # Pixel bounds for the sparkline drawing area.
         rect = opt.rect.adjusted(2, 2, -2, -2)
@@ -472,7 +471,7 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
 
         # Draw the sparkline.
         painter.save()
-        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         line_color = QtGui.QColor(0, 120, 215)    # blue
         hover_line_color = QtGui.QColor(181, 181, 181)  # gray
         text_color = QtGui.QColor(0, 0, 0)        # black
@@ -562,14 +561,14 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
                 painter.setPen(text_color)
                 painter.drawText(
                     box_rect.adjusted(3, 2, -3, -2),
-                    Qt.AlignLeft | Qt.AlignVCenter,
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                     text,
                 )
         painter.restore()
 
     def _paint_with_units(self, painter, option, index):
         option = QtWidgets.QStyleOptionViewItem(option)
-        value = index.data(Qt.DisplayRole)
+        value = index.data(Qt.ItemDataRole.DisplayRole)
         if (units := index.data(UNITS_ROLE)) is None:
             super().paint(painter, option, index)
             return
@@ -579,14 +578,14 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
         # Draw everything except the text
         option.text = ""
         style = option.widget.style()
-        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, option, painter, option.widget)
+        style.drawControl(QtWidgets.QStyle.ControlElement.CE_ItemViewItem, option, painter, option.widget)
 
-        if option.state & QtWidgets.QStyle.State_Selected:
-            value_color = option.palette.color(QtGui.QPalette.HighlightedText)
-            unit_color = option.palette.color(QtGui.QPalette.HighlightedText)
+        if option.state & QtWidgets.QStyle.StateFlag.State_Selected:
+            value_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
+            unit_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
         else:
-            value_color = option.palette.color(QtGui.QPalette.Text)
-            unit_color = option.palette.color(QtGui.QPalette.Mid)
+            value_color = option.palette.color(QtGui.QPalette.ColorRole.Text)
+            unit_color = option.palette.color(QtGui.QPalette.ColorRole.Mid)
 
         doc = QtGui.QTextDocument()
         doc.setDefaultFont(option.font)
@@ -596,7 +595,7 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
         )
 
         # Get the exact text rect Qt would have used
-        text_rect = style.subElementRect(QtWidgets.QStyle.SE_ItemViewItemText, option, option.widget)
+        text_rect = style.subElementRect(QtWidgets.QStyle.SubElement.SE_ItemViewItemText, option, option.widget)
 
         painter.save()
         painter.translate(text_rect.topLeft())
@@ -639,11 +638,11 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget = QtWidgets.QListWidget()
         self._static_columns_widget = QtWidgets.QListWidget()
 
-        self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+        self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.InternalMove)
         self._columns_widget.itemChanged.connect(self.item_changed)
         self._columns_widget.model().rowsMoved.connect(self.item_moved)
 
-        self._columns_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._columns_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._columns_widget.customContextMenuRequested.connect(self.show_delete_menu)
 
         self._static_columns_widget.itemChanged.connect(self.item_changed)
@@ -651,13 +650,13 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
         self.context_menu = QtWidgets.QMenu(self)
-        self.zulip_action = QtWidgets.QAction('Export table to the Logbook', self)
+        self.zulip_action = QtGui.QAction('Export table to the Logbook', self)
         self.context_menu.addAction(self.zulip_action)
-        self.show_logs_action = QtWidgets.QAction('View processing logs')
+        self.show_logs_action = QtGui.QAction('View processing logs')
         self.show_logs_action.setEnabled(False)  # Enabled with selection
         self.show_logs_action.triggered.connect(self.show_run_logs)
         self.context_menu.addAction(self.show_logs_action)
-        self.process_action = QtWidgets.QAction('Reprocess runs')
+        self.process_action = QtGui.QAction('Reprocess runs')
         self.context_menu.addAction(self.process_action)
 
         # Add tag filtering support
@@ -690,7 +689,7 @@ class TableView(QtWidgets.QTableView):
         self.setHorizontalHeader(FilterHeaderView(self))
         header = self.horizontalHeader()
         header.set_hierarchical_enabled(self.hierarchical_header_enabled)
-        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self.show_horizontal_header_menu)
         header.sectionResized.connect(self._on_section_resized)
         # header.setSectionsMovable(True)  # TODO need to update variable order in the table / emit settings_changed
@@ -708,7 +707,7 @@ class TableView(QtWidgets.QTableView):
         self.model_updated.emit()
 
     def _set_sparkline_hover(self, index, t):
-        self.setCursor(Qt.BlankCursor)
+        self.setCursor(Qt.CursorShape.BlankCursor)
         old_index = self._sparkline_hover_index
         old_t = self._sparkline_hover_t
         if old_index == index and old_t == t:
@@ -721,7 +720,7 @@ class TableView(QtWidgets.QTableView):
             self.viewport().update(self.visualRect(index))
 
     def _clear_sparkline_hover(self):
-        self.setCursor(Qt.ArrowCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         if not self._sparkline_hover_index.isValid():
             self._sparkline_hover_t = None
             return
@@ -755,7 +754,7 @@ class TableView(QtWidgets.QTableView):
         if old_size == new_size:
             return
         header = self.horizontalHeader()
-        if header.sectionResizeMode(logical_index) == QtWidgets.QHeaderView.ResizeToContents:
+        if header.sectionResizeMode(logical_index) == QtWidgets.QHeaderView.ResizeMode.ResizeToContents:
             return
         self._queue_settings_changed()
 
@@ -776,7 +775,7 @@ class TableView(QtWidgets.QTableView):
 
     def item_changed(self, item):
         state = item.checkState()
-        self.set_column_visibility(item.text(), state == Qt.Checked)
+        self.set_column_visibility(item.text(), state == Qt.CheckState.Checked)
 
     def set_column_visibility(self, name, visible, for_restore=False, save_settings=True):
         """
@@ -800,15 +799,15 @@ class TableView(QtWidgets.QTableView):
 
         if for_restore:
             widget = self._columns_widget if \
-                len(self._columns_widget.findItems(name, Qt.MatchExactly)) == 1 else \
+                len(self._columns_widget.findItems(name, Qt.MatchFlag.MatchExactly)) == 1 else \
                 self._static_columns_widget
 
             # Try to find the column. Some, like 'comment_id' will not be in the
             # list shown to the user.
-            matching_items = widget.findItems(name, Qt.MatchExactly)
+            matching_items = widget.findItems(name, Qt.MatchFlag.MatchExactly)
             if len(matching_items) == 1:
                 item = matching_items[0]
-                item.setCheckState(Qt.Checked if visible else Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked)
         elif save_settings:
             self.settings_changed.emit()
 
@@ -824,7 +823,7 @@ class TableView(QtWidgets.QTableView):
                     continue
                 if width <= 0:
                     continue
-                if header.sectionResizeMode(logical_idx) == QtWidgets.QHeaderView.ResizeToContents:
+                if header.sectionResizeMode(logical_idx) == QtWidgets.QHeaderView.ResizeMode.ResizeToContents:
                     continue
                 self.setColumnWidth(logical_idx, int(width))
         finally:
@@ -860,9 +859,9 @@ class TableView(QtWidgets.QTableView):
                                      f"You are about to permanently delete the variable <b>'{name}'</b> "
                                      "from the database and HDF5 files. This cannot be undone. "
                                      "Are you sure you want to continue?",
-                                     QMessageBox.Yes | QMessageBox.No,
-                                     defaultButton=QMessageBox.No)
-        if button == QMessageBox.Yes:
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     defaultButton=QMessageBox.StandardButton.No)
+        if button == QMessageBox.StandardButton.Yes:
             model = self.damnit_model
             delete_variable(model.db, name)
             model.removeColumn(model.find_column(name, by_title=False))
@@ -878,7 +877,7 @@ class TableView(QtWidgets.QTableView):
 
             item = QtWidgets.QListWidgetItem(column)
             self._columns_widget.insertItem(position, item)
-            item.setCheckState(Qt.Checked if status else Qt.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if status else Qt.CheckState.Unchecked)
 
     def on_columns_inserted(self, _parent, first, last):
         titles = [self.damnit_model.column_title(i) for i in range(first, last + 1)]
@@ -924,9 +923,9 @@ class TableView(QtWidgets.QTableView):
             if column in STATIC_COLUMNS:
                 item = QtWidgets.QListWidgetItem(column)
                 self._static_columns_widget.addItem(item)
-                item.setCheckState(Qt.Checked if status else Qt.Unchecked)
-        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-                                                  QtWidgets.QSizePolicy.Minimum)
+                item.setCheckState(Qt.CheckState.Checked if status else Qt.CheckState.Unchecked)
+        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum,
+                                                  QtWidgets.QSizePolicy.Policy.Minimum)
 
         # Remove the static columns
         new_columns = []
@@ -945,7 +944,7 @@ class TableView(QtWidgets.QTableView):
         def add_column_states(widget):
             for row in range(widget.count()):
                 item = widget.item(row)
-                column_states[item.text()] = item.checkState() == Qt.Checked
+                column_states[item.text()] = item.checkState() == Qt.CheckState.Checked
 
         add_column_states(self._static_columns_widget)
         add_column_states(self._columns_widget)
@@ -1025,7 +1024,7 @@ class TableView(QtWidgets.QTableView):
             action.setChecked(tag in self._current_tag_filter)
             action.triggered.connect(lambda checked, t=tag: self._toggle_tag_filter(t))
 
-        menu.exec_(QtGui.QCursor.pos())
+        menu.exec(QtGui.QCursor.pos())
 
     def _toggle_tag_filter(self, tag_name: str):
         """Toggle a tag in the filter set and apply the filter."""
@@ -1089,11 +1088,11 @@ class TableView(QtWidgets.QTableView):
         menu.addSeparator()
         menu.addAction(filter_action)
 
-        sort_asc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.AscendingOrder))
-        sort_desc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.DescendingOrder))
+        sort_asc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.SortOrder.AscendingOrder))
+        sort_desc_action.triggered.connect(lambda: self.sortByColumn(index, Qt.SortOrder.DescendingOrder))
         filter_action.triggered.connect(lambda: FilterMenu(index, self.model(), self).popup(pos))
 
-        menu.exec_(pos)
+        menu.exec(pos)
 
     def set_hierarchical_header_enabled(self, enabled: bool, emit_signal=True):
         enabled = bool(enabled)
@@ -1152,7 +1151,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         # Set up status column with checkboxes for runs
         checkbox_proto = self.itemPrototype().clone()
         checkbox_proto.setCheckable(True)
-        checkbox_proto.setCheckState(Qt.Checked)
+        checkbox_proto.setCheckState(Qt.CheckState.Checked)
         for r in range(n_run_rows):
             self.setItem(r, 0, checkbox_proto.clone())
 
@@ -1211,8 +1210,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             sep = "\n" if tip else ""
         item.setToolTip(f"{tip}{sep}Provenance: {provenance}")
 
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.ToolTipRole:
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.ToolTipRole:
             if 0 <= section < len(self.column_ids):
                 return self.column_descriptions.get(self.column_ids[section])
             return None
@@ -1241,7 +1240,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def image_item(self, png_data: bytes):
         item = self.itemPrototype().clone()
-        item.setData(self.generateThumbnail(png_data), role=Qt.DecorationRole)
+        item.setData(self.generateThumbnail(png_data), role=Qt.ItemDataRole.DecorationRole)
         item.setToolTip(
             f'<img src="data:image/png;base64,{b64encode(png_data).decode()}">'
         )
@@ -1396,7 +1395,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         prop_it, run_it = self.item(row_ix, prop_col), self.item(row_ix, run_col)
         if prop_it is None:
             return None, None
-        return prop_it.data(Qt.UserRole), run_it.data(Qt.UserRole)
+        return prop_it.data(Qt.ItemDataRole.UserRole), run_it.data(Qt.ItemDataRole.UserRole)
 
     def precreate_runs(self, n_runs: int):
         proposal = self.db.metameta["proposal"]
@@ -1453,7 +1452,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
     def insert_run_row(self, proposal, run, items: dict):
         status_item = self.itemPrototype().clone()
         status_item.setCheckable(True)
-        status_item.setCheckState(Qt.Checked)
+        status_item.setCheckState(Qt.CheckState.Checked)
         row = [status_item, self.text_item(proposal), self.text_item(run)]
 
         for column_id in self.column_ids[3:]:
@@ -1607,7 +1606,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         pixmap = QtGui.QPixmap()
         pixmap.loadFromData(data, "PNG")
         if pixmap.width() > THUMBNAIL_SIZE[0] or pixmap.height() > THUMBNAIL_SIZE[1]:
-            pixmap = pixmap.scaled(*THUMBNAIL_SIZE, Qt.KeepAspectRatio)
+            pixmap = pixmap.scaled(*THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio)
         return pixmap
 
     def numbers_for_plotting(self, *cols, by_title=True):
@@ -1615,7 +1614,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         res = [[]  for _ in cols]
         for r in range(self.rowCount()):
             status_item = self.item(r, 0)
-            if status_item is None or status_item.checkState() != Qt.Checked:
+            if status_item is None or status_item.checkState() != Qt.CheckState.Checked:
                 continue
 
             vals = [self.get_value_at_rc(r, ci) for ci in col_ixs]
@@ -1627,11 +1626,11 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
     def get_value_at(self, index):
         """Get the value for programmatic use, not for display"""
-        return self.itemFromIndex(index).data(Qt.UserRole)
+        return self.itemFromIndex(index).data(Qt.ItemDataRole.UserRole)
 
     def get_value_at_rc(self, row, col):
         item = self.item(row, col)
-        return item.data(Qt.UserRole) if item is not None else None
+        return item.data(Qt.ItemDataRole.UserRole) if item is not None else None
 
     # QStandardItemModel assumes empty cells (no item) can be edited, regardless
     # of itemPrototype. This override prevents editing empty cells.
@@ -1642,7 +1641,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             if itm is not None:
                 return itm.flags()
 
-        return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled |Qt.ItemIsDropEnabled
+        return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsDragEnabled |Qt.ItemFlag.ItemIsDropEnabled
 
     def setData(self, index, value, role=None) -> bool:
         if not index.isValid():
@@ -1710,7 +1709,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             for col_ix in column_ixs:
                 for row_ix in range(self.rowCount()):
                     item = self.item(row_ix, col_ix)
-                    if item and is_png_bytes(item.data(Qt.UserRole)):
+                    if item and is_png_bytes(item.data(Qt.ItemDataRole.UserRole)):
                         break
                 else:
                     filtered_ixs.append(col_ix)
@@ -1735,10 +1734,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
                 item = self.item(row_ix, col_ix)
                 if self.column_ids[col_ix] == 'start_time':
                     # Include timestamp as string
-                    val = item and item.data(Qt.DisplayRole)
+                    val = item and item.data(Qt.ItemDataRole.DisplayRole)
                 else:
-                    val = item and item.data(Qt.UserRole)
-                    if val is None and item and item.data(Qt.DecorationRole):
+                    val = item and item.data(Qt.ItemDataRole.UserRole)
+                    if val is None and item and item.data(Qt.ItemDataRole.DecorationRole):
                         val = "<image>"
                     if val is None and item and item.data(LINE_DATA_ROLE) is not None:
                         val = "<trendline>"
@@ -1757,7 +1756,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
         df = pd.DataFrame(cols_dict)
 
-        row_labels = [self.headerData(r, Qt.Vertical) for r in rows]
+        row_labels = [self.headerData(r, Qt.Orientation.Vertical) for r in rows]
         df.index = row_labels
 
         return df

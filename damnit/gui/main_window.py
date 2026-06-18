@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import shelve
 import sys
@@ -12,12 +11,13 @@ import h5py
 import numpy as np
 import xarray as xr
 from kafka.errors import NoBrokersAvailable
-from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
-from PyQt5.Qsci import QsciLexerPython, QsciScintilla
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtQuick import QQuickWindow, QSGRendererInterface
-from PyQt5.QtWebEngineWidgets import QWebEngineProfile
-from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox, QTabWidget
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.Qsci import QsciLexerPython, QsciScintilla
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QAction
+from PyQt6.QtQuick import QQuickWindow, QSGRendererInterface
+from PyQt6.QtSvgWidgets import QSvgWidget
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
 from ..api import RunVariables
 from ..backend import initialize_proposal
@@ -39,7 +39,7 @@ from .table import DamnitTableModel, TableView, prettify_notation
 from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
 from .util import StatusbarStylesheet, icon_path
-from .web_viewer import PlotlyPlot, UrlSchemeHandler
+from .web_viewer import PlotlyPlot
 from .zulip_messenger import ZulipMessenger
 
 log = logging.getLogger(__name__)
@@ -83,12 +83,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Load theme from settings
         self.current_theme = self._load_theme()
-        self.apply_theme(self.current_theme)
 
         self._view_widget = QtWidgets.QWidget(self)
         self._editor = Editor()
         self._error_widget = QsciScintilla()
-        self._editor_parent_widget = QtWidgets.QSplitter(Qt.Vertical)
+        self._editor_parent_widget = QtWidgets.QSplitter(Qt.Orientation.Vertical)
 
         self._tab_widget = QTabWidget()
         self._tabbar_style = TabBarStyle()
@@ -124,19 +123,27 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         if not self._context_is_saved:
-            dialog = QMessageBox(QMessageBox.Warning,
+            dialog = QMessageBox(QMessageBox.Icon.Warning,
                                  "Warning - unsaved changes",
                                  "There are unsaved changes to the context, do you want to go back and save?",
-                                 QMessageBox.Discard | QMessageBox.Cancel)
+                                 QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
             result = dialog.exec()
 
-            if result == QMessageBox.Cancel:
+            if result == QMessageBox.StandardButton.Cancel:
                 event.ignore()
                 return
 
         self.stop_update_listener_thread()
         self.stop_watching_context_file()
+        self.close_inspect_windows()
         super().closeEvent(event)
+
+    def close_inspect_windows(self):
+        for window in self._canvas_inspect:
+            window.close()
+            window.deleteLater()
+
+        self._canvas_inspect.clear()
 
     def stop_update_listener_thread(self):
         if self._updates_thread is not None:
@@ -166,7 +173,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status_bar.messageChanged.connect(self.on_status_message_changed)
 
-        self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
         self._status_bar.showMessage("Autoconfigure AMORE.")
         self.setStatusBar(self._status_bar)
 
@@ -283,7 +289,7 @@ da-dev@xfel.eu"""
         header = self.table_view.horizontalHeader()
         for column in ["Status", "Proposal", "Run", "Timestamp"]:
             column_index = self.table.find_column(column, by_title=True)
-            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(column_index, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         header.setVisible(True)
         self.table_view.apply_column_widths(column_widths)
 
@@ -356,7 +362,7 @@ da-dev@xfel.eu"""
     def add_variable(self, name, title, variable_type, description="", before=None):
         n_static_cols = self.table_view.get_static_columns_count()
         before_pos = n_static_cols
-        if before == None:
+        if before is None:
             before_pos += self.table_view.get_movable_columns_count()
         else:
             before_pos += before
@@ -396,7 +402,7 @@ da-dev@xfel.eu"""
         menu_bar = self.menuBar()
         menu_bar.setNativeMenuBar(False)
 
-        action_open = QtWidgets.QAction(
+        action_open = QtGui.QAction(
             QtGui.QIcon("autoconfigure.png"), "Open &another DAMNIT folder", self
         )
         action_open.setShortcut("Shift+A")
@@ -405,7 +411,7 @@ da-dev@xfel.eu"""
         )
         action_open.triggered.connect(self._menu_bar_open)
 
-        self.action_create_var = QtWidgets.QAction(
+        self.action_create_var = QtGui.QAction(
             QtGui.QIcon.fromTheme("accessories-text-editor"),
             "&Create user variable",
             self
@@ -414,22 +420,22 @@ da-dev@xfel.eu"""
         self.action_create_var.setStatusTip("Create user editable variable")
         self.action_create_var.triggered.connect(self._menu_create_user_var)
 
-        self.action_export = QtWidgets.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
+        self.action_export = QtGui.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
         self.action_export.setStatusTip("Export to Excel/CSV")
         self.action_export.triggered.connect(self.export_table)
-        self.action_process = QtWidgets.QAction("Reprocess runs", self)
+        self.action_process = QtGui.QAction("Reprocess runs", self)
         self.action_process.triggered.connect(self.process_runs)
 
-        action_adeqt = QtWidgets.QAction("Python console", self)
+        action_adeqt = QtGui.QAction("Python console", self)
         action_adeqt.setShortcut("F12")
         action_adeqt.triggered.connect(self.show_adeqt)
 
-        action_help = QtWidgets.QAction(QtGui.QIcon("help.png"), "&Help", self)
+        action_help = QtGui.QAction(QtGui.QIcon("help.png"), "&Help", self)
         action_help.setShortcut("Shift+H")
         action_help.setStatusTip("Get help.")
         action_help.triggered.connect(self._menu_bar_help)
 
-        action_exit = QtWidgets.QAction(QtGui.QIcon("exit.png"), "&Exit", self)
+        action_exit = QtGui.QAction(QtGui.QIcon("exit.png"), "&Exit", self)
         action_exit.setShortcut("Ctrl+Q")
         action_exit.setStatusTip("Exit AMORE GUI.")
         action_exit.triggered.connect(QtWidgets.QApplication.instance().quit)
@@ -446,13 +452,13 @@ da-dev@xfel.eu"""
         fileMenu.addAction(action_exit)
 
         # Table menu
-        action_columns = QtWidgets.QAction("Select, delete, && reorder columns", self)
+        action_columns = QtGui.QAction("Select, delete, && reorder columns", self)
         action_columns.triggered.connect(self.open_column_dialog)
-        self.action_autoscroll = QtWidgets.QAction('Scroll to newly added runs', self)
+        self.action_autoscroll = QtGui.QAction('Scroll to newly added runs', self)
         self.action_autoscroll.setCheckable(True)
-        action_precreate_runs = QtWidgets.QAction("Pre-create new runs", self)
+        action_precreate_runs = QtGui.QAction("Pre-create new runs", self)
         action_precreate_runs.triggered.connect(self.precreate_runs_dialog)
-        self.action_toggle_hierarchical_header = QtWidgets.QAction(
+        self.action_toggle_hierarchical_header = QtGui.QAction(
             "Show hierarchical headers", self
         )
         self.action_toggle_hierarchical_header.setCheckable(True)
@@ -476,7 +482,7 @@ da-dev@xfel.eu"""
         menu_bar_right = QtWidgets.QMenuBar(self)
         searchMenu = menu_bar_right.addMenu(
             QtGui.QIcon(icon_path("search_icon.png")), "&Search Run")
-        searchMenu.setLayoutDirection(QtCore.Qt.RightToLeft)
+        searchMenu.setLayoutDirection(QtCore.Qt.LayoutDirection.RightToLeft)
         self.jump_search_run = QtWidgets.QLineEdit(self)
         self.jump_search_run.setPlaceholderText("Jump to run:")
         self.jump_search_run.setStyleSheet("width: 120px")
@@ -485,7 +491,7 @@ da-dev@xfel.eu"""
         actionWidget = QtWidgets.QWidgetAction(menu_bar)
         actionWidget.setDefaultWidget(self.jump_search_run)
         searchMenu.addAction(actionWidget)
-        menu_bar.setCornerWidget(menu_bar_right, Qt.TopRightCorner)
+        menu_bar.setCornerWidget(menu_bar_right, Qt.Corner.TopRightCorner)
 
         # Add View menu
         view_menu = self.menuBar().addMenu("View")
@@ -509,7 +515,7 @@ da-dev@xfel.eu"""
     def scroll_to_run(self, run):
         try:
             run = int(run)
-        except:
+        except Exception:
             log.info("Invalid input when searching run.")
             return
 
@@ -795,7 +801,7 @@ da-dev@xfel.eu"""
         self._save_btn = QtWidgets.QPushButton("Save")
         self._save_btn.clicked.connect(self.save_context)
         self._save_btn.setToolTip("Ctrl + S")
-        self._save_btn.setShortcut(QtGui.QKeySequence(Qt.ControlModifier | Qt.Key_S))
+        self._save_btn.setShortcut(QtGui.QKeySequence(Qt.KeyboardModifier.ControlModifier | Qt.Key.Key_S))
 
         self._check_btn = QtWidgets.QPushButton("Validate")
         self._check_btn.clicked.connect(self.test_context)
@@ -804,7 +810,7 @@ da-dev@xfel.eu"""
         self._reload_btn.setToolTip("Reload the context file from disk")
         self._reload_btn.clicked.connect(self.reload_context)
 
-        self._context_status_icon = QtSvg.QSvgWidget()
+        self._context_status_icon = QSvgWidget()
         self._context_status_icon.setMinimumSize(20, 20)
 
         font = QtGui.QFont("Monospace", pointSize=9)
@@ -918,7 +924,7 @@ da-dev@xfel.eu"""
 
     def set_error_icon(self, icon):
         self._context_status_icon.load(icon_path(f"{icon}_circle.svg"))
-        self._context_status_icon.renderer().setAspectRatioMode(Qt.KeepAspectRatio)
+        self._context_status_icon.renderer().setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
 
     def set_error_widget_text(self, text):
         # Clear the widget and wait for a bit to visually indicate to the
@@ -995,7 +1001,7 @@ da-dev@xfel.eu"""
                              self.table.computed_columns(by_title=True))
 
         dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
-        if dlg.exec() == QtWidgets.QDialog.Accepted:
+        if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
             try:
@@ -1033,30 +1039,24 @@ da-dev@xfel.eu"""
         self.current_theme = theme
         self._save_theme(theme)
 
-        app = QtWidgets.QApplication.instance()
-
         # Apply palette
-        app.setPalette(ThemeManager.get_theme_palette(theme))
-
-        # Apply stylesheet
-        app.setStyleSheet(ThemeManager.get_theme_stylesheet(theme))
-
-        # Update status bar style
-        self._status_bar.setStyleSheet("QStatusBar::item {border: None;}")
+        palette = ThemeManager.get_theme_palette(theme)
+        QtWidgets.QApplication.instance().setPalette(palette)
+        # somehow the status bar needs special care...
+        sb = self.statusBar()
+        sb.style().unpolish(sb)
+        sb.style().polish(sb)
 
         # Update editor theme
-        if hasattr(self, '_editor'):
-            self._editor.update_theme(theme)
+        self._editor.update_theme(theme)
 
         # Update error widget lexer theme
-        if hasattr(self, '_error_widget_lexer'):
-            set_lexer_theme(self._error_widget_lexer, self.current_theme)
+        set_lexer_theme(self._error_widget_lexer, theme)
 
         # Update plot windows
-        if hasattr(self, '_canvas_inspect'):
-            for window in self._canvas_inspect:
-                if window.isVisible():
-                    window.update_theme(theme)
+        for window in self._canvas_inspect:
+            if window.isVisible():
+                window.update_theme(theme)
 
     def _load_theme(self):
         """Load theme setting from shelve file."""
@@ -1082,7 +1082,7 @@ class TableViewStyle(QtWidgets.QProxyStyle):
     Subclass that enables instant tooltips for widgets in a TableView.
     """
     def styleHint(self, hint, option=None, widget=None, returnData=None):
-        if hint == QtWidgets.QStyle.SH_ToolTip_WakeUpDelay \
+        if hint == QtWidgets.QStyle.StyleHint.SH_ToolTip_WakeUpDelay \
            and isinstance(widget.parent(), TableView):
             return 0
         else:
@@ -1099,7 +1099,7 @@ class TabBarStyle(QtWidgets.QProxyStyle):
 
     def drawControl(self, element, option, painter, widget=None):
         if self.enable_bold and \
-           element == QtWidgets.QStyle.CE_TabBarTab and \
+           element == QtWidgets.QStyle.ControlElement.CE_TabBarTab and \
            widget.tabRect(1) == option.rect:
             font = widget.font()
             font.setBold(True)
@@ -1193,7 +1193,7 @@ def prompt_setup_db(context_dir: Path, prop_no=None, parent=None):
             f"{context_dir} does not contain a DAMNIT database, "
             "would you like to create one?"
         )
-        if button != QMessageBox.Yes:
+        if button != QMessageBox.StandardButton.Yes:
             return False
 
         if not (context_dir / 'context.py').is_file():
@@ -1217,20 +1217,16 @@ def prompt_setup_db(context_dir: Path, prop_no=None, parent=None):
 
 
 def run_app(context_dir, software_opengl=False):
-    QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QtWidgets.QApplication.setAttribute(
         QtCore.Qt.ApplicationAttribute.AA_DontUseNativeMenuBar,
     )
 
-    # Required for the WebViewer to load pages
-    os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox'
-
     if software_opengl or re.match(r'^max-exfl\d{3}.desy.de$', gethostname()):
         log.info('Use software OpenGL.')
         QtWidgets.QApplication.setAttribute(
-            Qt.AA_UseSoftwareOpenGL
+            Qt.ApplicationAttribute.AA_UseSoftwareOpenGL
         )
-        QQuickWindow.setSceneGraphBackend(QSGRendererInterface.Software)
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Software)
 
     application = QtWidgets.QApplication(sys.argv)
     application.setStyle(TableViewStyle())
@@ -1243,11 +1239,6 @@ def run_app(context_dir, software_opengl=False):
         if not prompt_setup_db(context_dir, prop_no):
             # User said no to setting up a new database
             return 0
-
-    # configure webviewer url engine
-    scheme_handler = UrlSchemeHandler(parent=application)
-    profile = QWebEngineProfile.defaultProfile()
-    scheme_handler.install(profile)
 
     window = MainWindow(context_dir=context_dir)
     window.show()

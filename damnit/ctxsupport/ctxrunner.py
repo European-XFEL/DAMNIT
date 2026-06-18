@@ -802,7 +802,7 @@ def main(argv=None):
             # pickled.
             for var in ctx.vars.values():
                 var.func = None
-        except:
+        except Exception:
             ctx = None
             error_info = extract_error_info(*sys.exc_info())
 

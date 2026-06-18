@@ -14,10 +14,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtGui import QColor, QPalette, QPixmap
-from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
+from PyQt6.QtCore import Qt, QPoint, QEvent
+from PyQt6.QtGui import QColor, QPalette, QPixmap
+from PyQt6 import QtGui, QtWidgets
+from PyQt6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
                              QLineEdit, QMessageBox, QStyledItemDelegate)
 
 import damnit
@@ -145,13 +145,13 @@ def test_editor(mock_db, mock_ctx, qtbot):
     editor.setText(new_code)
 
     # Cancelling should do nothing
-    with patch.object(QMessageBox, "exec", return_value=QMessageBox.Cancel):
+    with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel):
         win.close()
         assert win.isVisible()
         assert ctx_path.read_text() == old_code
 
     # 'Discard' should close the window but not save
-    with patch.object(QMessageBox, "exec", return_value=QMessageBox.Discard):
+    with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Discard):
         win.close()
         assert win.isHidden()
         assert ctx_path.read_text() == old_code
@@ -207,7 +207,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     # Helper function to show the currently visible headers
     def visible_headers():
         header = win.table_view.horizontalHeader()
-        headers = [header.model().headerData(header.logicalIndex(i), Qt.Horizontal) for i in range(header.count())
+        headers = [header.model().headerData(header.logicalIndex(i), Qt.Orientation.Horizontal) for i in range(header.count())
                    if not header.isSectionHidden(i)]
         return headers
 
@@ -227,8 +227,8 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
         col_one = headers[from_idx]
         col_two = headers[to_idx]
         columns = win.table_view._columns_widget
-        col_one_item = columns.findItems(col_one, Qt.MatchExactly)[0]
-        col_two_item = columns.findItems(col_two, Qt.MatchExactly)[0]
+        col_one_item = columns.findItems(col_one, Qt.MatchFlag.MatchExactly)[0]
+        col_two_item = columns.findItems(col_two, Qt.MatchFlag.MatchExactly)[0]
         old_idx = columns.row(col_two_item)
 
         from_row = columns.row(col_one_item)
@@ -263,7 +263,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
 
     # Hide a column
     assert last_col in visible_headers()
-    last_col_item.setCheckState(Qt.Unchecked)
+    last_col_item.setCheckState(Qt.CheckState.Unchecked)
     headers = visible_headers()
     assert last_col not in headers
 
@@ -339,7 +339,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     last_static_col = last_static_col_item.text()
 
     assert last_static_col in visible_headers()
-    last_static_col_item.setCheckState(Qt.Unchecked)
+    last_static_col_item.setCheckState(Qt.CheckState.Unchecked)
     assert last_static_col not in visible_headers()
 
     # Reload the database
@@ -355,7 +355,7 @@ def test_handle_update(mock_db, qtbot):
 
     # Helper lambdas
     model = lambda: win.table_view.model()
-    get_headers = lambda: [win.table_view.model().headerData(i, Qt.Horizontal)
+    get_headers = lambda: [win.table_view.model().headerData(i, Qt.Orientation.Horizontal)
                            for i in range(win.table_view.horizontalHeader().count())]
 
     # Sending an update should add a row to the table
@@ -408,9 +408,9 @@ def test_header_tooltip(mock_db, qtbot):
 
     description = "Primary scalar value for GUI description tests."
     col_ix = win.table.find_column("Scalar1", by_title=True)
-    assert win.table_view.model().headerData(col_ix, Qt.Horizontal, Qt.ToolTipRole) == description
+    assert win.table_view.model().headerData(col_ix, Qt.Orientation.Horizontal, Qt.ItemDataRole.ToolTipRole) == description
     col_ix = win.table.find_column("Scalar2", by_title=True)
-    assert win.table_view.model().headerData(col_ix, Qt.Horizontal, Qt.ToolTipRole) == None
+    assert win.table_view.model().headerData(col_ix, Qt.Orientation.Horizontal, Qt.ItemDataRole.ToolTipRole) == None
 
 
 def test_handle_update_plots(mock_db_with_data, monkeypatch, qtbot):
@@ -459,7 +459,7 @@ def test_prompt_setup_db(tmp_path, bound_port, request, qtbot):
         # Patch things such that the GUI thinks we're on GPFS trying to open
         # p1234, and the user always wants to create a database.
         with (patch(f"{pkg}.NewContextFileDialog.run_get_result", return_value=(template_path, None)),
-              patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+              patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
               patch(f"{pkg}.initialize_proposal") as initialize_proposal):
             yield initialize_proposal
 
@@ -565,7 +565,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
     add_var_win.name_action.trigger()
     assert add_var_win.variable_name.text() == "this_cool_var"
 
-    with patch.object(QMessageBox, "exec", return_value=QMessageBox.Cancel):
+    with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Cancel):
         # Check if setting the variable title and name to an already existing
         #   one prevents the creation of the variable.
         add_var_win.variable_title.setText("User integer")
@@ -593,7 +593,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
         add_var_win.variable_type.setCurrentText("integer")
         add_var_win.variable_description.setPlainText("My cool description")
         add_var_win.check_if_variable_is_unique("")
-        assert add_var_win.result() == QDialog.Accepted
+        assert add_var_win.result() == QDialog.DialogCode.Accepted
 
     # Check that the variable with the already existing name is not created
     assert db.conn.execute("SELECT COUNT(*) FROM variables WHERE title = 'My cool integer'").fetchone()[0] == 0
@@ -636,7 +636,10 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
         delegate = table_view.itemDelegate()
         delegate.widget.insert(value)
         table_view.commitData(delegate.widget)
-        table_view.closeEditor(delegate.widget, 0)
+        table_view.closeEditor(
+            delegate.widget,
+            QStyledItemDelegate.EndEditHint.NoHint,
+        )
 
     def get_value_from_field(field_name, row_number = 0):
         col_num = table_model.find_column(field_name)
@@ -846,38 +849,38 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
         warning.assert_not_called()
 
     # Check that the text for the array that changes is bold
-    assert win.table.data(array_index, role=Qt.FontRole).bold()
+    assert win.table.data(array_index, role=Qt.ItemDataRole.FontRole).bold()
 
     # But not for the constant array
     const_array_index = get_index("Constant array")
-    assert win.table.data(const_array_index, role=Qt.FontRole) is None
+    assert win.table.data(const_array_index, role=Qt.ItemDataRole.FontRole) is None
 
     # Edit a comment
     comment_index = get_index("Comment")
     with assert_sends_update(win, mock_kafka_broker) as msgs:
-        win.table.setData(comment_index, "Foo", Qt.EditRole)
+        win.table.setData(comment_index, "Foo", Qt.ItemDataRole.EditRole)
 
     assert [m['msg_kind'] for m in msgs] == [MsgKind.run_values_updated.value]
     assert set(msgs[0]['data']['values']) == {"comment"}
 
     # Check that 2D arrays are treated as images
     image_index = get_index("Image")
-    assert isinstance(win.table.data(image_index, role=Qt.DecorationRole), QPixmap)
+    assert isinstance(win.table.data(image_index, role=Qt.ItemDataRole.DecorationRole), QPixmap)
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(image_index)
         warning.assert_not_called()
 
     # And that 3D image arrays are also treated as images
     color_image_index = get_index("Color image")
-    assert isinstance(win.table.data(color_image_index, role=Qt.DecorationRole), QPixmap)
+    assert isinstance(win.table.data(color_image_index, role=Qt.ItemDataRole.DecorationRole), QPixmap)
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(color_image_index)
         warning.assert_not_called()
 
     # Check that 2D arrays with summary are inspectable
     mean_2d_index = get_index('2D data with summary')
-    assert win.table.data(mean_2d_index, role=Qt.FontRole).bold()
-    assert isinstance(win.table.data(mean_2d_index, role=Qt.DisplayRole), str)
+    assert win.table.data(mean_2d_index, role=Qt.ItemDataRole.FontRole).bold()
+    assert isinstance(win.table.data(mean_2d_index, role=Qt.ItemDataRole.DisplayRole), str)
     with patch.object(QMessageBox, "warning") as warning:
         win.inspect_data(mean_2d_index)
         warning.assert_not_called()
@@ -901,7 +904,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
     assert isinstance(win._canvas_inspect[-1], PlotlyPlot)
 
     assert isinstance(  # Errors evaluating variables get a coloured decoration
-        win.table.data(get_index('error'), role=Qt.DecorationRole), QColor
+        win.table.data(get_index('error'), role=Qt.ItemDataRole.DecorationRole), QColor
     )
 
     # Test the line plot functionality for 2D data
@@ -915,14 +918,14 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
         assert isinstance(plot_window._image_artist, plt.Artist)
 
         # Toggle to line plot mode
-        plot_window._plot_as_lines_checkbox.setCheckState(Qt.Checked)
+        plot_window._plot_as_lines_checkbox.setCheckState(Qt.CheckState.Checked)
         plot_window.figure.canvas.flush_events()
 
         assert not plot_window._dynamic_aspect_checkbox.isEnabled()
         assert plot_window._axis.get_aspect() == 'auto'
 
         # Toggle back to image mode
-        plot_window._plot_as_lines_checkbox.setCheckState(Qt.Unchecked)
+        plot_window._plot_as_lines_checkbox.setCheckState(Qt.CheckState.Unchecked)
         plot_window.figure.canvas.flush_events()
 
         assert plot_window._dynamic_aspect_checkbox.isEnabled()
@@ -934,7 +937,7 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
         xr_plot_window = win._canvas_inspect[-1]
         warning.assert_not_called()
 
-        xr_plot_window._plot_as_lines_checkbox.setCheckState(Qt.Checked)
+        xr_plot_window._plot_as_lines_checkbox.setCheckState(Qt.CheckState.Checked)
         xr_plot_window.figure.canvas.flush_events()
 
         assert len(xr_plot_window._axis.get_legend().get_texts()) == 3  # 3 rows in our test data
@@ -1071,7 +1074,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broke
     assert "Array" in col_visibility_before  # Keyed by title, not column ID
 
     # If the user clicks 'No' then we should do nothing
-    with patch.object(QMessageBox, "warning", return_value=QMessageBox.No) as warning:
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.No) as warning:
         win.table_view.confirm_delete_variable("array")
         warning.assert_called_once()
     assert "array" in db.variable_names()
@@ -1080,7 +1083,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broke
     assert win.table_view.get_column_states() == col_visibility_before
 
     # Otherwise it should be deleted from the database and HDF5 files
-    with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes) as warning:
+    with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Yes) as warning:
         win.table_view.confirm_delete_variable("array")
         warning.assert_called_once()
 
@@ -1106,7 +1109,7 @@ def test_delete_variable_with_tag_filter(
         return count
 
     def _delete_col(tv, col_name):
-        with patch.object(QMessageBox, "warning", return_value=QMessageBox.Yes):
+        with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.Yes):
             tv.confirm_delete_variable(col_name)
 
     db_dir, _db = mock_db
@@ -1250,11 +1253,11 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
 
     # Hide a static column
     static_item = table_view._static_columns_widget.item(0)  # First static column
-    static_item.setCheckState(Qt.Unchecked)
+    static_item.setCheckState(Qt.CheckState.Unchecked)
     assert count_visible_static() == initial_static_count - 1
 
     # Hide a variable column
-    table_view._columns_widget.findItems('Scalar1', Qt.MatchExactly)[0].setCheckState(Qt.Unchecked)
+    table_view._columns_widget.findItems('Scalar1', Qt.MatchFlag.MatchExactly)[0].setCheckState(Qt.CheckState.Unchecked)
     assert count_visible_vars() == initial_var_count - 1
 
     # Apply tag filter - should respect column visibility preferences
@@ -1416,7 +1419,7 @@ def test_standalone_comments(mock_db, qtbot):
     # Verify comment was added
     assert model.rowCount() > 0
     index = model.index(0, 2)  # Comment column
-    assert model.data(index, Qt.DisplayRole) == test_comment
+    assert model.data(index, Qt.ItemDataRole.DisplayRole) == test_comment
 
     # Add another comment
     test_timestamp2 = 1641081600  # 2022-01-02 00:00:00
@@ -1425,14 +1428,14 @@ def test_standalone_comments(mock_db, qtbot):
 
     # Test sorting
     # Sort by timestamp ascending
-    model.sort(1, Qt.AscendingOrder)
+    model.sort(1, Qt.SortOrder.AscendingOrder)
     index = model.index(0, 2)
-    assert model.data(index, Qt.DisplayRole) == test_comment
+    assert model.data(index, Qt.ItemDataRole.DisplayRole) == test_comment
 
     # Sort by timestamp descending
-    model.sort(1, Qt.DescendingOrder)
+    model.sort(1, Qt.SortOrder.DescendingOrder)
     index = model.index(0, 2)
-    assert model.data(index, Qt.DisplayRole) == test_comment2
+    assert model.data(index, Qt.ItemDataRole.DisplayRole) == test_comment2
 
     # Test comment persistence
     model.load_comments()
@@ -1551,16 +1554,18 @@ def test_theme(mock_db, qtbot, tmp_path):
 
         # Test theme application to components
         dark_palette = win2.palette()
-        assert dark_palette.color(QPalette.Window).name() == "#353535"  # Dark theme color
-        assert dark_palette.color(QPalette.WindowText).name() == "#ffffff"  # White text
+        dark_window_color = dark_palette.color(QPalette.ColorRole.Window).name()
+        assert dark_window_color == "#353535"  # Dark theme color
+        assert dark_palette.color(QPalette.ColorRole.WindowText).name() == "#ffffff"  # White text
 
         # Test theme application to editor
         assert win2._editor._lexer.defaultPaper(0).name() == "#232323"  # Dark theme editor background
 
         # Test theme toggle back to light
         win2._toggle_theme(False)
+        QApplication.processEvents()
         assert win2.current_theme == Theme.LIGHT
-        assert win2.palette() != dark_palette  # Light theme should have different colors
+        assert win2.palette().color(QPalette.ColorRole.Window).name() != dark_window_color
 
 
 def test_filter_header(mock_db_with_data, qtbot, mock_kafka_broker):
@@ -1792,10 +1797,7 @@ def test_sparkline_hover_state(qtbot):
     expected_t = (rect.center().x() - rect.left()) / (rect.width() - 1)
     assert abs(view._sparkline_hover_t - expected_t) < 0.1
 
-    qtbot.mouseMove(
-        view.viewport(),
-        QPoint(view.viewport().width() + 10, view.viewport().height() + 10),
-    )
+    view.leaveEvent(QEvent(QEvent.Type.Leave))
     qtbot.waitUntil(lambda: not view._sparkline_hover_index.isValid(), timeout=1000)
     # Leaving the cell clears the hover state.
     assert view._sparkline_hover_t is None
@@ -1821,22 +1823,22 @@ def test_sparkline_delegate_paint_smoke(qtbot):
 
     def image_bytes(img):
         ptr = img.constBits()
-        ptr.setsize(img.byteCount())
+        ptr.setsize(img.sizeInBytes())
         return bytes(ptr)
 
     delegate = view.itemDelegate()
 
     # Render without hover.
-    image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
-    image.fill(Qt.transparent)
+    image = QtGui.QImage(200, 60, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
     painter = QtGui.QPainter(image)
     delegate.paint(painter, option, proxy_index)
     painter.end()
     base_bytes = image_bytes(image)
 
     # Render with hover; output should differ from the baseline.
-    hover_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
-    hover_image.fill(Qt.transparent)
+    hover_image = QtGui.QImage(200, 60, QtGui.QImage.Format.Format_ARGB32)
+    hover_image.fill(Qt.GlobalColor.transparent)
     hover_painter = QtGui.QPainter(hover_image)
     view._sparkline_hover_index = proxy_index
     view._sparkline_hover_t = 0.5
@@ -1886,13 +1888,13 @@ def test_item_delegate_paints_provenance_marker_smoke(qtbot):
 
     def image_bytes(img):
         ptr = img.constBits()
-        ptr.setsize(img.byteCount())
+        ptr.setsize(img.sizeInBytes())
         return bytes(ptr)
 
     delegate = view.itemDelegate()
 
-    base_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
-    base_image.fill(Qt.transparent)
+    base_image = QtGui.QImage(200, 60, QtGui.QImage.Format.Format_ARGB32)
+    base_image.fill(Qt.GlobalColor.transparent)
     base_painter = QtGui.QPainter(base_image)
     delegate.paint(base_painter, option, index)
     base_painter.end()
@@ -1900,8 +1902,8 @@ def test_item_delegate_paints_provenance_marker_smoke(qtbot):
 
     item.setData("pytest", PROVENANCE_ROLE)
 
-    marker_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
-    marker_image.fill(Qt.transparent)
+    marker_image = QtGui.QImage(200, 60, QtGui.QImage.Format.Format_ARGB32)
+    marker_image.fill(Qt.GlobalColor.transparent)
     marker_painter = QtGui.QPainter(marker_image)
     delegate.paint(marker_painter, option, index)
     marker_painter.end()
@@ -1916,11 +1918,11 @@ def test_best_text_color_for_custom_background(mock_db):
 
     dark_item = model.new_item(42, "scalar1", 0, {"background": [12, 12, 12]})
     assert dark_item.background().color() == QColor(12, 12, 12)
-    assert dark_item.foreground().color() == QColor(Qt.white)
+    assert dark_item.foreground().color() == QColor(Qt.GlobalColor.white)
 
     light_item = model.new_item(42, "scalar1", 0, {"background": [240, 240, 240]})
     assert light_item.background().color() == QColor(240, 240, 240)
-    assert light_item.foreground().color() == QColor(Qt.black)
+    assert light_item.foreground().color() == QColor(Qt.GlobalColor.black)
 
 
 def test_variable_title_change(mock_db, mock_kafka_broker, monkeypatch, qtbot):
@@ -1964,18 +1966,18 @@ def test_numeric_items_store_units(mock_db):
     model = DamnitTableModel(db, {}, None)
 
     item = model.new_item(42, "scalar1", 0, {"units": "mJ"})
-    assert item.data(Qt.DisplayRole) == "42"
-    assert item.data(Qt.UserRole) == 42
+    assert item.data(Qt.ItemDataRole.DisplayRole) == "42"
+    assert item.data(Qt.ItemDataRole.UserRole) == 42
     assert item.data(UNITS_ROLE) == "mJ"
 
     item = model.new_item(3.14, "scalar2", 0, {"units": "uJ"})
-    assert item.data(Qt.DisplayRole) == "3.1400"
-    assert item.data(Qt.UserRole) == 3.14
+    assert item.data(Qt.ItemDataRole.DisplayRole) == "3.1400"
+    assert item.data(Qt.ItemDataRole.UserRole) == 3.14
     assert item.data(UNITS_ROLE) == "uJ"
 
     item = model.new_item("ready", "scalar1", 0, {"units": "mJ"})
-    assert item.data(Qt.DisplayRole) == "ready"
-    assert item.data(Qt.UserRole) == "ready"
+    assert item.data(Qt.ItemDataRole.DisplayRole) == "ready"
+    assert item.data(Qt.ItemDataRole.UserRole) == "ready"
     assert item.data(UNITS_ROLE) is None
 
 
@@ -1983,8 +1985,8 @@ def test_item_delegate_paints_units_smoke(qtbot):
     view = TableView()
     model = QtGui.QStandardItemModel(1, 1)
     item = QtGui.QStandardItem()
-    item.setData(3.14, Qt.UserRole)
-    item.setData("3.1400", Qt.DisplayRole)
+    item.setData(3.14, Qt.ItemDataRole.UserRole)
+    item.setData("3.1400", Qt.ItemDataRole.DisplayRole)
     model.setItem(0, 0, item)
     view.setModel(model)
     view.resize(200, 60)
@@ -1999,13 +2001,13 @@ def test_item_delegate_paints_units_smoke(qtbot):
 
     def image_bytes(img):
         ptr = img.constBits()
-        ptr.setsize(img.byteCount())
+        ptr.setsize(img.sizeInBytes())
         return bytes(ptr)
 
     delegate = view.itemDelegate()
 
-    base_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
-    base_image.fill(Qt.transparent)
+    base_image = QtGui.QImage(200, 60, QtGui.QImage.Format.Format_ARGB32)
+    base_image.fill(Qt.GlobalColor.transparent)
     base_painter = QtGui.QPainter(base_image)
     delegate.paint(base_painter, option, index)
     base_painter.end()
@@ -2013,8 +2015,8 @@ def test_item_delegate_paints_units_smoke(qtbot):
 
     item.setData("uJ", UNITS_ROLE)
 
-    units_image = QtGui.QImage(200, 60, QtGui.QImage.Format_ARGB32)
-    units_image.fill(Qt.transparent)
+    units_image = QtGui.QImage(200, 60, QtGui.QImage.Format.Format_ARGB32)
+    units_image.fill(Qt.GlobalColor.transparent)
     units_painter = QtGui.QPainter(units_image)
     delegate.paint(units_painter, option, index)
     units_painter.end()

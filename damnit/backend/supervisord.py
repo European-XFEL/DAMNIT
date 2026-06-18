@@ -7,8 +7,6 @@ import subprocess
 import time
 from pathlib import Path
 
-from .db import DamnitDB, db_path
-
 log = logging.getLogger(__name__)
 
 
@@ -27,12 +25,12 @@ def wait_until(condition, timeout=1):
     if slept_for >= timeout:
         raise TimeoutError("Condition timed out")
 
+
 def get_supervisord_address():
     """
     Find an available hostname and port for supervisord to bind to.
     """
     hostname = socket.gethostname()
-    ip = socket.gethostbyname(hostname)
 
     sock = socket.socket()
     sock.bind(('', 0))
@@ -40,6 +38,7 @@ def get_supervisord_address():
     sock.close()
 
     return hostname, port
+
 
 def listener_is_running(root_path: Path, timeout=1):
     config_path = root_path / "supervisord.conf"
@@ -61,6 +60,7 @@ def listener_is_running(root_path: Path, timeout=1):
         time.sleep(timeout / n_polls)
 
     return False
+
 
 def write_supervisord_conf(root_path):
     # Find an available address
@@ -86,6 +86,7 @@ def write_supervisord_conf(root_path):
 
     if config_path.stat().st_uid == os.getuid():
         os.chmod(config_path, 0o666)
+
 
 def start_listener(root_path: Path, try_again=True):
     config_path = root_path / "supervisord.conf"

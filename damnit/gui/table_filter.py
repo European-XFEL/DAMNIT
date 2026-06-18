@@ -5,12 +5,12 @@ from typing import Any, Dict, Optional, Set
 import numpy as np
 from fonticon_fa6 import FA6S
 from natsort import natsorted
-from PyQt5 import QtCore
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPixmap
-from PyQt5.QtWidgets import (
-    QAction, QCheckBox, QGroupBox, QHBoxLayout, QListWidgetItem, QMenu,
-    QPushButton, QVBoxLayout, QWidget, QWidgetAction
+from PyQt6 import QtCore
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction, QColor, QPixmap
+from PyQt6.QtWidgets import (
+    QCheckBox, QGroupBox, QHBoxLayout, QListWidgetItem, QMenu, QPushButton,
+    QVBoxLayout, QWidget, QWidgetAction
 )
 from superqt import QSearchableListWidget as SuperQListWidget
 from superqt.fonticon import icon
@@ -30,7 +30,7 @@ class QSearchableListWidget(SuperQListWidget):
     def update_visible(self, text):
         # Change the original implementation from using a set instead of a list
         # for more efficient lookup on large tables
-        items_text = {x.text() for x in self.list_widget.findItems(text, Qt.MatchContains)}
+        items_text = {x.text() for x in self.list_widget.findItems(text, Qt.MatchFlag.MatchContains)}
 
         for index in range(self.list_widget.count()):
             item = self.item(index)
@@ -192,7 +192,7 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
         self.invalidateFilter()
         if hasattr(self.parent(), "damnit_model"):
             cid = self.parent().damnit_model.find_column("Timestamp", by_title=True)
-            self.parent().sortByColumn(cid, Qt.AscendingOrder)
+            self.parent().sortByColumn(cid, Qt.SortOrder.AscendingOrder)
         self.filterChanged.emit()
 
     def filterAcceptsRow(
@@ -207,11 +207,11 @@ class FilterProxy(QtCore.QSortFilterProxyModel):
             if isinstance(filter, ThumbnailFilter):
                 has_thumb = item.data(LINE_DATA_ROLE) is not None
                 if not has_thumb:
-                    thumb = item.data(Qt.DecorationRole)
+                    thumb = item.data(Qt.ItemDataRole.DecorationRole)
                     has_thumb = thumb is not None and not isinstance(thumb, QColor)
                 data = QPixmap if has_thumb else type(None)
             else:
-                data = item.data(Qt.UserRole)
+                data = item.data(Qt.ItemDataRole.UserRole)
             if not filter.accepts(data):
                 return False
         return True
@@ -255,12 +255,12 @@ class FilterMenu(QMenu):
                 has_sparkline = True
                 continue
 
-            if thumb := item.data(Qt.DecorationRole):
+            if thumb := item.data(Qt.ItemDataRole.DecorationRole):
                 # QColor decoration is used for errors (no value)
                 if not isinstance(thumb, QColor):
                     decos.add(type(thumb))
 
-            if (value := item.data(Qt.UserRole)) is None:
+            if (value := item.data(Qt.ItemDataRole.UserRole)) is None:
                 continue
             if isinstance(value, float) and isnan(value):
                 continue
@@ -389,14 +389,14 @@ class NumericFilterWidget(BaseFilterWidget):
         # Add all values to list, but only check those in range
         for value in self.unique_values:
             item = QListWidgetItem()
-            item.setData(Qt.UserRole, value)
-            item.setData(Qt.DisplayRole, str(value))
+            item.setData(Qt.ItemDataRole.UserRole, value)
+            item.setData(Qt.ItemDataRole.DisplayRole, str(value))
             # Check if value is in range
             try:
                 float_val = float(value)
-                item.setCheckState(Qt.Checked if min_val <= float_val <= max_val else Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Checked if min_val <= float_val <= max_val else Qt.CheckState.Unchecked)
             except (TypeError, ValueError):
-                item.setCheckState(Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Unchecked)
             self.list_widget.addItem(item)
 
     def _on_range_changed(self):
@@ -410,7 +410,7 @@ class NumericFilterWidget(BaseFilterWidget):
 
         for idx in range(self.list_widget.count()):
             self.list_widget.item(idx).setCheckState(
-                Qt.Checked if checked else Qt.Unchecked
+                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
             )
         self._emit_filter()
 
@@ -428,8 +428,8 @@ class NumericFilterWidget(BaseFilterWidget):
         selected, count = set(), 0
         for idx in range(self.list_widget.count()):
             item = self.list_widget.item(idx)
-            if item.checkState() == Qt.Checked:
-                selected.add(item.data(Qt.UserRole))
+            if item.checkState() == Qt.CheckState.Checked:
+                selected.add(item.data(Qt.ItemDataRole.UserRole))
                 count += 1
 
         if (
@@ -463,9 +463,9 @@ class NumericFilterWidget(BaseFilterWidget):
             for idx in range(self.list_widget.count()):
                 item = self.list_widget.item(idx)
                 item.setCheckState(
-                    Qt.Checked
-                    if item.data(Qt.UserRole) in filter.selected_values
-                    else Qt.Unchecked
+                    Qt.CheckState.Checked
+                    if item.data(Qt.ItemDataRole.UserRole) in filter.selected_values
+                    else Qt.CheckState.Unchecked
                 )
 
         self.range_widget.update_values(filter.min_val, filter.max_val)
@@ -558,16 +558,16 @@ class CategoricalFilterWidget(BaseFilterWidget):
         for value in natsorted(values, key=str):
             if value is not None and not (isinstance(value, float) and isnan(value)):
                 item = QListWidgetItem()
-                item.setData(Qt.UserRole, value)
-                item.setData(Qt.DisplayRole, str(value))
-                item.setCheckState(Qt.Checked)
+                item.setData(Qt.ItemDataRole.UserRole, value)
+                item.setData(Qt.ItemDataRole.DisplayRole, str(value))
+                item.setCheckState(Qt.CheckState.Checked)
                 self.list_widget.addItem(item)
 
     def _set_all_checked(self, checked: bool):
         """Set all items to checked or unchecked state."""
         for i in range(self.list_widget.count()):
             self.list_widget.item(i).setCheckState(
-                Qt.Checked if checked else Qt.Unchecked
+                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
             )
 
         self._emit_filter()
@@ -581,8 +581,8 @@ class CategoricalFilterWidget(BaseFilterWidget):
         selected, count = set(), 0
         for idx in range(self.list_widget.count()):
             item = self.list_widget.item(idx)
-            if item.checkState() == Qt.Checked:
-                selected.add(item.data(Qt.UserRole))
+            if item.checkState() == Qt.CheckState.Checked:
+                selected.add(item.data(Qt.ItemDataRole.UserRole))
                 count += 1
 
         if count == self.list_widget.count() and self.include_nan.isChecked():
@@ -609,7 +609,7 @@ class CategoricalFilterWidget(BaseFilterWidget):
         # Set item check states
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
-            value = item.data(Qt.UserRole)
+            value = item.data(Qt.ItemDataRole.UserRole)
             item.setCheckState(
-                Qt.Checked if value in filter.selected_values else Qt.Unchecked
+                Qt.CheckState.Checked if value in filter.selected_values else Qt.CheckState.Unchecked
             )
