@@ -893,8 +893,21 @@ da-dev@xfel.eu"""
                     code_to_save = None
 
             if code_to_save is not None:
-                self._context_path.write_text(code_to_save)
-                self.mark_context_saved()
+                try:
+                    self._context_path.write_text(code_to_save)
+                except OSError as exc:
+                    log.warning(
+                        "Failed to save context file %s", self._context_path,
+                        exc_info=True,
+                    )
+                    QMessageBox.warning(
+                        self,
+                        "Could not save context file",
+                        f"Could not save {self._context_path}:\n\n{exc}",
+                    )
+                    check_ok = False
+                else:
+                    self.mark_context_saved()
 
         self.save_context_finished.emit(check_ok)
 
