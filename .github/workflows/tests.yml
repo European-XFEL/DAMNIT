@@ -14,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Cache APT Packages
-      uses: awalsh128/cache-apt-pkgs-action@v1.6.1
+      uses: awalsh128/cache-apt-pkgs-action@v1.6.2
       with:
         packages: ${{ env.SYSTEM_PACKAGES }}
 
-    - uses: prefix-dev/setup-pixi@v0.9.6
+    - uses: prefix-dev/setup-pixi@v0.10.0
       with:
         pixi-version: v0.70.0
         cache: true
@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v6
