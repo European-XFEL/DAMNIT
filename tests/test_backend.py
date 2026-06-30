@@ -1310,43 +1310,53 @@ def test_job_tracker():
 def test_cancel_slurm_job():
     with patch("damnit.backend.extraction_control.subprocess.run") as run:
         run.side_effect = [
-            subprocess.CompletedProcess(["squeue"], 0, "321_4\n", ""),
+            subprocess.CompletedProcess(["squeue"], 0, "321_4 PENDING\n", ""),
             subprocess.CompletedProcess(["scancel"], 0, "", ""),
         ]
         result = cancel_slurm_job("maxwell", "321_4")
 
     assert result.cancelled
     assert result.job_id == "321_4"
+    assert result.state == "PENDING"
 
     # job already finished
     with patch("damnit.backend.extraction_control.subprocess.run") as run:
-        run.return_value = subprocess.CompletedProcess(["squeue"], 0, "", "")
+        run.side_effect = [
+            subprocess.CompletedProcess(["squeue"], 0, "", ""),
+            subprocess.CompletedProcess(["sacct"], 0, "321|COMPLETED\n", ""),
+        ]
         result = cancel_slurm_job("maxwell", "321")
 
     assert result.cancelled
     assert result.already_gone
+    assert result.state == "COMPLETED"
 
     # invalid job id
     with patch("damnit.backend.extraction_control.subprocess.run") as run:
-        run.return_value = subprocess.CompletedProcess(["squeue"], 1, "", "Invalid job id")
+        run.side_effect = [
+            subprocess.CompletedProcess(["squeue"], 1, "", "Invalid job id"),
+            subprocess.CompletedProcess(["sacct"], 0, "321|CANCELLED\n", ""),
+        ]
         result = cancel_slurm_job("maxwell", "321")
 
     assert result.cancelled
     assert result.already_gone
+    assert result.state == "CANCELLED"
 
     # permission error
     with patch("damnit.backend.extraction_control.subprocess.run") as run:
         run.side_effect = [
-            subprocess.CompletedProcess(["squeue"], 0, "321\n", ""),
+            subprocess.CompletedProcess(["squeue"], 0, "321 RUNNING\n", ""),
             subprocess.CompletedProcess(["scancel"], 1, "", "Access denied"),
         ]
         result = cancel_slurm_job("maxwell", "321")
 
     assert not result.cancelled
     assert result.error == "Access denied"
+    assert result.state == "RUNNING"
 
 
-def test_job_tracker_cancel_slurm_jobs():
+def test_job_tracker_cancel_slurm_jobs(tmp_path):
     tracker = ExtractionJobTracker()
     changed = []
     tracker.on_run_jobs_changed = lambda proposal, run: changed.append((proposal, run))
@@ -1363,14 +1373,18 @@ def test_job_tracker_cancel_slurm_jobs():
 
     with patch("damnit.backend.extraction_control.cancel_slurm_job") as cancel:
         cancel.side_effect = [
-            SlurmCancelResult("maxwell", "321", True),
+            SlurmCancelResult("maxwell", "321", True, state="PENDING"),
             SlurmCancelResult("maxwell", "322", False, error="Access denied"),
         ]
-        results = tracker.cancel_slurm_jobs_for_runs({(1234, 1), (1234, 2)})
+        results = tracker.cancel_slurm_jobs_for_runs({(1234, 1), (1234, 2)}, tmp_path)
 
     assert [r.cancelled for r in results] == [True, False]
     assert set(tracker.jobs) == {prid2}
     assert changed == [(1234, 1)]
+
+    log_txt = (tmp_path / "process_logs" / "r1-p1234.out").read_text()
+    assert "PENDING" in log_txt
+    assert "job 321" in log_txt
 
 
 def test_extract_data_sandbox(mock_db, mock_kafka_broker, tmp_path, monkeypatch):

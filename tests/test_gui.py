@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
 
 import damnit
 from damnit.backend.db import DamnitDB, MsgKind, ReducedData
+from damnit.backend.extraction_control import SlurmCancelResult
 from damnit.backend.extract_data import add_to_db
 from damnit.context import Pipeline
 from damnit.gui.editor import ContextTestResult
@@ -1575,14 +1576,18 @@ def test_cancel_processing_jobs(mock_db_with_data, qtbot, mock_kafka_broker):
     assert view.cancel_jobs_action.isEnabled()
 
     with patch("damnit.backend.extraction_control.cancel_slurm_job") as cancel:
-        cancel.return_value = SimpleNamespace(
-            cluster="maxwell", job_id="321", cancelled=True, error="", already_gone=False
+        cancel.return_value = SlurmCancelResult(
+            cluster="maxwell", job_id="321", cancelled=True, error="",
+            already_gone=False, state="PENDING"
         )
         win.cancel_processing_jobs()
 
     cancel.assert_called_once_with("maxwell", "321")
     assert prid not in tbl.processing_jobs.jobs
     assert not view.cancel_jobs_action.isEnabled()
+    assert "job 321" in (
+        db_dir / "process_logs" / "r1-p1234.out"
+    ).read_text()
 
 
 def test_theme(mock_db, qtbot, tmp_path):

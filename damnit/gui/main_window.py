@@ -1042,7 +1042,7 @@ da-dev@xfel.eu"""
 
     def cancel_processing_jobs(self):
         results = self.table.processing_jobs.cancel_slurm_jobs_for_runs(
-            self.table_view.selected_proposal_runs()
+            self.table_view.selected_proposal_runs(), self.context_dir
         )
         self.table_view.update_cancel_processing_action()
         if not results:
