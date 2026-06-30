@@ -132,6 +132,24 @@ def test_editor(mock_db, mock_ctx, qtbot):
     assert ctx_path.read_text() == old_code
     assert status_bar.currentMessage() == str(ctx_path.resolve())
 
+    # A valid context that cannot be written should show a warning instead of
+    # crashing, and the editor should remain dirty.
+    unwritable_code = "x = 10"
+    editor.setText(unwritable_code)
+
+    ctx_path.chmod(0o444)
+    try:
+        with patch("damnit.gui.main_window.QMessageBox.warning") as warning:
+            with qtbot.waitSignal(win.save_context_finished):
+                win.save_context()
+    finally:
+        ctx_path.chmod(0o644)
+    warning.assert_called_once()
+    assert warning.call_args.args[1] == "Could not save context file"
+    assert str(ctx_path) in warning.call_args.args[2]
+    assert ctx_path.read_text() == old_code
+    assert not win._context_is_saved
+
     # The Validate button should trigger validation. Note that we mock
     # editor.test_context() function instead of MainWindow.test_context()
     # because the win._check_btn.clicked has already been connected to the
