@@ -88,6 +88,47 @@ def batches(l, n):
 
 
 @dataclass
+class SlurmCancelResult:
+    cluster: str
+    job_id: str
+    cancelled: bool
+    error: str = ""
+    already_gone: bool = False
+
+
+def _slurm_job_in_queue(cluster: str, job_id: str):
+    res = subprocess.run(
+        ["squeue", "--clusters", cluster, f"--jobs={job_id}", "--format=%i", "--noheader"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if res.returncode != 0:
+        error = (res.stderr or res.stdout).strip() or f"squeue exited with status {res.returncode}"
+        if "invalid job id" in error.lower():
+            return False, ""
+        return None, error
+
+    return any(line.strip().split()[:1] == [job_id] for line in res.stdout.splitlines()), ""
+
+
+def cancel_slurm_job(cluster: str, job_id: str) -> SlurmCancelResult:
+    in_queue, error = _slurm_job_in_queue(cluster, job_id)
+    if error:
+        return SlurmCancelResult(cluster, job_id, False, error=error)
+    if not in_queue:
+        return SlurmCancelResult(cluster, job_id, True, already_gone=True)
+
+    res = subprocess.run(
+        ["scancel", "--clusters", cluster, job_id],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if res.returncode == 0:
+        return SlurmCancelResult(cluster, job_id, True)
+
+    error = (res.stderr or res.stdout).strip() or f"scancel exited with status {res.returncode}"
+    return SlurmCancelResult(cluster, job_id, False, error=error)
+
+
+@dataclass
 class ExtractionRequest:
     """Description of some data we want to extract"""
     run: int
@@ -418,6 +459,28 @@ class ExtractionJobTracker:
 
     def on_run_jobs_changed(self, proposal, run):
         pass   # Implement in subclass
+
+    def active_slurm_jobs_for_runs(self, proposal_runs):
+        proposal_runs = set(proposal_runs)
+        return [
+            info for info in self.jobs.values()
+            if (info['proposal'], info['run']) in proposal_runs
+            and info.get('slurm_cluster')
+            and info.get('slurm_job_id')
+            and info.get('status') in ('PENDING', 'RUNNING')
+        ]
+
+    def cancel_slurm_jobs_for_runs(self, proposal_runs):
+        jobs = self.active_slurm_jobs_for_runs(proposal_runs)
+        results = []
+        for info in jobs:
+            result = cancel_slurm_job(info['slurm_cluster'], info['slurm_job_id'])
+            results.append(result)
+            if result.cancelled and info['processing_id'] in self.jobs:
+                del self.jobs[info['processing_id']]
+                self.on_run_jobs_changed(info['proposal'], info['run'])
+
+        return results
 
     def check_slurm_jobs(self):
         """Check for any Slurm jobs that exited without a 'finished' message"""
