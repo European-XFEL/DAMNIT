@@ -678,6 +678,9 @@ class TableView(QtWidgets.QTableView):
         if (old_model := self.model()) is not None:
             old_model.deleteLater()
 
+        # to simplify some units test setup, we set the TableView model to
+        # a standard QStandardItemModel. This allows us to test the TableView
+        # without needing to create a full DamnitTableModel.
         if isinstance(model, DamnitTableModel):
             self.damnit_model = model
         else:

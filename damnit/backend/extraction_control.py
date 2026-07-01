@@ -97,7 +97,16 @@ class SlurmCancelResult:
     state: str = ""
 
 
-def _squeue_job_state(cluster: str, job_id: str):
+def _squeue_job_state(cluster: str, job_id: str) -> tuple[str, str]:
+    """Get the state of a Slurm job using squeue.
+
+    Args:
+        cluster: The Slurm cluster name.
+        job_id: The Slurm job ID.
+
+    Returns:
+        A tuple of (state, error).
+    """
     res = subprocess.run(
         ["squeue", "--clusters", cluster, f"--jobs={job_id}", "--format=%i %T", "--noheader"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -110,12 +119,21 @@ def _squeue_job_state(cluster: str, job_id: str):
 
     for line in res.stdout.splitlines():
         fields = line.strip().split(maxsplit=1)
-        if fields[:1] == [job_id]:
+        if len(fields) > 0 and fields[0] == job_id:
             return fields[1] if len(fields) > 1 else "", ""
     return "", ""
 
 
-def _sacct_job_state(cluster: str, job_id: str):
+def _sacct_job_state(cluster: str, job_id: str) -> str:
+    """Get the state of a Slurm job using sacct.
+
+    Args:
+        cluster: The Slurm cluster name.
+        job_id: The Slurm job ID.
+
+    Returns:
+        The state of the job, or an empty string if not found.
+    """
     res = subprocess.run(
         [
             "sacct",
@@ -136,12 +154,18 @@ def _sacct_job_state(cluster: str, job_id: str):
 
     for line in res.stdout.splitlines():
         fields = line.strip().split("|", maxsplit=1)
-        if fields[:1] == [job_id]:
+        if len(fields) > 0 and fields[0] == job_id:
             return fields[1] if len(fields) > 1 else ""
     return ""
 
 
 def cancel_slurm_job(cluster: str, job_id: str) -> SlurmCancelResult:
+    """Cancel a Slurm job using scancel.
+
+    Args:
+        cluster: The Slurm cluster name.
+        job_id: The Slurm job ID.
+    """
     state, error = _squeue_job_state(cluster, job_id)
     if error:
         return SlurmCancelResult(cluster, job_id, False, error=error)
