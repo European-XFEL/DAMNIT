@@ -27,7 +27,9 @@ from damnit.backend import listener_is_running, initialize_proposal, start_liste
 from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import BlobTypes, DamnitDB, blob2numpy
 from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load_reduced_data, main as extract_data_main
-from damnit.backend.extraction_control import ExtractionJobTracker
+from damnit.backend.extraction_control import (
+    ExtractionJobTracker, SlurmCancelResult, cancel_slurm_job
+)
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
@@ -1303,6 +1305,86 @@ def test_job_tracker():
 
     fake_squeue.assert_called()
     assert set(tracker.jobs) == set()
+
+
+def test_cancel_slurm_job():
+    with patch("damnit.backend.extraction_control.subprocess.run") as run:
+        run.side_effect = [
+            subprocess.CompletedProcess(["squeue"], 0, "321_4 PENDING\n", ""),
+            subprocess.CompletedProcess(["scancel"], 0, "", ""),
+        ]
+        result = cancel_slurm_job("maxwell", "321_4")
+
+    assert result.cancelled
+    assert result.job_id == "321_4"
+    assert result.state == "PENDING"
+
+    # job already finished
+    with patch("damnit.backend.extraction_control.subprocess.run") as run:
+        run.side_effect = [
+            subprocess.CompletedProcess(["squeue"], 0, "", ""),
+            subprocess.CompletedProcess(["sacct"], 0, "321|COMPLETED\n", ""),
+        ]
+        result = cancel_slurm_job("maxwell", "321")
+
+    assert result.cancelled
+    assert result.already_gone
+    assert result.state == "COMPLETED"
+
+    # invalid job id
+    with patch("damnit.backend.extraction_control.subprocess.run") as run:
+        run.side_effect = [
+            subprocess.CompletedProcess(["squeue"], 1, "", "Invalid job id"),
+            subprocess.CompletedProcess(["sacct"], 0, "321|CANCELLED\n", ""),
+        ]
+        result = cancel_slurm_job("maxwell", "321")
+
+    assert result.cancelled
+    assert result.already_gone
+    assert result.state == "CANCELLED"
+
+    # permission error
+    with patch("damnit.backend.extraction_control.subprocess.run") as run:
+        run.side_effect = [
+            subprocess.CompletedProcess(["squeue"], 0, "321 RUNNING\n", ""),
+            subprocess.CompletedProcess(["scancel"], 1, "", "Access denied"),
+        ]
+        result = cancel_slurm_job("maxwell", "321")
+
+    assert not result.cancelled
+    assert result.error == "Access denied"
+    assert result.state == "RUNNING"
+
+
+def test_job_tracker_cancel_slurm_jobs(tmp_path):
+    tracker = ExtractionJobTracker()
+    changed = []
+    tracker.on_run_jobs_changed = lambda proposal, run: changed.append((proposal, run))
+    d = {'proposal': 1234, 'data': 'all', 'hostname': '', 'username': '',
+         'slurm_cluster': 'maxwell', 'status': 'RUNNING'}
+    prid1, prid2 = str(uuid4()), str(uuid4())
+    tracker.on_processing_state_set(d | {
+        'run': 1, 'processing_id': prid1, 'slurm_job_id': '321'
+    })
+    tracker.on_processing_state_set(d | {
+        'run': 2, 'processing_id': prid2, 'slurm_job_id': '322'
+    })
+    changed.clear()
+
+    with patch("damnit.backend.extraction_control.cancel_slurm_job") as cancel:
+        cancel.side_effect = [
+            SlurmCancelResult("maxwell", "321", True, state="PENDING"),
+            SlurmCancelResult("maxwell", "322", False, error="Access denied"),
+        ]
+        results = tracker.cancel_slurm_jobs_for_runs({(1234, 1), (1234, 2)}, tmp_path)
+
+    assert [r.cancelled for r in results] == [True, False]
+    assert set(tracker.jobs) == {prid2}
+    assert changed == [(1234, 1)]
+
+    log_txt = (tmp_path / "process_logs" / "r1-p1234.out").read_text()
+    assert "PENDING" in log_txt
+    assert "job 321" in log_txt
 
 
 def test_extract_data_sandbox(mock_db, mock_kafka_broker, tmp_path, monkeypatch):

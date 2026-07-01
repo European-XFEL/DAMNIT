@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QFileDialog, QInputDialog,
 
 import damnit
 from damnit.backend.db import DamnitDB, MsgKind, ReducedData
+from damnit.backend.extraction_control import SlurmCancelResult
 from damnit.backend.extract_data import add_to_db
 from damnit.context import Pipeline
 from damnit.gui.editor import ContextTestResult
@@ -1545,6 +1546,48 @@ def test_processing_status(mock_db_with_data, qtbot, mock_kafka_broker):
     tbl.handle_processing_state_set(d | {'run': 2, 'processing_id': str(uuid4())})
     assert tbl.rowCount() == 2
     assert shows_as_processing(2)
+
+
+def test_cancel_processing_jobs(mock_db_with_data, qtbot, mock_kafka_broker):
+    db_dir, db = mock_db_with_data
+    win = MainWindow(db_dir, background_activity=False)
+    qtbot.addWidget(win)
+    tbl = win.table
+    view = win.table_view
+
+    row = tbl.find_row(1234, 1)
+    proxy_row = view.model().mapFromSource(tbl.index(row, 0)).row()
+    view.selectRow(proxy_row)
+    view.selection_changed()
+    assert not view.cancel_jobs_action.isEnabled()
+
+    prid = str(uuid4())
+    tbl.handle_processing_state_set({
+        'proposal': 1234,
+        'run': 1,
+        'data': 'all',
+        'hostname': '',
+        'username': '',
+        'slurm_cluster': 'maxwell',
+        'slurm_job_id': '321',
+        'status': 'PENDING',
+        'processing_id': prid,
+    })
+    assert view.cancel_jobs_action.isEnabled()
+
+    with patch("damnit.backend.extraction_control.cancel_slurm_job") as cancel:
+        cancel.return_value = SlurmCancelResult(
+            cluster="maxwell", job_id="321", cancelled=True, error="",
+            already_gone=False, state="PENDING"
+        )
+        win.cancel_processing_jobs()
+
+    cancel.assert_called_once_with("maxwell", "321")
+    assert prid not in tbl.processing_jobs.jobs
+    assert not view.cancel_jobs_action.isEnabled()
+    assert "job 321" in (
+        db_dir / "process_logs" / "r1-p1234.out"
+    ).read_text()
 
 
 def test_theme(mock_db, qtbot, tmp_path):
