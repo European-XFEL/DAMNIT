@@ -1,11 +1,15 @@
 """Read temporary HDF5 files, combine them into a single file per run, updating DB"""
 import json
 import logging
+import multiprocessing
 import re
+import queue
 import signal
 import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Thread
 
 import h5netcdf
 import h5py
@@ -99,10 +103,17 @@ class FileSubmissionProcessor:
             consumer_timeout_ms=600_000,
             **(consumer_config or {})
         )
-        self.producer = KafkaProducer(
-            bootstrap_servers=update_brokers(),
-            value_serializer=lambda d: json.dumps(d).encode('utf-8')
-        )
+        self.task_q = multiprocessing.JoinableQueue(maxsize=64)
+        self.finished_q = multiprocessing.SimpleQueue()
+        self.holding = {}
+        self.holding_lock = multiprocessing.Lock()
+        self.finished_thread = Thread(target=self.watch_finished, daemon=True)
+        self.finished_thread.start()
+        self.workers = [CombinerWorker(
+            name=f"combiner-worker-{i}", task_q=self.task_q, finished_q=self.finished_q,
+        ) for i in range(16)]
+        for w in self.workers:
+            w.start()
 
     def __enter__(self):
         return self
@@ -112,8 +123,25 @@ class FileSubmissionProcessor:
 
     def shutdown(self):
         self.consumer.close()
-        self.producer.flush(timeout=10)
-        self.producer.close(timeout=10)
+        while True:
+            try:  # Discard any tasks not yet started
+                self.task_q.get_nowait()
+                self.task_q.task_done()
+            except queue.Empty:
+                break
+        for _ in self.workers:
+            self.task_q.put(None)
+        for w in self.workers:
+            w.join(timeout=5)
+
+        self.task_q.join()
+        self.task_q.close()
+        self.task_q.join_thread()
+
+        self.finished_q.put(None)
+        self.finished_thread.join()
+        self.finished_q.close()
+
 
     def run(self):
         while True:
@@ -137,15 +165,74 @@ class FileSubmissionProcessor:
                 exc_info=True,
             )
 
-    def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
-        """Handle a notification from Kafka"""
-        damnit_dir = Path(d['damnit_dir'])
-        h5_dir = damnit_dir / "extracted_data"
-        src = Path(d['new_file'])
-        dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
-        log.info("Combining %r into %r", src, dst)
-
+    def process_file_submission_msg(self, d, msg_timestamp):
+        damnit_dir = d['damnit_dir']
         prop, run = d['proposal'], d['run']
+        key = (damnit_dir, prop, run)
+
+        with self.holding_lock:
+            if (deq := self.holding.get(key)) is not None:
+                log.info("New submission for p%r r%r in %s will be held until another "
+                         "job finishes for the same file", prop, run, damnit_dir)
+                deq.append((d, msg_timestamp))
+                return
+
+            self.holding[key] = deque()
+            self.task_q.put((d, msg_timestamp))
+
+    def watch_finished(self):
+        """Runs in thread to submit held tasks when one finishes"""
+        while True:
+            key = self.finished_q.get()  # damnit_dir, prop, run
+            if key is None:
+                return
+
+            with self.holding_lock:
+                if (deq := self.holding.get(key)) is None:
+                    continue
+
+                if len(deq) > 0:
+                    self.task_q.put(deq.popleft())
+                else:
+                    # If the finished task was the last for this key, we don't
+                    # need to hold up further jobs.
+                    del self.holding[key]
+
+
+
+class CombinerWorker(multiprocessing.Process):
+    def __init__(self, task_q, finished_q, name=None):
+        super().__init__(name=name, daemon=True)
+        self.task_q = task_q
+        self.finished_q = finished_q
+
+    def run(self):
+        prod = KafkaProducer(
+            bootstrap_servers=update_brokers(),
+            value_serializer=lambda d: json.dumps(d).encode('utf-8')
+        )
+        while True:
+            if (task := self.task_q.get()) is None:
+                self.task_q.task_done()
+                return
+
+            d, msg_timestamp = task
+            try:
+                damnit_dir = Path(d['damnit_dir'])
+                src = Path(d['new_file'])
+                prop, run = d['proposal'], d['run']
+                self.process_one(damnit_dir, src, prop, run, msg_timestamp, prod)
+            except Exception:
+                log.error("Error combining file %r", d, exc_info=True)
+            self.task_q.task_done()
+            key = d.get('damnit_dir'), d.get('proposal'), d.get('run')
+            self.finished_q.put(key)
+
+    def process_one(self, damnit_dir, src, prop, run, msg_timestamp, producer):
+        """Handle a notification from Kafka"""
+        h5_dir = damnit_dir / "extracted_data"
+        dst = h5_dir / f"p{prop}_r{run}.h5"
+        log.info("Combining %r into %r", src, dst)
 
         if not self.wait_file_exists(src, msg_timestamp):
             log.warning(
@@ -163,7 +250,13 @@ class FileSubmissionProcessor:
             log.info("Updating database in %s with %s variables for p%d r%d from %s",
                      damnit_dir, len(new_data), prop, run, provenance)
             add_to_db(new_data, db, prop, run, provenance=provenance)
-            self.send_update(new_data, db.kafka_topic, prop, run)
+            update_msg = msg_dict(MsgKind.run_values_updated, {
+                'run': run, 'proposal': prop, 'values': {
+                    name: None for name in new_data.keys()
+                }
+            })
+            producer.send(db.kafka_topic, update_msg)
+            producer.flush(timeout=5)
 
     @staticmethod
     def wait_file_exists(p: Path, msg_timestamp: datetime):
@@ -184,14 +277,6 @@ class FileSubmissionProcessor:
             p, (t1 - t0), since_msg.total_seconds()
         )
         return True
-
-    def send_update(self, reduced_data, topic, proposal, run):
-        update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': run, 'proposal': proposal, 'values': {
-                name: None for name in reduced_data.keys()
-            }
-        })
-        self.producer.send(topic, update_msg)
 
 
 def gather_all_fragments(damnit_dir: Path):
@@ -223,6 +308,8 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
     # Exclude debug level logging from kafka-python
     logging.getLogger('kafka').setLevel(logging.INFO)
+
+    multiprocessing.set_start_method('forkserver')
 
     # Treat SIGTERM like SIGINT (Ctrl-C) & do a clean shutdown
     signal.signal(signal.SIGTERM, interrupted)

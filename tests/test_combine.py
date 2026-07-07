@@ -29,7 +29,7 @@ class SubmitHelper:
 
         with self.broker.assert_produces(self.db.kafka_topic) as new_records:
             self.combiner.handle_one_message()
-            self.combiner.producer.flush(timeout=5)
+            self.combiner.task_q.join()
 
         return new_records
 
