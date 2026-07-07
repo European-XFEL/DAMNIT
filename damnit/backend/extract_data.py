@@ -81,7 +81,11 @@ def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, san
             return pipe, error_info
 
 
-def load_reduced_data(h5_path):
+def load_reduced_data(h5_file_or_path):
+    if not isinstance(h5_file_or_path, h5py.File):
+        with h5py.File(h5_file_or_path, 'r') as f:
+            return load_reduced_data(f)
+
     def get_dset_value(ds):
         # If it's a string, extract the string
         if h5py.check_string_dtype(ds.dtype) is not None:
@@ -108,23 +112,22 @@ def load_reduced_data(h5_path):
             d[name] = value
         return d
 
-    with h5py.File(h5_path, 'r') as f:
-        return {
-            name: ReducedData(
-                get_dset_value(dset),
-                max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
-                summary_method=dset.attrs.get("summary_method", ""),
-                summary_type=dset.attrs.get("summary_type"),
-                attributes=get_attrs(dset),
-            )
-            for name, dset in f['.reduced'].items()
-        } | {
-            name: ReducedData(None, attributes={
-                'error': get_dset_value(dset),
-                'error_cls': dset.attrs.get("type", "")
-            })
-            for name, dset in f['.errors'].items()
-        }
+    return {
+        name: ReducedData(
+            get_dset_value(dset),
+            max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
+            summary_method=dset.attrs.get("summary_method", ""),
+            summary_type=dset.attrs.get("summary_type"),
+            attributes=get_attrs(dset),
+        )
+        for name, dset in h5_file_or_path['.reduced'].items()
+    } | {
+        name: ReducedData(None, attributes={
+            'error': get_dset_value(dset),
+            'error_cls': dset.attrs.get("type", "")
+        })
+        for name, dset in h5_file_or_path['.errors'].items()
+    }
 
 
 def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):

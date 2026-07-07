@@ -1,9 +1,12 @@
 """Read temporary HDF5 files, combine them into a single file per run, updating DB"""
 import json
 import logging
+import multiprocessing
+import os.path
 import re
 import signal
 import time
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -70,24 +73,21 @@ def copy_variable(fsrc: h5py.File, fdst: h5py.File, name: str):
             copy_h5_obj(fsrc, fdst, f"{special_grp}/{name}") 
 
 
-def combine(src: Path, dst: Path):
-    """Combine the the contents of src (an HDF5 file) into dst"""
-    # Shortcut: if the destination file doesn't exist, rename src
+def _try_rename(src: Path, dst: Path) -> bool:
     try:
         dst.hardlink_to(src)
     except FileExistsError:
-        pass
+        return False
     else:
         src.unlink()
         log.debug("Created %r by renaming", dst)
-        return
+        return True
 
-    with h5py.File(src) as fsrc, h5py.File(dst, 'r+') as fdst:
-        for name in fragment_variables(fsrc):
-            delete_variable(fdst, name)
-            copy_variable(fsrc, fdst, name)
 
-    src.unlink()
+def combine_contents(fsrc: h5py.File, fdst: h5py.File):
+    for name in fragment_variables(fsrc):
+        delete_variable(fdst, name)
+        copy_variable(fsrc, fdst, name)
 
 
 class FileSubmissionProcessor:
@@ -99,9 +99,10 @@ class FileSubmissionProcessor:
             consumer_timeout_ms=600_000,
             **(consumer_config or {})
         )
-        self.producer = KafkaProducer(
-            bootstrap_servers=update_brokers(),
-            value_serializer=lambda d: json.dumps(d).encode('utf-8')
+        self.executor = ProcessPoolExecutor(
+            max_workers=16,
+            mp_context=multiprocessing.get_context('spawn'),
+            max_tasks_per_child=100,
         )
 
     def __enter__(self):
@@ -112,8 +113,9 @@ class FileSubmissionProcessor:
 
     def shutdown(self):
         self.consumer.close()
-        self.producer.flush(timeout=10)
-        self.producer.close(timeout=10)
+        # With the default wait=True, this will finish anything that has started
+        # running before shutting down.
+        self.executor.shutdown(cancel_futures=True)
 
     def run(self):
         while True:
@@ -128,7 +130,7 @@ class FileSubmissionProcessor:
             ts = datetime.fromtimestamp(record.timestamp / 1000, tz=timezone.utc)
             msg = json.loads(record.value.decode())
             if msg['msg_kind'] == MsgKind.file_submission.value:
-                self.process_file_submission_msg(msg['data'], ts)
+                return self.executor.submit(process_file_submission_msg, msg['data'], ts)
             else:
                 log.info("Unexpected message kind %r", msg['msg_kind'])
         except Exception:
@@ -137,65 +139,109 @@ class FileSubmissionProcessor:
                 exc_info=True,
             )
 
-    def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
-        """Handle a notification from Kafka"""
-        damnit_dir = Path(d['damnit_dir'])
-        h5_dir = damnit_dir / "extracted_data"
-        src = Path(d['new_file'])
-        dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
-        log.info("Combining %r into %r", src, dst)
 
-        prop, run = d['proposal'], d['run']
+def process_file_submission_msg(d: dict, msg_timestamp: datetime):
+    """Handle a notification from Kafka. This runs in a worker process"""
+    damnit_dir = Path(d['damnit_dir'])
+    h5_dir = damnit_dir / "extracted_data"
+    src = Path(d['new_file'])
+    dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
+    log.info("Combining %r into %r", src, dst)
 
-        if not self.wait_file_exists(src, msg_timestamp):
-            log.warning(
-                "File %s not present %d s after notification, skipping",
-                src, NO_FILE_TIMEOUT
-            )
-            return
+    prop, run = d['proposal'], d['run']
 
-        with h5py.File(src) as f:
-            provenance = f.attrs.get("provenance", "")
-        new_data = load_reduced_data(src)
-        combine(src, dst)
-
-        with DamnitDB.from_dir(damnit_dir) as db:
-            log.info("Updating database in %s with %s variables for p%d r%d from %s",
-                     damnit_dir, len(new_data), prop, run, provenance)
-            add_to_db(new_data, db, prop, run, provenance=provenance)
-            self.send_update(new_data, db.kafka_topic, prop, run)
-
-    @staticmethod
-    def wait_file_exists(p: Path, msg_timestamp: datetime):
-        if p.exists():
-            return True
-
-        time_limit = msg_timestamp + timedelta(seconds=NO_FILE_TIMEOUT)
-        t0 = time.monotonic()
-        while not p.exists():
-            if datetime.now(timezone.utc) > time_limit:
-                return False
-            time.sleep(0.5)
-
-        t1 = time.monotonic()
-        since_msg = datetime.now(timezone.utc) - msg_timestamp
-        log.info(
-            "Fragment file %s found after %d s (%d s after notification)",
-            p, (t1 - t0), since_msg.total_seconds()
+    if not wait_file_exists(src, msg_timestamp):
+        log.warning(
+            "File %s not present %d s after notification, skipping",
+            src, NO_FILE_TIMEOUT
         )
+        return
+
+    try:
+        combine_one_file(src, dst, damnit_dir, prop, run)
+    except BlockingIOError:
+        log.warning(
+            "Output file %s appears to be locked by another worker, not combining %s",
+            dst, src
+        )
+        return
+
+    # Now combine any further files with the same destination which another
+    # worker may have given up on while this one had the lock.
+    extra_srcs = sorted(dst.parent.glob(dst.stem + '*.ready.h5'), key=os.path.getmtime)
+    for extra_src in extra_srcs:
+        log.info("Found additional file %s waiting to be combined", extra_src)
+        try:
+            combine_one_file(extra_src, dst, damnit_dir, prop, run, dst_retries=1)
+        except BlockingIOError:
+            log.warning(
+                "Output file %s appears to be locked by another worker, not combining %s",
+                dst, src
+            )
+
+
+def wait_file_exists(p: Path, msg_timestamp: datetime):
+    if p.exists():
         return True
 
-    def send_update(self, reduced_data, topic, proposal, run):
-        update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': run, 'proposal': proposal, 'values': {
-                name: None for name in reduced_data.keys()
-            }
-        })
-        self.producer.send(topic, update_msg)
+    time_limit = msg_timestamp + timedelta(seconds=NO_FILE_TIMEOUT)
+    t0 = time.monotonic()
+    while not p.exists():
+        if datetime.now(timezone.utc) > time_limit:
+            return False
+        time.sleep(0.5)
+
+    t1 = time.monotonic()
+    since_msg = datetime.now(timezone.utc) - msg_timestamp
+    log.info(
+        "Fragment file %s found after %d s (%d s after notification)",
+        p, (t1 - t0), since_msg.total_seconds()
+    )
+    return True
+
+
+def combine_one_file(src, dst, damnit_dir, prop, run, dst_retries=10):
+    with h5py.File(src) as fsrc:
+        provenance = fsrc.attrs.get("provenance", "")
+        new_data = load_reduced_data(fsrc)
+
+        if not _try_rename(src, dst):
+            with open_dst_file(dst, retries=dst_retries) as fdst:
+                combine_contents(fsrc, fdst)
+
+    with DamnitDB.from_dir(damnit_dir) as db:
+        log.info("Updating database in %s with %s variables for p%d r%d from %s",
+                 damnit_dir, len(new_data), prop, run, provenance)
+        add_to_db(new_data, db, prop, run, provenance=provenance)
+        send_update(new_data, db.kafka_topic, prop, run)
+
+
+def open_dst_file(p: Path, retries=10):
+    while True:
+        try:
+            return h5py.File(p, 'r+')
+        except BlockingIOError:  # File locked by another process
+            retries -= 1
+            if retries <= 0:
+                raise
+            time.sleep(1)
+
+
+def send_update(reduced_data, topic, proposal, run):
+    update_msg = msg_dict(MsgKind.run_values_updated, {
+        'run': run, 'proposal': proposal, 'values': {
+            name: None for name in reduced_data.keys()
+        }
+    })
+    producer = KafkaProducer(
+        bootstrap_servers=update_brokers(),
+        value_serializer=lambda d: json.dumps(d).encode('utf-8')
+    )
+    producer.send(topic, update_msg)
+    producer.close(timeout=5)
 
 
 def gather_all_fragments(damnit_dir: Path):
-    db = DamnitDB.from_dir(damnit_dir)
     h5_dir = damnit_dir / "extracted_data"
 
     frag_files_matches = sorted(
@@ -208,11 +254,8 @@ def gather_all_fragments(damnit_dir: Path):
         proposal = int(m[1])
         run = int(m[2])
 
-        new_data = load_reduced_data(p)
-        with h5py.File(p) as f:
-            provenance = f.attrs.get("provenance", "")
-        combine(p, h5_dir / f"p{proposal}_r{run}.h5")
-        add_to_db(new_data, db, proposal, run, provenance=provenance)
+        dst = h5_dir / f"p{proposal}_r{run}.h5"
+        combine_one_file(p, dst, damnit_dir, proposal, run, dst_retries=1)
 
 
 def interrupted(signum, frame):
