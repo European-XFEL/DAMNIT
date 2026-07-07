@@ -609,6 +609,7 @@ def test_results_cell(mock_run, tmp_path):
     from damnit_ctx import Variable, Cell
     import numpy as np
     import matplotlib.pyplot as plt
+    import xarray as xr
 
     @Variable()
     def var1(run):
@@ -623,6 +624,11 @@ def test_results_cell(mock_run, tmp_path):
         plt.figure()
         plt.plot([1, 2, 3])
         return Cell(np.arange(7), summary_value=4, preview=plt.gca())
+
+    @Variable()
+    def var4(run):
+        data = xr.DataArray(["A", "UNKNOWN", "A"], dims=["trainId"])
+        return Cell(data, summary_value="A")
     """
     bad_obj_ctx = mkcontext(ctx_code)
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
@@ -635,6 +641,8 @@ def test_results_cell(mock_run, tmp_path):
         )
 
         assert f['.reduced/var3'][()] == 4
+        assert f['.reduced/var4'].asstr()[()] == "A"
+        assert "max_diff" not in f['.reduced/var4'].attrs
 
 
 def test_results_empty_array(mock_run, tmp_path, caplog):

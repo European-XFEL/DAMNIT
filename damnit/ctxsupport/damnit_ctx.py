@@ -371,7 +371,7 @@ class Cell:
 
     def _max_diff(self):
         a = self.data
-        if isinstance(a, (np.ndarray, xr.DataArray)) and a.size > 1:
+        if isinstance(a, (np.ndarray, xr.DataArray)) and a.size > 1 and np.issubdtype(a.dtype, np.number):
             if np.issubdtype(a.dtype, np.bool_):
                 return 1. if (True in a) and (False in a) else 0.
             return np.abs(np.subtract(np.nanmax(a), np.nanmin(a)), dtype=np.float64)
