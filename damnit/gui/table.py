@@ -585,7 +585,7 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
             unit_color = option.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
         else:
             value_color = option.palette.color(QtGui.QPalette.ColorRole.Text)
-            unit_color = option.palette.color(QtGui.QPalette.ColorRole.Mid)
+            unit_color = option.palette.color(QtGui.QPalette.ColorRole.Text)
 
         doc = QtGui.QTextDocument()
         doc.setDefaultFont(option.font)
