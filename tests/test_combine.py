@@ -16,7 +16,8 @@ class SubmitHelper:
         self.db = db
         self.db_dir = db_dir
         self.combiner = FileSubmissionProcessor(
-            consumer_config={'auto_offset_reset': 'earliest'}
+            consumer_config={'auto_offset_reset': 'earliest'},
+            n_workers=2,
         )
 
     def submit_and_combine(self, proposal, run, data, provenance='test', errors=None):
@@ -29,7 +30,7 @@ class SubmitHelper:
 
         with self.broker.assert_produces(self.db.kafka_topic) as new_records:
             self.combiner.handle_one_message()
-            self.combiner.producer.flush(timeout=5)
+            self.combiner.wait_all_done()
 
         return new_records
 
