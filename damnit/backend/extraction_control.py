@@ -88,6 +88,114 @@ def batches(l, n):
 
 
 @dataclass
+class SlurmCancelResult:
+    cluster: str
+    job_id: str
+    cancelled: bool
+    error: str = ""
+    already_gone: bool = False
+    state: str = ""
+
+
+def _squeue_job_state(cluster: str, job_id: str) -> tuple[str, str]:
+    """Get the state of a Slurm job using squeue.
+
+    Args:
+        cluster: The Slurm cluster name.
+        job_id: The Slurm job ID.
+
+    Returns:
+        A tuple of (state, error).
+    """
+    res = subprocess.run(
+        ["squeue", "--clusters", cluster, f"--jobs={job_id}", "--format=%i %T", "--noheader"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if res.returncode != 0:
+        error = (res.stderr or res.stdout).strip() or f"squeue exited with status {res.returncode}"
+        if "invalid job id" in error.lower():
+            return "", ""
+        return "", error
+
+    for line in res.stdout.splitlines():
+        fields = line.strip().split(maxsplit=1)
+        if len(fields) > 0 and fields[0] == job_id:
+            return fields[1] if len(fields) > 1 else "", ""
+    return "", ""
+
+
+def _sacct_job_state(cluster: str, job_id: str) -> str:
+    """Get the state of a Slurm job using sacct.
+
+    Args:
+        cluster: The Slurm cluster name.
+        job_id: The Slurm job ID.
+
+    Returns:
+        The state of the job, or an empty string if not found.
+    """
+    res = subprocess.run(
+        [
+            "sacct",
+            "--clusters",
+            cluster,
+            f"--jobs={job_id}",
+            "--format=JobID,State",
+            "--parsable2",
+            "--noheader",
+            "--allocations",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if res.returncode != 0:
+        return ""
+
+    for line in res.stdout.splitlines():
+        fields = line.strip().split("|", maxsplit=1)
+        if len(fields) > 0 and fields[0] == job_id:
+            return fields[1] if len(fields) > 1 else ""
+    return ""
+
+
+def cancel_slurm_job(cluster: str, job_id: str) -> SlurmCancelResult:
+    """Cancel a Slurm job using scancel.
+
+    Args:
+        cluster: The Slurm cluster name.
+        job_id: The Slurm job ID.
+    """
+    state, error = _squeue_job_state(cluster, job_id)
+    if error:
+        return SlurmCancelResult(cluster, job_id, False, error=error)
+    if not state:
+        return SlurmCancelResult(
+            cluster, job_id, True, already_gone=True,
+            state=_sacct_job_state(cluster, job_id),
+        )
+
+    res = subprocess.run(
+        ["scancel", "--clusters", cluster, job_id],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    if res.returncode == 0:
+        return SlurmCancelResult(cluster, job_id, True, state=state)
+
+    error = (res.stderr or res.stdout).strip() or f"scancel exited with status {res.returncode}"
+    return SlurmCancelResult(cluster, job_id, False, error=error, state=state)
+
+
+def write_cancelled_log(context_dir: Path, info: dict, result: SlurmCancelResult):
+    log_path = process_log_path(info['run'], info['proposal'], context_dir)
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(
+            f"\nCancelled {result.state} Slurm job {result.job_id} "
+            f"on {result.cluster} by {getpass.getuser()}\n"
+        )
+
+
+@dataclass
 class ExtractionRequest:
     """Description of some data we want to extract"""
     run: int
@@ -418,6 +526,34 @@ class ExtractionJobTracker:
 
     def on_run_jobs_changed(self, proposal, run):
         pass   # Implement in subclass
+
+    def active_slurm_jobs_for_runs(self, proposal_runs):
+        proposal_runs = set(proposal_runs)
+        return [
+            info for info in self.jobs.values()
+            if (info['proposal'], info['run']) in proposal_runs
+            and info.get('slurm_cluster')
+            and info.get('slurm_job_id')
+            and info.get('status') in ('PENDING', 'RUNNING')
+        ]
+
+    # This method calls squeue/sacct/scancel in subprocesses. As it is used from the Qt
+    # client, those calls will block the main event loop. Since cancelling jobs should
+    # be rare and fast this should not be a concern. If we notice it becomes an issue,
+    # we should move those calls to a QProcess as we do in QtExtractionJobTracker for
+    # tracking jobs state in the GUI client.
+    def cancel_slurm_jobs_for_runs(self, proposal_runs, context_dir: Path):
+        jobs = self.active_slurm_jobs_for_runs(proposal_runs)
+        results = []
+        for info in jobs:
+            result = cancel_slurm_job(info['slurm_cluster'], info['slurm_job_id'])
+            results.append(result)
+            if result.cancelled and info['processing_id'] in self.jobs:
+                write_cancelled_log(context_dir, info, result)
+                del self.jobs[info['processing_id']]
+                self.on_run_jobs_changed(info['proposal'], info['run'])
+
+        return results
 
     def check_slurm_jobs(self):
         """Check for any Slurm jobs that exited without a 'finished' message"""

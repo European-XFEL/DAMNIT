@@ -658,6 +658,9 @@ class TableView(QtWidgets.QTableView):
         self.context_menu.addAction(self.show_logs_action)
         self.process_action = QtGui.QAction('Reprocess runs')
         self.context_menu.addAction(self.process_action)
+        self.cancel_jobs_action = QtGui.QAction('Cancel processing')
+        self.cancel_jobs_action.setEnabled(False)
+        self.context_menu.addAction(self.cancel_jobs_action)
 
         # Add tag filtering support
         self._current_tag_filter = set()  # Change to set for multiple tags
@@ -675,7 +678,13 @@ class TableView(QtWidgets.QTableView):
         if (old_model := self.model()) is not None:
             old_model.deleteLater()
 
-        self.damnit_model = model
+        # to simplify some units test setup, we set the TableView model to
+        # a standard QStandardItemModel. This allows us to test the TableView
+        # without needing to create a full DamnitTableModel.
+        if isinstance(model, DamnitTableModel):
+            self.damnit_model = model
+        else:
+            self.damnit_model = None
 
         sfpm = FilterProxy(self)
         sfpm.setSourceModel(model)
@@ -701,6 +710,10 @@ class TableView(QtWidgets.QTableView):
             self.model().filterChanged.connect(
                 lambda: header.update_filtered_columns(self.model().filters))
             self.resizeRowsToContents()
+        if self.damnit_model is not None:
+            self.damnit_model.processing_jobs.run_jobs_changed.connect(
+                lambda *_: self.update_cancel_processing_action()
+            )
 
         self.selectionModel().selectionChanged.connect(self.selection_changed)
 
@@ -769,9 +782,21 @@ class TableView(QtWidgets.QTableView):
         proxy = self.model()
         return [proxy.mapToSource(ix) for ix in proxy_rows]
 
+    def selected_proposal_runs(self):
+        return [
+            self.damnit_model.row_to_proposal_run(ix.row())
+            for ix in self.selected_rows()
+        ]
+
+    def update_cancel_processing_action(self):
+        sel_prop_run = self.selected_proposal_runs()
+        slurm_jobs = self.damnit_model.processing_jobs.active_slurm_jobs_for_runs(sel_prop_run)
+        self.cancel_jobs_action.setEnabled(bool(slurm_jobs))
+
     def selection_changed(self):
         has_sel = self.selectionModel().hasSelection()
         self.show_logs_action.setEnabled(has_sel)
+        self.update_cancel_processing_action()
 
     def item_changed(self, item):
         state = item.checkState()

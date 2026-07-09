@@ -776,6 +776,7 @@ da-dev@xfel.eu"""
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
+        self.table_view.cancel_jobs_action.triggered.connect(self.cancel_processing_jobs)
 
         # Initialize plot controls
         self.plot = PlottingControls(self)
@@ -1038,6 +1039,30 @@ da-dev@xfel.eu"""
                     self.update_agent.processing_submitted(
                         req.submitted_info(cluster, job_id)
                     )
+
+    def cancel_processing_jobs(self):
+        results = self.table.processing_jobs.cancel_slurm_jobs_for_runs(
+            self.table_view.selected_proposal_runs(), self.context_dir
+        )
+        self.table_view.update_cancel_processing_action()
+        if not results:
+            self.show_status_message(
+                "No running Slurm processing jobs selected",
+                10_000, stylesheet=StatusbarStylesheet.ERROR
+            )
+            return
+
+        failed = [r for r in results if not r.cancelled]
+        if failed:
+            result = failed[0]
+            self.show_status_message(
+                f"Could not cancel Slurm job {result.job_id}: {result.error}",
+                10_000, stylesheet=StatusbarStylesheet.ERROR
+            )
+        else:
+            self.show_status_message(
+                f"Cancelled {len(results)} Slurm processing job(s)", 10_000
+            )
 
     adeqt_window = None
 
