@@ -1308,11 +1308,8 @@ def test_job_tracker():
 
 
 def test_cancel_slurm_job():
-    with patch("damnit.backend.extraction_control.subprocess.run") as run:
-        run.side_effect = [
-            subprocess.CompletedProcess(["squeue"], 0, "321_4 PENDING\n", ""),
-            subprocess.CompletedProcess(["scancel"], 0, "", ""),
-        ]
+    with (MockCommand.fixed_output("squeue", "321_4 PENDING\n"), 
+          MockCommand.fixed_output("scancel", "")):
         result = cancel_slurm_job("maxwell", "321_4")
 
     assert result.cancelled
@@ -1320,11 +1317,8 @@ def test_cancel_slurm_job():
     assert result.state == "PENDING"
 
     # job already finished
-    with patch("damnit.backend.extraction_control.subprocess.run") as run:
-        run.side_effect = [
-            subprocess.CompletedProcess(["squeue"], 0, "", ""),
-            subprocess.CompletedProcess(["sacct"], 0, "321|COMPLETED\n", ""),
-        ]
+    with (MockCommand.fixed_output("squeue", ""), 
+          MockCommand.fixed_output("sacct", "321|COMPLETED\n")):
         result = cancel_slurm_job("maxwell", "321")
 
     assert result.cancelled
@@ -1332,11 +1326,8 @@ def test_cancel_slurm_job():
     assert result.state == "COMPLETED"
 
     # invalid job id
-    with patch("damnit.backend.extraction_control.subprocess.run") as run:
-        run.side_effect = [
-            subprocess.CompletedProcess(["squeue"], 1, "", "Invalid job id"),
-            subprocess.CompletedProcess(["sacct"], 0, "321|CANCELLED\n", ""),
-        ]
+    with (MockCommand.fixed_output("squeue", "", "Invalid job id", 1), 
+          MockCommand.fixed_output("sacct", "321|CANCELLED\n")):
         result = cancel_slurm_job("maxwell", "321")
 
     assert result.cancelled
@@ -1344,11 +1335,8 @@ def test_cancel_slurm_job():
     assert result.state == "CANCELLED"
 
     # permission error
-    with patch("damnit.backend.extraction_control.subprocess.run") as run:
-        run.side_effect = [
-            subprocess.CompletedProcess(["squeue"], 0, "321 RUNNING\n", ""),
-            subprocess.CompletedProcess(["scancel"], 1, "", "Access denied"),
-        ]
+    with (MockCommand.fixed_output("squeue", "321 RUNNING\n"), 
+          MockCommand.fixed_output("scancel", "", "Access denied\n", 1)):
         result = cancel_slurm_job("maxwell", "321")
 
     assert not result.cancelled
