@@ -115,7 +115,7 @@ def _squeue_job_state(cluster: str, job_id: str) -> tuple[str, str]:
         error = (res.stderr or res.stdout).strip() or f"squeue exited with status {res.returncode}"
         if "invalid job id" in error.lower():
             return "", ""
-        return None, error
+        return "", error
 
     for line in res.stdout.splitlines():
         fields = line.strip().split(maxsplit=1)
@@ -537,6 +537,11 @@ class ExtractionJobTracker:
             and info.get('status') in ('PENDING', 'RUNNING')
         ]
 
+    # This method calls squeue/sacct/scancel in subprocesses. As it is used from the Qt
+    # client, those calls will block the main event loop. Since cancelling jobs should
+    # be rare and fast this should not be a concern. If we notice it becomes an issue,
+    # we should move those calls to a QProcess as we do in QtExtractionJobTracker for
+    # tracking jobs state in the GUI client.
     def cancel_slurm_jobs_for_runs(self, proposal_runs, context_dir: Path):
         jobs = self.active_slurm_jobs_for_runs(proposal_runs)
         results = []
