@@ -1,4 +1,6 @@
 """Read temporary HDF5 files, combine them into a single file per run, updating DB"""
+import multiprocessing
+
 import json
 import logging
 import re
@@ -24,6 +26,9 @@ SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
 
 # If the file doesn't exist N seconds after the Kafka message was sent, move on
 NO_FILE_TIMEOUT = 30
+
+# The combiner service will spread jobs over this many worker processes
+NUM_COMBINER_PROCESSES = 16
 
 log = logging.getLogger(__name__)
 
@@ -91,18 +96,21 @@ def combine(src: Path, dst: Path):
 
 
 class FileSubmissionProcessor:
-    def __init__(self, consumer_config=None):
+    def __init__(self, consumer_config=None, n_workers=NUM_COMBINER_PROCESSES):
         self.consumer = KafkaConsumer(
             FILE_SUBMIT_TOPIC,
             bootstrap_servers=update_brokers(),
             group_id='xfel-da-damnit-combiner',
-            consumer_timeout_ms=600_000,
+            consumer_timeout_ms=15_000,
             **(consumer_config or {})
         )
-        self.producer = KafkaProducer(
-            bootstrap_servers=update_brokers(),
-            value_serializer=lambda d: json.dumps(d).encode('utf-8')
-        )
+        # forkserver doesn't work for the tests, because it doesn't pick up
+        # changing environment variables after the server process starts.
+        self.mp_ctx = mp_ctx = multiprocessing.get_context('spawn')
+        self.workers = []
+        for i in range(n_workers):
+            self.workers.append(cw := CombinerWorker(f"combiner-worker-{i}", mp_ctx))
+            cw.start_process()
 
     def __enter__(self):
         return self
@@ -112,8 +120,16 @@ class FileSubmissionProcessor:
 
     def shutdown(self):
         self.consumer.close()
-        self.producer.flush(timeout=10)
-        self.producer.close(timeout=10)
+        for w in self.workers:
+            w.stop()
+        for w in self.workers:
+            w.process.join()
+            w.task_q.close()
+            w.task_q.join_thread()
+
+    def wait_all_done(self):  # For tests
+        for w in self.workers:
+            w.task_q.join()
 
     def run(self):
         while True:
@@ -121,6 +137,17 @@ class FileSubmissionProcessor:
                 self.handle_one_message()
             except StopIteration:
                 pass  # consumer timeout was reached
+
+            self.ensure_workers()
+
+    def ensure_workers(self):
+        for w in self.workers:
+            if not w.process.is_alive():
+                log.warning(f"{w.name} died unexpectedly; restarting")
+                # Also recreate the queue to reset the task_done count
+                w.task_q.close()
+                w.task_q = self.mp_ctx.JoinableQueue()
+                w.start_process()
 
     def handle_one_message(self):
         record  = next(self.consumer)
@@ -138,6 +165,57 @@ class FileSubmissionProcessor:
             )
 
     def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
+        # Assign the task to worker deterministically based on the destination
+        # HDF5 file. This ensures jobs for the same destination file can't run
+        # in parallel, avoiding locking/corruption issues.
+        dst_key = d['damnit_dir'], d['proposal'], d['run']
+        use_worker_num = hash(dst_key) % len(self.workers)
+        log.info("Submission in %s (p%d r%d) assigned to worker %d",
+                 *dst_key, use_worker_num)
+        self.workers[use_worker_num].task_q.put((d, msg_timestamp))
+
+
+class CombinerWorker:
+    process = None
+
+    def __init__(self, name, mp_ctx):
+        self.name = name
+        self.process_cls = mp_ctx.Process
+        self.task_q = mp_ctx.JoinableQueue()
+
+    def start_process(self):
+        self.process = self.process_cls(name=self.name, target=self.proc_main, daemon=True)
+        self.process.start()
+
+    def stop(self):
+        self.task_q.put(None)
+
+    # Methods below run in the worker process -------------------------------
+
+    def proc_main(self):
+        producer = KafkaProducer(
+            bootstrap_servers=update_brokers(),
+            value_serializer=lambda d: json.dumps(d).encode('utf-8')
+        )
+        try:
+            self.loop(producer)
+        finally:
+            producer.close(timeout=5)
+
+    def loop(self, producer):
+        while True:
+            if (task := self.task_q.get()) is None:
+                return
+
+            try:
+                d, msg_timestamp = task
+                self.process_combine_task(d, msg_timestamp, producer)
+            except Exception:
+                log.error("Exception while combining file", exc_info=True)
+            finally:
+                self.task_q.task_done()
+
+    def process_combine_task(self, d: dict, msg_timestamp: datetime, producer):
         """Handle a notification from Kafka"""
         damnit_dir = Path(d['damnit_dir'])
         h5_dir = damnit_dir / "extracted_data"
@@ -163,7 +241,8 @@ class FileSubmissionProcessor:
             log.info("Updating database in %s with %s variables for p%d r%d from %s",
                      damnit_dir, len(new_data), prop, run, provenance)
             add_to_db(new_data, db, prop, run, provenance=provenance)
-            self.send_update(new_data, db.kafka_topic, prop, run)
+            producer.send(db.kafka_topic, update_msg(new_data, prop, run))
+            producer.flush(timeout=5)
 
     @staticmethod
     def wait_file_exists(p: Path, msg_timestamp: datetime):
@@ -185,13 +264,13 @@ class FileSubmissionProcessor:
         )
         return True
 
-    def send_update(self, reduced_data, topic, proposal, run):
-        update_msg = msg_dict(MsgKind.run_values_updated, {
-            'run': run, 'proposal': proposal, 'values': {
-                name: None for name in reduced_data.keys()
-            }
-        })
-        self.producer.send(topic, update_msg)
+
+def update_msg(reduced_data, proposal: int, run: int):
+    return msg_dict(MsgKind.run_values_updated, {
+        'run': run, 'proposal': proposal, 'values': {
+            name: None for name in reduced_data.keys()
+        }
+    })
 
 
 def gather_all_fragments(damnit_dir: Path):
