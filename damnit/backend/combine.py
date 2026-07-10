@@ -1,6 +1,7 @@
 """Read temporary HDF5 files, combine them into a single file per run, updating DB"""
 import json
 import logging
+import posixpath
 import re
 import signal
 import time
@@ -25,23 +26,122 @@ SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
 # If the file doesn't exist N seconds after the Kafka message was sent, move on
 NO_FILE_TIMEOUT = 30
 
+_DIMENSION_SCALE_ATTRS = {
+    "CLASS",
+    "NAME",
+    "REFERENCE_LIST",
+    "DIMENSION_LIST",
+    "DIMENSION_LABELS",
+}
+
 log = logging.getLogger(__name__)
+
+
+def _dimension_scale_name(dataset: h5py.Dataset) -> str:
+    """Return the HDF5 dimension-scale name as a Python string."""
+    name = dataset.attrs.get("NAME", "")
+
+    if isinstance(name, bytes):
+        return name.decode("utf-8", "surrogateescape")
+
+    return str(name)
 
 
 # HDF5's copy function (H5Ocopy) doesn't work correctly with dimension scales,
 # which are used on NetCDF4 data (saved xarray objects). We work around that by
-# reading such objects back to an xarray dataset and saving them again.
+# rebuilding manually its dimension-scale metadata.
 # https://github.com/HDFGroup/hdf5/issues/6200
-def copy_h5_obj(fsrc: h5py.File, fdst: h5py.File, path: str):
-    objtype = fsrc[path].attrs.get('_damnit_objtype', '')
-    if objtype in (DataType.DataArray.value, DataType.Dataset.value):
-        with h5netcdf.File(fsrc) as nf:
-            with H5NetCDFStore(nf, path, mode='r') as store:
-                xobj = xr.load_dataset(store)
+def copy_h5_obj_rebuild_dimscales(fsrc: h5py.File, fdst: h5py.File, path: str) -> None:
+    """
+    Copy an HDF5 object and rebuild its dimension-scale metadata.
 
-        with h5netcdf.File(fdst, 'a') as nf:
-            with H5NetCDFStore(nf, path, mode='a') as store:
-                xobj.dump_to_store(store)
+    The source and destination paths are identical. The destination object
+    must not already exist, and all attached dimension scales must be inside
+    the copied subtree.
+    """
+    source = fsrc[path]
+    path = source.name
+
+    objects: list[h5py.Group | h5py.Dataset] = [source]
+
+    if isinstance(source, h5py.Group):
+        source.visititems(lambda _, obj: objects.append(obj))
+
+    datasets = [
+        obj for obj in objects
+        if isinstance(obj, h5py.Dataset)
+    ]
+
+    scale_names = {
+        dataset.name: _dimension_scale_name(dataset)
+        for dataset in datasets
+        if dataset.is_scale
+    }
+
+    dimensions: list[tuple[str, int, str, list[str]]] = []
+
+    for dataset in datasets:
+        for index in range(dataset.ndim):
+            dimension = dataset.dims[index]
+            scale_paths = [scale.name for scale in dimension.values()]
+
+            if dimension.label or scale_paths:
+                dimensions.append(
+                    (dataset.name, index, dimension.label, scale_paths)
+                )
+
+    parent = posixpath.dirname(path)
+
+    if parent != "/":
+        fdst.require_group(parent)
+
+    # Copy everything except attributes. Dimension-scale attributes contain
+    # source-file object references and must be recreated.
+    fsrc.copy(
+        path,
+        fdst,
+        path,
+        expand_refs=True,
+        without_attrs=True,
+    )
+
+    # Mark dimension-scale datasets before attaching them.
+    for scale_path, scale_name in scale_names.items():
+        fdst[scale_path].make_scale(scale_name)
+
+    # Recreate scale attachments and dimension labels.
+    for dataset_path, index, label, scale_paths in dimensions:
+        dimension = fdst[dataset_path].dims[index]
+
+        for scale_path in scale_paths:
+            dimension.attach_scale(fdst[scale_path])
+
+        if label:
+            dimension.label = label
+
+    # Copy all ordinary attributes while preserving their dtype and shape.
+    for src_obj in objects:
+        dst_obj = fdst[src_obj.name]
+
+        for name in src_obj.attrs:
+            if name in _DIMENSION_SCALE_ATTRS:
+                continue
+
+            attr_id = src_obj.attrs.get_id(name)
+
+            dst_obj.attrs.create(
+                name,
+                src_obj.attrs[name],
+                shape=attr_id.shape,
+                dtype=attr_id.dtype,
+            )
+
+
+def copy_h5_obj(fsrc: h5py.File, fdst: h5py.File, path: str) -> None:
+    objtype = fsrc[path].attrs.get("_damnit_objtype", "")
+
+    if objtype in (DataType.DataArray.value, DataType.Dataset.value):
+        copy_h5_obj_rebuild_dimscales(fsrc, fdst, path)
     else:
         fsrc.copy(path, fdst, path, expand_refs=True)
 
