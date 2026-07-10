@@ -304,8 +304,18 @@ class CombinerRunSubcmd(Subcommand):
 
     @staticmethod
     def run(args: argparse.Namespace):
-        from .backend.combine import main
+        from .backend.combine_service import main
         return main()
+
+
+class CombinerFeederSubcmd(Subcommand):
+    name = "feeder"
+    help = "Run the DAMNIT combiner feeder"
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.combine_service import feeder
+        return feeder()
 
 
 class CombinerNowSubcmd(Subcommand):

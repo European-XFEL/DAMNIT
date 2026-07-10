@@ -3,21 +3,22 @@ import json
 import logging
 import re
 import signal
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from socket import AF_UNIX, socket
 
 import h5netcdf
 import h5py
 import xarray as xr
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaProducer
 from xarray.backends import H5NetCDFStore
 
 from ..context import DataType
-from ..definitions import FILE_SUBMIT_TOPIC, update_brokers
+from ..definitions import update_brokers
 from .db import DamnitDB, MsgKind, msg_dict
 from .extract_data import add_to_db, load_reduced_data
-from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
 SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
@@ -90,19 +91,15 @@ def combine(src: Path, dst: Path):
     src.unlink()
 
 
-class FileSubmissionProcessor:
-    def __init__(self, consumer_config=None):
-        self.consumer = KafkaConsumer(
-            FILE_SUBMIT_TOPIC,
-            bootstrap_servers=update_brokers(),
-            group_id='xfel-da-damnit-combiner',
-            consumer_timeout_ms=600_000,
-            **(consumer_config or {})
-        )
+class CombinerWorker:
+    def __init__(self, server_addr: str, worker_id: int):
+        self.worker_id = worker_id
+        self.server_addr = server_addr
         self.producer = KafkaProducer(
             bootstrap_servers=update_brokers(),
             value_serializer=lambda d: json.dumps(d).encode('utf-8')
         )
+        self.running = True
 
     def __enter__(self):
         return self
@@ -111,31 +108,48 @@ class FileSubmissionProcessor:
         self.shutdown()
 
     def shutdown(self):
-        self.consumer.close()
-        self.producer.flush(timeout=10)
         self.producer.close(timeout=10)
 
-    def run(self):
-        while True:
-            try:
-                self.handle_one_message()
-            except StopIteration:
-                pass  # consumer timeout was reached
+    def stop_on_signal(self, signum, frame):
+        log.info("Stopping on signal %d", signum)
+        self.running = False
 
-    def handle_one_message(self):
-        record  = next(self.consumer)
+    def run(self):
+        while self.running:
+            self.do_one_task()
+
+    def _req(self, d):
+        sock = socket(AF_UNIX)
+        sock.connect(self.server_addr)
+        sock.sendall(json.dumps(d).encode() + b"\n")
+        pieces = []
+        while b := sock.recv(4096):
+            pieces.append(b)
+
+        return json.loads(b''.join(pieces).decode().strip())
+
+    def do_one_task(self):
+        msg = self._req({'msg_type': 'next_task', 'worker_id': self.worker_id})
         try:
-            ts = datetime.fromtimestamp(record.timestamp / 1000, tz=timezone.utc)
-            msg = json.loads(record.value.decode())
-            if msg['msg_kind'] == MsgKind.file_submission.value:
-                self.process_file_submission_msg(msg['data'], ts)
-            else:
-                log.info("Unexpected message kind %r", msg['msg_kind'])
+            ts = datetime.fromtimestamp(msg['submitted_at'], tz=timezone.utc)
+            self.process_file_submission_msg(msg['task_info'], ts)
+
         except Exception:
             log.error(
                 "Unexpected error processing file submission message",
                 exc_info=True,
             )
+            self._req({
+                'msg_type': 'task_error',
+                'task_id': msg['task_id'],
+                'worker_id': self.worker_id
+            })
+        else:
+            self._req({
+                'msg_type': 'task_complete',
+                'task_id': msg['task_id'],
+                'worker_id': self.worker_id
+            })
 
     def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
         """Handle a notification from Kafka"""
@@ -220,23 +234,20 @@ def interrupted(signum, frame):
 
 
 def main():
+    server_address = sys.argv[1]
+    worker_id = int(sys.argv[2])
+
     logging.basicConfig(level=logging.DEBUG)
     # Exclude debug level logging from kafka-python
     logging.getLogger('kafka').setLevel(logging.INFO)
 
-    # Treat SIGTERM like SIGINT (Ctrl-C) & do a clean shutdown
-    signal.signal(signal.SIGTERM, interrupted)
+    with CombinerWorker(server_address, worker_id) as worker:
+        signal.signal(signal.SIGINT , worker.stop_on_signal)
+        signal.signal(signal.SIGTERM, worker.stop_on_signal)
 
-    with FileSubmissionProcessor() as processor:
-        notify_ready()
-        try:
-            log.info("Waiting for file submission messages")
-            processor.run()
-        except KeyboardInterrupt:
-            log.info("Stopping on Ctrl + C")
-        except Exception:
-            log.error("Stopping on unexpected error", exc_info=True)
-            raise
+        log.info("Worker %d starting")
+        worker.run()
+
 
 
 if __name__ == "__main__":
