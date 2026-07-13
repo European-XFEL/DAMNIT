@@ -104,8 +104,8 @@ default = { features = ["backend", "gui"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 test = { features = ["test", "backend", "gui"], solve-group = "default" }
 
-# [tool.pixi.feature.test.dependencies]
-# libnetcdf = ">=4.9"
+[tool.pixi.feature.test.dependencies]
+libnetcdf = ">=4.9"
 
 [tool.pixi.tasks]
 
