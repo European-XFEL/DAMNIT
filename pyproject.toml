@@ -106,4 +106,4 @@ test = { features = ["test", "backend", "gui"], solve-group = "default" }
 [tool.pixi.tasks]
 
 [tool.pixi.feature.test.tasks]
-test = "QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg python -m pytest -v --cov=damnit --cov-report=xml"
+test = "QT_LOGGING_RULES=qt.webenginecontext.debug=true QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg python -m pytest -v --cov=damnit --cov-report=xml"
