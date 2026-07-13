@@ -1,7 +1,7 @@
 import json
 
 import h5py
-# import netCDF4
+import netCDF4
 import numpy as np
 import xarray as xr
 
