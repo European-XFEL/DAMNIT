@@ -82,12 +82,15 @@ def combine(src: Path, dst: Path):
         log.debug("Created %r by renaming", dst)
         return
 
+    t0 = time.perf_counter()
     with h5py.File(src) as fsrc, h5py.File(dst, 'r+') as fdst:
         for name in fragment_variables(fsrc):
             delete_variable(fdst, name)
             copy_variable(fsrc, fdst, name)
 
     src.unlink()
+    t1 = time.perf_counter()
+    log.debug("Finished combining in %.3f s", t1 - t0)
 
 
 class FileSubmissionProcessor:
