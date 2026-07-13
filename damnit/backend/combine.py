@@ -90,6 +90,21 @@ def copy_h5_obj_rebuild_dimscales(fsrc: h5py.File, fdst: h5py.File, path: str) -
                     (dataset.name, index, dimension.label, scale_paths)
                 )
 
+    # NetCDF-C treats dimension IDs as file-wide, while each fragment starts
+    # allocating them independently.
+    destination_dimids: list[int] = []
+
+    def collect_dimension_ids(_, obj):
+        if (
+            isinstance(obj, h5py.Dataset)
+            and obj.is_scale
+            and "_Netcdf4Dimid" in obj.attrs
+        ):
+            destination_dimids.append(int(obj.attrs["_Netcdf4Dimid"]))
+
+    fdst.visititems(collect_dimension_ids)
+    dimid_offset = max(destination_dimids, default=-1) + 1
+
     parent = posixpath.dirname(path)
 
     if parent != "/":
@@ -128,10 +143,17 @@ def copy_h5_obj_rebuild_dimscales(fsrc: h5py.File, fdst: h5py.File, path: str) -
                 continue
 
             attr_id = src_obj.attrs.get_id(name)
+            value = src_obj.attrs[name]
+
+            if (
+                isinstance(src_obj, h5py.Dataset)
+                and name in ("_Netcdf4Dimid", "_Netcdf4Coordinates")
+            ):
+                value = value + dimid_offset
 
             dst_obj.attrs.create(
                 name,
-                src_obj.attrs[name],
+                value,
                 shape=attr_id.shape,
                 dtype=attr_id.dtype,
             )
