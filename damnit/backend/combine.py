@@ -146,7 +146,10 @@ class FileSubmissionProcessor:
         h5_dir = damnit_dir / "extracted_data"
         src = Path(d['new_file'])
         dst = h5_dir / f"p{d['proposal']}_r{d['run']}.h5"
-        log.info("Combining %r into %r", src, dst)
+        log.info(
+            "Combining %r into %r; event pending for %.3f s before processing",
+            src, dst, (datetime.now(timezone.utc) - msg_timestamp).total_seconds()
+        )
 
         prop, run = d['proposal'], d['run']
 
