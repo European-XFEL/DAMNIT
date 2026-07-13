@@ -55,7 +55,8 @@ gui = [
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
 ]
 test = [
-    "netCDF4 @ git+https://github.com/Unidata/netcdf4-python",
+    # "netCDF4 @ git+https://github.com/Unidata/netcdf4-python",
+    "netCDF4",
     "pillow",
     "pytest",
     "pytest-qt",
@@ -103,8 +104,8 @@ default = { features = ["backend", "gui"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 test = { features = ["test", "backend", "gui"], solve-group = "default" }
 
-[tool.pixi.feature.test.dependencies]
-libnetcdf = ">=4.9"
+# [tool.pixi.feature.test.dependencies]
+# libnetcdf = ">=4.9"
 
 [tool.pixi.tasks]
 
