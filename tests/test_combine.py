@@ -1,7 +1,8 @@
 import json
+import subprocess
+import sys
 
 import h5py
-import netCDF4
 import numpy as np
 import xarray as xr
 
@@ -160,10 +161,24 @@ def test_combine_netcdf_dimensions(tmp_path):
                 f[f"{name}/data"].attrs["IMAGE_VERSION"] = "1.2"
         combine(src, dst)
 
-    with netCDF4.Dataset(dst) as f:
-        assert f.groups["first"].variables["data"].dimensions == ("x", "y")
-        assert f.groups["second"].variables["data"].dimensions == ("u", "v")
-        assert f.groups["third"].variables["data"].dimensions == ("α", "β", "γ")
+    # Keep netCDF4's native libraries out of the pytest process, where they
+    # conflict with h5py during the later GUI tests on CI.
+    reader = (
+        "import json, sys\n"
+        "import netCDF4\n"
+        "with netCDF4.Dataset(sys.argv[1]) as f:\n"
+        "    dimensions = {name: f.groups[name].variables['data'].dimensions "
+        "for name in ('first', 'second', 'third')}\n"
+        "print(json.dumps(dimensions))\n"
+    )
+    dimensions = json.loads(subprocess.check_output(
+        [sys.executable, "-c", reader, str(dst)], text=True
+    ))
+    assert dimensions == {
+        "first": ["x", "y"],
+        "second": ["u", "v"],
+        "third": ["α", "β", "γ"],
+    }
 
     with h5py.File(dst) as f:
         assert f["second/data"].attrs["CLASS"] == "IMAGE"
