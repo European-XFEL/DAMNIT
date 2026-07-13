@@ -56,7 +56,7 @@ gui = [
 ]
 test = [
     # "netCDF4 @ git+https://github.com/Unidata/netcdf4-python",
-    "netCDF4<1.7.2",
+    "netCDF4",#<1.7.2",
     "pillow",
     "pytest",
     "pytest-qt",
