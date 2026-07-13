@@ -5,7 +5,7 @@ on:
   pull_request:
 
 env:
-  SYSTEM_PACKAGES: gcc g++ xvfb libegl1 libnetcdf-dev
+  SYSTEM_PACKAGES: gcc g++ xvfb libegl1
 
 jobs:
   tests:
