@@ -1,8 +1,9 @@
 import json
+from importlib.util import find_spec
 
 import h5py
-import netCDF4
 import numpy as np
+import pytest
 import xarray as xr
 
 from damnit.api import Damnit, submit
@@ -141,7 +142,9 @@ def test_combine_special_group_only(mock_db, mock_kafka_broker):
             assert f[".errors/error_only"].asstr()[()] == "boom"
 
 
+@pytest.mark.skipif(find_spec("netCDF4") is None, reason="netCDF4 not installed")
 def test_combine_netcdf_dimensions(tmp_path):
+    import netCDF4
     dst = tmp_path / "combined.h5"
 
     for name, dims, shape in [
