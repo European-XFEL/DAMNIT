@@ -55,7 +55,7 @@ gui = [
     "tabulate",  # used in pandas to make markdown tables (for Zulip)
 ]
 test = [
-    "netCDF4<1.7.3",
+    "netCDF4 @ git+https://github.com/Unidata/netcdf4-python",
     "pillow",
     "pytest",
     "pytest-qt",
