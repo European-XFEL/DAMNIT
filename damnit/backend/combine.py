@@ -27,7 +27,10 @@ SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
 NO_FILE_TIMEOUT = 30
 
 _DIMENSION_SCALE_ATTRS = {
-    "CLASS",
+    # CLASS is a special attribute used by HDF5 dimension scales, but it is also
+    # used by other HDF5 conventions. We only skip it when the destination
+    # object already has it.
+    # "CLASS",
     "NAME",
     "REFERENCE_LIST",
     "DIMENSION_LIST",
@@ -139,7 +142,10 @@ def copy_h5_obj_rebuild_dimscales(fsrc: h5py.File, fdst: h5py.File, path: str) -
         dst_obj = fdst[src_obj.name]
 
         for name in src_obj.attrs:
-            if name in _DIMENSION_SCALE_ATTRS:
+            if (
+                name in _DIMENSION_SCALE_ATTRS
+                or (name == "CLASS" and name in dst_obj.attrs)
+            ):
                 continue
 
             attr_id = src_obj.attrs.get_id(name)

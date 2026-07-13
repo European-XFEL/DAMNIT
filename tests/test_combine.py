@@ -154,9 +154,18 @@ def test_combine_netcdf_dimensions(tmp_path):
             DamnitFileWriter(f).store_data(
                 name, xr.DataArray(np.zeros(shape), dims=dims, name="data")
             )
+            # Model an HDF5 image marker.
+            if name == "second":
+                f[f"{name}/data"].attrs["CLASS"] = "IMAGE"
+                f[f"{name}/data"].attrs["IMAGE_VERSION"] = "1.2"
         combine(src, dst)
 
     with netCDF4.Dataset(dst) as f:
         assert f.groups["first"].variables["data"].dimensions == ("x", "y")
         assert f.groups["second"].variables["data"].dimensions == ("u", "v")
         assert f.groups["third"].variables["data"].dimensions == ("α", "β", "γ")
+
+    with h5py.File(dst) as f:
+        assert f["second/data"].attrs["CLASS"] == "IMAGE"
+        assert f["second/data"].attrs["IMAGE_VERSION"] == "1.2"
+        assert f["second/u"].attrs["CLASS"] == b"DIMENSION_SCALE"
