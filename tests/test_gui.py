@@ -920,7 +920,12 @@ def test_table_and_plotting(mock_db_with_data, mock_ctx, mock_run, mock_kafka_br
     n_plots_before = len(win._canvas_inspect)
     win.inspect_data(plotly_preview)
     assert len(win._canvas_inspect) == n_plots_before + 1
-    assert isinstance(win._canvas_inspect[-1], PlotlyPlot)
+    plotly_window = win._canvas_inspect[-1]
+    assert isinstance(plotly_window, PlotlyPlot)
+    # Keep the window alive until its asynchronous WebEngine request finishes.
+    qtbot.waitUntil(
+        lambda: not plotly_window.spinner.isSpinning(), timeout=10_000
+    )
 
     assert isinstance(  # Errors evaluating variables get a coloured decoration
         win.table.data(get_index('error'), role=Qt.ItemDataRole.DecorationRole), QColor

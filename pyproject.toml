@@ -105,4 +105,4 @@ test = { features = ["test", "backend", "gui"], solve-group = "default" }
 [tool.pixi.tasks]
 
 [tool.pixi.feature.test.tasks]
-test = "QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg python -m pytest -v --cov=damnit --cov-report=xml"
+test = "MPLBACKEND=Agg python -m pytest -v --cov=damnit --cov-report=xml"
