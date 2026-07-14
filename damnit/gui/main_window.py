@@ -778,6 +778,7 @@ da-dev@xfel.eu"""
         self.table_view = TableView(self)
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
+        self.table_view.copy_markdown_action.triggered.connect(self.copy_selection_as_markdown)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
@@ -996,6 +997,10 @@ da-dev@xfel.eu"""
             log.warning("Unable to connect to Zulip to export table")
             return
 
+        df = self._selected_rows_for_markdown()
+        self.zulip_messenger.send_table(df)
+
+    def _selected_rows_for_markdown(self):
         selected_rows = [ix.row() for ix in self.table_view.selected_rows()]
 
         blacklist_columns = ['Proposal', 'Status']
@@ -1007,7 +1012,19 @@ da-dev@xfel.eu"""
 
         df = df.map(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
-        self.zulip_messenger.send_table(df)
+        return df
+
+    def copy_selection_as_markdown(self):
+        if not self.table_view.selected_rows():
+            self.show_status_message(
+                "No rows selected", stylesheet=StatusbarStylesheet.ERROR
+            )
+            return
+
+        df = self._selected_rows_for_markdown()
+        markdown = dataframe_to_markdown(df)
+        QtWidgets.QApplication.clipboard().setText(markdown)
+        self.show_status_message("Markdown copied to clipboard", timeout=5000)
 
     def process_runs(self):
         sel_runs_by_prop = {}

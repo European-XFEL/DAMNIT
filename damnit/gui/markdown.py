@@ -5,6 +5,11 @@ import pandas as pd
 
 def dataframe_to_markdown(table: pd.DataFrame) -> str:
     """Format a dataframe as a compact Markdown table."""
+    table = table.rename(
+        columns=lambda label: label.replace("\n", " ")
+        if isinstance(label, str)
+        else label
+    )
     markdown = table.to_markdown(index=False, disable_numparse=True)
     lines = markdown.strip().splitlines()
     output_lines = []
