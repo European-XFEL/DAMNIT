@@ -11,7 +11,8 @@ from matplotlib.image import AxesImage
 from plotly.graph_objects import Figure as PlotlyFigure
 
 from damnit import Damnit, RunVariables
-from damnit.context import Pipeline
+from damnit.backend.combine import gather_all_fragments
+from damnit.context import Cell, Pipeline, save_fragment
 from .helpers import extract_mock_run
 
 
@@ -245,3 +246,76 @@ def test_api_dependencies(venv):
     # Test that we can import the module successfully and don't accidentally
     # depend on other things.
     subprocess.run([str(venv.python), "-c", "import damnit"], check=True)
+
+
+def test_xarray_combine(mock_db_with_data):
+    db_dir, db = mock_db_with_data
+    proposal, run = db.metameta["proposal"], 1
+
+    # Include auxiliary coordinates and metadata on dimensions, variables,
+    # and containers to check that the whole xarray model survives the copy.
+    data_array = xr.DataArray(
+        np.arange(120, dtype=np.float32).reshape(2, 3, 4, 5),
+        dims=("time", "detector", "pulse", "channel"),
+        coords={
+            "time": ("time", [0.1, 0.2], {"units": "s"}),
+            "detector": ("detector", [10, 20, 30], {"long_name": "detector ID"}),
+            "pulse": ("pulse", [100, 101, 102, 103], {"units": "index"}),
+            "channel": ("channel", [0, 1, 2, 3, 4]),
+            "temperature": (
+                ("time", "detector"),
+                np.arange(6, dtype=np.float32).reshape(2, 3) + 273.15,
+                {"units": "K"},
+            ),
+        },
+        name="detector_signal",
+        attrs={
+            "units": "adu",
+            "long_name": "calibrated detector signal",
+            "instrument": "SPB",
+            "revision": 2,
+        },
+    )
+    dataset = xr.Dataset(
+        data_vars={
+            "image": (
+                ("train", "module", "ss", "fs"),
+                np.arange(72, dtype=np.int16).reshape(2, 3, 3, 4),
+                {"units": "adu", "long_name": "corrected image"},
+            ),
+            "quality": (
+                ("train", "module"),
+                np.array([[0, 1, 0], [1, 0, 1]], dtype=np.uint8),
+                {"long_name": "quality flag", "valid_min": 0, "valid_max": 1},
+            ),
+        },
+        coords={
+            "train": ("train", [1000, 1001], {"units": "index"}),
+            "module": ("module", [0, 1, 2], {"long_name": "module ID"}),
+            "ss": ("ss", [0.0, 0.5, 1.0], {"units": "mm"}),
+            "fs": ("fs", [0.0, 0.25, 0.5, 0.75], {"units": "mm"}),
+        },
+        attrs={
+            "title": "calibrated detector data",
+            "facility": "European XFEL",
+            "processing_level": "calibrated",
+            "revision": 3,
+        },
+    )
+
+    run_file = db_dir / "extracted_data" / f"p{proposal}_r{run}.h5"
+    # The fixture's run file forces combine() past its rename fast path.
+    assert run_file.is_file()
+    save_fragment(
+        db_dir,
+        proposal,
+        run,
+        {"meta_array": Cell(data_array), "array": Cell(dataset)},
+        {},
+        provenance="test",
+    )
+    gather_all_fragments(db_dir)
+
+    damnit = Damnit(db_dir)
+    xr.testing.assert_identical(damnit[run, "meta_array"].read(), data_array)
+    xr.testing.assert_identical(damnit[run, "array"].read(), dataset)
