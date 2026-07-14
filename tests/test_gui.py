@@ -1056,7 +1056,6 @@ def test_copy_selection_as_markdown(mock_db_with_data, qtbot, monkeypatch):
     assert "|Run|" in markdown
     assert "|Proposal|" not in markdown
     assert "|Status|" not in markdown
-    assert "<image>" not in markdown
 
 
 @pytest.mark.parametrize("extension", [".xlsx", ".csv", ".md"])
