@@ -29,6 +29,7 @@ from ..definitions import update_brokers
 from ..util import isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
+from .markdown import dataframe_to_markdown
 from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
 from .plot import (
@@ -427,7 +428,7 @@ da-dev@xfel.eu"""
         self.action_create_var.triggered.connect(self._menu_create_user_var)
 
         self.action_export = QtGui.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
-        self.action_export.setStatusTip("Export to Excel/CSV")
+        self.action_export.setStatusTip("Export to Excel, CSV or Markdown")
         self.action_export.triggered.connect(self.export_table)
         self.action_process = QtGui.QAction("Reprocess runs", self)
         self.action_process.triggered.connect(self.process_runs)
@@ -549,7 +550,7 @@ da-dev@xfel.eu"""
     def export_table(self):
         export_path, file_type = QFileDialog.getSaveFileName(self, "Export table to file",
                                                              str(Path.home()),
-                                                             "Excel (*.xlsx);;CSV (*.csv)")
+                                                             "Excel (*.xlsx);;CSV (*.csv);;Markdown (*.md)")
 
         # If the user cancelled the dialog, return
         if len(export_path) == 0:
@@ -573,6 +574,10 @@ da-dev@xfel.eu"""
             cleaned_df.to_excel(export_path, sheet_name=f"p{proposal} DAMNIT run table")
         elif extension == ".csv":
             cleaned_df.to_csv(export_path, index=False)
+        elif extension == ".md":
+            markdown_df = cleaned_df.map(prettify_notation)
+            markdown_df.replace(["None", "<NA>", "nan"], "", inplace=True)
+            export_path.write_text(dataframe_to_markdown(markdown_df) + "\n")
         else:
             self.show_status_message(f"Unrecognized file extension: {extension}",
                                      stylesheet=StatusbarStylesheet.ERROR)

@@ -1042,7 +1042,7 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
 
         messenger.send_table.assert_called_once()
 
-@pytest.mark.parametrize("extension", [".xlsx", ".csv"])
+@pytest.mark.parametrize("extension", [".xlsx", ".csv", ".md"])
 def test_exporting(mock_db_with_data, mock_kafka_broker, qtbot, monkeypatch, extension):
     db_dir, db = mock_db_with_data
     monkeypatch.chdir(db_dir)
@@ -1074,8 +1074,13 @@ def test_exporting(mock_db_with_data, mock_kafka_broker, qtbot, monkeypatch, ext
     assert export_path.is_file()
 
     # Check that images are formatted nicely
-    df = pd.read_excel(export_path) if extension == ".xlsx" else pd.read_csv(export_path)
-    assert df["Image"][0] == "<image>"
+    if extension == ".md":
+        markdown = export_path.read_text()
+        assert "|Proposal|Run|" in markdown
+        assert "<image>" in markdown
+    else:
+        df = pd.read_excel(export_path) if extension == ".xlsx" else pd.read_csv(export_path)
+        assert df["Image"][0] == "<image>"
 
 def test_delete_variable(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broker):
     db_dir, db = mock_db_with_data

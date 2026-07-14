@@ -1,12 +1,13 @@
 import json
 import logging
-import re
 import traceback
 from configparser import ConfigParser
 
 import pandas as pd
 import requests
 from PyQt6 import QtCore, QtWidgets
+
+from .markdown import dataframe_to_markdown
 
 log = logging.getLogger(__name__)
 MSG_MAX_CHAR = 10000
@@ -255,11 +256,9 @@ class ZulipConfig(QtWidgets.QDialog):
         tables, start, stop = [], 0, 0
         while True:
             if stop == 0:
-                md_table = table.iloc[start:].to_markdown(index=False, disable_numparse=True)
-                md_table = self.remove_empty_spaces(md_table)
+                md_table = dataframe_to_markdown(table.iloc[start:])
             else:
-                md_table = table.iloc[start:stop].to_markdown(index=False, disable_numparse=True)
-                md_table = self.remove_empty_spaces(md_table)
+                md_table = dataframe_to_markdown(table.iloc[start:stop])
 
             if len(md_table) > maxchar:
                 stop -= 1
@@ -270,17 +269,6 @@ class ZulipConfig(QtWidgets.QDialog):
                 start, stop = stop, 0
 
         return tables
-
-    def remove_empty_spaces(self, tb):
-        lines = tb.strip().split('\n')
-        output_lines = []
-
-        for line in lines:
-            cells = line.split('|')
-            processed_cells = [re.sub(r'\s+', ' ', cell.strip()) for cell in cells]
-            output_lines.append('|'.join(processed_cells))
-
-        return '\n'.join(output_lines)
 
 
 class CheckableListWidget(QtWidgets.QWidget):
