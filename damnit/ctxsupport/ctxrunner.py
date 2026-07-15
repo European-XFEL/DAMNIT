@@ -766,6 +766,7 @@ def main(argv=None):
         ).with_context(
             proposal=args.proposal,
             run_number=args.run,
+            run_data=args.run_data,
             name="default"
         )
 

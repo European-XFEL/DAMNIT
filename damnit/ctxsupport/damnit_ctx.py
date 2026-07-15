@@ -555,6 +555,7 @@ class Pipeline:
             *,
             name: str | None = None,
             data: Any | None = None,
+            run_data: RunData | None = None,
             input_vars: dict[str, Any] | None = None,
             _context: "ContextFile" = None,
     ):
@@ -572,6 +573,7 @@ class Pipeline:
         self.proposal = proposal
         self.run_number = run_number
         self.data = data
+        self.run_data = self._normalize_run_data(run_data)
         self.input_vars = dict(input_vars or {})
         # Compiled ContextFile for this pipeline.
         self._context = _context
@@ -734,6 +736,7 @@ class Pipeline:
             name: str | None = None,
             proposal: int | None = None,
             run_number: int | None = None,
+            run_data: RunData | None = None,
             data: Any | None = None,
             input_vars: dict[str, Any] | None = None,
     ):
@@ -745,6 +748,8 @@ class Pipeline:
             new_pipe.proposal = proposal
         if run_number is not None:
             new_pipe.run_number = run_number
+        if run_data is not None:
+            new_pipe.run_data = self._normalize_run_data(run_data)
         if data is not None:
             new_pipe.data = data
         if input_vars is not None:
@@ -849,7 +854,8 @@ class Pipeline:
                     log.warning("Proc data is unavailable, only raw variables will be executed.")
                     ctx = ctx.filter(run_data=RunData.RAW)
 
-            data_obj = extra_data.open_run(self.proposal, self.run_number)
+            data_obj = extra_data.open_run(self.proposal, self.run_number,
+                   data=('raw' if self.run_data is RunData.RAW else 'default'))
 
         merged_input = dict(self.input_vars)
         if input_vars is not None:
