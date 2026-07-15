@@ -163,11 +163,13 @@ class VariableData:
                     dataframe = dataset.to_dataframe()
 
                 columns_json = dataset.attrs["_damnit_dataframe_columns"]
-                dataframe.columns = _decode_dataframe_columns(json.loads(columns_json))
-
                 index_names_json = dataset.attrs["_damnit_dataframe_index_names"]
+
+                column_names = json.loads(columns_json)
                 index_names = json.loads(index_names_json)
-                dataframe.index = dataframe.index.set_names(index_names)
+
+                dataframe.columns = _decode_dataframe_columns(column_names + index_names)
+                dataframe.set_index(index_names, inplace=True)
 
                 column_names_json = dataset.attrs["_damnit_dataframe_column_names"]
                 column_names = json.loads(column_names_json)

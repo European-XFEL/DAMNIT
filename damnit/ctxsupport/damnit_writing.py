@@ -231,8 +231,10 @@ def save_dataarray_netcdf(f: h5py.File, group: str, darr):
 def prepare_dataframe_netcdf(dataframe):
     # NetCDF requires string variable names. Store deterministic names and
     # keep original columns metadata to restore in the API.
-    data = dataframe.copy()
-    data.columns = [f"_damnit_col_{i:06d}" for i in range(data.columns.size)]
+    # To support a non-unique MultiIndex, move the index to columns.
+    data = dataframe.copy().reset_index(dataframe.index.names)
+    data.columns = [f"_damnit_idx_{i:06d}" for i in range(dataframe.index.nlevels)] + \
+                   [f"_damnit_col_{i:06d}" for i in range(dataframe.columns.size)]
     dataset = data.to_xarray()
 
     columns = dataframe.columns.tolist()
