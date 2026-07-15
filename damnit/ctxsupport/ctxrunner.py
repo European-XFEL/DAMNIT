@@ -578,8 +578,10 @@ class ContextFile:
                     )
                     # get error message from transient dependencies
                     dep_errors = [(dep, errors[dep]) for dep in missing_deps if dep in errors]
-                    if dep_errors and not all(isinstance(e, Skip) for _, e in dep_errors):
+                    if dep_errors:
                         errors[name] = DependencyError(dep_errors)
+                        if all(isinstance(e, Skip) for _, e in dep_errors):
+                            errors[name] = Skip(str(errors[name]))
                     else:
                         deps = [f"{os.linesep}- '{d}'" for d in missing_deps]
                         errors[name] = Skip(f"Dependencies returned no data:{''.join(deps)}")
