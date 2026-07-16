@@ -4,6 +4,7 @@ import os.path as osp
 from contextlib import contextmanager
 from enum import Enum
 from glob import iglob
+from io import BytesIO
 from pathlib import Path
 
 import h5py
@@ -17,10 +18,13 @@ from .util import isinstance_no_import
 # avoid the dependencies of the runner in the API (namely requests and pyyaml).
 class DataType(Enum):
     DataArray = "dataarray"
+    DataFrame = "dataframe"
     Dataset = "dataset"
     Image = "image"
-    Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
+    Series = "series"
+    Timestamp = "timestamp"
+
 
 # Also copied, this time from extra_data.read_machinery
 def find_proposal(propno):
@@ -145,6 +149,17 @@ class VariableData:
                 return self._read_netcdf(one_array=True)
 
             dset = group["data"]
+            if self.type_hint is DataType.Series:
+                import pandas as pd
+
+                payload = group['data'][()].tobytes()
+                dataframe = pd.read_parquet(BytesIO(payload), engine='pyarrow')
+                return dataframe.iloc[:, 0]
+            elif self.type_hint is DataType.DataFrame:
+                import pandas as pd
+
+                payload = group['data'][()].tobytes()
+                return pd.read_parquet(BytesIO(payload), engine='pyarrow')
             if type_hint is DataType.PlotlyFigure:
                 import plotly.io as pio
 

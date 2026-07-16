@@ -159,10 +159,12 @@ def downsample_line(data):
 # reconstruct Python objects when reading values back in.
 class DataType(Enum):
     DataArray = "dataarray"
+    DataFrame = "dataframe"
     Dataset = "dataset"
     Image = "image"
-    Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
+    Series = "series"
+    Timestamp = "timestamp"
 
 
 @contextmanager
@@ -261,7 +263,16 @@ class DamnitFileWriter:
 
     def store_data(self, name, obj):
         grp = self.file.create_group(name)
-        if isinstance_no_import(obj, 'xarray', 'DataArray'):
+        if isinstance_no_import(obj, 'pandas', 'Series'):
+            attrs = {OBJTYPE_ATTR: DataType.Series.value}
+            dataframe = obj.to_frame(name=obj.name)
+            payload = dataframe.to_parquet(path=None, engine="pyarrow", index=None)
+            grp['data'] = np.frombuffer(payload, dtype=np.uint8)
+        elif isinstance_no_import(obj, 'pandas', 'DataFrame'):
+            attrs = {OBJTYPE_ATTR: DataType.DataFrame.value}
+            payload = obj.to_parquet(path=None, engine="pyarrow", index=None)
+            grp['data'] = np.frombuffer(payload, dtype=np.uint8)
+        elif isinstance_no_import(obj, 'xarray', 'DataArray'):
             attrs = {OBJTYPE_ATTR: DataType.DataArray.value}
             save_dataarray_netcdf(self.file, name, obj)
         elif isinstance_no_import(obj, 'xarray', 'Dataset'):
