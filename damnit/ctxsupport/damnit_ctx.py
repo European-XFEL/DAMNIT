@@ -315,7 +315,7 @@ class Cell:
         )
         data = self.preview if (self.preview is not None) else self.data
         if isinstance_no_import(data, 'pandas', 'Series'):
-            data = data.to_xarray()
+            data = data.to_numpy()
 
         if isinstance(data, str):
             return data

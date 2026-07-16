@@ -121,6 +121,7 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     dataset_code = """
     from damnit_ctx import Cell, Variable
     import numpy as np
+    import pandas as pd
     import xarray as xr
 
     @Variable(title="Dataset")

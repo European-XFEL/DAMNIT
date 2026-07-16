@@ -149,13 +149,13 @@ class VariableData:
                 return self._read_netcdf(one_array=True)
 
             dset = group["data"]
-            if self.type_hint is DataType.Series:
+            if type_hint is DataType.Series:
                 import pandas as pd
 
                 payload = group['data'][()].tobytes()
                 dataframe = pd.read_parquet(BytesIO(payload), engine='pyarrow')
                 return dataframe.iloc[:, 0]
-            elif self.type_hint is DataType.DataFrame:
+            elif type_hint is DataType.DataFrame:
                 import pandas as pd
 
                 payload = group['data'][()].tobytes()

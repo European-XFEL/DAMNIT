@@ -311,7 +311,7 @@ def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cel
         f.attrs["provenance"] = provenance
         writer = DamnitFileWriter(f)
         for name, cell in vars.items():
-            if (summary := cell.get_summary()) is not None:
+            if (summary := cell.get_summary(log_name=name)) is not None:
                 summary_attrs = cell.summary_attrs()
                 if isinstance(summary, np.ndarray):
                     if summary.ndim == 2 and summary.shape[0] == 2:
