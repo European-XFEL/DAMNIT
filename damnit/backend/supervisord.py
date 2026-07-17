@@ -102,7 +102,7 @@ def start_listener(root_path: Path, try_again=True):
         # Write a new config file to make sure that the hostname and port are valid
         write_supervisord_conf(root_path)
 
-        supervisord = ["supervisord", "-c", config_path]
+        supervisord = ["supervisord", "-c", str(config_path)]
         cmd = subprocess.run(supervisord,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True)
@@ -117,9 +117,10 @@ def start_listener(root_path: Path, try_again=True):
             return start_listener(root_path, try_again=False)
     elif rc == 3:
         # 3 means it's stopped and we need to start the program
-        cmd = subprocess.run([*supervisorctl, "start", "damnit"])
+        args = [*supervisorctl, "start", "damnit"]
+        cmd = subprocess.run(args)
         if cmd.returncode != 0:
-            log.error(f"Couldn't start supervisord, tried to run command: {' '.join(cmd)}\n"
+            log.error(f"Couldn't start supervisord, tried to run command: {' '.join(args)}\n"
                       f"Return code: {cmd.returncode}"
                       f"Command output: {cmd.stdout}")
             return False
