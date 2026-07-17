@@ -345,20 +345,20 @@ def test_pipeline_build_context_rejects_duplicate_group_names():
 
 
 def test_pipeline_with_context_updates():
-    input_vars = {"x": 1}
+    param_values = {"x": 1}
     data_obj = object()
-    pipe = Pipeline(name="a", proposal=1, run_number=2, data=data_obj, input_vars=input_vars)
-    new_pipe = pipe.with_context(name="b", proposal=3, input_vars={"y": 2})
+    pipe = Pipeline(name="a", proposal=1, run_number=2, data=data_obj, param_values=param_values)
+    new_pipe = pipe.with_context(name="b", proposal=3, param_values={"y": 2})
 
-    assert (pipe.name, pipe.proposal, pipe.run_number, pipe.data, pipe.input_vars) == (
+    assert (pipe.name, pipe.proposal, pipe.run_number, pipe.data, pipe.param_values) == (
         "a", 1, 2, data_obj, {"x": 1}
     )
-    assert (new_pipe.name, new_pipe.proposal, new_pipe.run_number, new_pipe.data, new_pipe.input_vars) == (
+    assert (new_pipe.name, new_pipe.proposal, new_pipe.run_number, new_pipe.data, new_pipe.param_values) == (
         "b", 3, 2, data_obj, {"y": 2}
     )
 
-    input_vars["x"] = 999
-    assert pipe.input_vars == {"x": 1}
+    param_values["x"] = 999
+    assert pipe.param_values == {"x": 1}
 
 
 def test_pipeline_select_filters():
@@ -442,18 +442,18 @@ def test_pipeline_execute(mock_run):
         from damnit_ctx import Variable
 
         @Variable
-        def val(run, x: "input#x"):
+        def val(run, x: "param#x"):
             return x
     """)
     pipe = Pipeline.from_str(code).with_context(
         data=mock_run,
         proposal=1,
         run_number=1,
-        input_vars={"x": 1},
+        param_values={"x": 1},
     )
 
     assert pipe.results is None
-    res = pipe.execute(input_vars={"x": 2})
+    res = pipe.execute(param_values={"x": 2})
     assert res.cells["val"].data == 2
 
 
@@ -525,15 +525,15 @@ def test_pipeline_copy():
     def b(run):
         return 2
 
-    pipe = Pipeline(input_vars={"x": 1}).add(a)
+    pipe = Pipeline(param_values={"x": 1}).add(a)
 
     clone = pipe.copy()
-    clone.input_vars["x"] = 2
-    clone.input_vars["y"] = 3
+    clone.param_values["x"] = 2
+    clone.param_values["y"] = 3
     clone.add(b)
 
-    assert pipe.input_vars == {"x": 1}
-    assert clone.input_vars == {"x": 2, "y": 3}
+    assert pipe.param_values == {"x": 1}
+    assert clone.param_values == {"x": 2, "y": 3}
     assert set(pipe.vars) == {"a"}
     assert set(clone.vars) == {"a", "b"}
 
