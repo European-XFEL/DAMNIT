@@ -610,7 +610,7 @@ class Damnit:
 
 
 def submit(proposal: int, run: int, variables, *, provenance,
-        errors: dict[str, Exception] = None, damnit_dir=None,
+        errors: dict[str, Exception] = None, param_values=None, damnit_dir=None,
 ):
     """Add some results into DAMNIT's store
 
@@ -621,6 +621,7 @@ def submit(proposal: int, run: int, variables, *, provenance,
         provenance (str): A name for what produced these results.
         errors (dict): Mapping of names to exceptions, to make error messages
             visible in the table.
+        param_values (dict): Mapping of parameter names to values.
         damnit_dir (Path or str, optional): The DAMNIT directory to write into.
             If not specified, it will find the default directory for the
             relevant proposal.
@@ -631,6 +632,7 @@ def submit(proposal: int, run: int, variables, *, provenance,
     variables = {k: (v if isinstance(v, Cell) else Cell(v))
                  for (k, v) in variables.items()}
     errors = errors or {}
+    param_values = param_values or {}
 
     if damnit_dir is None:
         damnit_dir = find_proposal(proposal) / "usr/Shared/amore"
@@ -638,6 +640,7 @@ def submit(proposal: int, run: int, variables, *, provenance,
         damnit_dir = Path(damnit_dir)
 
     path = save_fragment(
-        damnit_dir, proposal, run, variables, errors, provenance=provenance
+        damnit_dir, proposal, run, vars=variables, errors=errors,
+        param_values=param_values, provenance=provenance
     )
     notify_new_file(damnit_dir, proposal, run, str(path))
