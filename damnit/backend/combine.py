@@ -8,11 +8,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import h5netcdf
 import h5py
-import xarray as xr
 from kafka import KafkaConsumer, KafkaProducer
-from xarray.backends import H5NetCDFStore
 
 from ..context import DataType
 from ..definitions import FILE_SUBMIT_TOPIC, update_brokers
