@@ -509,7 +509,7 @@ class ContextFile:
 
         return ContextFile(new_vars, self.code)
 
-    def execute(self, run_data, run_number, proposal, input_vars, *, label="") -> 'Results':
+    def execute(self, run_data, run_number, proposal, param_values, *, label="") -> 'Results':
         label = f"[{label}] " if label and label != 'default' else ""
         dep_results = {'start_time': 
             get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
@@ -525,7 +525,7 @@ class ContextFile:
             try:
                 kwargs = {}
                 missing_deps = []
-                missing_input = []
+                missing_params = []
 
                 annotations = var.annotations()
                 for arg_name, param in inspect.signature(var.func).parameters.items():
@@ -548,12 +548,12 @@ class ContextFile:
                             missing_deps.extend(fnmatch.filter(self.vars, dep_name))
 
                     # Input variable passed from outside
-                    elif annotation.startswith("input#"):
-                        inp_name = annotation.removeprefix("input#")
-                        if inp_name in input_vars:
-                            kwargs[arg_name] = input_vars[inp_name]
+                    elif annotation.startswith("param#"):
+                        param_name = annotation.removeprefix("param#")
+                        if param_name in param_values:
+                            kwargs[arg_name] = param_values[param_name]
                         elif param.default is inspect.Parameter.empty:
-                            missing_input.append(inp_name)
+                            missing_params.append(param_name)
 
                     # Mymdc fields
                     elif annotation.startswith("mymdc#"):
@@ -586,10 +586,10 @@ class ContextFile:
                         deps = [f"{os.linesep}- '{d}'" for d in missing_deps]
                         errors[name] = Skip(f"Dependencies returned no data:{''.join(deps)}")
                     continue
-                elif missing_input:
+                elif missing_params:
                     log.warning(
-                        "%sSkipping %s because of missing input variables: %s",
-                        label, name, ", ".join(missing_input)
+                        "%sSkipping %s because of missing parameter values: %s",
+                        label, name, ", ".join(missing_params)
                     )
                     continue
 

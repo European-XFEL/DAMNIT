@@ -556,7 +556,7 @@ class Pipeline:
             name: str | None = None,
             data: Any | None = None,
             run_data: RunData | None = None,
-            input_vars: dict[str, Any] | None = None,
+            param_values: dict[str, Any] | None = None,
             _context: "ContextFile" = None,
     ):
         """Initialize a Pipeline.
@@ -566,7 +566,7 @@ class Pipeline:
             proposal: Proposal number for meta access or run opening.
             run_number: Run number for meta access or run opening.
             data: Object passed to Variable functions.
-            input_vars: dict for input# dependencies.
+            param_values: dict for param# dependencies.
             _context: Precompiled context (e.g. from Pipeline.from_str() or select()).
         """
         self._name = name
@@ -574,7 +574,7 @@ class Pipeline:
         self.run_number = run_number
         self.data = data
         self.run_data = self._normalize_run_data(run_data)
-        self.input_vars = dict(input_vars or {})
+        self.param_values = dict(param_values or {})
         # Compiled ContextFile for this pipeline.
         self._context = _context
         # Results from the last execute() call, if any.
@@ -622,7 +622,7 @@ class Pipeline:
         if self._name is not None:
             return self._name
 
-        parts = list(self.input_vars) + [str(self.proposal), str(self.run_number)]
+        parts = list(self.param_values) + [str(self.proposal), str(self.run_number)]
         if self._context is not None:
             parts += list(self._context.vars)
         base = "|".join(parts)
@@ -634,7 +634,7 @@ class Pipeline:
             proposal=self.proposal,
             run_number=self.run_number,
             data=self.data,
-            input_vars=self.input_vars.copy(),
+            param_values=self.param_values.copy(),
             _context=self._context,
         )
         return clone
@@ -697,7 +697,7 @@ class Pipeline:
 
         Notes:
             - The returned Pipeline inherits context fields (proposal, run_number,
-              data, input_vars, name) from self.
+              data, param_values, name) from self.
             - The compiled context code is taken from self.
         """
         if not isinstance(other, Pipeline):
@@ -738,7 +738,7 @@ class Pipeline:
             run_number: int | None = None,
             run_data: RunData | None = None,
             data: Any | None = None,
-            input_vars: dict[str, Any] | None = None,
+            param_values: dict[str, Any] | None = None,
     ):
         """Return a new Pipeline with updated context fields."""
         new_pipe = self.copy()
@@ -752,8 +752,8 @@ class Pipeline:
             new_pipe.run_data = self._normalize_run_data(run_data)
         if data is not None:
             new_pipe.data = data
-        if input_vars is not None:
-            new_pipe.input_vars = dict(input_vars)
+        if param_values is not None:
+            new_pipe.param_values = dict(param_values)
         return new_pipe
 
     def _normalize_run_data(self, value):
@@ -831,7 +831,7 @@ class Pipeline:
         new_pipe._context = filtered
         return new_pipe
 
-    def execute(self, *, data=None, input_vars=None):
+    def execute(self, *, data=None, param_values=None):
         """Execute the Pipeline and return Results.
 
         If ``data`` or ``self.data`` is provided, it is passed directly to
@@ -857,11 +857,11 @@ class Pipeline:
             data_obj = extra_data.open_run(self.proposal, self.run_number,
                    data=('raw' if self.run_data is RunData.RAW else 'default'))
 
-        merged_input = dict(self.input_vars)
-        if input_vars is not None:
-            merged_input.update(dict(input_vars))
+        merged_params = dict(self.param_values)
+        if param_values is not None:
+            merged_params.update(dict(param_values))
         res = ctx.execute(
-            data_obj, self.run_number, self.proposal, merged_input,
+            data_obj, self.run_number, self.proposal, merged_params,
             label=self.name
         )
         self._last_results = res
