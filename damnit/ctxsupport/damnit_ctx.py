@@ -855,7 +855,7 @@ class Pipeline:
                     ctx = ctx.filter(run_data=RunData.RAW)
 
             data_obj = extra_data.open_run(self.proposal, self.run_number,
-                   data=('raw' if self.run_data is RunData.RAW else 'default'))
+                   data=('raw' if self.run_data is RunData.RAW else 'all'))
 
         merged_input = dict(self.input_vars)
         if input_vars is not None:
