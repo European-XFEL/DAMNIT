@@ -123,7 +123,7 @@ def mock_ctx_user(mock_user_vars):
     import time
     import numpy as np
     import xarray as xr
-    from damnit_ctx import Variable, Parameter
+    from damnit_ctx import Variable, Parameter, Group
 
     user_integer = Parameter(int, 7)
     user_number = Parameter(float, 2.3)
@@ -146,6 +146,20 @@ def mock_ctx_user(mock_user_vars):
     def dep_string(run, user_string: "param#user_string"):
         return user_string * 2
 
+    @Group
+    class JUNGFRAU_mod:
+        # Parameters to specify in the context file
+        mod_num: int
+
+        # Runtime parameters
+        roi_start = Parameter(int, default=0)
+        roi_stop = Parameter(int, default=0)
+
+        @Variable("ROI length")
+        def roi_length(self, run, start: "self#roi_start", stop: "self#roi_stop"):
+            return stop - start
+
+    xes_jf = JUNGFRAU_mod(mod_num=1)
     """
 
     return mkcontext(code)

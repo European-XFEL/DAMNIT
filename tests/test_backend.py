@@ -675,6 +675,8 @@ def test_results_with_params(mock_ctx_user, mock_user_vars, mock_run, caplog):
         "user_number": 2.3,
         "user_boolean": False,
         "user_string": "hello",
+        "xes_jf.roi_start": 0,
+        "xes_jf.roi_stop": 0,
     }
 
     proposal = 1234
@@ -684,7 +686,9 @@ def test_results_with_params(mock_ctx_user, mock_user_vars, mock_run, caplog):
         "user_integer": 12,
         "user_number": 10.2,
         "user_boolean": True,
-        "user_string": "foo"
+        "user_string": "foo",
+        "xes_jf.roi_start": 120,
+        "xes_jf.roi_stop": 150,
     }
 
     results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, param_values=param_values)
@@ -694,6 +698,7 @@ def test_results_with_params(mock_ctx_user, mock_user_vars, mock_run, caplog):
     assert results.cells["dep_number"].data == param_values["user_number"]
     assert results.cells["dep_boolean"].data == False
     assert results.cells["dep_string"].data == param_values["user_string"] * 2
+    assert results.cells["xes_jf.roi_length"].data == 30
 
 def test_results_preview(mock_run, tmp_path):
     ctx_code = """
