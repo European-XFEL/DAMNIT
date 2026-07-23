@@ -670,6 +670,13 @@ def test_results_empty_array(mock_run, tmp_path, caplog):
 
 def test_results_with_params(mock_ctx_user, mock_user_vars, mock_run, caplog):
 
+    assert {n: p.default for (n, p) in mock_ctx_user.params.items()} == {
+        "user_integer": 7,
+        "user_number": 2.3,
+        "user_boolean": False,
+        "user_string": "hello",
+    }
+
     proposal = 1234
     run_number = 1000
 
