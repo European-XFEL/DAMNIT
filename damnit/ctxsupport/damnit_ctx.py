@@ -901,3 +901,28 @@ def pipeline_scope():
     finally:
         # Reset default pipeline state
         _DEFAULT_PIPELINE_STATE.reset(token)
+
+
+@dataclass()
+class Parameter:
+    default: int | float | bool | str
+    name: str | None = None
+    title: str | None = None
+    description: str = ""
+    tags: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not isinstance(self.default, (str, int, float, bool)):
+            raise ValueError("Parameter type should be str/int/float/bool")
+
+    def type_name(self):  # Naming scheme matching user-editable variables
+        t = type(self.default)
+        if t is str:
+            return 'string'
+        elif t is int:
+            return 'integer'
+        elif t is float:
+            return 'number'
+        elif t is bool:
+            return 'boolean'
+        raise ValueError(f"Unexpected parameter type {t}")

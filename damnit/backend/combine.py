@@ -18,7 +18,7 @@ from .extract_data import add_to_db, load_reduced_data
 from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
-SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
+SPECIAL_GROUPS = (".reduced", ".preview", ".errors", ".parameters")
 
 # If the file doesn't exist N seconds after the Kafka message was sent, move on
 NO_FILE_TIMEOUT = 30

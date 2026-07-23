@@ -29,8 +29,17 @@ import extra_proposal
 import h5py
 import numpy as np
 from damnit_ctx import (
-    Cell, GroupBoundVariable, GroupError, Pipeline, RunData, Skip, Variable,
-    _normalize_tags, is_group_instance, pipeline_scope
+    Cell,
+    GroupBoundVariable,
+    GroupError,
+    Parameter,
+    Pipeline,
+    RunData,
+    Skip,
+    Variable,
+    _normalize_tags,
+    is_group_instance,
+    pipeline_scope,
 )
 from damnit_exceptions import ContextFileErrors, DependencyError
 from damnit_writing import save_fragment
@@ -146,7 +155,7 @@ def _collect_group_variables(group):
     vars_by_name = {}
     for cls in reversed(type(group).mro()):
         for name, value in cls.__dict__.items():
-            if isinstance(value, Variable):
+            if isinstance(value, (Variable, Parameter)):
                 vars_by_name[name] = value
     return vars_by_name
 
@@ -196,7 +205,9 @@ def _resolve_self_annotation(annotation: str, group):
         placeholder = _make_missing_dependency_placeholder(group, target)
         return f'var#{placeholder.name}', placeholder
 
-    if not isinstance(var_ref, (Variable, GroupBoundVariable)):
+    if isinstance(var_ref, Parameter):
+        return f"param#{group.name}.{var_ref.name or target}", None
+    elif not isinstance(var_ref, (Variable, GroupBoundVariable)):
         raise GroupError(
             f"Attribute {target!r} on group {group.name!r} is of type "
             f"{type(var_ref).__name__!r}, but a Variable is required for a self# dependency."
@@ -214,17 +225,26 @@ def _expand_group(group):
     if group.title is None:
         group.title = group.name
 
-    var_defs: dict[str, Variable] = _collect_group_variables(group)
+    var_defs: dict[str, Variable | Parameter] = _collect_group_variables(group)
+
     expanded = {}
 
-    for var_def in var_defs.values():
+    for name_in_grp, var_def in var_defs.items():
         # Create a per-instance Variable copy so name/title/annotations can be
         # rewritten without mutating the class definition.
-        bound_func = var_def.func.__get__(group, type(group))
         new_var = copy(var_def)
-        new_var(bound_func)
-        new_var.name = f"{group.name}.{var_def.name}"
+        new_var.name = f"{group.name}.{(var_def.name or name_in_grp)}"
         new_var.title = f"{group.title}{group.sep}{var_def.title}"
+        new_var.tags = tuple(sorted(
+            set(group.tags) | set(_normalize_tags(new_var.tags))
+        ))
+        expanded[new_var.name] = new_var
+
+        if not isinstance(var_def, Variable):
+            continue
+
+        bound_func = var_def.func.__get__(group, type(group))
+        new_var(bound_func)
 
         annotations = {}
         sig = inspect.signature(bound_func)
@@ -244,11 +264,7 @@ def _expand_group(group):
             else:
                 annotations[arg_name] = annotation
 
-        new_var.tags = tuple(sorted(
-            set(group.tags) | set(_normalize_tags(new_var.tags))
-        ))
         new_var._annotation_overrides = annotations
-        expanded[new_var.name] = new_var
 
     return expanded
 
@@ -333,6 +349,7 @@ def build_context_from_code(code, path):
         exec(codeobj, context)
 
     vars_by_name = {v.name: v for v in context.values() if isinstance(v, Variable)}
+    vars_by_name |= {n: p for (n, p) in context.items() if isinstance(p, Parameter)}
 
     if state is None or not state.used:
         return _build_context_file(
@@ -351,8 +368,10 @@ def build_context_from_code(code, path):
 
 class ContextFile:
 
-    def __init__(self, vars, code):
-        self.vars = vars
+    def __init__(self, contents, code):
+        self.contents = contents
+        self.vars = {k: v for (k, v) in contents.items() if isinstance(v, Variable)}
+        self.params = {k: v for (k, v) in contents.items() if isinstance(v, Parameter)}
         self.code = code
 
         # Check for cycles
@@ -408,6 +427,27 @@ class ContextFile:
 
         if problems:
             raise ContextFileErrors(problems)
+
+    def prepare_param_values(self, cli_params: list[str]) -> dict:
+        res = {}
+        for p in cli_params:
+            name, eq, value_s = p.partition("=")
+            if not eq:
+                raise ValueError(f"Malformed parameter specification {p!r}")
+            if (param_spec := self.params.get(name)) is None:
+                raise KeyError(f"No parameter named {name!r} in context file")
+
+            t = type(param_spec.default)
+            if t is str:
+                res[name] = value_s
+            elif (t is int) or (t is float):
+                res[name] = t(value_s)
+            elif t is bool:
+                res[name] = (value_s.lower() == 'true')
+            else:
+                TypeError(f"Unexpected type {t} for parameter {name}")
+
+        return res
 
     def direct_dependencies(self, variable: Variable) -> set[str]:
         """return a set of names of direct dependencies of the passed Variable
@@ -477,6 +517,15 @@ class ContextFile:
             }
             for (name, v) in self.vars.items()
             if not v.transient or inc_transient
+        } | {
+            name: {
+                'title': p.title,
+                'description': p.description,
+                'tags': p.tags,
+                'attributes': {'param_default': p.default},
+                'type': p.type_name(),
+            }
+            for (name, p) in self.params.items()
         }
 
     def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=()):
@@ -507,16 +556,22 @@ class ContextFile:
         # Add back any dependencies of the selected variables
         new_vars.update({name: self.vars[name] for name in self.all_dependencies(*new_vars.values())})
 
+        # Add back any parameters
+        new_vars.update(self.params)
+
         return ContextFile(new_vars, self.code)
 
     def execute(self, run_data, run_number, proposal, param_values, *, label="") -> 'Results':
         label = f"[{label}] " if label and label != 'default' else ""
-        dep_results = {'start_time': 
+        dep_results = {'start_time':
             get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
         }
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
         metadata = None
+
+        for name, param in self.params.items():
+            param_values.setdefault(name, param.default)
 
         for name in self.ordered_vars():
             t0 = time.perf_counter()
@@ -618,7 +673,7 @@ class ContextFile:
             if var.transient:
                 errors.pop(name, None)
 
-        return Results(res, errors, self)
+        return Results(res, errors, param_values=param_values, ctx=self)
 
 
 def get_start_time(xd_run):
@@ -701,14 +756,19 @@ def add_to_h5_file(path) -> h5py.File:
 
 
 class Results:
-    def __init__(self, cells, errors, ctx):
+    def __init__(self, cells, errors, param_values, ctx):
         self.cells = cells
         self.errors = errors
+        self.param_values = param_values
         self.ctx = ctx
 
     def save(self, damnit_dir: Path, proposal: int, run: int):
         return save_fragment(
-            damnit_dir, proposal, run, self.cells, self.errors, provenance="context.py"
+            damnit_dir, proposal, run,
+            vars=self.cells,
+            errors=self.errors,
+            param_values=self.param_values,
+            provenance="context.py"
         )
 
 
@@ -746,6 +806,7 @@ def main(argv=None):
     exec_ap.add_argument('--cluster-job', action="store_true")
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
+    exec_ap.add_argument('--param', action="append", default=[])
     exec_ap.add_argument('--record-output', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
@@ -771,6 +832,7 @@ def main(argv=None):
             run_data=args.run_data,
             name="default"
         )
+        param_values = pipe_whole._context.prepare_param_values(args.param)
 
         sel = pipe_whole.select(
             run_data=RunData(args.run_data),
@@ -789,7 +851,7 @@ def main(argv=None):
         if args.mock:
             res = sel.execute(data=mock_run())
         else:
-            res = sel.execute()
+            res = sel.execute(param_values=param_values)
 
         frag_path = res.save(Path.cwd(), args.proposal, args.run)
         if args.record_output:

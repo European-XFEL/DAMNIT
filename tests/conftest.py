@@ -123,28 +123,43 @@ def mock_ctx_user(mock_user_vars):
     import time
     import numpy as np
     import xarray as xr
-    from damnit.context import Variable
+    from damnit_ctx import Variable, Parameter, Group
+
+    user_integer = Parameter(7)
+    user_number = Parameter(2.3)
+    user_boolean = Parameter(False)
+    user_string = Parameter("hello")
 
     @Variable(title="Depend from user integer")
-    #def dep_integer(run, user_integer: "param#user_integer"):
-    def dep_integer(run, user_integer=12):
+    def dep_integer(run, user_integer: "param#user_integer"):
         return user_integer + 1
 
     @Variable(title="Depend from user number")
-    #def dep_number(run, user_number: "param#user_number"):
-    def dep_number(run, user_number=10.2):
+    def dep_number(run, user_number: "param#user_number"):
         return user_number * 1.0
 
     @Variable(title="Depend from user boolean")
-    #def dep_boolean(run, user_boolean: "param#user_boolean"):
-    def dep_boolean(run, user_boolean=True):
-        return user_boolean and False
+    def dep_boolean(run, user_boolean: "param#user_boolean"):
+        return not user_boolean
 
     @Variable(title="Depend from user string")
-    #def dep_string(run, user_string: "param#user_string"):
-    def dep_string(run, user_string="foo"):
+    def dep_string(run, user_string: "param#user_string"):
         return user_string * 2
 
+    @Group
+    class JUNGFRAU_mod:
+        # Parameters to specify in the context file
+        mod_num: int
+
+        # Runtime parameters
+        roi_start = Parameter(0)
+        roi_stop = Parameter(0)
+
+        @Variable("ROI length")
+        def roi_length(self, run, start: "self#roi_start", stop: "self#roi_stop"):
+            return stop - start
+
+    xes_jf = JUNGFRAU_mod(mod_num=1)
     """
 
     return mkcontext(code)
