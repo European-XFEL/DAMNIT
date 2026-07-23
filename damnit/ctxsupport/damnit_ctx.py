@@ -905,24 +905,24 @@ def pipeline_scope():
 
 @dataclass()
 class Parameter:
-    type_: type
-    default: Any = None
+    default: int | float | bool | str
     name: str | None = None
     title: str | None = None
     description: str = ""
-    tags: tuple[str] = ()
+    tags: tuple[str, ...] = ()
 
     def __post_init__(self):
-        if self.type_ not in (str, int, float, bool):
+        if not isinstance(self.default, (str, int, float, bool)):
             raise ValueError("Parameter type should be str/int/float/bool")
 
     def type_name(self):  # Naming scheme matching user-editable variables
-        if self.type_ is str:
+        t = type(self.default)
+        if t is str:
             return 'string'
-        elif self.type_ is int:
+        elif t is int:
             return 'integer'
-        elif self.type_ is float:
+        elif t is float:
             return 'number'
-        elif self.type_ is bool:
+        elif t is bool:
             return 'boolean'
-        raise ValueError(f"Unexpected parameter type {self.type_}")
+        raise ValueError(f"Unexpected parameter type {t}")

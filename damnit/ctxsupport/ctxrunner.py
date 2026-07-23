@@ -437,7 +437,7 @@ class ContextFile:
             if (param_spec := self.params.get(name)) is None:
                 raise KeyError(f"No parameter named {name!r} in context file")
 
-            t = param_spec.type_
+            t = type(param_spec.default)
             if t is str:
                 res[name] = value_s
             elif (t is int) or (t is float):
@@ -571,8 +571,7 @@ class ContextFile:
         metadata = None
 
         for name, param in self.params.items():
-            if param.default is not None:
-                param_values.setdefault(name, param.default)
+            param_values.setdefault(name, param.default)
 
         for name in self.ordered_vars():
             t0 = time.perf_counter()

@@ -125,10 +125,10 @@ def mock_ctx_user(mock_user_vars):
     import xarray as xr
     from damnit_ctx import Variable, Parameter, Group
 
-    user_integer = Parameter(int, 7)
-    user_number = Parameter(float, 2.3)
-    user_boolean = Parameter(bool, False)
-    user_string = Parameter(str, "hello")
+    user_integer = Parameter(7)
+    user_number = Parameter(2.3)
+    user_boolean = Parameter(False)
+    user_string = Parameter("hello")
 
     @Variable(title="Depend from user integer")
     def dep_integer(run, user_integer: "param#user_integer"):
@@ -152,8 +152,8 @@ def mock_ctx_user(mock_user_vars):
         mod_num: int
 
         # Runtime parameters
-        roi_start = Parameter(int, default=0)
-        roi_stop = Parameter(int, default=0)
+        roi_start = Parameter(0)
+        roi_stop = Parameter(0)
 
         @Variable("ROI length")
         def roi_length(self, run, start: "self#roi_start", stop: "self#roi_stop"):
