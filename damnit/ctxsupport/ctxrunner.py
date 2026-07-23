@@ -155,7 +155,7 @@ def _collect_group_variables(group):
     vars_by_name = {}
     for cls in reversed(type(group).mro()):
         for name, value in cls.__dict__.items():
-            if isinstance(value, Variable):
+            if isinstance(value, (Variable, Parameter)):
                 vars_by_name[name] = value
     return vars_by_name
 
@@ -205,7 +205,9 @@ def _resolve_self_annotation(annotation: str, group):
         placeholder = _make_missing_dependency_placeholder(group, target)
         return f'var#{placeholder.name}', placeholder
 
-    if not isinstance(var_ref, (Variable, GroupBoundVariable)):
+    if isinstance(var_ref, Parameter):
+        return f"param#{group.name}.{var_ref.name or target}", None
+    elif not isinstance(var_ref, (Variable, GroupBoundVariable)):
         raise GroupError(
             f"Attribute {target!r} on group {group.name!r} is of type "
             f"{type(var_ref).__name__!r}, but a Variable is required for a self# dependency."
@@ -223,17 +225,26 @@ def _expand_group(group):
     if group.title is None:
         group.title = group.name
 
-    var_defs: dict[str, Variable] = _collect_group_variables(group)
+    var_defs: dict[str, Variable | Parameter] = _collect_group_variables(group)
+
     expanded = {}
 
-    for var_def in var_defs.values():
+    for name_in_grp, var_def in var_defs.items():
         # Create a per-instance Variable copy so name/title/annotations can be
         # rewritten without mutating the class definition.
-        bound_func = var_def.func.__get__(group, type(group))
         new_var = copy(var_def)
-        new_var(bound_func)
-        new_var.name = f"{group.name}.{var_def.name}"
+        new_var.name = f"{group.name}.{(var_def.name or name_in_grp)}"
         new_var.title = f"{group.title}{group.sep}{var_def.title}"
+        new_var.tags = tuple(sorted(
+            set(group.tags) | set(_normalize_tags(new_var.tags))
+        ))
+        expanded[new_var.name] = new_var
+
+        if not isinstance(var_def, Variable):
+            continue
+
+        bound_func = var_def.func.__get__(group, type(group))
+        new_var(bound_func)
 
         annotations = {}
         sig = inspect.signature(bound_func)
@@ -253,11 +264,7 @@ def _expand_group(group):
             else:
                 annotations[arg_name] = annotation
 
-        new_var.tags = tuple(sorted(
-            set(group.tags) | set(_normalize_tags(new_var.tags))
-        ))
         new_var._annotation_overrides = annotations
-        expanded[new_var.name] = new_var
 
     return expanded
 

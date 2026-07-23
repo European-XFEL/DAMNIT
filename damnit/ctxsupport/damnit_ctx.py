@@ -917,6 +917,7 @@ def pipeline_scope():
 class Parameter:
     type_: type
     default: Any = None
+    name: str | None = None
     title: str | None = None
     description: str = ""
     tags: tuple[str] = ()
