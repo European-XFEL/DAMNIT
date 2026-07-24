@@ -171,7 +171,10 @@ them in the context file. For information on how to define tags for variables,
 see the [Variables](configuration_and_management.md#variables) section.
 
 ## Exporting
-All the data in the run table can be exported to an Excel/CSV file, with the
-caveat that images will not be exported (they'll be replaced with an `<image>`
-string):
+All the data in the run table can be exported to an Excel, CSV or Markdown
+file, with the caveat that images will not be exported (they'll be replaced
+with an `<image>` string):
 ![](static/export.gif)
+
+Selected rows can also be copied as Markdown from the table's context menu.
+This copies the visible, non-image columns to the system clipboard.

@@ -29,6 +29,7 @@ from ..definitions import update_brokers
 from ..util import isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
 from .kafka import UpdateAgent
+from .markdown import dataframe_to_markdown
 from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
 from .plot import (
@@ -427,7 +428,7 @@ da-dev@xfel.eu"""
         self.action_create_var.triggered.connect(self._menu_create_user_var)
 
         self.action_export = QtGui.QAction(QtGui.QIcon(icon_path("export.png")), "&Export", self)
-        self.action_export.setStatusTip("Export to Excel/CSV")
+        self.action_export.setStatusTip("Export to Excel, CSV or Markdown")
         self.action_export.triggered.connect(self.export_table)
         self.action_process = QtGui.QAction("Reprocess runs", self)
         self.action_process.triggered.connect(self.process_runs)
@@ -549,7 +550,7 @@ da-dev@xfel.eu"""
     def export_table(self):
         export_path, file_type = QFileDialog.getSaveFileName(self, "Export table to file",
                                                              str(Path.home()),
-                                                             "Excel (*.xlsx);;CSV (*.csv)")
+                                                             "Excel (*.xlsx);;CSV (*.csv);;Markdown (*.md)")
 
         # If the user cancelled the dialog, return
         if len(export_path) == 0:
@@ -573,6 +574,10 @@ da-dev@xfel.eu"""
             cleaned_df.to_excel(export_path, sheet_name=f"p{proposal} DAMNIT run table")
         elif extension == ".csv":
             cleaned_df.to_csv(export_path, index=False)
+        elif extension == ".md":
+            markdown_df = cleaned_df.map(prettify_notation)
+            markdown_df.replace(["None", "<NA>", "nan"], "", inplace=True)
+            export_path.write_text(dataframe_to_markdown(markdown_df) + "\n")
         else:
             self.show_status_message(f"Unrecognized file extension: {extension}",
                                      stylesheet=StatusbarStylesheet.ERROR)
@@ -773,6 +778,7 @@ da-dev@xfel.eu"""
         self.table_view = TableView(self)
         self.table_view.doubleClicked.connect(self._inspect_data_proxy_idx)
         self.table_view.settings_changed.connect(self.save_settings)
+        self.table_view.copy_markdown_action.triggered.connect(self.copy_selection_as_markdown)
         self.table_view.zulip_action.triggered.connect(self.export_selection_to_zulip)
         self.table_view.process_action.triggered.connect(self.process_runs)
         self.table_view.log_view_requested.connect(self.show_run_logs)
@@ -991,6 +997,10 @@ da-dev@xfel.eu"""
             log.warning("Unable to connect to Zulip to export table")
             return
 
+        df = self._selected_rows_for_markdown()
+        self.zulip_messenger.send_table(df)
+
+    def _selected_rows_for_markdown(self):
         selected_rows = [ix.row() for ix in self.table_view.selected_rows()]
 
         blacklist_columns = ['Proposal', 'Status']
@@ -1002,7 +1012,19 @@ da-dev@xfel.eu"""
 
         df = df.map(prettify_notation)
         df.replace(["None", '<NA>', 'nan'], '', inplace=True)
-        self.zulip_messenger.send_table(df)
+        return df
+
+    def copy_selection_as_markdown(self):
+        if not self.table_view.selected_rows():
+            self.show_status_message(
+                "No rows selected", stylesheet=StatusbarStylesheet.ERROR
+            )
+            return
+
+        df = self._selected_rows_for_markdown()
+        markdown = dataframe_to_markdown(df)
+        QtWidgets.QApplication.clipboard().setText(markdown)
+        self.show_status_message("Markdown copied to clipboard", timeout=5000)
 
     def process_runs(self):
         sel_runs_by_prop = {}
