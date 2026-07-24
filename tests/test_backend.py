@@ -286,12 +286,12 @@ def test_context_file(mock_ctx, tmp_path):
         mkcontext(invalid_var_units)
 
 
-def run_ctx_helper(context, run, run_number, proposal, caplog, input_vars=None):
+def run_ctx_helper(context, run, run_number, proposal, caplog, param_values=None):
     # Track all error messages during creation. This is necessary because a
     # variable that throws an error will be logged by Results, the exception
     # will not bubble up.
     with caplog.at_level(logging.ERROR):
-        results = context.execute(run, run_number, proposal, input_vars or {})
+        results = context.execute(run, run_number, proposal, param_values or {})
 
     # Check that there were no errors
     assert caplog.records == []
@@ -674,20 +674,20 @@ def test_results_with_user_vars(mock_ctx_user, mock_user_vars, mock_run, caplog)
     proposal = 1234
     run_number = 1000
 
-    user_var_values = {
+    param_values = {
         "user_integer": 12,
         "user_number": 10.2,
         "user_boolean": True,
         "user_string": "foo"
     }
 
-    results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, input_vars=user_var_values)
+    results = run_ctx_helper(mock_ctx_user, mock_run, run_number, proposal, caplog, param_values=param_values)
 
     # Tests if computations that depends on user variable return the correct results
-    assert results.cells["dep_integer"].data == user_var_values["user_integer"] + 1
-    assert results.cells["dep_number"].data == user_var_values["user_number"]
+    assert results.cells["dep_integer"].data == param_values["user_integer"] + 1
+    assert results.cells["dep_number"].data == param_values["user_number"]
     assert results.cells["dep_boolean"].data == False
-    assert results.cells["dep_string"].data == user_var_values["user_string"] * 2
+    assert results.cells["dep_string"].data == param_values["user_string"] * 2
 
 def test_results_preview(mock_run, tmp_path):
     ctx_code = """
@@ -928,7 +928,7 @@ def test_extractor(mock_ctx, mock_db, mock_run, mock_kafka_broker, monkeypatch):
          patch("ctxrunner.Results"):
         main(["exec", "1234", "42", "proc"])
 
-        open_run.assert_called_with(1234, 42, data="default")
+        open_run.assert_called_with(1234, 42, data="all")
     gather_all_fragments(db_dir)
 
 def test_custom_environment(mock_db, mock_kafka_broker, venv, monkeypatch, qtbot):

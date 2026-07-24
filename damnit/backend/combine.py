@@ -220,12 +220,23 @@ def combine(src: Path, dst: Path):
 
 class FileSubmissionProcessor:
     def __init__(self, consumer_config=None):
+        consumer_config = {
+            # Fragment file copies hold the GIL and can take several 10s of
+            # seconds, starving kafka's heartbeat thread.
+            # defaut (10s) will hit often with large fragment files.
+            'session_timeout_ms': 120_000,
+            # Each record is processed synchronously; fetching one at a time
+            # ensures Kafka is polled between slow combines.
+            'max_poll_records': 1,
+            # Default timeout is 300s (5 minutes), which should be enough.
+        } | (consumer_config or {})
+
         self.consumer = KafkaConsumer(
             FILE_SUBMIT_TOPIC,
             bootstrap_servers=update_brokers(),
             group_id='xfel-da-damnit-combiner',
             consumer_timeout_ms=600_000,
-            **(consumer_config or {})
+            **consumer_config
         )
         self.producer = KafkaProducer(
             bootstrap_servers=update_brokers(),

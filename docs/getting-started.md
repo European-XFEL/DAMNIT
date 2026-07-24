@@ -193,3 +193,6 @@ see the [Variables](configuration_and_management.md#variables) section.
 All the data in the run table can be exported to Excel, CSV or Markdown. Images
 and sparklines are not exported (they're replaced with a placeholder string):
 ![](static/export.gif)
+
+Selected rows can also be copied as Markdown from the table's context menu.
+This copies the visible, non-image columns to the system clipboard.

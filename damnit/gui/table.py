@@ -650,6 +650,9 @@ class TableView(QtWidgets.QTableView):
         self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
 
         self.context_menu = QtWidgets.QMenu(self)
+        self.copy_markdown_action = QtGui.QAction('Copy selection as Markdown', self)
+        self.copy_markdown_action.setEnabled(False)
+        self.context_menu.addAction(self.copy_markdown_action)
         self.zulip_action = QtGui.QAction('Export table to the Logbook', self)
         self.context_menu.addAction(self.zulip_action)
         self.show_logs_action = QtGui.QAction('View processing logs')
@@ -795,6 +798,7 @@ class TableView(QtWidgets.QTableView):
 
     def selection_changed(self):
         has_sel = self.selectionModel().hasSelection()
+        self.copy_markdown_action.setEnabled(has_sel)
         self.show_logs_action.setEnabled(has_sel)
         self.update_cancel_processing_action()
 
