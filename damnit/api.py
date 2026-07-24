@@ -119,12 +119,15 @@ class VariableData:
         return json.loads(row[0])
 
     def _read_netcdf(self, one_array=False):
+        import cf_xarray
         import xarray as xr
         load = xr.load_dataarray if one_array else xr.load_dataset
         obj = load(self._h5_path, group=self.name, engine="h5netcdf")
         # Remove internal attributes from loaded object
         obj.attrs = {k: v for (k, v) in obj.attrs.items()
                      if not k.startswith('_damnit_')}
+        # Decode a compressed variable to a pandas MultiIndex.
+        obj = cf_xarray.decode_compress_to_multi_index(obj)
         return obj
 
     def read(self, deserialize_plotly=True):

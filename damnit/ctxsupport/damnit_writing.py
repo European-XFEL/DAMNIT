@@ -5,6 +5,7 @@ from enum import Enum
 from pathlib import Path
 from tempfile import mkstemp
 
+import cf_xarray
 import h5py
 import numpy as np
 from damnit_ctx import Cell, isinstance_no_import
@@ -195,6 +196,8 @@ def save_dataset_netcdf(f: h5py.File, group: str, dset):
         if var_name is not None and "/" in var_name:
             vars_names[var_name] = var_name.replace("/", "_")
     dset = dset.rename_vars(vars_names)
+    # compress pd.MultiIndex and pydata/sparse objects.
+    dset = cf_xarray.encode_multi_index_as_compress(dset)
 
     with h5netcdf.File(f, 'a') as nf:
         store = H5NetCDFStore(nf, group=group, mode='w')
