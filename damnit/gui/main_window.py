@@ -10,6 +10,7 @@ from socket import gethostname
 
 import h5py
 import numpy as np
+import pandas as pd
 import xarray as xr
 from kafka.errors import NoBrokersAvailable
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -32,7 +33,7 @@ from .kafka import UpdateAgent
 from .new_context_dialog import NewContextFileDialog
 from .open_dialog import OpenDBDialog
 from .plot import (
-    ImagePlotWindow, PlottingControls, ScatterPlotWindow, Xarray1DPlotWindow
+    ImagePlotWindow, OneDPlotWindow, PlottingControls, ScatterPlotWindow,
 )
 from .process import ProcessingDialog
 from .standalone_comments import TimeComment
@@ -694,18 +695,21 @@ da-dev@xfel.eu"""
             pp.show()
             return
 
-        if not isinstance(preview, (np.ndarray, xr.DataArray)):
+        if not isinstance(preview, (np.ndarray, xr.DataArray, pd.Series)):
             log.error("Only array objects are expected here, not %r", type(preview))
             return
 
         title = f'{quantity_title} (run {run})'
 
-        data = preview.squeeze()
+        if not isinstance(preview, pd.Series):
+            data = preview.squeeze()
+        else:
+            data = preview
 
         if data.ndim == 1:
-            if isinstance(data, xr.DataArray):
+            if isinstance(data, (xr.DataArray, pd.Series)):
                 try:
-                    canvas = Xarray1DPlotWindow(self, data, title=title)
+                    canvas = OneDPlotWindow(self, data, title=title)
                 except Exception as exc:
                     QMessageBox.warning(
                         self, f"Can't inspect variable {quantity}", str(exc))

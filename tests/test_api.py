@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import pytest
 import xarray as xr
+from matplotlib.axes import Axes
 from matplotlib.image import AxesImage
 from plotly.graph_objects import Figure as PlotlyFigure
 
@@ -265,17 +266,19 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     ).fetchone()[0]
     assert summary_type == "trendline"
 
-    series = rv['series_multiindex'].read()
-    assert isinstance(series, pd.Series)
-    pd.testing.assert_series_equal(
-        pd.Series(
-            [1, 2, 3, 4],
-            index=pd.MultiIndex.from_product(
-                [["a", "b"], [1, 2]],
-                names=["sample", "shot"]),
-            name="value"),
-        series
+    ref = pd.Series(
+        [1, 2, 3, 4],
+        index=pd.MultiIndex.from_product(
+            [["a", "b"], [1, 2]],
+            names=["sample", "shot"]),
+        name="value"
     )
+
+    series = rv['series_multiindex'].read()
+    pd.testing.assert_series_equal(ref, series)
+    series_preview = rv['series_multiindex'].preview_data()
+    pd.testing.assert_series_equal(ref, series_preview)
+    assert isinstance(rv['series_multiindex'].preview(), Axes)
 
     df = rv['dataframe'].read()
     assert isinstance(df, pd.DataFrame)
@@ -293,6 +296,8 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
         ),
         df
     )
+
+    assert rv['dataframe'].preview_data() is None
 
 
 def test_api_dependencies(venv):
