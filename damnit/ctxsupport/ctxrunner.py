@@ -580,7 +580,7 @@ class ContextFile:
                     dep_errors = [(dep, errors[dep]) for dep in missing_deps if dep in errors]
                     if dep_errors:
                         errors[name] = DependencyError(dep_errors)
-                        if all(isinstance(e, Skip) for _, e in dep_errors):
+                        if all(isinstance(e, (Skip, extra_data.exceptions.SourceNameError)) for _, e in dep_errors):
                             errors[name] = Skip(str(errors[name]))
                     else:
                         deps = [f"{os.linesep}- '{d}'" for d in missing_deps]
