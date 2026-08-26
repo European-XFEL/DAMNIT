@@ -82,6 +82,7 @@ Variable functions can return any of:
 - Matplotlib `Figure`s or `Axes` (will be saved as 2D images).
 - Plotly figures (will be saved as JSON so that the GUI can display them in an
   interactive plot).
+- Pandas `Series` and `DataFrame` objects.
 - Strings
 - `None`
 
@@ -528,17 +529,28 @@ and lets you select subsets of variables to run.
 
 Common usage with a context file:
 ```python
+from pathlib import Path
+
 from damnit.context import Pipeline
 
 pipe = Pipeline.from_context_file("context.py")
 print(sorted(pipe.vars))  # variable names
 
-# Run a subset by title match and save results
+# Run a subset by title match
 res = (pipe.with_context(proposal=1234, run_number=56)
            .select(match=["XGM"], run_data="raw")
            .execute())
-res.save_hdf5("results.h5")
+
+# Save the result as a DAMNIT fragment in the current database directory
+fragment_path = res.save(Path.cwd(), proposal=1234, run=56)
 ```
+
+`Pipeline.execute()` returns a `Results` object. To save its output, call
+`Results.save(damnit_dir, proposal, run)` with the DAMNIT database directory and
+the identifiers of the run being processed. The method writes a fragment file
+for the combiner and returns its `Path`; it does not save directly to an
+arbitrary HDF5 filename. The computed values are available through
+`res.cells`, and any execution errors through `res.errors`.
 
 Execute with a any data object instead of opening a run from proposal/run
 number:
@@ -575,7 +587,7 @@ print(sorted(pipe.vars))
 ### Merging pipelines
 You can combine two pipelines with `Pipeline.union()`. This returns a new
 pipeline containing variables from both inputs, and preserves the context fields
-(`proposal`, `run_number`, `data`, `input_vars`, `name`) and context code from
+(`proposal`, `run_number`, `data`, `param_values`, `name`) and context code from
 the left-hand pipeline.
 
 By default, `union()` raises if the two pipelines contain different `Variable`
@@ -626,7 +638,7 @@ to reuse a set of variable with a different pipeline context.
 
 ```python
 @Variable
-def calibrate_data(run, run_nb: 'meta#run_number', threshold: 'input#threshold' = 0.):
+def calibrate_data(run, run_nb: 'meta#run_number', threshold: 'param#threshold' = 0.):
     return calibration(run, run_nb, threshold)
 
 
@@ -637,7 +649,7 @@ def baseline(run, run_nb: 'meta#run_number', proposal: 'meta#proposal'):
 
     pipe = Pipeline(proposal=proposal, run_number=dark_run)
     pipe.add(calibrate_data)
-    pipe.execute(input_vars={'threshold': threshold})
+    pipe.execute(param_values={'threshold': threshold})
     return pipe.results.cells['calibrate_data'].data
 
 

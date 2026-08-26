@@ -2,14 +2,45 @@
 
 ## [Unreleased]
 
-[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.3.0...HEAD)
+[Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.4.0...HEAD)
+
+## [0.4.0]
 
 Added:
 
+- Core: Save `Pandas.Series` and `Pandas.DataFrame` objects from the context
+  file execution (!600).
+- API: Added the public `Pipeline` API for loading, inspecting, selecting, and
+  executing context variables programmatically (!539).
+- GUI: export table data as markdown (!597).
+- CLI: Added `damnit init` to create a new DAMNIT folder, optionally copying a
+  context file and user-editable variables from another proposal (!567).
+- CLI: `damnit reprocess` can now target a proposal or DAMNIT directory with
+  `--in` (!567).
+- API: Runs can now be selected by proposal and run number, including
+  `db[proposal, run, variable]` (!563).
+- Context: Variable docstrings are used as default descriptions, and the GUI
+  shows descriptions as column-header tooltips (!572).
+- GUI: Added an action to cancel active Slurm processing jobs from the run
+  table (!589).
 - API/Core: Variables and Cells can now persist `units` metadata alongside
   saved data and expose it through `VariableData.units` (!564).
 - GUI: Numeric summary cells now render unit suffixes when `units` metadata
   is available (!564).
+
+Changed:
+
+- **Breaking** API: `Pipeline`'s argument `input_vars` was renamed
+  `param_values` (!601).
+- GUI: Migrated from PyQt5 to PyQt6 (!583).
+
+Fixed:
+
+- Context: Variables whose dependencies were skipped are now marked as skipped,
+  and the dependency chain is included in the error information. (!561)
+- Combiner: Reprocessing a variable removes its previous reduced data before
+  saving the new result (!573).
+- API: Missing values in table dataframes are represented as `pd.NA` (!575).
 
 ## [0.3.0]
 
@@ -274,6 +305,7 @@ Fixed:
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/commits/0.1)
 
 
+[0.4.0]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.4.0
 [0.3.0]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.3.0
 [0.2.1]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2.1
 [0.2]: https://github.com/European-XFEL/DAMNIT/releases/tag/0.2

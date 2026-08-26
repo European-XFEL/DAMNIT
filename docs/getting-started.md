@@ -44,6 +44,14 @@
     $ damnit gui .
     ```
 
+    For a new DAMNIT folder, `damnit init` can create the directory and
+    optionally copy a context file and user-editable variables from another
+    proposal:
+    ```bash
+    $ damnit init 1234
+    $ damnit init 1234 --like 5678
+    ```
+
 ## Exploring variables
 The interface is organized around a central table of runs that contain
 *variables*, which are the things computed by the functions in the context file
@@ -94,6 +102,9 @@ Features:
   formatting for emphasis, see [Cell
   configuration](configuration_and_management.md#cell) for more information.
 
+- Active Slurm processing jobs can be cancelled from the run table. Select the
+  processing runs, open the context menu, and choose `Cancel processing`.
+
 ## Editing the context file
 When you open a database in the GUI the context file will be available in the
 `Context file` tab:
@@ -130,7 +141,8 @@ processing logs`:
     reprocess runs with the `damnit reprocess` command.
 
     Note that you *must* run the tool from a database directory
-    (`usr/Shared/amore`). Here are some examples of using it:
+    (`usr/Shared/amore`) unless you pass a proposal or DAMNIT directory with
+    `--in`. Here are some examples of using it:
     ```bash
     # Reprocess all variables for a single run
     $ damnit reprocess 100
@@ -146,7 +158,14 @@ processing logs`:
 
     # Reprocess all variables for all runs in the database
     $ damnit reprocess all
+
+    # Reprocess runs from a specific proposal or DAMNIT directory
+    $ damnit reprocess --in 1234 100
+    $ damnit reprocess --in /path/to/usr/Shared/amore 100
     ```
+
+    Add `--direct` to run processing locally instead of submitting Slurm jobs.
+    The `--watch` option runs jobs one-by-one and shows their live output.
 
 ## Adding user-editable variables
 Ideally it would be possible to define all variables as code, but sometimes
@@ -171,9 +190,8 @@ them in the context file. For information on how to define tags for variables,
 see the [Variables](configuration_and_management.md#variables) section.
 
 ## Exporting
-All the data in the run table can be exported to an Excel, CSV or Markdown
-file, with the caveat that images will not be exported (they'll be replaced
-with an `<image>` string):
+All the data in the run table can be exported to Excel, CSV or Markdown. Images
+and sparklines are not exported (they're replaced with a placeholder string):
 ![](static/export.gif)
 
 Selected rows can also be copied as Markdown from the table's context menu.
