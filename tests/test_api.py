@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import pytest
 import xarray as xr
+from matplotlib.axes import Axes
 from matplotlib.image import AxesImage
 from plotly.graph_objects import Figure as PlotlyFigure
 
@@ -121,6 +122,7 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     dataset_code = """
     from damnit_ctx import Cell, Variable
     import numpy as np
+    import pandas as pd
     import xarray as xr
 
     @Variable(title="Dataset")
@@ -158,6 +160,32 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     @Variable(title="Array units")
     def array_units(run):
         return xr.DataArray([1, 2, 3], attrs={"units": "fs"})
+
+    @Variable()
+    def series_multiindex(run):
+        return Cell(
+            pd.Series(
+                [1, 2, 3, 4],
+                index=pd.MultiIndex.from_product(
+                    [["a", "b"], [1, 2]],
+                    names=["sample", "shot"]),
+                name="value",
+        ))
+
+    @Variable
+    def dataframe(run):
+        return pd.DataFrame(
+            [[11, 12, True], [21, 22, False]],
+            index=pd.MultiIndex.from_tuples(
+                [("A", 0), ("A", 1)],
+                names=["run", "shot"],
+            ),
+            columns=pd.MultiIndex.from_tuples(
+                [("signal", "x"), ("signal", "y"), ("status", "flag")],
+                names=["kind", "axis"],
+            ),
+        )
+
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -237,6 +265,39 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
         "SELECT summary_type FROM run_variables WHERE name='line' AND run=1"
     ).fetchone()[0]
     assert summary_type == "trendline"
+
+    ref = pd.Series(
+        [1, 2, 3, 4],
+        index=pd.MultiIndex.from_product(
+            [["a", "b"], [1, 2]],
+            names=["sample", "shot"]),
+        name="value"
+    )
+
+    series = rv['series_multiindex'].read()
+    pd.testing.assert_series_equal(ref, series)
+    series_preview = rv['series_multiindex'].preview_data()
+    pd.testing.assert_series_equal(ref, series_preview)
+    assert isinstance(rv['series_multiindex'].preview(), Axes)
+
+    df = rv['dataframe'].read()
+    assert isinstance(df, pd.DataFrame)
+    pd.testing.assert_frame_equal(
+        pd.DataFrame(
+            [[11, 12, True], [21, 22, False]],
+            index=pd.MultiIndex.from_tuples(
+                [("A", 0), ("A", 1)],
+                names=["run", "shot"],
+            ),
+            columns=pd.MultiIndex.from_tuples(
+                [("signal", "x"), ("signal", "y"), ("status", "flag")],
+                names=["kind", "axis"],
+            ),
+        ),
+        df
+    )
+
+    assert rv['dataframe'].preview_data() is None
 
 
 def test_api_dependencies(venv):

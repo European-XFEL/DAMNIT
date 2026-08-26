@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import h5py
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import pytest
 import xarray as xr
@@ -133,6 +134,7 @@ def test_context_file(mock_ctx, tmp_path):
         # First everything without dependencies, in definition order
         "scalar1", "empty_string", "timestamp", "string", "plotly_mc_plotface",
         "results", "image", "array_preview", "plotly_preview", "trendline",
+        "series", "dataframe_sum",
         # Then the dependencies
         "scalar2", "array", "meta_array"
     )
@@ -309,6 +311,7 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     # Check that the summary of a DataArray is a single number
     assert isinstance(results.cells["meta_array"].data, xr.DataArray)
     assert results.cells["meta_array"].get_summary().ndim == 0
+    assert results.cells['dataframe_sum'].get_summary().tolist() == [3, 7]
 
     # Check the result values
     assert results.cells["scalar1"].data == 42
@@ -318,6 +321,14 @@ def test_results(mock_ctx, mock_run, caplog, tmp_path):
     np.testing.assert_equal(results.cells["meta_array"].data.data, [run_number, proposal])
     assert results.cells["string"].data == str(get_proposal_path(mock_run))
     assert results.cells['plotly_mc_plotface'].data == px.bar(x=['a', 'b', 'c'], y=[1, 3, 2])
+    pd.testing.assert_series_equal(
+        results.cells['series'].data,
+        pd.Series([1, 2, 3], index=pd.Index([10, 20, 30], name="shot"), name="value")
+    )
+    pd.testing.assert_frame_equal(
+        results.cells['dataframe_sum'].data,
+        pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    )
 
     # Test behaviour with dependencies throwing exceptions
     raising_code = """

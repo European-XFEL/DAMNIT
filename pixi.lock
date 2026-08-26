@@ -81,6 +81,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a8/07/21f7dc188e35b46631707f3b40ace5643a0e03a8e1e446854826d08a04ae/pyqt6_qt6-6.9.2-py3-none-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b2/ea/9554e5fb78eda4dbc9e9ccaf23034166fe3e9ea9af82ea6204b9578434bc/xarray-2025.7.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/00/d631e67a838026495268c2f6884f3711a15a9a2a96cd244fdaea53b823fb/typing_extensions-4.14.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/b5/5d/f790fb6965ab54c9da0dda7856abc75fd0d7648d865f8d603c111d203a64/pyarrow-25.0.0-cp313-cp313-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/de/e0ae50f9e2e465d65c7a081b4015dd94921ae74c6ba796c7972bcc19ccc5/extra_data-1.22.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/df/e51691ab004d74fa25b751527d041ad1b4d84ee86cbcb8630ab0d7d5188e/logistro-1.1.0-py3-none-any.whl
@@ -174,6 +175,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/9f/d4/029f984e8d3f3b6b726bd33cafc473b75e9e44c0f7e80a5b29abc466bdea/mkdocs_get_deps-0.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b2/ea/9554e5fb78eda4dbc9e9ccaf23034166fe3e9ea9af82ea6204b9578434bc/xarray-2025.7.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/b5/5d/f790fb6965ab54c9da0dda7856abc75fd0d7648d865f8d603c111d203a64/pyarrow-25.0.0-cp313-cp313-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b5/e8/dbf020b4d98251a9860752a094d09a65e1b436ad181faf929983f697048f/watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b7/b8/3fe70c75fe32afc4bb507f75563d39bc5642255d1d94f1f23604725780bf/babel-2.17.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
@@ -280,6 +282,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a8/07/21f7dc188e35b46631707f3b40ace5643a0e03a8e1e446854826d08a04ae/pyqt6_qt6-6.9.2-py3-none-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b2/ea/9554e5fb78eda4dbc9e9ccaf23034166fe3e9ea9af82ea6204b9578434bc/xarray-2025.7.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/00/d631e67a838026495268c2f6884f3711a15a9a2a96cd244fdaea53b823fb/typing_extensions-4.14.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/b5/5d/f790fb6965ab54c9da0dda7856abc75fd0d7648d865f8d603c111d203a64/pyarrow-25.0.0-cp313-cp313-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/de/e0ae50f9e2e465d65c7a081b4015dd94921ae74c6ba796c7972bcc19ccc5/extra_data-1.22.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/16/4ea354101abb1287856baa4af2732be351c7bee728065aed451b678153fd/pytest_cov-6.2.1-py3-none-any.whl
@@ -620,6 +623,7 @@ packages:
   - orjson
   - pandas>=2.1.0
   - plotly
+  - pyarrow
   - xarray
   - extra-data ; extra == 'backend'
   - extra-proposal ; extra == 'backend'
@@ -1564,6 +1568,11 @@ packages:
   version: 4.14.1
   sha256: d1e1e3b58374dc93031d6eda2420a48ea44a36c2b4766a4fdeb3710755731d76
   requires_python: '>=3.9'
+- pypi: https://files.pythonhosted.org/packages/b5/5d/f790fb6965ab54c9da0dda7856abc75fd0d7648d865f8d603c111d203a64/pyarrow-25.0.0-cp313-cp313-manylinux_2_28_x86_64.whl
+  name: pyarrow
+  version: 25.0.0
+  sha256: 6f9dbd83e91c239a1f5ee7ce13f108b5f6c0efbe40a4375260d8f08b43ad05e9
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/b5/e8/dbf020b4d98251a9860752a094d09a65e1b436ad181faf929983f697048f/watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl
   name: watchdog
   version: 6.0.0

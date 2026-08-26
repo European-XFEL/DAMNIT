@@ -457,7 +457,8 @@ class ScatterPlotWindow(PlotWindow):
             self._display_annotations_checkbox.setCheckState(QtCore.Qt.CheckState.Unchecked)
             self._display_annotations_checkbox.setCheckState(QtCore.Qt.CheckState.Checked)
 
-class Xarray1DPlotWindow(PlotWindow):
+
+class OneDPlotWindow(PlotWindow):
     def __init__(self, parent, data, **kwargs):
         super().__init__(parent, **kwargs)
 

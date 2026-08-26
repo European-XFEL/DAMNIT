@@ -19,6 +19,7 @@ def mock_ctx():
     code = """
     import time
     import numpy as np
+    import pandas as pd
     import plotly.express as px
     import xarray as xr
     from damnit_ctx import Variable, Cell
@@ -95,6 +96,14 @@ def mock_ctx():
     def trendline(run):
         data = np.arange(10000)
         return data
+
+    @Variable()
+    def series(run):
+        return Cell(pd.Series([1, 2, 3], index=pd.Index([10, 20, 30], name="shot"), name="value"))
+
+    @Variable(summary="sum")
+    def dataframe_sum(run):
+        return Cell(pd.DataFrame({"a": [1, 2], "b": [3, 4]}))
     """
 
     return mkcontext(code)

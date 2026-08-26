@@ -4,6 +4,7 @@ import os.path as osp
 from contextlib import contextmanager
 from enum import Enum
 from glob import iglob
+from io import BytesIO
 from pathlib import Path
 
 import h5py
@@ -17,10 +18,13 @@ from .util import isinstance_no_import
 # avoid the dependencies of the runner in the API (namely requests and pyyaml).
 class DataType(Enum):
     DataArray = "dataarray"
+    DataFrame = "dataframe"
     Dataset = "dataset"
     Image = "image"
-    Timestamp = "timestamp"
     PlotlyFigure = "PlotlyFigure"
+    Series = "series"
+    Timestamp = "timestamp"
+
 
 # Also copied, this time from extra_data.read_machinery
 def find_proposal(propno):
@@ -127,6 +131,12 @@ class VariableData:
                      if not k.startswith('_damnit_')}
         return obj
 
+    def _read_parquet(self, dset):
+        import pandas as pd
+
+        payload = dset[()].tobytes()
+        return pd.read_parquet(BytesIO(payload), engine="pyarrow")
+
     def read(self, deserialize_plotly=True):
         """Read the data for the variable.
 
@@ -145,7 +155,11 @@ class VariableData:
                 return self._read_netcdf(one_array=True)
 
             dset = group["data"]
-            if type_hint is DataType.PlotlyFigure:
+            if type_hint is DataType.Series:
+                return self._read_parquet(dset).iloc[:, 0]
+            elif type_hint is DataType.DataFrame:
+                return self._read_parquet(dset)
+            elif type_hint is DataType.PlotlyFigure:
                 import plotly.io as pio
 
                 # plotly figures are json serialized and saved as uint8 arrays
@@ -219,6 +233,8 @@ class VariableData:
                     xarray_group = self.name
                 elif type_hint is DataType.Dataset:
                     return None
+                elif type_hint is DataType.DataFrame:
+                    return None
                 else:
                     dset = grp['data']
             else:
@@ -237,6 +253,9 @@ class VariableData:
                 )
                 if arr.ndim != 0 and (np.issubdtype(arr.dtype, np.number) or arr.dtype == bool):
                     return arr
+
+            elif type_hint is DataType.Series:
+                return self._read_parquet(dset).iloc[:, 0]
 
             elif (np.issubdtype(dset.dtype, np.number) or dset.dtype == bool) and (
                     dset.ndim in (1, 2) or (dset.ndim == 3 and dset.shape[-1] in (3, 4))
@@ -263,6 +282,8 @@ class VariableData:
         if isinstance_no_import(obj, 'plotly.graph_objs', 'Figure'):
             obj.show()
             return obj
+        elif  isinstance_no_import(obj, 'pandas', 'Series'):
+            return obj.plot()
         elif isinstance_no_import(obj, 'xarray', 'DataArray'):
             return obj.plot()  # Let Xarray decide what to plot
         else:  # ndarray
