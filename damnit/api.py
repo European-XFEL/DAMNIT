@@ -1,4 +1,5 @@
 import json
+import operator
 import os
 import os.path as osp
 from contextlib import contextmanager
@@ -649,6 +650,8 @@ def submit(proposal: int, run: int, variables, *, provenance,
     from .backend.extract_data import notify_new_file
     from .context import Cell, save_fragment
 
+    proposal = operator.index(proposal)
+    run = operator.index(run)
     variables = {k: (v if isinstance(v, Cell) else Cell(v))
                  for (k, v) in variables.items()}
     errors = errors or {}
