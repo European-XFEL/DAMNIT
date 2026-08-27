@@ -51,7 +51,7 @@ def test_combiner_service(mock_db, mock_kafka_broker):
     db_dir, db = mock_db
 
     with SubmitHelper(mock_kafka_broker, db, db_dir) as sh:
-        new_records = sh.submit_and_combine(1234, 56, {
+        new_records = sh.submit_and_combine(np.int64(1234), np.int32(56), {
             # We need start_time in the DB for the API to see the run
             "array": np.arange(10), "start_time": 1776335722
         })
@@ -66,6 +66,14 @@ def test_combiner_service(mock_db, mock_kafka_broker):
         sh.submit_and_combine(1234, 56, {"array": np.arange(15)})
 
         np.testing.assert_array_equal(api_obj[56, "array"].read(), np.arange(15))
+
+
+@pytest.mark.parametrize("proposal, run", [(1234.0, 56), (1234, 56.0)])
+def test_submit_rejects_non_integer_run_ids(tmp_path, proposal, run):
+    with pytest.raises(TypeError):
+        submit(proposal, run, {}, provenance="test", damnit_dir=tmp_path)
+
+    assert not (tmp_path / "extracted_data").exists()
 
 
 def test_combiner_clears_previous_data(mock_db, mock_kafka_broker):
