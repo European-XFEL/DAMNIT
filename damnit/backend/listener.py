@@ -219,13 +219,24 @@ class EventProcessor:
                     # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
                     db.conn.execute("pragma user_version=0;")
 
+                    # Look up parameter values before ensure_run(), to get the
+                    # values set for new runs if appropriate.
+                    params = db.get_parameters()
+                    param_values = db.get_parameter_values(proposal, run, params)
+
                     db.ensure_run(proposal, run, record.timestamp / 1000)
                     log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
 
                     # Set the default to the stable DAMNIT module if not already set
                     damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
                     submitter = ExtractionSubmitter(db.path.parent, db)
-                    req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
+                    req = ExtractionRequest(
+                        run, proposal,
+                        run_data=run_data,
+                        sandbox_args=sandbox_args,
+                        damnit_python=damnit_python,
+                        params=param_values,
+                    )
 
                 try:
                     submitter.submit(req)

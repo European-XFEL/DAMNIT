@@ -119,6 +119,9 @@ def load_reduced_data(h5_path):
             )
             for name, dset in f['.reduced'].items()
         } | {
+            name: ReducedData(get_dset_value(dset))
+            for name, dset in f['.parameters'].items()
+        } | {
             name: ReducedData(None, attributes={
                 'error': get_dset_value(dset),
                 'error_cls': dset.attrs.get("type", "")
@@ -204,7 +207,8 @@ class Extractor:
 
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
-                 match=(), variables=(), mock=False, uuid=None, sandbox_args=None):
+                 match=(), variables=(), params=(), mock=False, uuid=None,
+                 sandbox_args=None):
         super().__init__(sandbox_args=sandbox_args)
         self.proposal = proposal
         self.run = run
@@ -212,6 +216,7 @@ class RunExtractor(Extractor):
         self.run_data = run_data
         self.match = match
         self.variables = variables
+        self.params = params
         self.mock = mock
         self.uuid = uuid or str(uuid4())
         self.sandbox_args = sandbox_args
@@ -282,6 +287,8 @@ class RunExtractor(Extractor):
             else:
                 for m in self.match:
                     args.extend(['--match', m])
+            for param in self.params:
+                args.extend(["--param", param])
 
             log.debug("Running extraction subprocess with args:\n%s", args)
             p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
@@ -299,9 +306,38 @@ class RunExtractor(Extractor):
             for line in tf:
                 pth = line.decode().strip()
                 if pth and Path(pth).is_file():
-                    self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
-                        self.db.path.parent, self.proposal, self.run, pth
-                    ))
+                    if os.environ.get("DAMNIT_SELF_COMBINE") == "1":
+                        self._self_combine(Path(pth))
+                    else:
+                        # Normal: tell the combiner service about the new file
+                        self.kafka_prd.send(FILE_SUBMIT_TOPIC, file_submit_msg(
+                            self.db.path.parent, self.proposal, self.run, pth
+                        ))
+
+    def _self_combine(self, src: Path):
+        """For testing, used with DAMNIT_SELF_COMBINE=1
+
+        File corruption can occur if the combiner service writes to the same
+        file at the same time.
+        """
+        from .combine import combine
+
+        dst = Path.cwd() / "extracted_data" / f"p{self.proposal}_r{self.run}.h5"
+
+        with h5py.File(src) as f:
+            provenance = f.attrs.get("provenance", "")
+        new_data = load_reduced_data(src)
+        combine(src, dst)
+
+        log.info("Updating database in %s with %s variables for p%d r%d from %s",
+                 Path.cwd(), len(new_data), self.proposal, self.run, provenance)
+        add_to_db(new_data, self.db, self.proposal, self.run, provenance=provenance)
+        self.kafka_prd.send(self.db.kafka_topic, msg_dict(
+            MsgKind.run_values_updated, {
+                'run': self.run,
+                'proposal': self.proposal,
+                'values': {name: None for name in new_data.keys()}
+        }))
 
     def extract_and_ingest(self):
         self._notify_running()
@@ -345,6 +381,7 @@ def main(argv=None):
     ap.add_argument('--cluster-job', action="store_true")
     ap.add_argument('--match', action="append", default=[])
     ap.add_argument('--var',  action="append", default=[])
+    ap.add_argument('--param', action="append", default=[])
     ap.add_argument('--mock', action='store_true')
     ap.add_argument('--update-vars', action='store_true')
     ap.add_argument('--processing-id', type=str)
@@ -380,6 +417,7 @@ def main(argv=None):
                         run_data=RunData(args.run_data),
                         match=args.match,
                         variables=args.var,
+                        params=args.param,
                         mock=args.mock,
                         uuid=args.processing_id,
                         sandbox_args=args.sandbox_args)
