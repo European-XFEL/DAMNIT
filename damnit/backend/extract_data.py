@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from getpass import getuser
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -351,7 +352,8 @@ def main(argv=None):
     ap.add_argument('--sandbox-args', type=str)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
     # Hide some logging from Kafka to make things more readable
     logging.getLogger('kafka').setLevel(logging.WARNING)
 
@@ -370,8 +372,9 @@ def main(argv=None):
     else:
         node_info = f"{hostname} (subprocess)"
 
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(
-        f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {node_info} -----",
+        f"\n----- Processing r{args.run} (p{args.proposal}) as {username} on {node_info} at {now} -----",
         file=sys.stderr
     )
 

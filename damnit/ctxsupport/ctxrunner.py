@@ -753,7 +753,11 @@ def main(argv=None):
     ctx_ap.add_argument("out_file", type=Path)
 
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
     if args.subcmd == "exec":
         if args.mock:

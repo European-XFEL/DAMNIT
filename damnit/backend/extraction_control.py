@@ -11,6 +11,7 @@ import sys
 from contextlib import contextmanager
 from ctypes import CDLL
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from secrets import token_hex
 from threading import Thread
@@ -188,9 +189,10 @@ def cancel_slurm_job(cluster: str, job_id: str) -> SlurmCancelResult:
 
 def write_cancelled_log(context_dir: Path, info: dict, result: SlurmCancelResult):
     log_path = process_log_path(info['run'], info['proposal'], context_dir)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with log_path.open("a", encoding="utf-8") as f:
         f.write(
-            f"\nCancelled {result.state} Slurm job {result.job_id} "
+            f"\n[{now}] Cancelled {result.state} Slurm job {result.job_id} "
             f"on {result.cluster} by {getpass.getuser()}\n"
         )
 
