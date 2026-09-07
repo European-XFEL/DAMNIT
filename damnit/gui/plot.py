@@ -206,15 +206,23 @@ class PlotWindow(QtWidgets.QDialog):
     def _update_plot_theme(self):
         """Update matplotlib figure colors based on current theme."""
         dark = self.current_theme == Theme.DARK
+        color = 'white' if dark else 'black'
 
         self.figure.patch.set_facecolor('#232323' if dark else 'white')
         self._axis.set_facecolor('#232323' if dark else 'white')
-        self._axis.tick_params(colors='white' if dark else 'black')
-        self._axis.xaxis.label.set_color('white' if dark else 'black')
-        self._axis.yaxis.label.set_color('white' if dark else 'black')
-        self._axis.title.set_color('white' if dark else 'black')
+        self._axis.tick_params(colors=color)
+        self._axis.xaxis.label.set_color(color)
+        self._axis.yaxis.label.set_color(color)
+        self._axis.title.set_color(color)
         for spine in self._axis.spines.values():
-            spine.set_color('white' if dark else 'black')
+            spine.set_color(color)
+
+        colorbar = getattr(self, '_colorbar', None)
+        if colorbar is not None:
+            colorbar.ax.tick_params(colors=color)
+            colorbar.ax.xaxis.label.set_color(color)
+            colorbar.ax.yaxis.label.set_color(color)
+            colorbar.outline.set_edgecolor(color)
 
         self._canvas.draw()
 
@@ -556,7 +564,7 @@ class ImagePlotWindow(PlotWindow):
                     self._colorbar = plot_result.get('color_bar')
                 else:
                     self._image_artist = plot_result
-                    self._colorbar = None
+                    self._colorbar = getattr(plot_result, 'colorbar', None)
             else:  # RGB(A) colour image
                 self._image_artist = image.plot.imshow(ax=self._axis, interpolation='antialiased')
             self.figure.tight_layout()
@@ -604,6 +612,7 @@ class ImagePlotWindow(PlotWindow):
         else:
             self._draw_image(self._data_source)
 
+        self._update_plot_theme()
         self._setup_scroll_zoom()
         self._canvas.toolbar.update()
         self.figure.canvas.draw_idle()

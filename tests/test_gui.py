@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 from PyQt6.QtCore import Qt, QPoint, QEvent
 from PyQt6.QtGui import QColor, QPalette, QPixmap
 from PyQt6 import QtGui, QtWidgets
@@ -28,7 +29,7 @@ from damnit.context import Pipeline
 from damnit.gui.editor import ContextTestResult
 from damnit.gui.main_window import AddUserVariableDialog, MainWindow, prompt_setup_db
 from damnit.gui.open_dialog import OpenDBDialog
-from damnit.gui.plot import HistogramPlotWindow, ScatterPlotWindow
+from damnit.gui.plot import HistogramPlotWindow, ImagePlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
 from damnit.gui.table import (
@@ -1648,6 +1649,25 @@ def test_theme(mock_db, qtbot, tmp_path):
         QApplication.processEvents()
         assert win2.current_theme == Theme.LIGHT
         assert win2.palette().color(QPalette.ColorRole.Window).name() != dark_window_color
+
+
+def test_image_plot_colorbar_theme(qtbot):
+    for image in (
+        np.arange(100).reshape(10, 10),
+        xr.DataArray(np.arange(100).reshape(10, 10), dims=('y', 'x'), name='signal'),
+    ):
+        plot = ImagePlotWindow(None, image)
+        qtbot.addWidget(plot)
+
+        for theme, color in ((Theme.LIGHT, 'black'), (Theme.DARK, 'white')):
+            plot.update_theme(theme)
+            colorbar = plot._colorbar
+            edge_color = (1.0, 1.0, 1.0) if color == 'white' else (0.0, 0.0, 0.0)
+
+            assert colorbar is not None
+            assert all(label.get_color() == color for label in colorbar.ax.get_yticklabels())
+            assert colorbar.ax.yaxis.label.get_color() == color
+            assert colorbar.outline.get_edgecolor()[:3] == edge_color
 
 
 def test_filter_header(mock_db_with_data, qtbot, mock_kafka_broker):
