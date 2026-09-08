@@ -303,9 +303,20 @@ class CombinerRunSubcmd(Subcommand):
     help = "Run the DAMNIT combiner"
 
     @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            '--workers', type=int, default=4,
+            help="Number of HDF5 combiner worker processes (default: 4)",
+        )
+        parser.add_argument(
+            '--max-pending', type=int, default=16,
+            help="Maximum number of unfinished file submissions (default: 16)",
+        )
+
+    @staticmethod
     def run(args: argparse.Namespace):
         from .backend.combine import main
-        return main()
+        return main(workers=args.workers, max_pending=args.max_pending)
 
 
 class CombinerNowSubcmd(Subcommand):
