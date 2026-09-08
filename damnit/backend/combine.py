@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import h5py
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import ConsumerRebalanceListener, KafkaConsumer, KafkaProducer
 from kafka.structs import OffsetAndMetadata, TopicPartition
 
 from ..context import DataType
@@ -265,6 +265,28 @@ class SubmissionJob:
     run: int
     msg_timestamp: datetime
     record: RecordState | None = None
+    finalized: bool = False
+
+
+class RebalanceRequested(RuntimeError):
+    """Stop the coordinator so a new process can start after a rebalance."""
+
+
+class _RebalanceListener(ConsumerRebalanceListener):
+    def __init__(self, processor):
+        self.processor = processor
+
+    def on_partitions_revoked(self, revoked):
+        self.processor._request_rebalance("partitions revoked", revoked)
+
+    def on_partitions_assigned(self, assigned):
+        if self.processor._initial_assignment_seen:
+            self.processor._request_rebalance("partitions reassigned", assigned)
+        else:
+            self.processor._initial_assignment_seen = True
+
+    def on_partitions_lost(self, lost):
+        self.processor._request_rebalance("partitions lost", lost)
 
 
 def wait_file_exists(p: Path, msg_timestamp: datetime):
@@ -334,6 +356,8 @@ class FileSubmissionProcessor:
         self.workers = workers
         self.max_pending = max_pending
         self.poll_timeout_ms = poll_timeout_ms
+        self._initial_assignment_seen = False
+        self._rebalance_requested = None
 
         consumer_config = {
             # The coordinator polls regularly while workers copy files, so
@@ -346,15 +370,20 @@ class FileSubmissionProcessor:
             # Default timeout is 300s (5 minutes), which should be enough.
         } | (consumer_config or {})
         # This service commits only after finalization.  Do not allow a caller
-        # to accidentally turn Kafka's background commits back on.
+        # to accidentally turn Kafka's background commits back on or weaken
+        # the scheduler's one-record intake bound.
         consumer_config['enable_auto_commit'] = False
+        consumer_config['max_poll_records'] = 1
 
         self.consumer = KafkaConsumer(
-            FILE_SUBMIT_TOPIC,
             bootstrap_servers=update_brokers(),
             group_id='xfel-da-damnit-combiner',
             consumer_timeout_ms=600_000,
             **consumer_config
+        )
+        self.consumer.subscribe(
+            [FILE_SUBMIT_TOPIC],
+            listener=_RebalanceListener(self),
         )
         self.producer = KafkaProducer(
             bootstrap_servers=update_brokers(),
@@ -371,14 +400,12 @@ class FileSubmissionProcessor:
         # future; later fragments remain in its coordinator-owned FIFO queue.
         self.pending: dict[Path, deque[SubmissionJob]] = {}
         self.active: dict[Path, tuple[SubmissionJob, Future]] = {}
-        self._inflight_count = 0
 
-        # Offset state is kept separately from jobs because different
-        # destinations can complete out of order while each Kafka partition
-        # must still be committed as one contiguous prefix.
-        self._partition_states: dict[TopicPartition, dict[int, RecordState]] = {}
-        self._next_commit_offsets: dict[TopicPartition, int] = {}
-        self._paused_partitions: set[TopicPartition] = set()
+        # Keep the records actually received from each partition.  Kafka
+        # offsets are not necessarily dense, so a numeric cursor cannot tell
+        # whether an unseen offset is a real unfinished record.
+        self._partition_records: dict[TopicPartition, deque[RecordState]] = {}
+        self._uncommitted_count = 0
         self._fatal_error = None
         self._shutdown = False
 
@@ -397,15 +424,13 @@ class FileSubmissionProcessor:
             # Do not leave old workers running across a service restart.  Any
             # completed-but-unfinalized result remains uncommitted and will be
             # replayed from Kafka on the next start.
-            try:
-                self.pool.shutdown(wait=True, cancel_futures=True)
-            except TypeError:  # pragma: no cover - for older executors
-                self.pool.shutdown(wait=True)
+            self.pool.shutdown(wait=True, cancel_futures=True)
         self.producer.flush(timeout=10)
         self.producer.close(timeout=10)
 
     def run(self):
         while True:
+            self._raise_if_rebalance_requested()
             self._check_completed()
             self._schedule_available()
             self._update_consumer_flow()
@@ -424,6 +449,7 @@ class FileSubmissionProcessor:
         tests.  The service entry point uses :meth:`run`, which continues
         polling while worker futures are in flight.
         """
+        self._raise_if_rebalance_requested()
         self._check_completed()
         self._schedule_available()
         self._update_consumer_flow()
@@ -437,21 +463,16 @@ class FileSubmissionProcessor:
         return True
 
     def process_file_submission_msg(self, d: dict, msg_timestamp: datetime):
-        """Process one submission synchronously for direct callers."""
+        """Submit one file through the normal destination scheduler."""
         job = self._make_job(d, msg_timestamp)
         log.info(
             "Combining %r into %r; event pending for %.3f s before processing",
             job.source, job.destination,
             (datetime.now(timezone.utc) - msg_timestamp).total_seconds()
         )
-
-        result = self.pool.submit(
-            combine_fragment_worker,
-            job.source,
-            job.destination,
-            job.msg_timestamp,
-        ).result()
-        self._finalize_job(job, result)
+        self._enqueue_job(job)
+        self._schedule_available()
+        self._wait_for_job(job)
 
     @staticmethod
     def wait_file_exists(p: Path, msg_timestamp: datetime):
@@ -483,15 +504,11 @@ class FileSubmissionProcessor:
         )
 
     def _poll_records(self):
-        try:
-            records = self.consumer.poll(
-                timeout_ms=self.poll_timeout_ms,
-                max_records=1,
-            )
-        except TypeError:
-            # Keep simple consumer doubles compatible with the coordinator's
-            # polling contract.
-            records = self.consumer.poll(timeout_ms=self.poll_timeout_ms)
+        records = self.consumer.poll(
+            timeout_ms=self.poll_timeout_ms,
+            max_records=1,
+        )
+        self._raise_if_rebalance_requested()
 
         for partition_records in records.values():
             yield from partition_records
@@ -516,14 +533,17 @@ class FileSubmissionProcessor:
             getattr(record, "partition", 0),
         )
         offset = record.offset
-        partition_states = self._partition_states.setdefault(topic_partition, {})
-        state = partition_states.get(offset)
-        if state is None:
-            state = partition_states[offset] = RecordState(topic_partition, offset)
-            self._next_commit_offsets.setdefault(topic_partition, offset)
+        state = RecordState(topic_partition, offset)
+        self._partition_records.setdefault(topic_partition, deque()).append(state)
+        self._uncommitted_count += 1
         return state
 
     def _accept_record(self, record):
+        if self._uncommitted_count >= self.max_pending:
+            error = RuntimeError("Combiner pending record limit exceeded")
+            self._fatal_error = error
+            raise error
+
         state = self._record_state(record)
         try:
             msg = self._record_message(record)
@@ -533,9 +553,7 @@ class FileSubmissionProcessor:
                 return state
 
             job = self._make_job(msg['data'], self._record_timestamp(record), state)
-            queue = self.pending.setdefault(job.destination, deque())
-            queue.append(job)
-            self._inflight_count += 1
+            self._enqueue_job(job)
             log.info(
                 "Queued %r for %r; event pending for %.3f s before processing",
                 job.source, job.destination,
@@ -546,6 +564,9 @@ class FileSubmissionProcessor:
             self._fatal_error = exc
             log.error("Unexpected error accepting file submission message", exc_info=True)
             raise
+
+    def _enqueue_job(self, job):
+        self.pending.setdefault(job.destination, deque()).append(job)
 
     def _schedule_available(self):
         if self._fatal_error is not None:
@@ -586,6 +607,7 @@ class FileSubmissionProcessor:
             try:
                 result = future.result()
                 self._finalize_job(job, result)
+                job.finalized = True
                 if job.record is not None:
                     self._mark_record_complete(job.record)
             except Exception as exc:
@@ -599,7 +621,6 @@ class FileSubmissionProcessor:
                 raise
 
             self.active.pop(destination)
-            self._inflight_count -= 1
             if not self.pending.get(destination):
                 self.pending.pop(destination, None)
 
@@ -632,8 +653,7 @@ class FileSubmissionProcessor:
                 job.proposal,
                 job.run,
             )
-            if notification is not None and hasattr(notification, "get"):
-                notification.get(timeout=NOTIFICATION_TIMEOUT)
+            notification.get(timeout=NOTIFICATION_TIMEOUT)
 
         # The destination remains through a hard link when it was newly
         # created.  Removing only the fragment path is therefore safe.
@@ -642,39 +662,63 @@ class FileSubmissionProcessor:
 
     def _mark_record_complete(self, state: RecordState):
         state.completed = True
-        states = self._partition_states[state.topic_partition]
-        next_offset = self._next_commit_offsets[state.topic_partition]
-        old_next_offset = next_offset
+        records = self._partition_records[state.topic_partition]
+        completed = []
+        for record in records:
+            if not record.completed:
+                break
+            completed.append(record)
 
-        while (next_state := states.get(next_offset)) is not None and next_state.completed:
-            del states[next_offset]
-            next_offset += 1
-
-        self._next_commit_offsets[state.topic_partition] = next_offset
-        if next_offset == old_next_offset:
+        if not completed:
             return
 
         self.consumer.commit(offsets={
-            state.topic_partition: offset_metadata(next_offset),
+            state.topic_partition: offset_metadata(completed[-1].offset + 1),
         })
 
+        for _ in completed:
+            records.popleft()
+            self._uncommitted_count -= 1
+        if not records:
+            self._partition_records.pop(state.topic_partition, None)
+
     def _update_consumer_flow(self):
-        should_pause = self._inflight_count >= self.max_pending
+        should_pause = self._uncommitted_count >= self.max_pending
         assigned = set(self.consumer.assignment())
+        paused = set(self.consumer.paused())
 
         if should_pause:
-            to_pause = assigned - self._paused_partitions
+            to_pause = assigned - paused
             if to_pause:
                 self.consumer.pause(*to_pause)
-                self._paused_partitions.update(to_pause)
-        elif self._paused_partitions:
-            self.consumer.resume(*self._paused_partitions)
-            self._paused_partitions.clear()
+        else:
+            to_resume = assigned & paused
+            if to_resume:
+                self.consumer.resume(*to_resume)
+
+    def _request_rebalance(self, event, partitions):
+        if not self._initial_assignment_seen:
+            return
+        self._rebalance_requested = event
+        log.warning(
+            "Kafka %s for %s; stopping combiner for a clean restart",
+            event, partitions,
+        )
+
+    def _raise_if_rebalance_requested(self):
+        if self._rebalance_requested is not None:
+            raise RebalanceRequested(self._rebalance_requested)
 
     def _wait_for_records(self, states):
         while not all(state.completed for state in states):
             self._check_completed()
             if not all(state.completed for state in states):
+                time.sleep(0.01)
+
+    def _wait_for_job(self, job):
+        while not job.finalized:
+            self._check_completed()
+            if not job.finalized:
                 time.sleep(0.01)
 
 
@@ -722,6 +766,9 @@ def main(*, workers=DEFAULT_WORKERS, max_pending=DEFAULT_MAX_PENDING):
             processor.run()
         except KeyboardInterrupt:
             log.info("Stopping on Ctrl + C")
+        except RebalanceRequested:
+            log.warning("Stopping after Kafka partition reassignment")
+            raise
         except Exception:
             log.error("Stopping on unexpected error", exc_info=True)
             raise

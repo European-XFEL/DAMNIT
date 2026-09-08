@@ -8,6 +8,10 @@ ConditionHost=max-exfl458.desy.de
 Type=notify
 WorkingDirectory=%h/srv/damnit-combiner
 ExecStart=/gpfs/exfel/sw/software/xfel_anaconda3/amore-beta/.pixi/envs/default/bin/python -m damnit.backend.combine
+# Send the initial stop signal to the coordinator only. It closes Kafka and
+# waits for spawned HDF5 workers before the whole cgroup is force-killed.
+KillMode=mixed
+TimeoutStopSec=10min
 Restart=on-failure
 SyslogIdentifier=combiner
 
