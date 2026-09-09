@@ -234,8 +234,20 @@ timeout for Slurm jobs is 2 hours, which can be customized through the
 $ damnit db-config slurm_time 05:00:00
 ```
 
-By default DAMNIT will figure out an appropriate partition that user has access
-to, but that can be overridden by explicitly setting a partition or reservation:
+The central listener service submits non-cluster jobs to the Solaris cluster's
+`damnit` partition by default. Configure this in the listener service's
+`listener.sqlite` database, from its working directory:
+```bash
+# Use a different partition
+$ damnit listener config noncluster_partition short
+
+# Disable the explicit partition
+$ damnit listener config noncluster_partition ""
+```
+
+For `cluster=True` jobs, DAMNIT will figure out an appropriate partition that
+the user has access to by default. This can be overridden by explicitly setting
+a partition or reservation:
 ```bash
 # Set a reservation
 $ damnit db-config slurm_reservation upex_001234

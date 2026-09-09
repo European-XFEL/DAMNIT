@@ -1,5 +1,6 @@
 import json
 import multiprocessing
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -27,10 +28,13 @@ from damnit.ctxsupport.damnit_writing import DamnitFileWriter
 from damnit.definitions import FILE_SUBMIT_TOPIC
 
 
-def slow_worker(src, dst, msg_timestamp):
+def controlled_worker(src, dst, msg_timestamp):
     dst.parent.mkdir(parents=True, exist_ok=True)
-    (dst.parent / "worker-started").touch()
-    time.sleep(0.3)
+    started = dst.parent / "worker-started"
+    release = dst.parent / "release-worker"
+    started.touch()
+    while not release.exists():
+        time.sleep(0.01)
     return CombinedFragment({}, "test")
 
 
@@ -131,7 +135,9 @@ def scheduler_message(tmp_path, run, offset, proposal=1234):
     )
 
 
-def make_scheduler(tmp_path, monkeypatch, *, workers=2, max_pending=16):
+def make_scheduler(
+    tmp_path, monkeypatch, *, workers=2, max_pending=16, finalize=False,
+):
     consumer = SchedulerConsumer()
     executor = ManualExecutor()
     monkeypatch.setattr("damnit.backend.combine.KafkaConsumer", lambda *a, **k: consumer)
@@ -142,7 +148,8 @@ def make_scheduler(tmp_path, monkeypatch, *, workers=2, max_pending=16):
         executor=executor,
         poll_timeout_ms=1,
     )
-    processor._finalize_job = lambda job, result: None
+    if not finalize:
+        processor._finalize_job = lambda job, result: None
     return processor, consumer, executor
 
 
@@ -408,6 +415,82 @@ def test_scheduler_failure_keeps_destination_active(tmp_path, monkeypatch):
     assert not consumer.commits
 
 
+def test_scheduler_finalization_failure_keeps_fragment_and_destination_active(
+    tmp_path, monkeypatch,
+):
+    processor, consumer, executor = make_scheduler(
+        tmp_path, monkeypatch, workers=1, finalize=True,
+    )
+    first = scheduler_message(tmp_path, run=1, offset=22)
+    second = scheduler_message(tmp_path, run=1, offset=23)
+    first_source = tmp_path / "fragment-1-22.h5"
+    first_source.touch()
+
+    class FakeDB:
+        kafka_topic = "run-updates"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    monkeypatch.setattr(
+        "damnit.backend.combine.DamnitDB.from_dir",
+        lambda path: FakeDB(),
+    )
+    monkeypatch.setattr("damnit.backend.combine.add_to_db", lambda *args, **kwargs: None)
+
+    def fail_notification(*args, **kwargs):
+        raise RuntimeError("notification failed")
+
+    processor.send_update = fail_notification
+    processor._accept_record(first)
+    processor._accept_record(second)
+    processor._schedule_available()
+    executor.submissions[0][2].finish(CombinedFragment({}, "test"))
+
+    with pytest.raises(RuntimeError, match="notification failed"):
+        processor._check_completed()
+
+    destination = next(iter(processor.active))
+    assert first_source.exists()
+    assert not consumer.commits
+    assert len(processor.active) == 1
+    assert len(processor.pending[destination]) == 1
+    assert len(executor.submissions) == 1
+
+
+def test_scheduler_commit_failure_retains_record_window_and_blocks_destination(
+    tmp_path, monkeypatch,
+):
+    processor, consumer, executor = make_scheduler(
+        tmp_path, monkeypatch, workers=1,
+    )
+    first = scheduler_message(tmp_path, run=1, offset=24)
+    second = scheduler_message(tmp_path, run=1, offset=25)
+    processor._accept_record(first)
+    processor._accept_record(second)
+    processor._schedule_available()
+    records = processor._partition_records[consumer.tp]
+
+    def fail_commit(offsets=None):
+        raise RuntimeError("commit failed")
+
+    consumer.commit = fail_commit
+    executor.submissions[0][2].finish(CombinedFragment({}, "test"))
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        processor._check_completed()
+
+    destination = next(iter(processor.active))
+    assert processor._partition_records[consumer.tp] is records
+    assert len(records) == 2
+    assert processor._uncommitted_count == 2
+    assert len(processor.pending[destination]) == 1
+    assert len(executor.submissions) == 1
+
+
 def test_scheduler_commits_only_contiguous_completed_offsets(tmp_path, monkeypatch):
     processor, consumer, executor = make_scheduler(tmp_path, monkeypatch)
     first = scheduler_message(tmp_path, run=1, offset=30)
@@ -486,12 +569,34 @@ def test_scheduler_stops_after_non_initial_rebalance(tmp_path, monkeypatch):
         processor._raise_if_rebalance_requested()
 
 
+def test_scheduler_rebalance_during_poll_yields_no_record(tmp_path, monkeypatch):
+    processor, consumer, executor = make_scheduler(tmp_path, monkeypatch)
+    consumer.listener.on_partitions_assigned({consumer.tp})
+
+    def poll(**kwargs):
+        consumer.listener.on_partitions_revoked({consumer.tp})
+        return {consumer.tp: [scheduler_message(tmp_path, run=1, offset=26)]}
+
+    consumer.poll = poll
+
+    with pytest.raises(RebalanceRequested, match="partitions revoked"):
+        list(processor._poll_records())
+
+    assert not processor._partition_records
+    assert not executor.submissions
+
+
 def test_shutdown_waits_for_spawned_worker(tmp_path, monkeypatch):
     consumer = SchedulerConsumer()
     monkeypatch.setattr("damnit.backend.combine.KafkaConsumer", lambda *a, **k: consumer)
     monkeypatch.setattr("damnit.backend.combine.KafkaProducer", lambda *a, **k: SchedulerProducer())
-    monkeypatch.setattr("damnit.backend.combine.combine_fragment_worker", slow_worker)
+    monkeypatch.setattr(
+        "damnit.backend.combine.combine_fragment_worker", controlled_worker,
+    )
     processor = FileSubmissionProcessor(workers=1, max_pending=1)
+    started = tmp_path / "extracted_data" / "worker-started"
+    release = tmp_path / "extracted_data" / "release-worker"
+    started.parent.mkdir(parents=True, exist_ok=True)
     job = processor._make_job({
         "damnit_dir": str(tmp_path),
         "new_file": str(tmp_path / "fragment.h5"),
@@ -501,15 +606,42 @@ def test_shutdown_waits_for_spawned_worker(tmp_path, monkeypatch):
     processor._enqueue_job(job)
     processor._schedule_available()
 
-    marker = tmp_path / "extracted_data" / "worker-started"
+    marker = started
     deadline = time.monotonic() + 5
     while not marker.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert marker.exists()
-
     future = next(iter(processor.active.values()))[1]
-    processor.shutdown()
-    assert future.done()
+    shutdown_started = threading.Event()
+    shutdown_error = []
+    shutdown_thread = None
+
+    try:
+        assert marker.exists()
+
+        def shutdown():
+            shutdown_started.set()
+            try:
+                processor.shutdown()
+            except BaseException as exc:
+                shutdown_error.append(exc)
+
+        shutdown_thread = threading.Thread(target=shutdown)
+        shutdown_thread.start()
+        assert shutdown_started.wait(timeout=2)
+        time.sleep(0.1)
+        assert shutdown_thread.is_alive()
+        assert not future.done()
+    finally:
+        release.touch()
+        if shutdown_thread is None:
+            processor.shutdown()
+        else:
+            shutdown_thread.join(timeout=5)
+
+    if shutdown_thread is not None:
+        assert not shutdown_thread.is_alive()
+    assert not shutdown_error
+    assert future.result(timeout=0) == CombinedFragment({}, "test")
 
 
 def test_scheduler_pauses_at_pending_limit_and_resumes_after_completion(tmp_path, monkeypatch):
