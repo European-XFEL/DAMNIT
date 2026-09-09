@@ -35,6 +35,7 @@ KAFKA_CONF = {
     }
 }
 READONLY_WAIT_REOPEN = 2  # Wait N seconds to reopen after read-only error
+DEFAULT_NONCLUSTER_PARTITION = "damnit"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS proposal_databases(proposal, db_dir UNIQUE, official);
@@ -89,6 +90,7 @@ class ListenerDB:
         # putting it in static mode.
         self.settings.setdefault("static_mode", True)
         self.settings.setdefault("allow_local_processing", False)
+        self.settings.setdefault("noncluster_partition", DEFAULT_NONCLUSTER_PARTITION)
 
     def __enter__(self):
         return self
@@ -224,7 +226,10 @@ class EventProcessor:
 
                     # Set the default to the stable DAMNIT module if not already set
                     damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
-                    submitter = ExtractionSubmitter(db.path.parent, db)
+                    submitter = ExtractionSubmitter(
+                        db.path.parent, db,
+                        noncluster_partition=self.db.settings["noncluster_partition"],
+                    )
                     req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
 
                 try:

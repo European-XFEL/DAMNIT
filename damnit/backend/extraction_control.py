@@ -252,7 +252,8 @@ class ExtractionRequest:
 
 class ExtractionSubmitter:
     """Submits extraction jobs to Slurm"""
-    def __init__(self, context_dir: Path, db: DamnitDB = None):
+    def __init__(self, context_dir: Path, db: DamnitDB = None, *,
+                 noncluster_partition=''):
         self.context_dir = context_dir
         if db is None:
             db = DamnitDB.from_dir(context_dir)
@@ -261,6 +262,7 @@ class ExtractionSubmitter:
         self._slurm_time = db.metameta.get("slurm_time", "02:00:00")
         self._noncluster_cpus = db.metameta.get('noncluster_cpus', '4')
         self._noncluster_mem = db.metameta.get('noncluster_mem', '25G')
+        self._noncluster_partition = noncluster_partition
         self._slurm_reservation = db.metameta.get('slurm_reservation', '')
         self._slurm_partition = db.metameta.get('slurm_partition', '')
 
@@ -412,13 +414,18 @@ class ExtractionSubmitter:
             return self._slurm_shared_opts()
 
     def _slurm_shared_opts(self):
-        return [
+        opts = [
             "--clusters", "solaris",
             "--time", self._slurm_time,
             # Default 4 CPU cores & 25 GB memory, can be overridden
             '--cpus-per-task', str(self._noncluster_cpus),
             '--mem', self._noncluster_mem,
         ]
+
+        if self._noncluster_partition:
+            opts.extend(['--partition', self._noncluster_partition])
+
+        return opts
 
     def _slurm_cluster_opts(self):
         # Maxwell (dedicated node)
