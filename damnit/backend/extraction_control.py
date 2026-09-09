@@ -253,7 +253,7 @@ class ExtractionRequest:
 class ExtractionSubmitter:
     """Submits extraction jobs to Slurm"""
     def __init__(self, context_dir: Path, db: DamnitDB = None, *,
-                 noncluster_partition=''):
+                 noncluster_partition: str = None):
         self.context_dir = context_dir
         if db is None:
             db = DamnitDB.from_dir(context_dir)
