@@ -1,10 +1,11 @@
 import logging
 import re
+from graphlib import TopologicalSorter
 from pathlib import Path
 
 import numpy as np
 from extra_data.read_machinery import find_proposal
-from PyQt6 import QtWidgets
+from PyQt6 import QtCore, QtWidgets
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialogButtonBox
 from superqt import QSearchableListWidget
@@ -21,6 +22,8 @@ run_range_re = re.compile(r"(\d+)(-\d+)?$")
 RUNS_MSG = "Enter run numbers & ranges e.g. '17, 20-32'"
 
 INT_MIN = -2147483648
+# A Qt role for storing the previous check while we override it
+SAVED_STATE_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 deselected_vars = set()
@@ -151,6 +154,11 @@ class ProcessingDialog(QtWidgets.QDialog):
 
         self.vars_list.itemChanged.connect(self.validate_vars)
 
+        self.vars_graph = {}  # variable name: set(dependencies)
+        for vname, vinfo in db.get_computed_variables().items():
+            deps = vinfo["attributes"].get("dependencies", [])
+            self.vars_graph[vname] = set(deps)
+
         self.validate_runs()
         self.validate_vars()
 
@@ -203,6 +211,33 @@ class ProcessingDialog(QtWidgets.QDialog):
         new_form = ParametersForm(self.parameters, param_values, parent=self)
         param_layout.addWidget(new_form)
         self.params_form = new_form
+        self.params_form.changed.connect(self.select_required_vars)
+
+    def affected_variables(self, modified_params) -> set:
+        affected = set(modified_params)
+        for var_name in TopologicalSorter(self.vars_graph).static_order():
+            deps = self.vars_graph[var_name]
+            if affected.intersection(deps):
+                affected.add(var_name)
+        return affected
+
+    def select_required_vars(self):
+        modified_params = self.params_form.get_modified_values()
+        affected_vars = self.affected_variables(modified_params)
+
+        for itm in self._var_list_items():
+            var_id = itm.data(Qt.ItemDataRole.UserRole)
+            flags = itm.flags()
+            if var_id in affected_vars:
+                if flags & Qt.ItemFlag.ItemIsUserCheckable:
+                    # Force-check previously user-checkable item
+                    itm.setData(SAVED_STATE_ROLE, itm.checkState())
+                    itm.setCheckState(Qt.CheckState.Checked)
+                    itm.setFlags(flags & ~Qt.ItemFlag.ItemIsUserCheckable)
+            elif not (flags & Qt.ItemFlag.ItemIsUserCheckable):
+                # Previously required variable is now user-checkable again
+                itm.setFlags(flags & Qt.ItemFlag.ItemIsUserCheckable)
+                itm.setCheckState(itm.data(SAVED_STATE_ROLE))
 
     def _var_list_items(self):
         for i in range(self.vars_list.count()):
@@ -214,7 +249,8 @@ class ProcessingDialog(QtWidgets.QDialog):
 
     def deselect_all(self):
         for itm in self._var_list_items():
-            itm.setCheckState(Qt.CheckState.Unchecked)
+            if itm.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                itm.setCheckState(Qt.CheckState.Unchecked)
 
     def save_vars_selection(self):
         # We save the deselected variables, so new variables are selected
@@ -266,6 +302,8 @@ class ProcessingDialog(QtWidgets.QDialog):
         return requests
 
 class ParametersForm(QtWidgets.QWidget):
+    changed = QtCore.pyqtSignal()
+
     def __init__(self, parameters: dict, values, parent=None):
         super().__init__(parent)
         form_layout = QtWidgets.QFormLayout()
@@ -331,6 +369,7 @@ class ParametersForm(QtWidgets.QWidget):
             label = layout.labelForField(widget)
             changed = self.get_value(name) != self.initial_values[name]
             label.setStyleSheet("QLabel {font-weight: bold}" if changed else "")
+        self.changed.emit()
 
     def get_value(self, name):
         w = self.widgets_by_name[name]

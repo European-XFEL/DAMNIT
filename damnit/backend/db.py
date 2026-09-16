@@ -286,6 +286,16 @@ class DamnitDB:
 
         return res
 
+    def get_computed_variables(self):
+        res = {}
+        for row in self.conn.execute("""
+             SELECT name, title, type, description, attributes
+             FROM variables
+         """).fetchall():
+            d = dict(row)
+            res[d.pop("name")] = d
+        return res
+
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
         with self.conn:
