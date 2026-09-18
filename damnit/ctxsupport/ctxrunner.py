@@ -449,8 +449,10 @@ class ContextFile:
 
         return res
 
-    def direct_dependencies(self, variable: Variable) -> set[str]:
-        """return a set of names of direct dependencies of the passed Variable
+    def direct_dependencies(self, variable: Variable, params=False) -> set[str]:
+        """return a set of names of direct dependencies of the passed Variable.
+
+        Includes parameter dependencies if params=True.
         """
         dependencies = set()
         for dependency in variable.arg_dependencies().values():
@@ -459,7 +461,8 @@ class ContextFile:
             if len(deps) == 0:
                 raise KeyError(f"Missing dependency: {dependency!r} for {variable.name!r}")
             dependencies.update(deps)
-        dependencies.update(variable.arg_dependencies("param#").values())
+        if params:
+            dependencies.update(variable.arg_dependencies("param#").values())
         return dependencies
 
     def ordered_vars(self) -> tuple[str]:
@@ -513,7 +516,9 @@ class ContextFile:
                 'title': v.title,
                 'description': v.description,
                 'tags': v.tags,
-                'attributes': {'dependencies': sorted(self.direct_dependencies(v))},
+                'attributes': {
+                    'dependencies': sorted(self.direct_dependencies(v, params=True))
+                },
                 'type': None,
             }
             for (name, v) in self.vars.items()
