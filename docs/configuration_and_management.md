@@ -685,7 +685,7 @@ The steps to delete all existing data are:
 
 1. `rm runs.sqlite` to delete the database used by the GUI.
 1. `rm -rf extracted_data/` to delete the HDF5 files created by the backend.
-1. `damnit proposal 1234` to create a blank database for the given
+1. `damnit init .` to create a blank database for the given
    proposal.
 
 And then you can reprocess runs with `damnit reprocess` to restore
