@@ -215,7 +215,7 @@ class ProcessingDialog(QtWidgets.QDialog):
     def affected_variables(self, modified_params) -> set:
         affected = set(modified_params)
         for var_name in TopologicalSorter(self.vars_graph).static_order():
-            deps = self.vars_graph[var_name]
+            deps = self.vars_graph.get(var_name, set())
             if affected.intersection(deps):
                 affected.add(var_name)
         return affected
