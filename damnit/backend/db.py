@@ -8,7 +8,7 @@ import struct
 import sys
 import time
 from collections.abc import ItemsView, MutableMapping, ValuesView
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -19,7 +19,7 @@ import numpy as np
 
 from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC, VariableAttributes
 from .db_migrations import apply_migrations, latest_version
-from .user_variables import UserEditableVariable
+from . import user_variables
 
 DB_NAME = Path('runs.sqlite')
 
@@ -46,6 +46,40 @@ class ReducedData:
     summary_method: str = ''
     summary_type: Optional[str] = None
     attributes: Optional[dict] = None
+
+
+@dataclass
+class VariableInfo:
+    name: str  # Computer friendly ID: 'xgm_intensity'
+    title: str  # Human friendly title: 'XGM intensity (μJ)
+    variable_type: str | None  # e.g. 'integer', 'string' - see user_variables
+    description: str = ""
+    attributes: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_db_row(cls, r: sqlite3.Row):
+        return cls(
+            name=r['name'],
+            title=r['title'] or r['name'],
+            variable_type=r['type'],
+            description=r['description'] or "",
+            attributes=json.loads(r['attributes']) if r['attributes'] else {},
+        )
+
+    @property
+    def is_param(self):
+        return VariableAttributes.PARAM_DEFAULT in self.attributes
+
+    @property
+    def is_user_editable(self):
+        return (self.variable_type is not None) and not self.is_param
+
+    @property
+    def is_computed(self):
+        return self.variable_type is None
+
+    def get_type_class(self):
+        return user_variables.value_types_by_name[self.variable_type]
 
 
 class BlobTypes(Enum):
@@ -221,7 +255,7 @@ class DamnitDB:
     def change_run_comment(self, proposal: int, run: int, comment: str):
         self.set_variable(proposal, run, "comment", ReducedData(comment), provenance="")
 
-    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
+    def add_user_variable(self, variable: VariableInfo, exist_ok=False):
         v = variable
         with self.conn:
             or_replace = ' OR REPLACE' if exist_ok else ''
@@ -232,35 +266,29 @@ class DamnitDB:
 
         self.update_views()
 
-    def _get_user_variables(self):
+    def _get_user_variables(self) -> dict[str, VariableInfo]:
         user_variables = {}
         rows = self.conn.execute("""
             SELECT name, title, type, description, attributes FROM variables
             WHERE type IS NOT NULL
         """)
         for rr in rows:
-            attrs = json.loads(rr['attributes']) if rr['attributes'] else {}
-            var_name = rr["name"]
-            new_var = UserEditableVariable(
-                var_name,
-                title=rr["title"],
-                variable_type=rr["type"],
-                description=rr["description"],
-                attributes=attrs,
-            )
-            user_variables[var_name] = new_var
+            vinfo = VariableInfo.from_db_row(rr)
+            user_variables[vinfo.name] = vinfo
         log.debug("Loaded %d user variables", len(user_variables))
         return user_variables
 
     def get_user_variables(self):
+        """Get a dict of user-editable variables"""
         return {k: v for (k, v) in self._get_user_variables().items()
-                if (VariableAttributes.PARAM_DEFAULT not in v.attributes)}
+                if v.is_user_editable}
 
     def get_parameters(self):
+        """Get a dict of parameters"""
         return {k: v for (k, v) in self._get_user_variables().items()
-                if (VariableAttributes.PARAM_DEFAULT in v.attributes)}
+                if v.is_param}
 
-    def get_parameter_values(self, proposal: int, run: int, params: dict):
+    def get_parameter_values(self, proposal: int, run: int, params: dict[str, VariableInfo]):
         res = {n: v.attributes[VariableAttributes.PARAM_DEFAULT]
                for (n, v) in params.items()}
         run_in_db = self.conn.execute(
@@ -287,14 +315,14 @@ class DamnitDB:
         return res
 
     def get_computed_variables(self):
+        """Get a dict of computed variables (not parameters & editable variables)"""
         res = {}
         for row in self.conn.execute("""
              SELECT name, title, type, description, attributes
-             FROM variables
+             FROM variables WHERE type IS NULL
          """).fetchall():
-            d = dict(row)
-            d['attributes'] = json.loads(d['attributes'] or "{}")
-            res[d.pop("name")] = d
+            vinfo = VariableInfo.from_db_row(row)
+            res[vinfo.name] = vinfo
         return res
 
     def update_computed_variables(self, vars: dict):

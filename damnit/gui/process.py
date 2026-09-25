@@ -85,8 +85,7 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: int, runs: list[int], var_ids_titles,
-                 db: DamnitDB, parent=None):
+    def __init__(self, proposal: int, runs: list[int], db: DamnitDB, parent=None):
         self.db = db
         super().__init__(parent)
 
@@ -146,17 +145,17 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.dlg_buttons.rejected.connect(self.reject)
         main_vbox.addWidget(self.dlg_buttons)
 
-        for var_id, title in var_ids_titles:
-            itm = QtWidgets.QListWidgetItem(title)
-            itm.setData(Qt.ItemDataRole.UserRole, var_id)
-            itm.setCheckState(Qt.CheckState.Unchecked if var_id in deselected_vars else Qt.CheckState.Checked)
-            self.vars_list.addItem(itm)
-
         self.vars_list.itemChanged.connect(self.validate_vars)
 
         self.vars_graph = {}  # variable name: set(dependencies)
         for vname, vinfo in db.get_computed_variables().items():
-            deps = (vinfo["attributes"] or {}).get("dependencies", [])
+            itm = QtWidgets.QListWidgetItem(vinfo.title)
+            itm.setData(Qt.ItemDataRole.UserRole, vname)
+            sel = vname not in deselected_vars
+            itm.setCheckState(Qt.CheckState.Checked if sel else Qt.CheckState.Unchecked)
+            self.vars_list.addItem(itm)
+
+            deps = vinfo.attributes.get("dependencies", [])
             self.vars_graph[vname] = set(deps)
 
         self.validate_runs()
@@ -316,7 +315,7 @@ class ParametersForm(QtWidgets.QWidget):
                 value = param.attributes[VariableAttributes.PARAM_DEFAULT]
             self.initial_values[name] = value
             w = self.widgets_by_name[name] = self.widget_for(param, value)
-            form_layout.addRow(param.title or name, w)
+            form_layout.addRow(param.title, w)
 
     def widget_for(self, param, value=None):
         match param.variable_type:
@@ -434,15 +433,3 @@ class ParamsNewRunsDialog(QtWidgets.QDialog):
             for (n, v) in self.form.get_modified_values().items()
         })
         super().accept()
-
-
-
-if __name__ == '__main__':
-    app = QtWidgets.QApplication([])
-    dlg = ProcessingDialog("1234", [3, 4, 5, 6, 10],
-        [("test_var", "Test variable"), ("n_trains", "Trains")]
-    )
-    if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-        print("Proposal:", dlg.proposal_num())
-        print("Runs:", dlg.selected_runs)
-        print("Variables:", dlg.selected_vars())

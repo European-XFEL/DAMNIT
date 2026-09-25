@@ -23,9 +23,8 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox, QTabWidget
 
 from ..api import RunVariables
 from ..backend import initialize_proposal
-from ..backend.db import DamnitDB, MsgKind, ReducedData, db_path
+from ..backend.db import DamnitDB, MsgKind, ReducedData, VariableInfo, db_path
 from ..backend.extraction_control import ExtractionSubmitter, process_log_path
-from ..backend.user_variables import UserEditableVariable
 from ..definitions import update_brokers
 from ..util import isinstance_no_import
 from .editor import ContextTestResult, Editor, SaveConflictDialog
@@ -378,7 +377,7 @@ da-dev@xfel.eu"""
             before_pos += self.table_view.get_movable_columns_count()
         else:
             before_pos += before
-        variable = UserEditableVariable(name, title=title, variable_type=variable_type, description=description)
+        variable = VariableInfo(name, title=title, variable_type=variable_type, description=description)
         self.table.user_variables[name] = variable
         self.db.add_user_variable(variable)
         self.table.insert_columns(
@@ -1054,12 +1053,7 @@ da-dev@xfel.eu"""
         var_ids_titles = zip(self.table.computed_columns(),
                              self.table.computed_columns(by_title=True))
 
-        dlg = ProcessingDialog(
-            prop, sel_runs,
-            var_ids_titles=var_ids_titles,
-            db=self.db,
-            parent=self,
-        )
+        dlg = ProcessingDialog(prop, sel_runs, db=self.db, parent=self)
         if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 

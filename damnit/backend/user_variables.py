@@ -1,7 +1,3 @@
-from dataclasses import dataclass, field
-from typing import Optional
-
-
 class ValueType:
     # These are intended to be overridden in subclasses.
     type_name = None
@@ -96,15 +92,3 @@ class StringValueType(ValueType):
 value_types_by_name = {tt.type_name: tt for tt in [
     BooleanValueType(), IntegerValueType(), NumberValueType(), StringValueType()
 ]}
-
-
-@dataclass
-class UserEditableVariable:
-    name: str  # Computer friendly ID: 'xgm_intensity'
-    title: str  # Human friendly title: 'XGM intensity (μJ)
-    variable_type: str   # e.g. 'integer', 'string' - see above
-    description: Optional[str] = ""
-    attributes: dict = field(default_factory=dict)
-
-    def get_type_class(self):
-        return value_types_by_name[self.variable_type]
