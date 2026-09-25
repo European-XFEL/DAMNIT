@@ -292,6 +292,7 @@ class DamnitDB:
              FROM variables
          """).fetchall():
             d = dict(row)
+            d['attributes'] = json.loads(d['attributes'] or "{}")
             res[d.pop("name")] = d
         return res
 
