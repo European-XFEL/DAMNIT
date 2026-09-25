@@ -156,7 +156,7 @@ class ProcessingDialog(QtWidgets.QDialog):
 
         self.vars_graph = {}  # variable name: set(dependencies)
         for vname, vinfo in db.get_computed_variables().items():
-            deps = vinfo["attributes"].get("dependencies", [])
+            deps = (vinfo["attributes"] or {}).get("dependencies", [])
             self.vars_graph[vname] = set(deps)
 
         self.validate_runs()
