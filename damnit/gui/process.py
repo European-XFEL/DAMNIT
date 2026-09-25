@@ -104,9 +104,12 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.parameters = db.get_parameters()
         self.params_form = None
         if self.parameters:
+            params_box_outer = QtWidgets.QVBoxLayout()
             self.params_box = QtWidgets.QGroupBox("Parameters", self)
             self.params_box.setLayout(QtWidgets.QVBoxLayout())
-            hbox1.addWidget(self.params_box)
+            params_box_outer.addWidget(self.params_box, stretch=1)
+            params_box_outer.addWidget(QtWidgets.QLabel("* Variables affected by modified params"))
+            hbox1.addLayout(params_box_outer)
         else:
             self.params_box = None
 
@@ -233,10 +236,12 @@ class ProcessingDialog(QtWidgets.QDialog):
                     itm.setData(SAVED_STATE_ROLE, itm.checkState())
                     itm.setCheckState(Qt.CheckState.Checked)
                     itm.setFlags(flags & ~Qt.ItemFlag.ItemIsUserCheckable)
+                    itm.setText(itm.text() + " *")
             elif not (flags & Qt.ItemFlag.ItemIsUserCheckable):
                 # Previously required variable is now user-checkable again
                 itm.setFlags(flags | Qt.ItemFlag.ItemIsUserCheckable)
                 itm.setCheckState(itm.data(SAVED_STATE_ROLE))
+                itm.setText(itm.text().rstrip(" *"))
 
     def _var_list_items(self):
         for i in range(self.vars_list.count()):
