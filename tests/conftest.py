@@ -7,8 +7,8 @@ import pytest
 import numpy as np
 from nafka.runner import BrokerThreadRunner
 
-from damnit.backend.db import DamnitDB
-from damnit.backend.user_variables import value_types_by_name, UserEditableVariable
+from damnit.backend.db import DamnitDB, VariableInfo
+from damnit.backend.user_variables import value_types_by_name
 from damnit.gui.main_window import LogViewWindow
 
 from .helpers import amore_proto, mkcontext, extract_mock_run
@@ -116,7 +116,7 @@ def mock_user_vars():
 
     for kk in value_types_by_name.keys():
         var_name = f"user_{kk}"
-        user_variables[var_name] = UserEditableVariable(
+        user_variables[var_name] = VariableInfo(
             var_name,
             f"User {kk}",
             kk,
