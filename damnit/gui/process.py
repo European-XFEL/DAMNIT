@@ -381,6 +381,7 @@ class ParametersForm(QtWidgets.QWidget):
             val = w.text()
             if (not val) and w.placeholderText():
                 return ...
+            return val
         elif isinstance(w, QtWidgets.QCheckBox):
             state = w.checkState()
             if state == Qt.CheckState.PartiallyChecked:
