@@ -876,6 +876,10 @@ def main(argv=None):
             # Strip the functions from the Variable's, these cannot always be
             # pickled.
             for var in ctx.vars.values():
+                # Save the annotations before discarding the function
+                # TODO: find a cleaner way to do this
+                if var._annotation_overrides is None:
+                    var._annotation_overrides = var.annotations()
                 var.func = None
         except Exception:
             ctx = None
