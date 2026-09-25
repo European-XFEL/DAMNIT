@@ -235,7 +235,7 @@ class ProcessingDialog(QtWidgets.QDialog):
                     itm.setFlags(flags & ~Qt.ItemFlag.ItemIsUserCheckable)
             elif not (flags & Qt.ItemFlag.ItemIsUserCheckable):
                 # Previously required variable is now user-checkable again
-                itm.setFlags(flags & Qt.ItemFlag.ItemIsUserCheckable)
+                itm.setFlags(flags | Qt.ItemFlag.ItemIsUserCheckable)
                 itm.setCheckState(itm.data(SAVED_STATE_ROLE))
 
     def _var_list_items(self):
