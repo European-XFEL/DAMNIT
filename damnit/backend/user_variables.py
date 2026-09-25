@@ -17,6 +17,13 @@ class ValueType:
     def from_db_value(cls, value):
         return value
 
+    # Used by parameter machinery: Parameter type can change by editing the
+    # context file, so we want to allow e.g. a float saved in the DB for a
+    # parameter that has now become an int.
+    @classmethod
+    def coerce(cls, value):
+        return value
+
 
 class BooleanValueType(ValueType):
     type_name = "boolean"
@@ -57,6 +64,13 @@ class BooleanValueType(ValueType):
             return None
         return bool(value)
 
+    @classmethod
+    def coerce(cls, value):
+        try:
+            return bool(int(value))
+        except TypeError:
+            return None
+
 
 class IntegerValueType(ValueType):
     type_name = "integer"
@@ -69,6 +83,13 @@ class IntegerValueType(ValueType):
     def parse(cls, input: str):
         return int(input)
 
+    @classmethod
+    def coerce(cls, value):
+        try:
+            return int(value)
+        except TypeError:
+            return None
+
 class NumberValueType(ValueType):
     type_name = "number"
 
@@ -80,6 +101,13 @@ class NumberValueType(ValueType):
     def parse(cls, input: str):
         return float(input)
 
+    @classmethod
+    def coerce(cls, value):
+        try:
+            return float(value)
+        except TypeError:
+            return None
+
 
 class StringValueType(ValueType):
     type_name = "string"
@@ -87,6 +115,10 @@ class StringValueType(ValueType):
     description = "A value type that can be used to represent text."
 
     examples = ["Broken", "Dark frame", "test_frame"]
+
+    @classmethod
+    def coerce(cls, value):
+        return str(value)
 
 
 value_types_by_name = {tt.type_name: tt for tt in [

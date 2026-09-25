@@ -300,15 +300,16 @@ class DamnitDB:
                 "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
                 (proposal, run)
             ).fetchall()
-            for name, value in rows:
+            for name, dbval in rows:
                 if name in params:
-                    if params[name].variable_type == 'boolean':
-                        value = bool(value)  # 1/0 -> True/False
-                    res[name] = value
+                    if (v := params[name].get_type_class().coerce(dbval)) is not None:
+                        res[name] = v
         else:
             # New run
             for name, var in params.items():
-                vnr = var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+                vnr = var.get_type_class().coerce(
+                    var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+                )
                 if vnr is not None:
                     res[name] = vnr
 
