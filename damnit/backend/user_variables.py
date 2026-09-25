@@ -1,7 +1,3 @@
-from dataclasses import dataclass
-from typing import Optional
-
-
 class ValueType:
     # These are intended to be overridden in subclasses.
     type_name = None
@@ -19,6 +15,13 @@ class ValueType:
 
     @classmethod
     def from_db_value(cls, value):
+        return value
+
+    # Used by parameter machinery: Parameter type can change by editing the
+    # context file, so we want to allow e.g. a float saved in the DB for a
+    # parameter that has now become an int.
+    @classmethod
+    def coerce(cls, value):
         return value
 
 
@@ -61,6 +64,13 @@ class BooleanValueType(ValueType):
             return None
         return bool(value)
 
+    @classmethod
+    def coerce(cls, value):
+        try:
+            return bool(int(value))
+        except TypeError:
+            return None
+
 
 class IntegerValueType(ValueType):
     type_name = "integer"
@@ -73,6 +83,13 @@ class IntegerValueType(ValueType):
     def parse(cls, input: str):
         return int(input)
 
+    @classmethod
+    def coerce(cls, value):
+        try:
+            return int(value)
+        except TypeError:
+            return None
+
 class NumberValueType(ValueType):
     type_name = "number"
 
@@ -84,6 +101,13 @@ class NumberValueType(ValueType):
     def parse(cls, input: str):
         return float(input)
 
+    @classmethod
+    def coerce(cls, value):
+        try:
+            return float(value)
+        except TypeError:
+            return None
+
 
 class StringValueType(ValueType):
     type_name = "string"
@@ -92,19 +116,11 @@ class StringValueType(ValueType):
 
     examples = ["Broken", "Dark frame", "test_frame"]
 
+    @classmethod
+    def coerce(cls, value):
+        return str(value)
+
 
 value_types_by_name = {tt.type_name: tt for tt in [
     BooleanValueType(), IntegerValueType(), NumberValueType(), StringValueType()
 ]}
-
-
-@dataclass
-class UserEditableVariable:
-    name: str  # Computer friendly ID: 'xgm_intensity'
-    title: str  # Human friendly title: 'XGM intensity (μJ)
-    variable_type: str   # e.g. 'integer', 'string' - see above
-    description: Optional[str] = ""
-    attributes: Optional[str] = ""
-
-    def get_type_class(self):
-        return value_types_by_name[self.variable_type]
