@@ -22,16 +22,18 @@ def mock_ctx():
     import pandas as pd
     import plotly.express as px
     import xarray as xr
-    from damnit_ctx import Variable, Cell
+    from damnit_ctx import Variable, Cell, Parameter
+
+    scale_factor = Parameter(1)
 
     @Variable(title="Scalar1", tags=['scalar', 'integer'])
-    def scalar1(run, run_nr: 'meta#run_number'):
+    def scalar1(run, run_nr: 'meta#run_number', scale: 'param#scale_factor'):
         '''Primary scalar value for GUI description tests.'''
         if run_nr == 2:
             return None
         elif run_nr == 3:
             return np.nan
-        return 42
+        return 42 * scale
 
     @Variable(title="Scalar2", tags=['scalar', 'float'])
     def scalar2(run, foo: "var#scalar1"):
