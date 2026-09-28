@@ -930,12 +930,13 @@ def test_extractor(mock_ctx, mock_db, mock_run, mock_kafka_broker, monkeypatch):
 
     # Reprocess with proc data
     with patch("ctxrunner.extra_data.open_run", return_value=mock_run):
-        main(['exec', '1234', '42', 'all'])
+        main(['exec', '1234', '42', 'all', "--param", "scale_factor=2"])
     gather_all_fragments(db_dir)
 
     # Now `meta_array` should have been processed
     with h5py.File(out_path) as f:
         assert "meta_array" in f
+        assert f['.parameters/scale_factor'][()] == 2
 
     # Runs shouldn't be opened with open_run() when --mock is passed
     with patch("ctxrunner.extra_data.open_run") as open_run:
