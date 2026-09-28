@@ -10,8 +10,9 @@ from damnit.gui.process import ParamsNewRunsDialog, ProcessingDialog
 def test_processing_dialog(mock_db, qtbot):
     db_dir, db = mock_db
     # Mock find_runs() to skip check for run folders
-    with patch("damnit.gui.process.find_runs", return_value=[1]):
-        dlg = ProcessingDialog(1234, [1], db)
+    run_nums = [1, 3, 4]
+    with patch("damnit.gui.process.find_runs", return_value=run_nums):
+        dlg = ProcessingDialog(1234, run_nums, db)
     qtbot.addWidget(dlg)
     ok_btn = dlg.dlg_buttons.button(QDialogButtonBox.StandardButton.Ok)
 
@@ -34,10 +35,15 @@ def test_processing_dialog(mock_db, qtbot):
     scale_spinbox = dlg.params_form.widgets_by_name['scale_factor']
     assert scale_spinbox.value() == 1
     scale_spinbox.setValue(3)
-    assert set(dlg.selected_vars()) == {'scalar1', 'scalar2', 'array', 'meta_array'}
+    affected_vars = {'scalar1', 'scalar2', 'array', 'meta_array'}
+    assert set(dlg.selected_vars()) == affected_vars
     # Force-selected variables can't be deselected
     dlg.deselect_all()
-    assert set(dlg.selected_vars()) == {'scalar1', 'scalar2', 'array', 'meta_array'}
+    assert set(dlg.selected_vars()) == affected_vars
+    ers = dlg.extraction_requests()
+    assert [er.run for er in ers] == run_nums
+    assert set(ers[0].variables) == affected_vars
+    assert ers[0].params == {'scale_factor': 3}
 
     # Restoring the parameter's original value returns the deselected variables
     scale_spinbox.setValue(1)
