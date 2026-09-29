@@ -51,7 +51,9 @@ def test_damnit(mock_db_with_data, monkeypatch):
     monkeypatch.chdir(db_dir)
     extract_mock_run(2)
     extract_mock_run(3)
-    extract_mock_run(4)
+    with monkeypatch.context() as m:
+        m.setenv("DAMNIT_SELF_COMBINE", "1")
+        extract_mock_run(4)
 
     # Simulate a run where this variable has no row in `run_variables`.
     with db.conn:
