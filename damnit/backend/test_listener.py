@@ -1,17 +1,12 @@
 import logging
-from dataclasses import dataclass
-from datetime import datetime
 from glob import glob
 from pathlib import Path
 
+from damnit.backend.events import XFELEvent
 from damnit.backend.extract_data import RunData
 from damnit.backend.listener import EventProcessor
 
 log = logging.getLogger(__name__)
-
-@dataclass
-class DummyRecord:
-    timestamp: int
 
 class TestEventProcessor(EventProcessor):
     def run(self):
@@ -40,20 +35,16 @@ class TestEventProcessor(EventProcessor):
                 else:
                     path = glob(f'/gpfs/exfel/exp/*/*/p{proposal:>06}/raw/r{run:>04}')[0]
 
-                # Create the fake Kafka message
+                # Create the fake events
                 inst, cycle = path.split('/')[4:6]
-                msg = {'proposal': proposal, 'run': run, 'path': path,
-                       'instrument': inst, 'cycle': cycle}
-                record = DummyRecord(timestamp=int(datetime.utcnow().timestamp() * 1000))
-
-                # Run the Kafka message handlers
-                if run_data == RunData.RAW:
-                    self.handle_migration_complete(record, msg)
-                elif run_data == RunData.PROC:
-                    self.handle_run_corrections_complete(record, msg)
-                elif run_data == RunData.ALL:
-                    self.handle_migration_complete(record, msg)
-                    self.handle_run_corrections_complete(record, msg)
+                meta = {'path': path, 'instrument': inst, 'cycle': cycle}
+                if run_data == RunData.ALL:
+                    run_datas = [RunData.RAW, RunData.PROC]
+                else:
+                    run_datas = [run_data]
+                for rd in run_datas:
+                    self.handle_event(XFELEvent(int(proposal), int(run), rd,
+                                                metadata=meta))
             except EOFError:
                 break  # Allow Ctrl-D to close it
             except Exception:

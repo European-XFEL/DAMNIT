@@ -218,6 +218,27 @@ class DamnitDB:
                 WHERE proposal = ? AND run = ?
                 """, (start_time, proposal, run))
 
+    def set_run_source(self, proposal: int, run: int, info: dict):
+        """Save where a run's data is (e.g. a DESY scan's file & blissdata key)"""
+        with self.conn:
+            # Only created when needed, so European XFEL databases don't change
+            self.conn.execute(RUN_SOURCES_SCHEMA)
+            self.conn.execute("""
+                INSERT INTO run_sources (proposal, run, info) VALUES (?, ?, ?)
+                ON CONFLICT (proposal, run) DO UPDATE SET info = excluded.info
+            """, (proposal, run, json.dumps(info)))
+
+    def get_run_source(self, proposal: int, run: int) -> dict:
+        try:
+            row = self.conn.execute(
+                "SELECT info FROM run_sources WHERE proposal = ? AND run = ?",
+                (proposal, run)).fetchone()
+        except sqlite3.OperationalError as e:
+            if "no such table" in str(e):  # Created with the first source
+                return {}
+            raise
+        return {} if row is None else json.loads(row[0])
+
     def change_run_comment(self, proposal: int, run: int, comment: str):
         self.set_variable(proposal, run, "comment", ReducedData(comment), provenance="")
 
@@ -691,6 +712,13 @@ class time_db_transaction:
         return False
 
 # Old schemas for reference and migration
+
+RUN_SOURCES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS run_sources(
+    proposal INTEGER NOT NULL, run INTEGER NOT NULL, info TEXT NOT NULL,
+    PRIMARY KEY (proposal, run)
+)
+"""
 
 V0_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(proposal, runnr, start_time, added_at, comment);
