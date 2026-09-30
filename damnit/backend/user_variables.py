@@ -118,7 +118,7 @@ class StringValueType(ValueType):
 
     @classmethod
     def coerce(cls, value):
-        return str(value)
+        return str(value) if (value is not None) else None
 
 
 value_types_by_name = {tt.type_name: tt for tt in [
