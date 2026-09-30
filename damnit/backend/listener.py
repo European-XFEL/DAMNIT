@@ -1,5 +1,4 @@
 import getpass
-import json
 import logging
 import os
 import platform
@@ -7,33 +6,14 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from socket import gethostname
 from threading import Thread
 
-from kafka import KafkaConsumer
-
-from ..api import find_proposal
-from ..context import RunData
 from ..definitions import DEFAULT_DAMNIT_PYTHON
 from .db import DamnitDB, KeyValueMapping, db_path
+from .events import Event, EventProvider, make_event_provider
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 from .service import notify_ready
 
-# For now, the migration & calibration events come via DESY's Kafka brokers,
-# but the DAMNIT updates go via XFEL's test instance.
-CONSUMER_ID = 'xfel-da-damnit-{}'
-KAFKA_CONF = {
-    'maxwell': {
-        'brokers': ['exflwgs06:9091'],
-        'topics': ["test.r2d2", "cal.offline-corrections"],
-        'events': ["migration_complete", "run_corrections_complete"],
-    },
-    'onc': {
-        'brokers': ['exflwgs06:9091'],
-        'topics': ['test.euxfel.hed.daq', 'test.euxfel.hed.cal'],
-        'events': ['daq_run_complete', 'online_correction_complete'],
-    }
-}
 READONLY_WAIT_REOPEN = 2  # Wait N seconds to reopen after read-only error
 DEFAULT_NONCLUSTER_PARTITION = "damnit"
 
@@ -130,85 +110,45 @@ class ListenerDB:
             self.conn.execute("DELETE FROM proposal_databases WHERE db_dir=?", (str(db_dir),))
 
 class EventProcessor:
-    def __init__(self, listener_dir: Path):
+    def __init__(self, listener_dir: Path, provider: EventProvider | None = None):
         self._listener_dir = listener_dir
         self.db = ListenerDB(listener_dir)
-
-        hostname = gethostname()
-        if hostname.startswith('exflonc'):
-            # running on the online cluster
-            kafka_conf = KAFKA_CONF['onc']
-        else:
-            kafka_conf = KAFKA_CONF['maxwell']
-
-        group_id = CONSUMER_ID.format(str(listener_dir).replace("/", "_"))
-        client_id = CONSUMER_ID.format(f"{hostname}-{os.getpid()}")
-        self.kafka_cns = KafkaConsumer(*kafka_conf['topics'],
-                                       bootstrap_servers=kafka_conf['brokers'],
-                                       group_id=group_id,
-                                       client_id=client_id,
-                                       consumer_timeout_ms=600_000,
-                                       )
-        self.events = kafka_conf['events']
-        log.info("Started listener")
+        if provider is None:
+            provider = make_event_provider(self.db.settings, listener_dir)
+        self.provider = provider
+        log.info("Started listener with %s events", provider.name)
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.kafka_cns.close()
+        self.provider.close()
         return False
 
     def run(self):
-        while True:
-            for record in self.kafka_cns:
-                try:
-                    self._process_kafka_event(record)
-                except sqlite3.OperationalError as e:
-                    if e.sqlite_errorcode == sqlite3.SQLITE_READONLY:
-                        log.error("SQLite database is read only. Pause, reopen, retry.")
-                        self.db.close()
-                        time.sleep(READONLY_WAIT_REOPEN)
-                        self.db = ListenerDB(self._listener_dir)
-                        self._process_kafka_event(record)
-                    else:
-                        log.error("Unexpected error handling Kafka event.", exc_info=True)
-                except Exception:
-                    log.error("Unexpected error handling Kafka event.", exc_info=True)
+        for event in self.provider.events():
+            try:
+                self.handle_event(event)
+            except sqlite3.OperationalError as e:
+                if e.sqlite_errorcode == sqlite3.SQLITE_READONLY:
+                    log.error("SQLite database is read only. Pause, reopen, retry.")
+                    self.db.close()
+                    time.sleep(READONLY_WAIT_REOPEN)
+                    self.db = ListenerDB(self._listener_dir)
+                    self.handle_event(event)
+                else:
+                    log.error("Unexpected error handling event.", exc_info=True)
+            except Exception:
+                log.error("Unexpected error handling event.", exc_info=True)
 
-    def _process_kafka_event(self, record):
-        msg = json.loads(record.value.decode())
-        event = msg.get('event')
-        if event in self.events:
-            log.debug("Processing %s event from Kafka", event)
-            getattr(self, f'handle_{event}')(record, msg)
-        else:
-            log.debug("Unexpected %s event from Kafka", event)
-
-    def handle_daq_run_complete(self, record, msg: dict):
-        self.handle_event(record, msg, RunData.RAW)
-
-    def handle_online_correction_complete(self, record, msg: dict):
-        self.handle_event(record, msg, RunData.PROC)
-
-    def handle_migration_complete(self, record, msg: dict):
-        self.handle_event(record, msg, RunData.RAW)
-
-    def handle_run_corrections_complete(self, record, msg: dict):
-        self.handle_event(record, msg, RunData.PROC)
-
-    def handle_event(self, record, msg: dict, run_data: RunData):
-        proposal = int(msg['proposal'])
-        run = int(msg['run'])
+    def handle_event(self, event: Event):
+        # DAMNIT's database is keyed by (proposal, run), which each event
+        # model maps its own IDs to (e.g. beamtime ID & scan number at DESY).
+        proposal, run, run_data = event.damnit_proposal, event.damnit_run, event.run_data
 
         # If it's the first time we've seen this proposal and we're not in
         # static mode, add it to the database.
-        try:
-            official_path = find_proposal(proposal) / "usr/Shared/amore"
-        except FileNotFoundError:
-            log.warning(f"Could not find proposal directory for p{proposal}")
-            official_path = None
-
+        official_path = self.provider.official_db_dir(proposal)
         if official_path and db_path(official_path).is_file() and not self.db.settings["static_mode"]:
             if official_path not in self.db.proposal_db_dirs(proposal):
                 self.db.add_proposal_db(proposal, official_path, True)
@@ -221,8 +161,15 @@ class EventProcessor:
                     # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
                     db.conn.execute("pragma user_version=0;")
 
-                    db.ensure_run(proposal, run, record.timestamp / 1000)
-                    log.info(f"Added p%d r%d ({run_data.value} data) to database", proposal, run)
+                    db.ensure_run(proposal, run, event.timestamp)
+                    # The facility decides how the data is opened for processing
+                    facility = db.metameta.setdefault("facility", event.facility)
+                    if facility != event.facility:
+                        log.warning("%s event for a %s database at %s",
+                                    event.facility, facility, path)
+                    if source_info := event.source_info():
+                        db.set_run_source(proposal, run, source_info)
+                    log.info("Added %s to database", event)
 
                     # Set the default to the stable DAMNIT module if not already set
                     damnit_python = db.metameta.setdefault("damnit_python", DEFAULT_DAMNIT_PYTHON)
