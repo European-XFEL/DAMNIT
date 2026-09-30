@@ -416,7 +416,9 @@ class ParamsNewRunsDialog(QtWidgets.QDialog):
         params_dict = db.get_parameters()
         values = {
             n: v for (n, p) in params_dict.items()
-            if (v := p.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)) is not None
+            if (v := p.get_type_class().coerce(
+                p.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+            )) is not None
         }
         self.form = ParametersForm(params_dict, values)
         vbox.addWidget(self.form)
