@@ -164,6 +164,7 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.validate_runs()
         self.validate_vars()
 
+        self.resize(850, 500)
         self.edit_runs.setFocus()
 
     def validate_runs(self):
