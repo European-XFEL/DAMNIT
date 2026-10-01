@@ -186,6 +186,10 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
             ),
         )
 
+    @Variable(title="Array with MultiIndex")
+    def arr_multiindex(run):
+        arr = xr.DataArray(np.zeros((4, 5)), dims=('a', 'b'))
+        return arr.stack(pulse=['a', 'b'])
     """
     (db_dir / "context.py").write_text(dedent(dataset_code))
     extract_mock_run(1)
@@ -298,6 +302,13 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     )
 
     assert rv['dataframe'].preview_data() is None
+
+    # xarray.DataArray with multi-index
+    arr_midx = rv['arr_multiindex'].read()
+    assert arr_midx.dims == ("pulse",)
+    assert arr_midx.sizes["pulse"] == 20
+    assert isinstance(arr_midx.xindexes["pulse"], xr.indexes.PandasMultiIndex)
+    xr.testing.assert_identical(rv['arr_multiindex'].preview_data(), arr_midx)
 
 
 def test_api_dependencies(venv):
