@@ -354,6 +354,10 @@ class ReprocessSubcmd(Subcommand):
             help="String to match against variable titles (case-insensitive). Not a regex, simply `str in var.title`."
         )
         parser.add_argument(
+            '--param', type=str, action="append", default=[],
+            help="Parameter to set for reprocessing, e.g. threshold=2.2 or normalise=true"
+        )
+        parser.add_argument(
             '--watch', action='store_true',
             help="Run jobs one-by-one with live output in the terminal"
         )
@@ -387,7 +391,13 @@ class ReprocessSubcmd(Subcommand):
 
         from .backend.extraction_control import reprocess
         reprocess(
-            args.run, args.proposal, args.match, args.mock, args.watch, args.direct,
+            runs=args.run,
+            proposal=args.proposal,
+            match=args.match,
+            params=args.param,
+            mock=args.mock,
+            watch=args.watch,
+            direct=args.direct,
             limit_running=args.concurrent_jobs,
         )
 
