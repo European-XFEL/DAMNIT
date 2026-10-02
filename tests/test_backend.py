@@ -1756,3 +1756,46 @@ def test_units_metadata(mock_run, mock_db, tmp_path):
             (name,),
         ).fetchone()
         assert json.loads(attrs[0])["units"] == expected_units
+
+
+def test_dependency_graph_follows_current_context(tmp_path):
+    ctx_a = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def dep_a(run):
+        return 1
+
+    @Variable()
+    def root(run, dep: "var#dep_a"):
+        return dep
+    """
+    ctx_b = """
+    from damnit_ctx import Variable
+
+    @Variable()
+    def dep_b(run):
+        return 2
+
+    @Variable()
+    def root(run, dep: "var#dep_b"):
+        return dep
+    """
+
+    db = DamnitDB.from_dir(tmp_path, create=True)
+
+    ctx = mkcontext(ctx_a)
+    db.update_computed_variables(ctx.vars_to_dict(), ctx.dependencies())
+    graph = db.dependency_tree("root")
+    assert ("root", "var", "dep_a", "var") in graph["edges"]
+    assert ("root", "var", "dep_b", "var") not in graph["edges"]
+
+    ctx = mkcontext(ctx_b)
+    db.update_computed_variables(ctx.vars_to_dict(), ctx.dependencies())
+    graph = db.dependency_tree("root")
+    assert ("root", "var", "dep_b", "var") in graph["edges"]
+    assert ("root", "var", "dep_a", "var") not in graph["edges"]
+    snapshot = json.loads(db.metameta["__variable_dependencies"])
+    assert "dep_b" in snapshot
+    assert "dep_a" not in snapshot
+

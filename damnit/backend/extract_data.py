@@ -195,7 +195,10 @@ class Extractor:
             raise RuntimeError("Error loading context file: no context returned")
 
     def update_db_vars(self):
-        updates = self.db.update_computed_variables(self.pipe_whole.vars_to_dict())
+        updates = self.db.update_computed_variables(
+            self.pipe_whole.vars_to_dict(),
+            self.pipe_whole.context.dependencies()
+        )
 
         for name, var in updates.items():
             self.kafka_prd.send(self.db.kafka_topic, msg_dict(

@@ -83,6 +83,9 @@ def handle_config_args(args, kv, converters={}):
             sys.exit(f"Error: key {key} not found")
     else:
         for k, v in kv.items():
+            # Don't print internal keys
+            if k.startswith("__"):
+                continue
             print(f"{k}={v!r}")
 
 

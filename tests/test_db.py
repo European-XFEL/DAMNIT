@@ -1,3 +1,4 @@
+import json
 import os
 
 import numpy as np
@@ -14,12 +15,10 @@ def test_metameta(mock_db):
     _, db = mock_db
 
     # Test various parts of the mutable mapping API
-    assert set(db.metameta.keys()) == {'db_id', 'data_format_version', 'concurrent_jobs', 'damnit_python', 'proposal'}
-    del db.metameta['db_id']
-    del db.metameta['data_format_version']
-    del db.metameta['concurrent_jobs']
-    del db.metameta['damnit_python']
-    del db.metameta['proposal']
+    expected_keys = {'db_id', 'data_format_version', 'concurrent_jobs', 'damnit_python', 'proposal', '__variable_dependencies'}
+    assert set(db.metameta.keys()) == expected_keys
+    for k in list(db.metameta.keys()):
+        del db.metameta[k]
     assert len(db.metameta) == 0
 
     db.metameta['a'] = 12
@@ -301,3 +300,22 @@ def test_open_readonly(tmp_path):
     os.chmod(tmp_path, 0o500)
 
     assert "damnit_python" not in DamnitDB.from_dir(tmp_path).metameta
+
+
+def test_dependency_tree(tmp_path, mock_ctx):
+    db = DamnitDB.from_dir(tmp_path, create=True)
+    db.update_computed_variables(mock_ctx.vars_to_dict(), mock_ctx.dependencies())
+
+    snapshot = json.loads(db.metameta["__variable_dependencies"])
+    assert snapshot["scalar1"]["docstring"] == "Primary scalar value for GUI description tests."
+    assert "array" in snapshot["meta_array"]["var"]
+    assert "run_number" in snapshot["meta_array"]["meta"]
+
+    graph = db.dependency_tree("meta_array")
+    assert graph["root"] == ("meta_array", "var")
+    assert ("array", "var") in graph["nodes"]
+    assert ("run_number", "meta") in graph["nodes"]
+    assert graph["nodes"][("scalar1", "var")]["docstring"] == "Primary scalar value for GUI description tests."
+    assert ("meta_array", "var", "array", "var") in graph["edges"]
+    assert ("meta_array", "var", "run_number", "meta") in graph["edges"]
+    assert db.dependency_tree("missing_var") is None

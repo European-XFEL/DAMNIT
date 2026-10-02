@@ -251,7 +251,7 @@ class DamnitDB:
         log.debug("Loaded %d user variables", len(user_variables))
         return user_variables
 
-    def update_computed_variables(self, vars: dict):
+    def update_computed_variables(self, vars: dict, dependencies: dict = None):
         vars_in_db = {}
         with self.conn:
             # We want to read & write in the same transaction. This gets the
@@ -300,6 +300,9 @@ class DamnitDB:
             if not set(vars) <= set(vars_in_db):
                 # At least 1 variable was new, so remake the views with the new columns
                 self.update_views()
+
+        if dependencies is not None:
+            self.metameta["__variable_dependencies"] = json.dumps(dependencies, sort_keys=True)
 
         return updates
 
@@ -524,6 +527,54 @@ class DamnitDB:
         with self.conn:
             cursor = self.conn.execute("SELECT name FROM tags ORDER BY name")
             return [row[0] for row in cursor.fetchall()]
+
+    def dependency_tree(self, variable_name: str):
+        graph = self.metameta.get("__variable_dependencies")
+        if graph is None:
+            return None
+
+        graph = json.loads(graph)
+        root = (variable_name, "var")
+        if variable_name not in graph:
+            return None
+
+        sub_nodes = {}
+        sub_edges = set()
+        visited = set()
+
+        def visit_var(name: str):
+            if name in visited:
+                return
+            visited.add(name)
+
+            info = graph.get(name, {})
+            sub_nodes[(name, "var")] = {
+                "is_transient": bool(info.get("transient", False)),
+                "docstring": info.get("docstring"),
+            }
+
+            for dep in info.get("var", []):
+                sub_edges.add((name, "var", dep, "var"))
+                visit_var(dep)
+
+            for kind in ("input", "meta", "mymdc"):
+                for dep in info.get(kind, []):
+                    sub_nodes[(dep, kind)] = {
+                        "is_transient": False,
+                        "docstring": None,
+                    }
+                    sub_edges.add((name, "var", dep, kind))
+
+        visit_var(variable_name)
+
+        return {
+            "root": root,
+            "nodes": {
+                node: sub_nodes[node]
+                for node in sorted(sub_nodes, key=lambda item: (item[1], item[0]))
+            },
+            "edges": sorted(sub_edges),
+        }
 
 
 class KeyValueMapping(MutableMapping):

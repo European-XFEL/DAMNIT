@@ -479,6 +479,21 @@ class ContextFile:
             if not v.transient or inc_transient
         }
 
+    def dependencies(self) -> dict[str, dict[str, Any]]:
+        """Get a plain dict of variable dependencies to store in the database"""
+        dependency_graph = {}
+        for name, var in self.vars.items():
+            dependency_graph[name] = {
+                "transient": bool(var.transient),
+                "docstring": inspect.getdoc(var.func),
+                "var": sorted(self.direct_dependencies(var)),
+                "input": sorted(var.arg_dependencies("input#").values()),
+                "meta": sorted(var.arg_dependencies("meta#").values()),
+                "mymdc": sorted(var.arg_dependencies("mymdc#").values()),
+                "param": sorted(var.arg_dependencies("param#").values()),
+            }
+        return dependency_graph
+
     def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=()):
         new_vars = {}
         for name, var in self.vars.items():
