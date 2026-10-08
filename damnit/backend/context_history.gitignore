@@ -1,0 +1,67 @@
+# Default exclusions for DAMNIT context history.
+# Copied to .damnit-history.git/info/exclude when history is first created.
+# Customize that file or add rules to .gitignore in the DAMNIT directory.
+# .gitignore can override defaults, e.g. !calibration/dark.h5.
+# Add explicit rules for custom environments, installations and nested Git repos.
+
+# Git and history metadata (always excluded, even if rules override these).
+/.git
+/.damnit-history.git
+/.damnit-history.lock
+
+# DAMNIT runtime files.
+extracted_data/
+process_logs/
+.tmp/
+supervisord.conf
+context.pickle
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pid
+*.sock
+.tmp_ctx*
+
+# Logs and large data files; opt in to calibration inputs with ! patterns.
+*.log
+*.log.*
+*.out
+*.h5
+*.hdf5
+
+# Python environments and installed packages.
+.venv/
+venv/
+env/
+ENV/
+.pixi/
+.conda/
+__pypackages__/
+site-packages/
+dist-packages/
+*.egg-info/
+*.egg
+
+# Python caches and build output.
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+build/
+dist/
+.eggs/
+
+# Test reports and notebook checkpoints.
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+.ipynb_checkpoints/

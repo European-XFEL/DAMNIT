@@ -658,6 +658,76 @@ def corrected_data(run, data: 'var#calibrate_data', baseline: 'var#baseline'):
     return data - baseline
 ```
 
+## Context history
+
+DAMNIT automatically checkpoints `context.py` and support files before
+`damnit read-context` and each processing or reprocessing job loads the context.
+The GUI and listener use the same backend, so these operations also create
+checkpoints. Files are checked recursively; unchanged inputs create no new
+checkpoint. Invalid edits are preserved before context validation runs.
+
+History is stored locally in a separate Git repository, `.damnit-history.git`.
+It does not change an existing Git repository or publish anything. The `git`
+executable must be available to the DAMNIT backend. Checkpoint errors produce
+a warning in the operation's logs and allow context loading to continue.
+Interrupted staging can leave a private Git index lock; DAMNIT automatically
+clears stale index locks so subsequent checkpoints can proceed.
+
+Python modules, CSV files, NumPy calibration files, and other support files
+inside the directory are included automatically. DAMNIT databases, extracted
+data, processing logs, temporary files, Supervisor configuration, Python caches,
+build output, and common software environment directories such as `.venv/` and
+`.pixi/` are ignored by default. Git skips ignored directories without scanning
+their contents. Symlinks are saved as links; their external targets are not
+copied into history.
+
+Logs and `.h5`/`.hdf5` files are ignored by default. Add `.gitignore` rules in
+your DAMNIT directory to exclude other files or explicitly include an HDF5
+calibration input:
+
+```gitignore
+scratch/
+my-environment/
+damnit-installation/
+another-repository/
+!calibration/dark.h5
+```
+
+Add explicit ignore rules for environments with custom names, installed DAMNIT
+copies, and embedded Git repositories. These are not automatically detected.
+
+Defaults come from the packaged `damnit/backend/context_history.gitignore`
+template, copied to `.damnit-history.git/info/exclude` when history is created.
+You can edit that file; existing files are preserved. `.gitignore` rules take
+precedence over these defaults, including runtime and environment exclusions.
+Git and history metadata always remain excluded. `context.py` is always included,
+even if an ignore rule matches it. Changes to ignore rules remove newly excluded
+files from subsequent checkpoints; earlier checkpoints retain their history.
+
+Run these commands from the DAMNIT directory to inspect history:
+
+```bash
+git --git-dir=.damnit-history.git --work-tree=. log --oneline
+git --git-dir=.damnit-history.git --work-tree=. show <revision> -- context.py
+git --git-dir=.damnit-history.git --work-tree=. diff <older> <newer> -- helpers.py
+```
+
+To recover a selected file, first inspect the revision, then restore it:
+
+```bash
+git --git-dir=.damnit-history.git --work-tree=. restore --source=<revision> -- context.py
+damnit read-context
+```
+
+When using a shared directory owned by another user, Git may require adding
+`-c safe.directory="$PWD"` immediately after `git` in these commands. Automatic
+checkpoints already scope this setting to the context directory.
+
+A checkpoint captures files when the worker starts loading the context,
+which can be later than Slurm submission. It does not freeze files during
+processing or attach a revision to processing results. Keep needed support
+files inside the directory as ordinary files to preserve their contents.
+
 ## Using custom environments
 DAMNIT supports running the context file in a user-defined Python environment,
 which is handy if there's a certain package you want that's only installed in

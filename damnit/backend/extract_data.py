@@ -27,6 +27,7 @@ import numpy as np
 from ..context import ContextFile, Pipeline, RunData
 from ..definitions import FILE_SUBMIT_TOPIC
 from ..util import kafka_producer
+from .context_history import checkpoint_context
 from .db import BlobTypes, DamnitDB, MsgKind, ReducedData, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
@@ -182,6 +183,7 @@ class Extractor:
         self.db = DamnitDB()
         self.kafka_prd = kafka_producer()
 
+        checkpoint_context(self.db.path.parent)
         context_python = self.db.metameta.get("context_python")
         self.pipe_whole, error_info = get_context_file(
             Path('context.py'),

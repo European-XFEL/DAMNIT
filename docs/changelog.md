@@ -4,6 +4,12 @@
 
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.4.0...HEAD)
 
+Added:
+
+- Backend: Automatically checkpoint context and support files in separate
+  local Git history before context loading and processing, excluding runtime
+  files and software environments.
+
 Fixed:
 
 - API: `VariableData` uses the variable name when submitted data has no title.
