@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from contextlib import contextmanager
 from enum import Enum
@@ -10,6 +11,7 @@ import numpy as np
 from damnit_ctx import Cell, isinstance_no_import
 
 OBJTYPE_ATTR = '_damnit_objtype'
+MULTIIDX_ATTR = '_damnit_multiindex'
 THUMBNAIL_SIZE = 300 # px
 COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
 
@@ -186,10 +188,33 @@ def atomic_create_h5(dir, prefix):
         raise
 
 
+def find_multiindex(xr_obj):
+    import xarray
+
+    for dim in xr_obj.dims:
+        idx = xr_obj.xindexes.get(dim)
+        if isinstance(idx, xarray.indexes.PandasMultiIndex):
+            return idx
+
+def convert_multiindex(xr_obj):
+    """Xarray cannot save MultiIndex to NetCDF.
+
+    Convert to separate coordinates + info to reconstruct indexes.
+    """
+    multi_indexes = {}
+    while idx := find_multiindex(xr_obj):
+        multi_indexes[idx.dim] = list(idx.index.names)
+        xr_obj = xr_obj.reset_index(idx.dim)
+
+    return xr_obj, multi_indexes
+
+
 def save_dataset_netcdf(f: h5py.File, group: str, dset):
     """Save an xarray DataSet in NetCDF4 format without reopening the file"""
     import h5netcdf
     from xarray.backends import H5NetCDFStore
+
+    extra_attrs = {}
 
     # HDF5 doesn't allow slashes in names :(
     vars_names = {}
@@ -198,10 +223,16 @@ def save_dataset_netcdf(f: h5py.File, group: str, dset):
             vars_names[var_name] = var_name.replace("/", "_")
     dset = dset.rename_vars(vars_names)
 
+    dset, multi_indexes = convert_multiindex(dset)
+
+    if multi_indexes:
+        extra_attrs[MULTIIDX_ATTR] = json.dumps(multi_indexes)
+
     with h5netcdf.File(f, 'a') as nf:
         store = H5NetCDFStore(nf, group=group, mode='w')
         dset.dump_to_store(store, encoding={k: COMPRESSION_OPTS for k in dset})
 
+    return extra_attrs
 
 def save_dataarray_netcdf(f: h5py.File, group: str, darr):
     """Save an xarray DataArray in NetCDF4 format without reopening the file"""
@@ -224,7 +255,7 @@ def save_dataarray_netcdf(f: h5py.File, group: str, darr):
         dataset = darr.to_dataset()
     # ------------
 
-    save_dataset_netcdf(f, group, dataset)
+    return save_dataset_netcdf(f, group, dataset)
 
 
 class DamnitFileWriter:
@@ -245,8 +276,9 @@ class DamnitFileWriter:
         path = f'.preview/{name}'
 
         if isinstance_no_import(obj, 'xarray', 'DataArray'):
-            attrs = {OBJTYPE_ATTR: DataType.DataArray.value}
-            save_dataarray_netcdf(self.file, path, obj)
+            attrs = {OBJTYPE_ATTR: DataType.DataArray.value} | (
+                save_dataarray_netcdf(self.file, path, obj)
+            )
         else:
             if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
                 attrs = {OBJTYPE_ATTR: DataType.Image.value}
@@ -273,11 +305,13 @@ class DamnitFileWriter:
             payload = obj.to_parquet(path=None, engine="pyarrow", index=None)
             grp['data'] = np.frombuffer(payload, dtype=np.uint8)
         elif isinstance_no_import(obj, 'xarray', 'DataArray'):
-            attrs = {OBJTYPE_ATTR: DataType.DataArray.value}
-            save_dataarray_netcdf(self.file, name, obj)
+            attrs = {OBJTYPE_ATTR: DataType.DataArray.value} | (
+                save_dataarray_netcdf(self.file, name, obj)
+            )
         elif isinstance_no_import(obj, 'xarray', 'Dataset'):
-            attrs = {OBJTYPE_ATTR: DataType.Dataset.value}
-            save_dataset_netcdf(self.file, name, obj)
+            attrs = {OBJTYPE_ATTR: DataType.Dataset.value} | (
+                save_dataset_netcdf(self.file, name, obj)
+            )
         else:
             if isinstance_no_import(obj, 'matplotlib.figure', 'Figure'):
                 attrs = {OBJTYPE_ATTR: DataType.Image.value}

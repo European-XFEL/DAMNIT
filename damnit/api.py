@@ -123,10 +123,15 @@ class VariableData:
 
         return json.loads(row[0])
 
-    def _read_netcdf(self, one_array=False):
+    def _read_netcdf(self, group: h5py.Group, one_array=False):
         import xarray as xr
         load = xr.load_dataarray if one_array else xr.load_dataset
-        obj = load(self._h5_path, group=self.name, engine="h5netcdf")
+        obj = load(self._h5_path, group=group.name, engine="h5netcdf")
+
+        # Recreate any MultiIndexes
+        if midx_json := group.attrs.get('_damnit_multiindex', None):
+            midx_info = json.loads(midx_json)
+            obj = obj.set_index(midx_info)
         # Remove internal attributes from loaded object
         obj.attrs = {k: v for (k, v) in obj.attrs.items()
                      if not k.startswith('_damnit_')}
@@ -151,9 +156,9 @@ class VariableData:
         with self._open_h5_group() as group:
             type_hint = self._type_hint(group)
             if type_hint is DataType.Dataset:
-                return self._read_netcdf()
+                return self._read_netcdf(group)
             elif type_hint is DataType.DataArray:
-                return self._read_netcdf(one_array=True)
+                return self._read_netcdf(group, one_array=True)
 
             dset = group["data"]
             if type_hint is DataType.Series:
@@ -223,7 +228,7 @@ class VariableData:
                 # Explicit preview
                 type_hint = self._type_hint(obj)
                 if isinstance(obj, h5py.Group):
-                    xarray_group = obj.name
+                    xarray_group = obj
                 else:
                     dset = obj
             elif data_fallback:
@@ -231,7 +236,7 @@ class VariableData:
                 grp = f[self.name]
                 type_hint = self._type_hint(grp)
                 if type_hint is DataType.DataArray:
-                    xarray_group = self.name
+                    xarray_group = grp
                 elif type_hint is DataType.Dataset:
                     return None
                 elif type_hint is DataType.DataFrame:
@@ -242,16 +247,14 @@ class VariableData:
                 return None
 
             if xarray_group is not None:
-                for obj in f[xarray_group].values():
+                for obj in xarray_group.values():
                     if isinstance(obj, h5py.Dataset) and (
                         obj.ndim > 3 or (obj.ndim == 3 and obj.shape[-1] not in (3, 4))
                     ):
                         return None  # Too many dims: bail out before loading
 
                 import xarray as xr
-                arr = xr.load_dataarray(
-                    self._h5_path, group=xarray_group, engine="h5netcdf"
-                )
+                arr = self._read_netcdf(xarray_group, one_array=True)
                 if arr.ndim != 0 and (np.issubdtype(arr.dtype, np.number) or arr.dtype == bool):
                     return arr
 
