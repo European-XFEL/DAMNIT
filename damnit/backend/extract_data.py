@@ -260,6 +260,22 @@ class RunExtractor(Extractor):
             MsgKind.processing_finished, {'processing_id': self.uuid}
         ))
 
+    def _data_source_args(self):
+        """ctxrunner arguments saying how to open this run's data"""
+        facility = self.db.metameta.get("facility", "xfel")
+        if facility == "xfel":
+            return []
+
+        args = ['--facility', facility]
+        if facility == "desy":
+            source = self.db.get_run_source(self.proposal, self.run)
+            if not source.get("scan_file"):
+                log.warning("No scan file recorded for p%s r%s", self.proposal, self.run)
+            for key in ("scan_file", "scan_key", "blissdata_url"):
+                if source.get(key):
+                    args.extend([f"--{key.replace('_', '-')}", source[key]])
+        return args
+
     def extract_in_subprocess(self):
         python_exe = self.db.metameta.get('context_python', '') or sys.executable
 
@@ -277,6 +293,7 @@ class RunExtractor(Extractor):
                 args.append('--cluster-job')
             if self.mock:
                 args.append("--mock")
+            args.extend(self._data_source_args())
             if self.variables:
                 for v in self.variables:
                     args.extend(['--var', v])
