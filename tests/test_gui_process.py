@@ -32,9 +32,9 @@ def test_processing_dialog(mock_db, qtbot):
     assert not ok_btn.isEnabled()
 
     # Modifying a parameter forces affected variables to be selected
-    scale_spinbox = dlg.params_form.widgets_by_name['scale_factor']
-    assert scale_spinbox.value() == 1
-    scale_spinbox.setValue(3)
+    scale_le = dlg.params_form.widgets_by_name['scale_factor']
+    assert scale_le.text() == "1"
+    scale_le.setText("3")
     affected_vars = {'scalar1', 'scalar2', 'array', 'meta_array'}
     assert set(dlg.selected_vars()) == affected_vars
     # Force-selected variables can't be deselected
@@ -46,7 +46,7 @@ def test_processing_dialog(mock_db, qtbot):
     assert ers[0].params == {'scale_factor': 3}
 
     # Restoring the parameter's original value returns the deselected variables
-    scale_spinbox.setValue(1)
+    scale_le.setText("1")
     assert set(dlg.selected_vars()) == set()
     assert not ok_btn.isEnabled()
 
@@ -56,10 +56,10 @@ def test_params_new_runs_dialog(mock_db, qtbot):
     dlg = ParamsNewRunsDialog(db)
     qtbot.addWidget(dlg)
 
-    scale_spinbox = dlg.form.widgets_by_name['scale_factor']
-    assert scale_spinbox.value() == 1
+    scale_le = dlg.form.widgets_by_name['scale_factor']
+    assert scale_le.text() == "1"
 
-    scale_spinbox.setValue(7)
+    scale_le.setText("7")
     assert dlg.form.get_modified_values() == {'scale_factor': 7}
     dlg.accept()
 

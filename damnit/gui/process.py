@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 from extra_data.read_machinery import find_proposal
-from PyQt6 import QtCore, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialogButtonBox
 from superqt import QSearchableListWidget
@@ -325,31 +325,17 @@ class ParametersForm(QtWidgets.QWidget):
 
     def widget_for(self, param, value=None):
         match param.variable_type:
-            case 'integer':
-                w = QtWidgets.QSpinBox()
-                w.setMinimum(INT_MIN)
-                changed_sig = w.valueChanged
-                if value is ...:
-                    w.setSpecialValueText("Multiple values")
-                    w.setValue(INT_MIN)  # Special value
-                else:
-                    w.setValue(value or 0)
-            case 'number':
-                w = QtWidgets.QDoubleSpinBox()
-                w.setMinimum(-np.inf)
-                changed_sig = w.valueChanged
-                if value is ...:
-                    w.setSpecialValueText("Multiple values")
-                    w.setValue(-np.inf)  # Special value
-                else:
-                    w.setValue(value or 0.)
-            case 'string':
+            case 'string' | 'number' | 'integer':
                 w = QtWidgets.QLineEdit()
                 changed_sig = w.textChanged
+                if param.variable_type == 'number':
+                    w.setValidator(QtGui.QDoubleValidator(w))
+                elif param.variable_type == 'integer':
+                    w.setValidator(QtGui.QIntValidator(w))
                 if value is ...:
                     w.setPlaceholderText("Multiple values")
                 else:
-                    w.setText(value or '')
+                    w.setText(str(value) if value is not None else '')
             case 'boolean':
                 w = QtWidgets.QCheckBox()
                 changed_sig = w.stateChanged
@@ -378,15 +364,14 @@ class ParametersForm(QtWidgets.QWidget):
 
     def get_value(self, name):
         w = self.widgets_by_name[name]
-        if isinstance(w, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
-            val = w.value()
-            if w.specialValueText() and val == w.minimum():
-                return ...
-            return val
-        elif isinstance(w, QtWidgets.QLineEdit):
+        if isinstance(w, QtWidgets.QLineEdit):
             val = w.text()
-            if (not val) and w.placeholderText():
-                return ...
+            if not val:
+                return ... if w.placeholderText() else self.initial_values[name]
+            if isinstance(w.validator(), QtGui.QIntValidator):
+                return int(val)
+            elif isinstance(w.validator(), QtGui.QDoubleValidator):
+                return float(val)
             return val
         elif isinstance(w, QtWidgets.QCheckBox):
             state = w.checkState()
