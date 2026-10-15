@@ -358,7 +358,8 @@ class RunExtractor(Extractor):
                 submitter = ExtractionSubmitter(Path.cwd(), self.db)
                 cluster_req = ExtractionRequest(
                     self.run, self.proposal, mock=self.mock, run_data=self.run_data,
-                    cluster=True, match=self.match, variables=self.variables
+                    cluster=True, match=self.match, variables=self.variables,
+                    params=dict(p.split("=", 1) for p in self.params),
                 )
                 job_id, cluster = submitter.submit(cluster_req)
 
