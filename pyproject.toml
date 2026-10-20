@@ -15,7 +15,7 @@ classifiers = ["License :: OSI Approved :: BSD License"]
 dynamic = ["version"]
 readme = "README.md"
 dependencies = [
-    "fpcs",
+    "fpcs>=1.1.0",
     "h5netcdf>=1.4.1",
     "h5py",
     "numpy",
