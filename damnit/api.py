@@ -211,7 +211,8 @@ class VariableData:
                     return blob2numpy(value)
             return value
 
-    def preview_data(self, *, data_fallback=True, deserialize_plotly=True):
+    def preview_data(self, *, data_fallback=True, deserialize_plotly=True,
+                     restore_multiindex=False):
         """Get the preview data for the variable
 
         May return a 1D or 2D data array, a 3D RGB(A) arrray, a Plotly figure
@@ -255,7 +256,9 @@ class VariableData:
 
                 import xarray as xr
                 # Don't recreate MultiIndexes here, because they break convenient plotting
-                arr = self._read_netcdf(xarray_group, one_array=True, restore_midx=False)
+                arr = self._read_netcdf(
+                    xarray_group, one_array=True, restore_midx=restore_multiindex
+                )
                 if arr.ndim != 0 and (np.issubdtype(arr.dtype, np.number) or arr.dtype == bool):
                     return arr
 
