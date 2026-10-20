@@ -308,7 +308,10 @@ def test_variable_data(mock_db_with_data, mock_kafka_broker, monkeypatch):
     assert arr_midx.dims == ("pulse",)
     assert arr_midx.sizes["pulse"] == 20
     assert isinstance(arr_midx.xindexes["pulse"], xr.indexes.PandasMultiIndex)
-    xr.testing.assert_identical(rv['arr_multiindex'].preview_data(), arr_midx)
+
+    arr_midx_preview = rv['arr_multiindex'].preview_data()
+    assert "pulse" not in arr_midx_preview.xindexes
+    xr.testing.assert_identical(arr_midx_preview.set_index(pulse=["a", "b"]), arr_midx)
 
 
 def test_api_dependencies(venv):

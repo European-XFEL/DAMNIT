@@ -123,13 +123,13 @@ class VariableData:
 
         return json.loads(row[0])
 
-    def _read_netcdf(self, group: h5py.Group, one_array=False):
+    def _read_netcdf(self, group: h5py.Group, one_array=False, restore_midx=True):
         import xarray as xr
         load = xr.load_dataarray if one_array else xr.load_dataset
         obj = load(self._h5_path, group=group.name, engine="h5netcdf")
 
         # Recreate any MultiIndexes
-        if midx_json := group.attrs.get('_damnit_multiindex', None):
+        if restore_midx and (midx_json := group.attrs.get('_damnit_multiindex', None)):
             midx_info = json.loads(midx_json)
             obj = obj.set_index(midx_info)
         # Remove internal attributes from loaded object
@@ -254,7 +254,8 @@ class VariableData:
                         return None  # Too many dims: bail out before loading
 
                 import xarray as xr
-                arr = self._read_netcdf(xarray_group, one_array=True)
+                # Don't recreate MultiIndexes here, because they break convenient plotting
+                arr = self._read_netcdf(xarray_group, one_array=True, restore_midx=False)
                 if arr.ndim != 0 and (np.issubdtype(arr.dtype, np.number) or arr.dtype == bool):
                     return arr
 
