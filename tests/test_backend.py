@@ -31,6 +31,7 @@ from damnit.backend.extract_data import Extractor, RunExtractor, add_to_db, load
 from damnit.backend.extraction_control import (
     ExtractionJobTracker, SlurmCancelResult, cancel_slurm_job
 )
+from damnit.backend.events import XFELEvent
 from damnit.backend.listener import (MAX_CONCURRENT_THREADS, EventProcessor,
                                      local_extraction_threads)
 from damnit.backend.supervisord import wait_until, write_supervisord_conf
@@ -1158,7 +1159,7 @@ def test_listener(tmp_path, caplog, monkeypatch):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
 
     # Create the processor
-    with patch('damnit.backend.listener.KafkaConsumer') as kcon:
+    with patch('damnit.backend.kafka_provider.KafkaConsumer') as kcon:
         processor = EventProcessor(tmp_path)
         # Default: do not allow local processing
         processor.db.settings["allow_local_processing"] = False
@@ -1175,8 +1176,7 @@ def test_listener(tmp_path, caplog, monkeypatch):
     db.metameta["context_python"] = sys.executable
 
     # First event: static_mode == True -> ignore event
-    event = MagicMock(timestamp=time())
-    processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+    processor.handle_event(XFELEvent(1234, 1, RunData.RAW))
     assert len(processor.db.proposal_db_dirs(1234)) == 0
     assert len(local_extraction_threads) == 0
 
@@ -1184,7 +1184,7 @@ def test_listener(tmp_path, caplog, monkeypatch):
     processor.db.settings["static_mode"] = False
     with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit",
                return_value=("9876", "solaris")) as submit:
-        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+        processor.handle_event(XFELEvent(1234, 1, RunData.RAW))
         assert submit.call_count == 1
 
     # Add an unofficial DB so that the listener launches two Slurm jobs
@@ -1196,7 +1196,7 @@ def test_listener(tmp_path, caplog, monkeypatch):
 
     with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit",
                return_value=("9999", "solaris")) as submit2:
-        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+        processor.handle_event(XFELEvent(1234, 1, RunData.RAW))
         # Two DBs -> two submissions
         assert submit2.call_count == 2
 
@@ -1205,7 +1205,7 @@ def test_listener(tmp_path, caplog, monkeypatch):
         caplog.at_level(logging.WARNING),
         patch("damnit.backend.extraction_control.ExtractionSubmitter.submit") as submit3
     ):
-        processor.handle_event(event, {'proposal': 4321, 'run': 1}, RunData.RAW)
+        processor.handle_event(XFELEvent(4321, 1, RunData.RAW))
     assert "Could not find proposal directory" in caplog.text
     assert len(local_extraction_threads) == 0
     assert submit3.call_count == 0
@@ -1221,7 +1221,7 @@ def test_listener_local(tmp_path, caplog, monkeypatch):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
 
     # Create the processor
-    with patch('damnit.backend.listener.KafkaConsumer'):
+    with patch('damnit.backend.kafka_provider.KafkaConsumer'):
         processor = EventProcessor(tmp_path)
         processor.db.settings["allow_local_processing"] = True
 
@@ -1252,14 +1252,13 @@ def test_listener_local(tmp_path, caplog, monkeypatch):
             with lock:
                 state['active'] -= 1
 
-    event = MagicMock(timestamp=time())
 
     with (
         patch("damnit.backend.extraction_control.ExtractionSubmitter.submit", side_effect=Exception("sbatch failed")),
         patch("damnit.backend.extraction_control.ExtractionSubmitter.execute_direct", new=fake_exec_direct),
     ):
         with caplog.at_level(logging.ERROR):
-            processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+            processor.handle_event(XFELEvent(1234, 1, RunData.RAW))
 
         # Wait for any local jobs to finish
         for th in local_extraction_threads:
@@ -1275,7 +1274,7 @@ def test_listener_local(tmp_path, caplog, monkeypatch):
         processor.db.add_proposal_db(1234, fake_db_dir, False)
 
         caplog.clear()
-        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+        processor.handle_event(XFELEvent(1234, 1, RunData.RAW))
         for th in local_extraction_threads:
             th.join()
         assert len(jobs) == 3  # +2 jobs for official + unofficial
@@ -1287,8 +1286,7 @@ def test_listener_local(tmp_path, caplog, monkeypatch):
         caplog.clear()
         with caplog.at_level(logging.WARNING):
             for idx in range(MAX_CONCURRENT_THREADS + 1):
-                event = MagicMock(timestamp=time())
-                processor.handle_event(event, {'proposal': 1234, 'run': idx + 1}, RunData.RAW)
+                processor.handle_event(XFELEvent(1234, idx + 1, RunData.RAW))
 
         # Wait for all threads to finish, then assert peak concurrency and total jobs
         for th in local_extraction_threads:
