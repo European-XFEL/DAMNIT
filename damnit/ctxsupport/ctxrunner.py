@@ -234,7 +234,8 @@ def _expand_group(group):
         # rewritten without mutating the class definition.
         new_var = copy(var_def)
         new_var.name = f"{group.name}.{(var_def.name or name_in_grp)}"
-        new_var.title = f"{group.title}{group.sep}{var_def.title}"
+        subtitle = var_def.title or var_def.name or name_in_grp
+        new_var.title = f"{group.title}{group.sep}{subtitle}"
         new_var.tags = tuple(sorted(
             set(group.tags) | set(_normalize_tags(new_var.tags))
         ))
