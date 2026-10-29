@@ -522,6 +522,37 @@ class DetectorAnalysisAlt(BaseAnalysis):
 detector = DetectorAnalysis(title="Detector")
 ```
 
+## Parameters
+
+Parameters are inputs for the context file, used for details which are likely
+to change across an experiment, but can't readily be calculated from saved data.
+
+```python
+import numpy as np
+from extra.components import LPD1M
+from extra_geom import LPD_1MGeometry
+from pyFAI.integrator.azimuthal import AzimuthalIntegrator
+
+from damnit_ctx import Variable, Parameter
+
+# Parameters are defined with a default value
+lpd_geom_file = Parameter("geom/lpd_tuned_r5.geom", tags=['lpd'])
+max_threshold = Parameter(1000., description="Mask pixels above this value", tags=['lpd'])
+
+# Variables declare explicit dependencies on parameters
+@Variable("LPD preview", tags=['lpd'])
+def lpd_preview(run, geom_file: "param#lpd_geom_file", thresh: "param#max_threshold"):
+    lpd = LPD1M(run).select_trains(np.s_[:10])
+    avg_frame = np.nanmean(lpd.masked_data().ndarray(), axis=1)
+    avg_frame[avg_frame > thresh] = np.nan
+    geom = LPD_1MGeometry.from_crystfel_geom(geom_file)
+    return geom.plot_data(avg_frame)
+```
+
+Parameters can be integers, floats, booleans and strings. The default values can
+be overridden for new runs and when reprocessing runs, and the values used are
+displayed in the table alongside computed results.
+
 ## Pipeline
 `Pipeline` is the public API for loading, inspecting, and executing context
 files programmatically. It wraps the context compilation/execution machinery
