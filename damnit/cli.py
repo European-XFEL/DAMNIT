@@ -163,10 +163,24 @@ class ListenSubcmd(Subcommand):
             '--daemonize', action='store_true',
             help="Start the listener under a separate process managed by supervisord."
         )
+        parser.add_argument(
+            '--event-provider', choices=["kafka", "blissdata"],
+            help="Where events come from: 'kafka' (European XFEL proposal/run "
+                 "events) or 'blissdata' (DESY beamtime/scan events from scan "
+                 "states in Redis). Saved in the listener config, so it also "
+                 "applies to later and daemonized runs. Default: the saved "
+                 "value, or 'kafka'."
+        )
 
     @staticmethod
     def run(args: argparse.Namespace):
         from .backend import start_listener
+
+        if args.event_provider:
+            from .backend.listener import ListenerDB
+            listener_dir = Path.cwd() if args.test or args.daemonize else args.listener_dir
+            with ListenerDB(listener_dir) as db:
+                db.settings["event_provider"] = args.event_provider
 
         if args.daemonize:
             return start_listener(args.listener_dir)

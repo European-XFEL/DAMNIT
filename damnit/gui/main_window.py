@@ -1046,7 +1046,7 @@ da-dev@xfel.eu"""
         var_ids_titles = zip(self.table.computed_columns(),
                              self.table.computed_columns(by_title=True))
 
-        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self)
+        dlg = ProcessingDialog(str(prop), sel_runs, var_ids_titles, parent=self, db=self.db)
         if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             submitter = ExtractionSubmitter(self.context_dir, self.db)
 
