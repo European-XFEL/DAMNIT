@@ -840,6 +840,38 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
     arr = blob2numpy(row["value"])
     assert arr.shape[0] == 2
 
+@pytest.mark.parametrize('context_error', [False, True])
+def test_extractor_announces_before_context(mock_db, monkeypatch, context_error):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+    pkg = 'damnit.backend.extract_data'
+    with patch(f'{pkg}.kafka_producer') as producer_factory:
+        producer = producer_factory.return_value
+
+        def load_context(*args, **kwargs):
+            producer.send.assert_called_once()
+            topic, message = producer.send.call_args.args
+            assert topic == db.kafka_topic
+            assert message['msg_kind'] == 'processing_state_set'
+            assert message['data']['status'] == 'RUNNING'
+            assert message['data']['processing_id'] == 'early-job'
+            assert message['data']['proposal'] == 1234
+            assert message['data']['run'] == 42
+            producer.flush.assert_called_once_with(timeout=10)
+            if context_error:
+                raise RuntimeError('Context failed')
+            return Pipeline(), None
+
+        with patch(f'{pkg}.get_context_file', side_effect=load_context):
+            if context_error:
+                with pytest.raises(RuntimeError, match='Context failed'):
+                    RunExtractor(1234, 42, uuid='early-job')
+            else:
+                extractor = RunExtractor(1234, 42, uuid='early-job')
+                extractor._notify_running()
+                assert producer.send.call_args_list[0] == producer.send.call_args_list[1]
+
+
 def test_extractor(mock_ctx, mock_db, mock_run, mock_kafka_broker, monkeypatch):
     # Change to the DB directory
     db_dir, db = mock_db

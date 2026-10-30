@@ -181,7 +181,9 @@ class Extractor:
     def __init__(self, sandbox_args=None):
         self.db = DamnitDB()
         self.kafka_prd = kafka_producer()
+        self.load_context(sandbox_args)
 
+    def load_context(self, sandbox_args=None):
         context_python = self.db.metameta.get("context_python")
         self.pipe_whole, error_info = get_context_file(
             Path('context.py'),
@@ -206,7 +208,6 @@ class Extractor:
 class RunExtractor(Extractor):
     def __init__(self, proposal, run, cluster=False, run_data=RunData.ALL,
                  match=(), variables=(), mock=False, uuid=None, sandbox_args=None):
-        super().__init__(sandbox_args=sandbox_args)
         self.proposal = proposal
         self.run = run
         self.cluster = cluster
@@ -227,6 +228,13 @@ class RunExtractor(Extractor):
             'slurm_cluster': self._slurm_cluster(),
             'slurm_job_id': self._slurm_job_id(),
         })
+        super().__init__(sandbox_args=sandbox_args)
+
+    def load_context(self, sandbox_args=None):
+        # Make the job visible before context imports or metadata updates block.
+        self._notify_running()
+        self.kafka_prd.flush(timeout=10)
+        super().load_context(sandbox_args)
 
     @staticmethod
     def _slurm_cluster():
