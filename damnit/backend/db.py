@@ -29,8 +29,7 @@ MIN_OPENABLE_VERSION = 1  # DBs from this version will be upgraded on opening
 
 
 class SummaryType(Enum):
-    # We record summary object types only where it's not clear from the value:
-    # numbers, strings, thumbnails (PNG) don't need a marker.
+    # Markers for interpreting summary values.
 
     # from datetime, stored as seconds since epoch, displayed in local time
     timestamp = "timestamp"
@@ -429,6 +428,9 @@ class DamnitDB:
             variable["value"] = numpy2blob(variable["value"])
             if variable["summary_type"] in (None, ""):
                 variable["summary_type"] = "numpy"
+        elif (isinstance(variable["value"], bytes)
+              and BlobTypes.identify(variable["value"]) is BlobTypes.png):
+            variable["summary_type"] = "png_image"
 
         variable["proposal"] = proposal
         variable["run"] = run

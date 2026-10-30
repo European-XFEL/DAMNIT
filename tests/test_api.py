@@ -67,6 +67,9 @@ def test_damnit(mock_db_with_data, monkeypatch):
 
     assert df.loc[4, "trendline"] == "<sparkline>"
     assert df.loc[4, "array_preview"] == "<thumbnail>"
+    assert db.conn.execute(
+        "SELECT summary_type FROM run_variables WHERE run=4 AND name='array_preview'"
+    ).fetchone()[0] == "png_image"
 
 
 def test_run_variables(mock_db_with_data, mock_kafka_broker, monkeypatch):

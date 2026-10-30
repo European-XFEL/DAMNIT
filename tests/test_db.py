@@ -205,12 +205,30 @@ def test_numpy_blob_conversion():
     np.testing.assert_array_equal(result, arr)
 
 
-def test_numpy_summary_type_and_storage(tmp_path):
+@pytest.mark.parametrize("summary_type", [None, ""])
+def test_png_summary_type_and_storage(tmp_path, summary_type):
+    png = b'\x89PNG\r\n\x1a\n...'
+    with DamnitDB.from_dir(tmp_path, create=True) as db:
+        db.set_variable(
+            1234, 1, "image", ReducedData(png, summary_type=summary_type),
+            provenance="test",
+        )
+        row = db.conn.execute(
+            "SELECT value, summary_type FROM run_variables WHERE name='image'"
+        ).fetchone()
+        assert row["summary_type"] == "png_image"
+        assert row["value"] == png
+
+
+@pytest.mark.parametrize("summary_type", [None, ""])
+def test_numpy_summary_type_and_storage(tmp_path, summary_type):
     db = DamnitDB.from_dir(tmp_path, create=True)
     db.ensure_run(1234, 1)
     arr = np.arange(10, dtype=np.float64)
 
-    db.set_variable(1234, 1, "array", ReducedData(arr), provenance="test")
+    db.set_variable(
+        1234, 1, "array", ReducedData(arr, summary_type=summary_type), provenance="test"
+    )
     row = db.conn.execute(
         "SELECT value, summary_type FROM run_variables WHERE name='array'"
     ).fetchone()

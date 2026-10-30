@@ -557,8 +557,8 @@ class Damnit:
                     WHEN typeof(v.value) = 'blob' AND v.summary_type = 'complex' THEN v.value
                     WHEN typeof(v.value) = 'blob' AND v.summary_type = 'trendline' THEN '<sparkline>'
                     WHEN typeof(v.value) = 'blob' AND v.summary_type = 'numpy' THEN '<ndarray>'
+                    WHEN typeof(v.value) = 'blob' AND v.summary_type = 'png_image' THEN '<thumbnail>'
                     -- If the summary type is missing, we assume the blobs are thumbnails (PNG or numpy)
-                    -- TODO: should we always add summary types for blobs in the future?
                     WHEN typeof(v.value) = 'blob' AND (v.summary_type IS NULL OR v.summary_type = '') THEN '<thumbnail>'
                     WHEN typeof(v.value) = 'blob' THEN '<blob>'
                     ELSE v.value
