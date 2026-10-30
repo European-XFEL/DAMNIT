@@ -6,6 +6,7 @@
 
 Fixed:
 
+- Backend: Announce automatic Slurm jobs while queued.
 - API: `VariableData` uses the variable name when submitted data has no title.
 
 ## [0.4.0]

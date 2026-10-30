@@ -1154,7 +1154,8 @@ def test_copy_ctx_and_user_vars(tmp_path, mock_db, mock_user_vars):
     assert set(DamnitDB(db_file).get_user_variables()) == set(mock_user_vars)
 
 
-def test_listener(tmp_path, caplog, monkeypatch):
+@pytest.mark.parametrize('run_data', [RunData.RAW, RunData.PROC])
+def test_listener(tmp_path, caplog, monkeypatch, mock_kafka_broker, run_data):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
 
     # Create the processor
@@ -1183,9 +1184,29 @@ def test_listener(tmp_path, caplog, monkeypatch):
     # Disable static mode: expect 1 Slurm submission (official DB)
     processor.db.settings["static_mode"] = False
     with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit",
-               return_value=("9876", "solaris")) as submit:
-        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+               return_value=("9876", "solaris")) as submit, \
+            patch('damnit.backend.listener.kafka_producer') as producer_factory:
+        processor.handle_event(event, {"proposal": 1234, "run": 1}, run_data)
         assert submit.call_count == 1
+        req = submit.call_args.args[0]
+        producer_factory.return_value.send.assert_called_once_with(db.kafka_topic, {
+            'msg_kind': 'processing_state_set',
+            'data': req.submitted_info('solaris', '9876'),
+        })
+        assert req.run_data == run_data
+        producer_factory.return_value.close.assert_called_once_with(timeout=10)
+
+    # A notification failure after successful sbatch must not launch a local copy.
+    processor.db.settings['allow_local_processing'] = True
+    with patch('damnit.backend.listener.ExtractionSubmitter.submit',
+               return_value=('9877', 'solaris')), \
+            patch('damnit.backend.listener.kafka_producer') as producer_factory, \
+            patch('damnit.backend.listener.execute_direct') as execute_local:
+        producer_factory.return_value.send.side_effect = RuntimeError('Kafka unavailable')
+        processor.handle_event(event, {'proposal': 1234, 'run': 1}, run_data)
+        execute_local.assert_not_called()
+        producer_factory.return_value.close.assert_called_once_with(timeout=10)
+    processor.db.settings['allow_local_processing'] = False
 
     # Add an unofficial DB so that the listener launches two Slurm jobs
     fake_db_dir = tmp_path / "fakedb"
