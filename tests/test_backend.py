@@ -840,6 +840,25 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
     arr = blob2numpy(row["value"])
     assert arr.shape[0] == 2
 
+@pytest.mark.parametrize(('cluster', 'partition', 'expected'), [
+    ('', 'damnit', 'solaris'),
+    ('(null)', 'damnit', 'solaris'),
+    ('(null)', 'solcpu', 'solaris'),
+    ('(null)', 'solgpu', 'solaris'),
+    ('(null)', 'soltest', 'solaris'),
+    ('', 'exfel', 'maxwell'),
+    ('solaris', 'other', 'solaris'),
+    ('maxwell', 'damnit', 'maxwell'),
+])
+def test_extractor_slurm_cluster(monkeypatch, cluster, partition, expected):
+    monkeypatch.setenv('SLURM_JOB_ID', '123')
+    monkeypatch.setenv('SLURM_CLUSTER_NAME', cluster)
+    monkeypatch.setenv('SLURM_JOB_PARTITION', partition)
+    assert RunExtractor._slurm_cluster() == expected
+    monkeypatch.delenv('SLURM_JOB_ID')
+    assert RunExtractor._slurm_cluster() is None
+
+
 @pytest.mark.parametrize('context_error', [False, True])
 def test_extractor_announces_before_context(mock_db, monkeypatch, context_error):
     db_dir, db = mock_db
