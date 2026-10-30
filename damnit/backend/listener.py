@@ -15,7 +15,8 @@ from kafka import KafkaConsumer
 from ..api import find_proposal
 from ..context import RunData
 from ..definitions import DEFAULT_DAMNIT_PYTHON
-from .db import DamnitDB, KeyValueMapping, db_path
+from ..util import kafka_producer
+from .db import DamnitDB, KeyValueMapping, MsgKind, db_path, msg_dict
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 from .service import notify_ready
 
@@ -231,15 +232,26 @@ class EventProcessor:
                         noncluster_partition=self.db.settings["noncluster_partition"],
                     )
                     req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
+                    kafka_topic = db.kafka_topic
 
                 try:
-                    submitter.submit(req)
+                    job_id, cluster = submitter.submit(req)
                 except Exception as e:
                     if allow_local_processing:
                         log.error("Slurm job submission failed, starting process locally.", exc_info=True)
                         execute_direct(submitter, req)
                     else:
                         raise e
+                else:
+                    # Reporting failure must not start a duplicate local job.
+                    producer = kafka_producer()
+                    try:
+                        producer.send(kafka_topic, msg_dict(
+                            MsgKind.processing_state_set,
+                            req.submitted_info(cluster, job_id),
+                        ))
+                    finally:
+                        producer.close(timeout=10)
             except Exception:
                 log.error(f"Processing p{proposal}, r{run} for {path} failed:", exc_info=True)
 
