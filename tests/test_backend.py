@@ -840,6 +840,57 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
     arr = blob2numpy(row["value"])
     assert arr.shape[0] == 2
 
+@pytest.mark.parametrize(('cluster', 'partition', 'expected'), [
+    ('', 'damnit', 'solaris'),
+    ('(null)', 'damnit', 'solaris'),
+    ('(null)', 'solcpu', 'solaris'),
+    ('(null)', 'solgpu', 'solaris'),
+    ('(null)', 'soltest', 'solaris'),
+    ('', 'exfel', 'maxwell'),
+    ('solaris', 'other', 'solaris'),
+    ('maxwell', 'damnit', 'maxwell'),
+])
+def test_extractor_slurm_cluster(monkeypatch, cluster, partition, expected):
+    monkeypatch.setenv('SLURM_JOB_ID', '123')
+    monkeypatch.setenv('SLURM_CLUSTER_NAME', cluster)
+    monkeypatch.setenv('SLURM_JOB_PARTITION', partition)
+    assert RunExtractor._slurm_cluster() == expected
+    monkeypatch.delenv('SLURM_JOB_ID')
+    assert RunExtractor._slurm_cluster() is None
+
+
+@pytest.mark.parametrize('context_error', [False, True])
+def test_extractor_announces_before_context(mock_db, monkeypatch, context_error):
+    db_dir, db = mock_db
+    monkeypatch.chdir(db_dir)
+    pkg = 'damnit.backend.extract_data'
+    with patch(f'{pkg}.kafka_producer') as producer_factory:
+        producer = producer_factory.return_value
+
+        def load_context(*args, **kwargs):
+            producer.send.assert_called_once()
+            topic, message = producer.send.call_args.args
+            assert topic == db.kafka_topic
+            assert message['msg_kind'] == 'processing_state_set'
+            assert message['data']['status'] == 'RUNNING'
+            assert message['data']['processing_id'] == 'early-job'
+            assert message['data']['proposal'] == 1234
+            assert message['data']['run'] == 42
+            producer.flush.assert_called_once_with(timeout=10)
+            if context_error:
+                raise RuntimeError('Context failed')
+            return Pipeline(), None
+
+        with patch(f'{pkg}.get_context_file', side_effect=load_context):
+            if context_error:
+                with pytest.raises(RuntimeError, match='Context failed'):
+                    RunExtractor(1234, 42, uuid='early-job')
+            else:
+                extractor = RunExtractor(1234, 42, uuid='early-job')
+                extractor._notify_running()
+                assert producer.send.call_args_list[0] == producer.send.call_args_list[1]
+
+
 def test_extractor(mock_ctx, mock_db, mock_run, mock_kafka_broker, monkeypatch):
     # Change to the DB directory
     db_dir, db = mock_db
@@ -1154,7 +1205,8 @@ def test_copy_ctx_and_user_vars(tmp_path, mock_db, mock_user_vars):
     assert set(DamnitDB(db_file).get_user_variables()) == set(mock_user_vars)
 
 
-def test_listener(tmp_path, caplog, monkeypatch):
+@pytest.mark.parametrize('run_data', [RunData.RAW, RunData.PROC])
+def test_listener(tmp_path, caplog, monkeypatch, mock_kafka_broker, run_data):
     monkeypatch.setenv("XFEL_DATA_ROOT", str(tmp_path))
 
     # Create the processor
@@ -1183,9 +1235,29 @@ def test_listener(tmp_path, caplog, monkeypatch):
     # Disable static mode: expect 1 Slurm submission (official DB)
     processor.db.settings["static_mode"] = False
     with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit",
-               return_value=("9876", "solaris")) as submit:
-        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+               return_value=("9876", "solaris")) as submit, \
+            patch('damnit.backend.listener.kafka_producer') as producer_factory:
+        processor.handle_event(event, {"proposal": 1234, "run": 1}, run_data)
         assert submit.call_count == 1
+        req = submit.call_args.args[0]
+        producer_factory.return_value.send.assert_called_once_with(db.kafka_topic, {
+            'msg_kind': 'processing_state_set',
+            'data': req.submitted_info('solaris', '9876'),
+        })
+        assert req.run_data == run_data
+        producer_factory.return_value.close.assert_called_once_with(timeout=10)
+
+    # A notification failure after successful sbatch must not launch a local copy.
+    processor.db.settings['allow_local_processing'] = True
+    with patch('damnit.backend.listener.ExtractionSubmitter.submit',
+               return_value=('9877', 'solaris')), \
+            patch('damnit.backend.listener.kafka_producer') as producer_factory, \
+            patch('damnit.backend.listener.execute_direct') as execute_local:
+        producer_factory.return_value.send.side_effect = RuntimeError('Kafka unavailable')
+        processor.handle_event(event, {'proposal': 1234, 'run': 1}, run_data)
+        execute_local.assert_not_called()
+        producer_factory.return_value.close.assert_called_once_with(timeout=10)
+    processor.db.settings['allow_local_processing'] = False
 
     # Add an unofficial DB so that the listener launches two Slurm jobs
     fake_db_dir = tmp_path / "fakedb"
