@@ -732,6 +732,14 @@ def test_results_preview(mock_run, tmp_path):
         check_png(f['.reduced/var2'])
         assert f['.preview/var3'].dtype == bool
 
+    with DamnitDB.from_dir(tmp_path, create=True) as db:
+        add_to_db(load_reduced_data(results_hdf5_path), db, 1000, 123, provenance="test")
+        row = db.conn.execute(
+            "SELECT value, summary_type FROM run_variables WHERE name='var2'"
+        ).fetchone()
+        assert row["summary_type"] == "png_image"
+        assert BlobTypes.identify(row["value"]) is BlobTypes.png
+
 def test_filtering(mock_ctx, mock_run, caplog):
     run_number = 1000
     proposal = 1234
