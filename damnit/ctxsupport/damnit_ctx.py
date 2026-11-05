@@ -14,7 +14,7 @@ import re
 import sys
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import Field, MISSING, dataclass, replace
 from enum import Enum
 from pathlib import Path
 from types import NoneType
@@ -401,7 +401,7 @@ class Cell:
         return d
 
 
-def _normalize_tags(tags) -> tuple[str]:
+def _normalize_tags(tags) -> tuple[str, ...]:
     if tags is None:
         return ()
     if isinstance(tags, str):
@@ -482,33 +482,47 @@ def Group(
         cls.__damnit_group_config__ = RESERVED_GROUP_FIELDS.copy()
         cls.__damnit_group_config__["tags"] = tags
 
-        annotations = dict(getattr(cls, "__annotations__", {}))
-        annotations.update({
-            "name": str | None,
-            "title": str | None,
-            "tags": Iterable[str] | str | None,
-            "sep": str,
-        })
-        cls.__annotations__ = annotations
+        def __init__(self, **kw):
+            # Standard Group metadata
+            if not hasattr(self, "name"):
+                # If one group inherits from another, these attributes should
+                # only be set by the leaf class (the first __init__ method)
+                self.name = kw.pop("name", None)
+                self.title = kw.pop("title", None) or self.name
+                self.sep = kw.pop("sep", "/")
+                tags_input = kw.pop("tags", None)
+                if tags_input is None:  # tags at instantiation override group tags
+                    tags_input = tags
+                self.tags = _normalize_tags(tags_input)
 
-        cls.name = field(default=RESERVED_GROUP_FIELDS["name"], kw_only=True)
-        cls.title = field(default=RESERVED_GROUP_FIELDS["title"], kw_only=True)
-        cls.sep = field(default=RESERVED_GROUP_FIELDS["sep"], kw_only=True)
-        cls.tags = field(default=tags, kw_only=True)
+            # Group fields (dataclass style)
+            for name, ann in cls.__annotations__.items():
+                val = kw.pop(name, MISSING)
+                if val is MISSING:
+                    cv = getattr(cls, name, MISSING)
+                    if isinstance(cv, Field):
+                        if cv.default is not MISSING:
+                            val = cv.default
+                        elif cv.default_factory is not MISSING:
+                            val = cv.default_factory()
+                    elif cv is not MISSING:
+                        val = cv
 
-        original_post_init = getattr(cls, "__post_init__", None)
+                if val is MISSING:
+                    raise TypeError(f"Group parameter {name} is required")
 
-        def __post_init__(self):
-            self.tags = _normalize_tags(self.tags)
-            if self.title is None:
-                self.title = self.name
+                setattr(self, name, val)
 
-            if original_post_init is not None:
-                original_post_init(self)
+            # Override default values in parameters
+            for name, param in cls.__dict__.items():
+                if isinstance(param, Parameter) and name in kw:
+                    setattr(self, name, replace(param, default=kw.pop(name)))
 
-        cls.__post_init__ = __post_init__
+            super(cls, self).__init__(**kw)
 
-        return dataclass(cls, kw_only=True)
+        cls.__init__ = __init__
+
+        return cls
 
     if _cls is None:
         return wrap
@@ -893,6 +907,10 @@ class Pipeline:
     def vars(self):
         """Return the compiled Variable mapping."""
         return self.context.vars
+
+    @property
+    def params(self):
+        return self.context.params
 
     def vars_to_dict(self, inc_transient=False):
         """Return variable metadata suitable for database storage."""

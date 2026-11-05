@@ -170,7 +170,8 @@ def mock_ctx_user(mock_user_vars):
         def roi_length(self, run, start: "self#roi_start", stop: "self#roi_stop"):
             return stop - start
 
-    xes_jf = JUNGFRAU_mod(mod_num=1)
+    # Set field & override parameter default
+    xes_jf = JUNGFRAU_mod(mod_num=1, roi_start=100)
     """
 
     return mkcontext(code)

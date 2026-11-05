@@ -686,7 +686,7 @@ def test_results_with_params(mock_ctx_user, mock_user_vars, mock_run, caplog):
         "user_number": 2.3,
         "user_boolean": False,
         "user_string": "hello",
-        "xes_jf.roi_start": 0,
+        "xes_jf.roi_start": 100,
         "xes_jf.roi_stop": 0,
     }
 

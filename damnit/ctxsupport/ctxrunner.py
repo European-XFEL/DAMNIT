@@ -157,6 +157,12 @@ def _collect_group_variables(group):
         for name, value in cls.__dict__.items():
             if isinstance(value, (Variable, Parameter)):
                 vars_by_name[name] = value
+
+        # Parameters can be overridden on the group instance (to change default)
+        for name, value in group.__dict__.items():
+            if isinstance(value, Parameter):
+                vars_by_name[name] = value
+
     return vars_by_name
 
 
