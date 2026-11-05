@@ -32,16 +32,12 @@ from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ImagePlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
-from damnit.gui.table import (
-    DamnitTableModel,
-    STATIC_COLUMNS,
-    TableView,
-    best_text_color,
-)
+from damnit.gui.table import DamnitTableModel
 from damnit.gui.table_filter import (CategoricalFilter, FilterProxy,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
                                      ThumbnailFilter, ThumbnailFilterWidget)
+from damnit.gui.table_view import STATIC_COLUMNS, TableView
 from damnit.gui.theme import Theme
 from damnit.gui.web_viewer import PlotlyPlot
 from damnit.gui.zulip_messenger import ZulipConfig

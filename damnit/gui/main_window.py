@@ -38,7 +38,8 @@ from .plot import (
 )
 from .process import ProcessingDialog
 from .standalone_comments import TimeComment
-from .table import DamnitTableModel, TableView, prettify_notation
+from .table import DamnitTableModel, prettify_notation
+from .table_view import TableView
 from .theme import Theme, ThemeManager, set_lexer_theme
 from .user_variables import AddUserVariableDialog
 from .util import StatusbarStylesheet, icon_path
