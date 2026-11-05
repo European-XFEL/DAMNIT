@@ -8,7 +8,7 @@ from damnit.backend.db import DamnitDB
 from damnit.backend.extract_data import ReducedData, RunExtractor
 from damnit.cli import main
 from damnit.context import Pipeline
-from damnit.gui.table import FilterHeaderView, TableView
+from damnit.gui.table_view import FilterHeaderView, TableView
 
 
 def reduced_data_from_dict(input_dict):
