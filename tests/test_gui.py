@@ -32,7 +32,7 @@ from damnit.gui.open_dialog import OpenDBDialog
 from damnit.gui.plot import HistogramPlotWindow, ImagePlotWindow, ScatterPlotWindow
 from damnit.gui.standalone_comments import TimeComment
 from damnit.gui.roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
-from damnit.gui.table import DamnitTableModel
+from damnit.gui.table import STATIC_COLUMN_IDS, DamnitTableModel
 from damnit.gui.table_filter import (CategoricalFilter, FilterProxy,
                                      CategoricalFilterWidget, FilterMenu,
                                      NumericFilter, NumericFilterWidget,
@@ -242,17 +242,18 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
         headers = visible_headers()
         col_one = headers[from_idx]
         col_two = headers[to_idx]
-        columns = win.table_view._columns_widget
+        columns = win.table_view.columns_dialog.columns_widget
         col_one_item = columns.findItems(col_one, Qt.MatchFlag.MatchExactly)[0]
         col_two_item = columns.findItems(col_two, Qt.MatchFlag.MatchExactly)[0]
         old_idx = columns.row(col_two_item)
 
         from_row = columns.row(col_one_item)
-        columns.takeItem(columns.row(col_one_item))
+        columns.takeItem(from_row)
         columns.insertItem(old_idx, col_one_item)
         columns.setCurrentItem(col_one_item)
-        win.table_view.item_moved(None, from_row, from_row,
-                                  None, columns.row(col_one_item))
+        insert_pos = old_idx + (1 if old_idx > from_row else 0)
+        win.table_view.columns_dialog.item_moved(None, from_row, from_row,
+                                  None, insert_pos)
 
         return col_one, col_two
 
@@ -271,8 +272,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     win.autoconfigure(db_dir)
     assert column_width(resize_col) == target_width
 
-    columns_widget = win.table_view._columns_widget
-    static_columns_widget = win.table_view._static_columns_widget
+    columns_widget = win.table_view.columns_dialog.columns_widget
 
     last_col_item = columns_widget.item(columns_widget.count() - 1)
     last_col = last_col_item.text()
@@ -350,7 +350,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     assert "newer_var" == new_headers[-1]
 
     # Test hiding a static column
-    static_columns_widget = win.table_view._static_columns_widget
+    static_columns_widget = win.table_view.columns_dialog.static_columns_widget
     last_static_col_item = static_columns_widget.item(static_columns_widget.count() - 1)
     last_static_col = last_static_col_item.text()
 
@@ -1021,7 +1021,7 @@ def test_zulip(mock_db_with_data, monkeypatch, qtbot):
         mock_get.assert_called_once()
         assert win.zulip_messenger.stream == "stream"
 
-        df = win.table.dataframe_for_export(['Proposal', 'Run', 'Comment'])
+        df = win.table.dataframe_for_export(['proposal', 'run', 'comment'])
         test_dialog = ZulipConfig(win, win.zulip_messenger,
                                   kind='table', table=df)
         test_dialog.handle_form()
@@ -1108,7 +1108,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broke
     column_titles_before = tbl.column_titles.copy()
     assert "array" in column_ids_before
     col_visibility_before = win.table_view.get_column_states()
-    assert "Array" in col_visibility_before  # Keyed by title, not column ID
+    assert "array" in col_visibility_before
 
     # If the user clicks 'No' then we should do nothing
     with patch.object(QMessageBox, "warning", return_value=QMessageBox.StandardButton.No) as warning:
@@ -1128,7 +1128,7 @@ def test_delete_variable(mock_db_with_data, qtbot, monkeypatch, mock_kafka_broke
     assert tbl.columnCount() == len(column_ids_before) - 1
     assert "array" not in [tbl.column_id(i) for i in range(tbl.columnCount())]
     assert len(tbl.column_titles) == tbl.columnCount()
-    assert "Array" not in win.table_view.get_column_states()
+    assert "array" not in win.table_view.get_column_states()
 
     proposal = db.metameta['proposal']
     with h5py.File(db_dir / f"extracted_data/p{proposal}_r1.h5") as f:
@@ -1140,7 +1140,7 @@ def test_delete_variable_with_tag_filter(
 ):
     def _visible_count(tv):
         count = 0
-        for col in range(tv.get_static_columns_count(), table_view.model().columnCount()):
+        for col in range(len(STATIC_COLUMN_IDS), table_view.model().columnCount()):
             if not tv.isColumnHidden(col):
                 count += 1
         return count
@@ -1159,7 +1159,7 @@ def test_delete_variable_with_tag_filter(
     table_view = win.table_view
 
     initial_states = table_view.get_column_states()
-    assert "Array" in initial_states
+    assert "array" in initial_states
 
     # Apply a tag filter that hides non-scalar variables in the view only.
     table_view.apply_tag_filter({"scalar"})
@@ -1170,7 +1170,7 @@ def test_delete_variable_with_tag_filter(
     _delete_col(table_view, "array")
 
     expected_states = dict(initial_states)
-    del expected_states["Array"]
+    del expected_states["array"]
 
     # Deletion should not convert temporarily filter-hidden columns into
     # manually hidden settings.
@@ -1182,7 +1182,7 @@ def test_delete_variable_with_tag_filter(
 
     # delete a scalar variable
     _delete_col(table_view, "scalar2")
-    del expected_states["Scalar2"]
+    del expected_states["scalar2"]
     assert table_view.get_column_states() == expected_states
     assert _visible_count(table_view) == 1  # Scalar1
 
@@ -1231,7 +1231,7 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     # Helper function to count visible variable columns
     def count_visible_vars():
         count = 0
-        for col in range(table_view.get_static_columns_count(), table_view.model().columnCount()):
+        for col in range(len(STATIC_COLUMN_IDS), table_view.model().columnCount()):
             if not table_view.isColumnHidden(col):
                 count += 1
         return count
@@ -1239,7 +1239,7 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     # Helper function to count visible static columns
     def count_visible_static():
         count = 0
-        for col in range(table_view.get_static_columns_count()):
+        for col in range(len(STATIC_COLUMN_IDS)):
             if not table_view.isColumnHidden(col):
                 count += 1
         return count
@@ -1253,7 +1253,7 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     initial_var_count = count_visible_vars()
     initial_static_count = count_visible_static()
     assert initial_var_count == len(db.variable_names())
-    assert initial_static_count == table_view.get_static_columns_count()
+    assert initial_static_count == len(STATIC_COLUMN_IDS)
 
     # Test filtering with single tag
     apply_tag_filter({"scalar"})
@@ -1289,12 +1289,12 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     # Test interaction between column visibility and tag filtering
 
     # Hide a static column
-    static_item = table_view._static_columns_widget.item(0)  # First static column
+    static_item = table_view.columns_dialog.static_columns_widget.item(0)  # First static column
     static_item.setCheckState(Qt.CheckState.Unchecked)
     assert count_visible_static() == initial_static_count - 1
 
     # Hide a variable column
-    table_view._columns_widget.findItems('Scalar1', Qt.MatchFlag.MatchExactly)[0].setCheckState(Qt.CheckState.Unchecked)
+    table_view.columns_dialog.columns_widget.findItems('Scalar1', Qt.MatchFlag.MatchExactly)[0].setCheckState(Qt.CheckState.Unchecked)
     assert count_visible_vars() == initial_var_count - 1
 
     # Apply tag filter - should respect column visibility preferences

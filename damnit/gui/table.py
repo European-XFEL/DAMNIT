@@ -20,6 +20,7 @@ from .util import StatusbarStylesheet
 log = logging.getLogger(__name__)
 
 THUMBNAIL_SIZE = (100, 35)  # w, h (pixels)
+STATIC_COLUMN_IDS = ['Status', 'proposal', 'run', 'start_time', 'comment']
 
 
 def best_text_color(background: QtGui.QColor) -> QtGui.QColor:
@@ -33,11 +34,12 @@ def best_text_color(background: QtGui.QColor) -> QtGui.QColor:
 
 class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
+    column_removed = QtCore.pyqtSignal(str)  # column_id
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
-    def __init__(self, db: DamnitDB, column_settings: dict, parent):
-        self.column_ids, self.column_titles = self._load_columns(db, column_settings)
+    def __init__(self, db: DamnitDB, column_settings: dict, parent, settings_by_id=True):
+        self.column_ids, self.column_titles = self._load_columns(db, column_settings, settings_by_id)
         self.column_descriptions = db.variable_descriptions()
         n_run_rows = db.conn.execute("SELECT count(*) FROM run_info").fetchone()[0]
         log.info(f"Table will have {n_run_rows} runs")
@@ -50,6 +52,18 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.db = db
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         self.run_index = {}  # {(proposal, run): row}
+        if settings_by_id:
+            self.column_settings_loaded = {
+                col_id: vis for col_id, vis in column_settings.items()
+                if col_id in self.column_index
+            }
+        else:
+            title_to_id = dict(zip(self.column_titles, self.column_ids))
+            self.column_settings_loaded = {
+                title_to_id[title]: vis
+                for title, vis in column_settings.items()
+                if title in title_to_id
+            }
 
         self.processing_jobs = QtExtractionJobTracker(self)
         self.processing_jobs.run_jobs_changed.connect(self.update_processing_status)
@@ -82,9 +96,8 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self._load_from_db()
 
     @staticmethod
-    def _load_columns(db: DamnitDB, col_settings):
+    def _load_columns(db: DamnitDB, col_settings, settings_by_id=True):
         t0 = time.perf_counter()
-        static_cols = ["Status", "proposal", "run", "start_time", "comment"]
         col_id_to_title = {
             "run": "Run",
             "proposal": "Proposal",
@@ -97,11 +110,14 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             set(db.variable_names()) - {"comment"},
             key=lambda col: (col_id_to_title.get(col, col).casefold(), col.casefold()),
         )
-        column_ids = static_cols + non_static_cols
-        col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
+        column_ids = STATIC_COLUMN_IDS + non_static_cols
 
-        # Column settings store human friendly titles - convert to IDs
-        saved_col_order = [col_title_to_id.get(c, c) for c in col_settings]
+        # Column settings previously stored human friendly titles - convert to IDs
+        if settings_by_id:
+            saved_col_order = list(col_settings)
+        else:
+            col_title_to_id = {t: n for (n, t) in col_id_to_title.items()}
+            saved_col_order = [col_title_to_id.get(c, c) for c in col_settings]
 
         # Strip missing columns
         saved_col_order = [col for col in saved_col_order if col in column_ids]
@@ -372,6 +388,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
         self.column_descriptions.pop(column_id, None)
         self.column_index = {c: i for (i, c) in enumerate(self.column_ids)}
         super().removeColumn(column, parent)
+        self.column_removed.emit(column_id)
 
     def insert_run_row(self, proposal, run, items: dict):
         status_item = self.itemPrototype().clone()
@@ -619,11 +636,10 @@ class DamnitTableModel(QtGui.QStandardItemModel):
 
         return super().setData(index, value, role)
 
-    def dataframe_for_export(self, column_titles, rows=None, drop_image_cols=False):
+    def dataframe_for_export(self, column_ids, rows=None, drop_image_cols=False):
         """Create a cleaned-up dataframe to be saved as a spreadsheet"""
         import pandas as pd
-        col_titles_to_ixs = {t: i for (i, t) in enumerate(self.column_titles)}
-        column_ixs = [col_titles_to_ixs[t] for t in column_titles]
+        column_ixs = [self.column_index[col_id] for col_id in column_ids]
 
         if rows is None:
             rows = range(self.rowCount())
