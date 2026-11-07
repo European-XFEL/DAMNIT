@@ -3,6 +3,7 @@ import re
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from ..backend.user_variables import value_types_by_name
+from .table import STATIC_COLUMN_IDS
 from .util import icon_path
 
 
@@ -79,9 +80,12 @@ class AddUserVariableDialog(QtWidgets.QDialog):
         self._setup_types_widgets()
 
         self.variable_before = QtWidgets.QComboBox()
-        columns = self._main_window.table_view.get_movable_columns()
-        self.variable_before.addItems(list(columns.keys()) + ['<end>'])
-        self.variable_before.setCurrentIndex(len(columns))
+        n_static = len(STATIC_COLUMN_IDS)
+        tbl = self._main_window.table
+        for col_id, title in self._main_window.table_view.get_movable_columns():
+            self.variable_before.addItem(title, col_id)
+        self.variable_before.addItem('<end>', '<end>')
+        self.variable_before.setCurrentIndex(len(tbl.column_ids) - n_static)
 
         self.variable_description = QtWidgets.QPlainTextEdit()
 

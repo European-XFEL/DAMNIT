@@ -1,17 +1,18 @@
 import hashlib
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 from fonticon_fa6 import FA6S
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QCursor
-from PyQt6.QtWidgets import QMenu, QMessageBox
+from PyQt6.QtWidgets import QMenu, QMessageBox, QListWidgetItem
 from superqt.fonticon import icon
-from superqt.utils import qthrottled, signals_blocked
+from superqt.utils import qthrottled
 
 from .roles import LINE_DATA_ROLE, PROVENANCE_ROLE, UNITS_ROLE
-from .table import DamnitTableModel, prettify_notation
+from .table import STATIC_COLUMN_IDS, DamnitTableModel, prettify_notation
 from .table_filter import FilterMenu, FilterProxy, FilterStatus
 from .util import StatusbarStylesheet, delete_variable
 
@@ -593,6 +594,152 @@ class ItemRendererDelegate(QtWidgets.QStyledItemDelegate):
         self._paint_provenance_marker(painter, option, index)
 
 
+@dataclass
+class ColumnState:
+    id: str
+    title: str
+    visible: bool = True
+
+    def to_item(self) -> QListWidgetItem:
+        item = QtWidgets.QListWidgetItem(self.title)
+        item.setData(Qt.ItemDataRole.UserRole, self.id)
+        item.setCheckState(
+            Qt.CheckState.Checked if self.visible else Qt.CheckState.Unchecked
+        )
+        return item
+
+class ColumnsDialog(QtWidgets.QDialog):
+    # Tracks column order & visibility in 2 QListWidgets
+    #   This only tracks specifically hidden columns, not columns hidden by a tag filter
+    visibility_changed = QtCore.pyqtSignal(str, bool)  # column_id, visible
+    column_moved = QtCore.pyqtSignal(int, int)  # from_ix, to_ix
+
+    def __init__(self, tbl_view: 'TableView'):
+        super().__init__(tbl_view)
+        self.table_view = tbl_view
+        self.column_items = {}  # {column_id: QListWidgetItem}
+        self.columns_widget = QtWidgets.QListWidget()
+        self.static_columns_widget = QtWidgets.QListWidget()
+
+        self.columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.InternalMove)
+        self.columns_widget.itemChanged.connect(self.item_changed)
+        self.columns_widget.model().rowsMoved.connect(self.item_moved)
+
+        self.columns_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.columns_widget.customContextMenuRequested.connect(self.show_delete_menu)
+
+        self.static_columns_widget.itemChanged.connect(self.item_changed)
+        self.static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum,
+                                                 QtWidgets.QSizePolicy.Policy.Minimum)
+        styles = "QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }"
+        self.static_columns_widget.setStyleSheet(styles)
+        self.columns_widget.setStyleSheet(styles)
+
+        # Set up dialog UI
+        self.setWindowTitle("Column settings")
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(QtWidgets.QLabel(
+            "These columns can be hidden but not reordered or deleted:"
+        ))
+        layout.addWidget(self.static_columns_widget)
+        layout.addWidget(QtWidgets.QLabel(
+            "Drag these columns to reorder them, right-click to delete:"
+        ))
+        layout.addWidget(self.columns_widget)
+        self.setLayout(layout)
+
+    def set_model(self, model: 'DamnitTableModel'):
+        cols = [ColumnState(cid, title, model.column_settings_loaded.get(cid, True))
+                for cid, title in zip(model.column_ids, model.column_titles)]
+
+        self.columns_widget.clear()
+        self.static_columns_widget.clear()
+        self.column_items.clear()
+
+        moveable_cols = []
+        for cs in cols:
+            if cs.id in STATIC_COLUMN_IDS:
+                item = self.column_items[cs.id] = cs.to_item()
+                self.static_columns_widget.addItem(item)
+            else:
+                moveable_cols.append(cs)
+
+        self.add_new_columns(moveable_cols)
+
+        model.columnsInserted.connect(self.on_columns_inserted)
+        model.column_removed.connect(self.on_column_removed)
+
+    def add_new_columns(self, cols: list[ColumnState], positions=None):
+        if positions is None:
+            rows_count = self.columns_widget.count()
+            positions = [ii + rows_count for ii in range(len(cols))]
+        else:
+            n_static = len(STATIC_COLUMN_IDS)
+            positions = [p - n_static for p in positions]
+
+        for cs, position in zip(cols, positions):
+            item = self.column_items[cs.id] = cs.to_item()
+            self.columns_widget.insertItem(position, item)
+
+    def on_columns_inserted(self, _parent, first, last):
+        positions = range(first, last + 1)
+        model = self.table_view.damnit_model
+        self.add_new_columns([ColumnState(
+            id=model.column_id(i),
+            title=model.column_title(i),
+        ) for i in positions], positions)
+
+    def on_column_removed(self, column_id):
+        if (item := self.column_items.pop(column_id, None)):
+            row = self.columns_widget.row(item)
+            self.columns_widget.takeItem(row)
+        else:
+            log.warning("ColumnsDialog: no entry for %r (removed column)", column_id)
+
+    def get_column_states(self) -> dict[str, bool]:
+        # We're also preserving the order here, so we can't just iterate through
+        # self.column_items
+        column_states = {}
+
+        for widget in [self.static_columns_widget, self.columns_widget]:
+            for row in range(widget.count()):
+                item = widget.item(row)
+                col_id = item.data(Qt.ItemDataRole.UserRole)
+                column_states[col_id] = item.checkState() == Qt.CheckState.Checked
+
+        return column_states
+
+    def item_changed(self, item: QListWidgetItem):
+        col_id = item.data(Qt.ItemDataRole.UserRole)
+        state = item.checkState() == Qt.CheckState.Checked
+        self.visibility_changed.emit(col_id, state)
+
+    def item_moved(self, srcparent, srcstart, srcend, dstparent, dststart):
+        # Take account of the static columns
+        col_offset = self.static_columns_widget.count()
+        # Qt gives us a destination index for the insert position *before* the
+        # item is moved from its previous position, e.g. moving the top item 1
+        # place down goes from 0 -> 2. Convert to the position after the move.
+        if dststart > srcstart:
+            dststart -= 1
+        # Only 1 item can be selected & moved at a time
+        self.column_moved.emit(srcstart + col_offset, dststart + col_offset)
+
+    def show_delete_menu(self, pos):
+        item = self.columns_widget.itemAt(pos)
+        if item is None:
+            # This happens if the user clicks on blank space inside the widget
+            return
+
+        global_pos = self.columns_widget.mapToGlobal(pos)
+        menu = QtWidgets.QMenu()
+        menu.addAction("Delete")
+        action = menu.exec(global_pos)
+        if action is not None:
+            name = item.data(Qt.ItemDataRole.UserRole)
+            self.table_view.confirm_delete_variable(name)
+
+
 class TableView(QtWidgets.QTableView):
     settings_changed = QtCore.pyqtSignal()
     log_view_requested = QtCore.pyqtSignal(int, int)  # proposal, run
@@ -615,20 +762,9 @@ class TableView(QtWidgets.QTableView):
         self.setItemDelegate(ItemRendererDelegate(self))
         self.setMouseTracking(True)
 
-        # Add the widgets to be used in the column settings dialog
-        self._columns_widget = QtWidgets.QListWidget()
-        self._static_columns_widget = QtWidgets.QListWidget()
-
-        self._columns_widget.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.InternalMove)
-        self._columns_widget.itemChanged.connect(self.item_changed)
-        self._columns_widget.model().rowsMoved.connect(self.item_moved)
-
-        self._columns_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._columns_widget.customContextMenuRequested.connect(self.show_delete_menu)
-
-        self._static_columns_widget.itemChanged.connect(self.item_changed)
-        self._static_columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
-        self._columns_widget.setStyleSheet("QListWidget {padding: 0px;} QListWidget::item { margin: 5px; }")
+        self.columns_dialog = ColumnsDialog(self)
+        self.columns_dialog.visibility_changed.connect(self.column_visibility_changed)
+        self.columns_dialog.column_moved.connect(self.column_reordered)
 
         self.context_menu = QtWidgets.QMenu(self)
         self.copy_markdown_action = QtGui.QAction('Copy selection as Markdown', self)
@@ -689,12 +825,14 @@ class TableView(QtWidgets.QTableView):
 
         if model is not None:
             self.model().rowsInserted.connect(self.resize_new_rows)
-            self.model().columnsInserted.connect(self.on_columns_inserted)
             self.model().columnsRemoved.connect(self.on_columns_removed)
             self.model().filterChanged.connect(
                 lambda: header.update_filtered_columns(self.model().filters))
             self.resizeRowsToContents()
         if self.damnit_model is not None:
+            self.columns_dialog.set_model(self.damnit_model)
+            for col_id, vis in self.columns_dialog.get_column_states().items():
+                self.set_column_visibility(col_id, vis)
             self.damnit_model.processing_jobs.run_jobs_changed.connect(
                 lambda *_: self.update_cancel_processing_action()
             )
@@ -783,11 +921,12 @@ class TableView(QtWidgets.QTableView):
         self.show_logs_action.setEnabled(has_sel)
         self.update_cancel_processing_action()
 
-    def item_changed(self, item):
-        state = item.checkState()
-        self.set_column_visibility(item.text(), state == Qt.CheckState.Checked)
+    def column_visibility_changed(self, col_id, visible):
+        # Checkbox toggled in column selection dialog
+        self.set_column_visibility(col_id, visible)
+        self.settings_changed.emit()
 
-    def set_column_visibility(self, name, visible, for_restore=False, save_settings=True):
+    def set_column_visibility(self, name, visible):
         """
         Make a column visible or not. This function should be used instead of the lower-level
         setColumnHidden().
@@ -800,26 +939,12 @@ class TableView(QtWidgets.QTableView):
         you want.
         """
         try:
-            column_index = self.damnit_model.find_column(name, by_title=True)
+            column_index = self.damnit_model.find_column(name, by_title=False)
         except KeyError:
             log.error("Could not find column %r to set visibility", name)
             return
 
         self.setColumnHidden(column_index, not visible)
-
-        if for_restore:
-            widget = self._columns_widget if \
-                len(self._columns_widget.findItems(name, Qt.MatchFlag.MatchExactly)) == 1 else \
-                self._static_columns_widget
-
-            # Try to find the column. Some, like 'comment_id' will not be in the
-            # list shown to the user.
-            matching_items = widget.findItems(name, Qt.MatchFlag.MatchExactly)
-            if len(matching_items) == 1:
-                item = matching_items[0]
-                item.setCheckState(Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked)
-        elif save_settings:
-            self.settings_changed.emit()
 
     def apply_column_widths(self, column_widths):
         if not column_widths or not hasattr(self, "damnit_model") or self.damnit_model is None:
@@ -839,127 +964,32 @@ class TableView(QtWidgets.QTableView):
         finally:
             self._restoring_column_widths = False
 
-    def item_moved(self, parent, start, end, destination, row):
-        # Take account of the static columns
-        col_offset = self._static_columns_widget.count()
-
-        col_from = start + col_offset
-        col_to = self._columns_widget.currentIndex().row() + col_offset
-
-        self.horizontalHeader().moveSection(col_from, col_to)
-
+    def column_reordered(self, from_ix, to_ix):
+        self.horizontalHeader().moveSection(from_ix, to_ix)
         self.settings_changed.emit()
 
-    def show_delete_menu(self, pos):
-        item = self._columns_widget.itemAt(pos)
-        if item is None:
-            # This happens if the user clicks on blank space inside the widget
-            return
-
-        global_pos = self._columns_widget.mapToGlobal(pos)
-        menu = QtWidgets.QMenu()
-        menu.addAction("Delete")
-        action = menu.exec(global_pos)
-        if action is not None:
-            name = self.damnit_model.column_title_to_id(item.text())
-            self.confirm_delete_variable(name)
-
     def confirm_delete_variable(self, name):
-        button = QMessageBox.warning(self, "Confirm deletion",
-                                     f"You are about to permanently delete the variable <b>'{name}'</b> "
-                                     "from the database and HDF5 files. This cannot be undone. "
-                                     "Are you sure you want to continue?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     defaultButton=QMessageBox.StandardButton.No)
+        button = QMessageBox.warning(
+            self, "Confirm deletion",
+            f"You are about to permanently delete the variable <b>'{name}'</b> "
+            "from the database and HDF5 files. This cannot be undone. "
+            "Are you sure you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            defaultButton=QMessageBox.StandardButton.No
+        )
         if button == QMessageBox.StandardButton.Yes:
             model = self.damnit_model
             delete_variable(model.db, name)
             model.removeColumn(model.find_column(name, by_title=False))
 
-    def add_new_columns(self, columns, statuses, positions = None):
-        if positions is None:
-            rows_count = self._columns_widget.count()
-            positions = [ii + rows_count for ii in range(len(columns))]
-
-        for column, status, position in zip(columns, statuses, positions):
-            if column == "comment_id":
-                continue
-
-            item = QtWidgets.QListWidgetItem(column)
-            self._columns_widget.insertItem(position, item)
-            item.setCheckState(Qt.CheckState.Checked if status else Qt.CheckState.Unchecked)
-
-    def on_columns_inserted(self, _parent, first, last):
-        titles = [self.damnit_model.column_title(i) for i in range(first, last + 1)]
-        self.add_new_columns(titles, [True for _ in list(titles)])
-
     def on_columns_removed(self, _parent, _first, _last):
-        col_header_view = self.horizontalHeader()
-        manual_column_states = self.get_column_states()
-        cols = []
-        for logical_idx, title in enumerate(self.damnit_model.column_titles):
-            visual_idx = col_header_view.visualIndex(logical_idx)
-            # Keep manual checkbox state as the source of truth. Header hidden
-            # state can include temporary tag-filter visibility.
-            visible = manual_column_states.get(
-                title, not col_header_view.isSectionHidden(logical_idx)
-            )
-            cols.append((visual_idx, title, visible))
+        self.apply_tag_filter(self._current_tag_filter)
+        self.apply_tag_filter.flush()
 
-        # Put titles in display order (sort by visual indices)
-        cols.sort()
-
-        columns = [c[1] for c in cols]
-        statuses = [c[2] for c in cols]
-
-        # Rebuild widgets without triggering itemChanged.
-        with signals_blocked(self._columns_widget, self._static_columns_widget):
-            self.set_columns(columns, statuses)
-
-        for title, is_visible in zip(columns, statuses):
-            self.set_column_visibility(title, is_visible, save_settings=False)
-
-        if self._current_tag_filter:
-            self.apply_tag_filter(self._current_tag_filter)
-            self.apply_tag_filter.flush()
-
-        self.settings_changed.emit()
-
-    def set_columns(self, columns, statuses):
-        self._columns_widget.clear()
-        self._static_columns_widget.clear()
-
-        for column, status in zip(columns, statuses):
-            if column in STATIC_COLUMNS:
-                item = QtWidgets.QListWidgetItem(column)
-                self._static_columns_widget.addItem(item)
-                item.setCheckState(Qt.CheckState.Checked if status else Qt.CheckState.Unchecked)
-        self._static_columns_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum,
-                                                  QtWidgets.QSizePolicy.Policy.Minimum)
-
-        # Remove the static columns
-        new_columns = []
-        new_statuses = []
-        for col, status in zip(columns, statuses):
-            if col in STATIC_COLUMNS:
-                continue
-            new_columns.append(col)
-            new_statuses.append(status)
-
-        self.add_new_columns(new_columns, new_statuses)
+        self.settings_changed.emit()  # Save column order
 
     def get_column_states(self):
-        column_states = { }
-
-        def add_column_states(widget):
-            for row in range(widget.count()):
-                item = widget.item(row)
-                column_states[item.text()] = item.checkState() == Qt.CheckState.Checked
-
-        add_column_states(self._static_columns_widget)
-        add_column_states(self._columns_widget)
-
-        return column_states
+        return self.columns_dialog.get_column_states()
 
     def get_column_widths(self):
         if not hasattr(self, "damnit_model") or self.damnit_model is None:
@@ -976,24 +1006,11 @@ class TableView(QtWidgets.QTableView):
         for row in range(first, last + 1):
             self.resizeRowToContents(row)
 
-    def _get_columns_status(self, widget):
-        res = {}
-        for ii in range(widget.count()):
-            ci = widget.item(ii)
-            res[ci.text()] = ci.isSelected()
-        return res
-
     def get_movable_columns(self):
-        return self._get_columns_status(self._columns_widget)
-
-    def get_movable_columns_count(self):
-        return self._columns_widget.count()
-
-    def get_static_columns(self):
-        return self._get_columns_status(self._static_columns_widget)
-
-    def get_static_columns_count(self):
-        return self._static_columns_widget.count()
+        col_list = self.columns_dialog.columns_widget
+        for i in range(col_list.count()):
+            item = col_list.item(i)
+            yield (item.data(Qt.ItemDataRole.UserRole), item.text())
 
     def contextMenuEvent(self, event):
         self.context_menu.popup(QtGui.QCursor.pos())
@@ -1055,7 +1072,7 @@ class TableView(QtWidgets.QTableView):
         if not tag_names:
             # Show all columns that were checked in the column widgets
             for col, state in column_states.items():
-                self.set_column_visibility(col, state, save_settings=False)
+                self.set_column_visibility(col, state)
 
             self._tag_filter_button.setText("Variables by Tag")
         else:
@@ -1066,14 +1083,14 @@ class TableView(QtWidgets.QTableView):
 
             # Hide/show columns based on whether they're tagged AND checked in column widgets
             for idx, (col, state) in enumerate(column_states.items()):
-                is_static = idx < self.get_static_columns_count()
-                is_tagged = self.damnit_model.column_title_to_id(col) in tagged_vars
+                is_static = idx < len(STATIC_COLUMN_IDS)
+                is_tagged = col in tagged_vars
 
                 # Column should be visible if:
                 # 1. It's a static column that's checked in column widgets, or
                 # 2. It's a non-static column that's both tagged and checked in column widgets
                 show = state and (is_static or is_tagged)
-                self.set_column_visibility(col, show, save_settings=False)
+                self.set_column_visibility(col, show)
 
             # Update button text
             if len(tag_names) == 1:
