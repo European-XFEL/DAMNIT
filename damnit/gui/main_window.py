@@ -50,6 +50,7 @@ log = logging.getLogger(__name__)
 
 class Settings(Enum):
     COLUMNS = "columns"
+    COLUMNS_BY_ID = "columns_by_id"
     COLUMN_WIDTHS = "column_widths"
     THEME = "theme"
     HIERARCHICAL_HEADER = "hierarchical_header"
@@ -236,7 +237,7 @@ da-dev@xfel.eu"""
 
         with shelve.open(str(self._settings_db_path)) as db:
             settings = {
-                Settings.COLUMNS.value: self.table_view.get_column_states(),
+                Settings.COLUMNS_BY_ID.value: self.table_view.get_column_states(),
                 Settings.COLUMN_WIDTHS.value: self.table_view.get_column_widths(),
                 Settings.THEME.value: self.current_theme.value,
                 Settings.HIERARCHICAL_HEADER.value: self.table_view.hierarchical_header_enabled,
@@ -266,6 +267,7 @@ da-dev@xfel.eu"""
 
         # Load the users settings
         col_settings = {}
+        col_settings_old = {}
         column_widths = {}
         hierarchical_header = self.table_view.hierarchical_header_enabled
         if self._settings_db_path.parent.is_dir():
@@ -278,16 +280,22 @@ da-dev@xfel.eu"""
                         log.warning("Failed to read settings for %s", key)
                         del db[key]
                         stored_settings = {}
-                    col_settings = stored_settings.get(Settings.COLUMNS.value, {})
+                    col_settings = stored_settings.get(Settings.COLUMNS_BY_ID.value, None)
+                    col_settings_old = stored_settings.get(Settings.COLUMNS.value, {})
                     column_widths = stored_settings.get(Settings.COLUMN_WIDTHS.value, {})
                     hierarchical_header = stored_settings.get(
                         Settings.HIERARCHICAL_HEADER.value,
                         hierarchical_header,
                     )
 
+        settings_by_id = True
+        if col_settings is None:
+            settings_by_id = False
+            col_settings = col_settings_old
+
         if self.table is not None:
             self.table.deleteLater()
-        self.table = self._create_table_model(self.db, col_settings)
+        self.table = self._create_table_model(self.db, col_settings, settings_by_id)
         self.table_view.set_hierarchical_header_enabled(hierarchical_header, emit_signal=False)
         self._set_hierarchical_action_checked(self.table_view.hierarchical_header_enabled)
         self.table_view.setModel(self.table)
@@ -302,10 +310,10 @@ da-dev@xfel.eu"""
         header.setVisible(True)
         self.table_view.apply_column_widths(column_widths)
 
+        # Save the loaded column order
+        self.save_settings()
+
         # Update the column widget and plotting controls with the new columns
-        titles = self.table.column_titles
-        self.table_view.set_columns(titles,
-                                    [col_settings.get(col, True) for col in titles])
         self.plot.update_columns()
 
         self.show_default_status_message()
@@ -388,16 +396,7 @@ da-dev@xfel.eu"""
 
     def open_column_dialog(self):
         if self._columns_dialog is None:
-            self._columns_dialog = QtWidgets.QDialog(self)
-            self._columns_dialog.setWindowTitle("Column settings")
-            layout = QtWidgets.QVBoxLayout()
-
-            layout.addWidget(QtWidgets.QLabel("These columns can be hidden but not reordered or deleted:"))
-            layout.addWidget(self.table_view._static_columns_widget)
-            layout.addWidget(QtWidgets.QLabel("Drag these columns to reorder them, right-click to delete:"))
-            layout.addWidget(self.table_view._columns_widget)
-            self._columns_dialog.setLayout(layout)
-
+            self._columns_dialog = self.table_view.columns_state.make_dialog(self)
         self._columns_dialog.show()
 
     def precreate_runs_dialog(self):
@@ -765,8 +764,8 @@ da-dev@xfel.eu"""
         else:
             self.show_status_message(f"No log found for run {run}")
 
-    def _create_table_model(self, db, col_settings):
-        table = DamnitTableModel(db, col_settings, self)
+    def _create_table_model(self, db, col_settings, settings_by_id=True):
+        table = DamnitTableModel(db, col_settings, self, settings_by_id)
         table.value_changed.connect(self.save_value)
         table.run_visibility_changed.connect(lambda row, state: self.plot.update())
         table.rowsInserted.connect(self.on_rows_inserted)

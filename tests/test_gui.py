@@ -242,17 +242,18 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
         headers = visible_headers()
         col_one = headers[from_idx]
         col_two = headers[to_idx]
-        columns = win.table_view._columns_widget
+        columns = win.table_view.columns_state._columns_widget
         col_one_item = columns.findItems(col_one, Qt.MatchFlag.MatchExactly)[0]
         col_two_item = columns.findItems(col_two, Qt.MatchFlag.MatchExactly)[0]
         old_idx = columns.row(col_two_item)
 
         from_row = columns.row(col_one_item)
-        columns.takeItem(columns.row(col_one_item))
+        columns.takeItem(from_row)
         columns.insertItem(old_idx, col_one_item)
         columns.setCurrentItem(col_one_item)
-        win.table_view.item_moved(None, from_row, from_row,
-                                  None, columns.row(col_one_item))
+        insert_pos = old_idx + (1 if old_idx > from_row else 0)
+        win.table_view.columns_state.item_moved(None, from_row, from_row,
+                                  None, insert_pos)
 
         return col_one, col_two
 
@@ -271,8 +272,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     win.autoconfigure(db_dir)
     assert column_width(resize_col) == target_width
 
-    columns_widget = win.table_view._columns_widget
-    static_columns_widget = win.table_view._static_columns_widget
+    columns_widget = win.table_view.columns_state._columns_widget
 
     last_col_item = columns_widget.item(columns_widget.count() - 1)
     last_col = last_col_item.text()
@@ -284,8 +284,10 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     assert last_col not in headers
 
     # Reload the database to make sure the changes were saved
+    print("\n-----")
     win.autoconfigure(db_dir)
-    assert headers == visible_headers()
+    print("-----\n")
+    assert headers == visible_headers() # __
 
     # Move a column
     headers = visible_headers()
@@ -350,7 +352,7 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
     assert "newer_var" == new_headers[-1]
 
     # Test hiding a static column
-    static_columns_widget = win.table_view._static_columns_widget
+    static_columns_widget = win.table_view.columns_state._static_columns_widget
     last_static_col_item = static_columns_widget.item(static_columns_widget.count() - 1)
     last_static_col = last_static_col_item.text()
 
@@ -1289,12 +1291,12 @@ def test_tag_filtering(mock_db_with_data, mock_ctx, qtbot):
     # Test interaction between column visibility and tag filtering
 
     # Hide a static column
-    static_item = table_view._static_columns_widget.item(0)  # First static column
+    static_item = table_view.columns_state._static_columns_widget.item(0)  # First static column
     static_item.setCheckState(Qt.CheckState.Unchecked)
     assert count_visible_static() == initial_static_count - 1
 
     # Hide a variable column
-    table_view._columns_widget.findItems('Scalar1', Qt.MatchFlag.MatchExactly)[0].setCheckState(Qt.CheckState.Unchecked)
+    table_view.columns_state._columns_widget.findItems('Scalar1', Qt.MatchFlag.MatchExactly)[0].setCheckState(Qt.CheckState.Unchecked)
     assert count_visible_vars() == initial_var_count - 1
 
     # Apply tag filter - should respect column visibility preferences
