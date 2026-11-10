@@ -668,6 +668,7 @@ class ColumnsDialog(QtWidgets.QDialog):
 
         model.columnsInserted.connect(self.on_columns_inserted)
         model.column_removed.connect(self.on_column_removed)
+        model.column_title_changed.connect(self.on_column_title_changed)
 
     def add_new_columns(self, cols: list[ColumnState], positions=None):
         if positions is None:
@@ -695,6 +696,12 @@ class ColumnsDialog(QtWidgets.QDialog):
             self.columns_widget.takeItem(row)
         else:
             log.warning("ColumnsDialog: no entry for %r (removed column)", column_id)
+
+    def on_column_title_changed(self, column_id, new_title):
+        if item := self.column_items.get(column_id):
+            item.setText(new_title)
+        else:
+            log.warning("ColumnsDialog: no entry for %r (title change)", column_id)
 
     def get_column_states(self) -> dict[str, bool]:
         # We're also preserving the order here, so we can't just iterate through
