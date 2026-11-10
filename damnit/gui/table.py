@@ -35,6 +35,7 @@ def best_text_color(background: QtGui.QColor) -> QtGui.QColor:
 class DamnitTableModel(QtGui.QStandardItemModel):
     value_changed = QtCore.pyqtSignal(int, int, str, object)
     column_removed = QtCore.pyqtSignal(str)  # column_id
+    column_title_changed = QtCore.pyqtSignal(str, str)  # column_id, title
     time_comment_changed = QtCore.pyqtSignal(int, str)
     run_visibility_changed = QtCore.pyqtSignal(int, bool)
 
@@ -489,6 +490,7 @@ class DamnitTableModel(QtGui.QStandardItemModel):
             if title != old_title:
                 self.column_titles[col_ix] = title
                 self.setHorizontalHeaderItem(col_ix, QtGui.QStandardItem(title))
+                self.column_title_changed.emit(col_id, title)
 
             self.column_descriptions[col_id] = description
 
