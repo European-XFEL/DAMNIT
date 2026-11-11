@@ -77,6 +77,18 @@ def proposal_runs(proposal):
     raw_dir = Path(find_proposal(proposal_name)) / "raw"
     return set(int(p.stem[1:]) for p in raw_dir.glob("*"))
 
+
+def available_runs(db: DamnitDB, proposal) -> set:
+    """Runs of a proposal whose data can be processed"""
+    if db.metameta.get("facility", "xfel") == "desy":
+        # DESY scans are found by the file recorded when the scan finished
+        proposal = int(proposal)
+        rows = db.conn.execute(
+            "SELECT run FROM run_info WHERE proposal = ?", (proposal,)).fetchall()
+        return {run for (run,) in rows
+                if Path(db.get_run_source(proposal, run).get("scan_file", "")).is_file()}
+    return proposal_runs(proposal)
+
 def batches(l, n):
     start = 0
     while True:
@@ -450,10 +462,11 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
         if proposal is None:
             proposal = submitter.proposal
         rows = db.conn.execute("SELECT proposal, run FROM runs").fetchall() if runs == ['all'] else None
+        # Look up which runs have data while the database is open
+        proposals = {p for p, _ in rows} if rows else {proposal}
+        runs_with_data = {} if mock else {p: available_runs(db, p) for p in proposals}
 
     if runs == ['all']:
-        # Dictionary of proposal numbers to sets of available runs
-        available_runs = {}
         # Lists of (proposal, run) tuples
         props_runs = []
         unavailable_runs = []
@@ -462,10 +475,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
             props_runs = rows
         else:
             for proposal, run in rows:
-                if proposal not in available_runs:
-                    available_runs[proposal] = proposal_runs(proposal)
-
-                if run in available_runs[proposal]:
+                if run in runs_with_data[proposal]:
                     props_runs.append((proposal, run))
                 else:
                     unavailable_runs.append((proposal, run))
@@ -478,12 +488,9 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
         except ValueError as e:
             sys.exit(f"Run numbers must be integers ({e})")
 
-        if mock:
-            available_runs = runs
-        else:
-            available_runs = proposal_runs(proposal)
+        runs_available = runs if mock else runs_with_data[proposal]
 
-        unavailable_runs = runs - available_runs
+        unavailable_runs = runs - runs_available
         if len(unavailable_runs) > 0:
             # Note that we print unavailable_runs as a list so it's enclosed
             # in [] brackets, which is more recognizable than the {} braces
@@ -491,7 +498,7 @@ def reprocess(runs, proposal=None, match=(), mock=False, watch=False, direct=Fal
             print(
                 f"Warning: skipping {len(unavailable_runs)} runs because they don't exist: {sorted(unavailable_runs)}")
 
-        props_runs = [(proposal, r) for r in sorted(runs & available_runs)]
+        props_runs = [(proposal, r) for r in sorted(runs & runs_available)]
 
     reqs = [
         ExtractionRequest(run, prop, RunData.ALL, match=match, mock=mock)
