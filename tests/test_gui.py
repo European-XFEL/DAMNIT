@@ -245,15 +245,20 @@ def test_settings(mock_db_with_data, mock_ctx, tmp_path, monkeypatch, qtbot):
         columns = win.table_view.columns_dialog.columns_widget
         col_one_item = columns.findItems(col_one, Qt.MatchFlag.MatchExactly)[0]
         col_two_item = columns.findItems(col_two, Qt.MatchFlag.MatchExactly)[0]
-        old_idx = columns.row(col_two_item)
 
         from_row = columns.row(col_one_item)
+        to_row   = columns.row(col_two_item)
         columns.takeItem(from_row)
-        columns.insertItem(old_idx, col_one_item)
+        columns.insertItem(to_row, col_one_item)
         columns.setCurrentItem(col_one_item)
-        insert_pos = old_idx + (1 if old_idx > from_row else 0)
-        win.table_view.columns_dialog.item_moved(None, from_row, from_row,
-                                  None, insert_pos)
+
+        # The rowsMoved signal gives the destination position *before* removing
+        # the row from its original location. We emulate that by adjusting the
+        # insertion position for the connected slot.
+        insert_pos = to_row + (1 if to_row > from_row else 0)
+        win.table_view.columns_dialog.item_moved(
+            None, from_row, from_row, None, insert_pos
+        )
 
         return col_one, col_two
 
