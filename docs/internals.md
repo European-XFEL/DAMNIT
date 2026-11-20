@@ -336,3 +336,36 @@ Processes producing data notify the listener of new fragment files by sending
 a Kafka message on the topic `test.damnit.file_submissions`.
 [damnit.submit()][damnit.submit] can be used to write the file and send the
 notification.
+
+## Central service statistics
+
+On the central service host, run the dashboard from a DAMNIT checkout under
+the account that runs the listener and combiner. It reads both systemd user
+units with `journalctl --user` for each requested interval.
+
+```bash
+pixi run -e dashboard uvicorn damnit.dashboard.app:app --host 127.0.0.1 --port 8000
+```
+
+For a pip installation, install `damnit[dashboard]` and run the same
+`uvicorn` command. From your workstation, open an SSH tunnel and visit
+`http://127.0.0.1:8000` in your browser.
+
+```bash
+ssh -N -L 8000:127.0.0.1:8000 xdamnprd@max-exfl458.desy.de
+```
+
+The dashboard opens on the last 24 hours. Choose a window of up to 31 days,
+subject to journal retention. Select a proposal or run to filter both services.
+The same aggregates are available at `GET /api/stats`. Optional query parameters
+are `start` (inclusive) and `end` (exclusive), both with time zones, and integer
+`proposal` and `run`.
+
+The listener chart counts successful Slurm submissions at acknowledgment time.
+If the query begins between a run notification and the submission, the job is
+shown as unclassified. The combiner counts each fragment, including repeated
+work for the same run. Pending time measures the delay from Kafka notification
+to processing. File duration measures timed HDF5 merges. First-file creation
+has its own count because this path logs no duration. Database duration includes
+the variable write transaction and its commit. Each mean uses the number of
+logged measurements for that metric.

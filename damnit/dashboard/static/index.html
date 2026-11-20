@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Central services · DAMNIT</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script defer src="/assets/plotly.min.js"></script>
+  <script defer src="/static/dashboard.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="container brand"><strong>DAMNIT</strong><span>Central services</span></div>
+  </header>
+  <main class="container">
+    <h1>Service statistics</h1>
+    <form id="filters">
+      <label>Time range
+        <select id="period">
+          <option value="6">Last 6 hours</option>
+          <option value="24" selected>Last 24 hours</option>
+          <option value="168">Last 7 days</option>
+          <option value="672">Last 28 days</option>
+          <option value="custom">Custom range</option>
+        </select>
+      </label>
+      <label class="custom-date" hidden>From (UTC)<input type="datetime-local" id="start" required disabled></label>
+      <label class="custom-date" hidden>Until (UTC)<input type="datetime-local" id="end" required disabled></label>
+      <label>Proposal<input type="number" min="0" step="1" id="proposal" placeholder="All proposals"></label>
+      <label>Run<input type="number" min="0" step="1" id="run" placeholder="All runs"></label>
+      <button type="submit" class="primary">Refresh</button>
+      <button type="button" class="link" id="clear" hidden>Clear proposal and run</button>
+    </form>
+    <p id="status" role="status" aria-live="polite">Reading service journal…</p>
+    <noscript>This dashboard needs JavaScript to load service statistics.</noscript>
+    <div id="results" hidden>
+      <dl id="workload" class="overview" aria-label="Workload totals"></dl>
+      <div class="charts">
+        <section class="card" aria-labelledby="combiner-heading">
+          <header><h2 id="combiner-heading">Combiner timings</h2></header>
+          <dl id="timings" class="chart-metrics"></dl>
+          <div id="combiner-chart" class="plot" role="img" aria-label="Mean pending, file merge and database write times by interval"></div>
+          <p id="combiner-note" class="note"></p>
+        </section>
+        <section class="card" aria-labelledby="listener-heading">
+          <header><h2 id="listener-heading">Listener submissions</h2></header>
+          <dl id="listener-metrics" class="chart-metrics"></dl>
+          <div id="listener-chart" class="plot" role="img" aria-label="Slurm submissions by interval and data type"></div>
+          <p class="note">Jobs are counted when Slurm acknowledges the submission.</p>
+        </section>
+      </div>
+      <section class="card breakdown" aria-labelledby="runs-heading">
+        <header><h2 id="runs-heading">Proposal and run breakdown</h2><span class="note">Select a proposal or run to filter the dashboard.</span></header>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="runs-heading">
+          <table>
+            <thead><tr><th scope="col">Proposal</th><th scope="col">Run</th><th scope="col">Submissions</th><th scope="col">Fragments</th><th scope="col">Variables</th><th scope="col">Mean pending</th><th scope="col">Mean file merge</th><th scope="col">Mean DB write</th></tr></thead>
+            <tbody id="run-rows"></tbody>
+          </table>
+        </div>
+        <nav id="pagination" hidden aria-label="Breakdown pages"><button id="previous">Previous</button><span id="page-info"></span><button id="next">Next</button></nav>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
