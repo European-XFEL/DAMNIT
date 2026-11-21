@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 import plotly
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .cache import CacheError, cached_stats
-from .journal import JournalError
+from .journal import JournalError, read_log_entries
 
 
 STATIC = Path(__file__).parent / "static"
@@ -32,6 +33,7 @@ def stats(
     end: datetime | None = None,
     proposal: int | None = Query(default=None, ge=0),
     run: int | None = Query(default=None, ge=0),
+    service: Literal["combiner", "listener"] | None = None,
 ):
     """Summarize the selected journal interval, defaulting to the past 24 hours."""
     if any(value is not None and value.tzinfo is None for value in (start, end)):
@@ -44,6 +46,21 @@ def stats(
     if start.year < 1970 or not timedelta(0) < end - start <= timedelta(days=31):
         raise HTTPException(422, "Choose a range after 1970-01-01 lasting up to 31 days.")
     try:
-        return cached_stats(start, end, proposal, run)
+        return cached_stats(start, end, proposal, run, service=service)
     except (JournalError, CacheError) as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/logs")
+def logs(
+    service: Literal["combiner", "listener"],
+    response: Response,
+    q: str = Query(default="", max_length=256),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    """Return the newest matching messages from the selected service's retained journal."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return {"entries": read_log_entries(service, q, limit)}
+    except JournalError as exc:
         raise HTTPException(503, str(exc)) from exc

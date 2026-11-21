@@ -100,14 +100,37 @@ def test_uncorrelated_merge_does_not_inherit_run():
 
 
 def test_stats_api(monkeypatch, tmp_path, combiner_records):
+    reads = []
+
     def read_journal(start, end):
-        assert (start, end) == (START - cache.LOOKBACK, END)
+        reads.append((start, end))
+        yield entry("listener", 0, "Added p80 r9 (raw data) to database")
+        yield entry("listener", 0, "Launched Slurm (maxwell) job 123 to run context file")
         yield from combiner_records
 
     monkeypatch.setenv("DAMNIT_DASHBOARD_CACHE", str(tmp_path / "stats.sqlite3"))
     monkeypatch.setattr(cache, "read_journal", read_journal)
-    params = {"start": START.isoformat(), "end": END.isoformat(), "proposal": 17, "run": 2}
+    period = {"start": START.isoformat(), "end": END.isoformat()}
+    params = {**period, "proposal": 17, "run": 2}
     with TestClient(dashboard.app) as client:
+        listener = client.get("/api/stats", params={**period, "service": "listener"}).json()
+        combiner = client.get("/api/stats", params={**period, "service": "combiner"}).json()
+        combined = client.get("/api/stats", params=period).json()
+        assert [(row["proposal"], row["run"]) for row in listener["runs"]] == [(80, 9)]
+        assert [(row["proposal"], row["run"]) for row in combiner["runs"]] == [(17, 2), (18, 2), (18, 3)]
+        assert listener["summary"]["raw_submissions"] == 1
+        assert listener["summary"]["fragments"] == 0
+        assert combiner["summary"]["fragments"] == 4
+        assert combiner["summary"]["submissions"] == 0
+        assert combined["summary"]["run_count"] == 4
+        assert combined["summary"]["submissions"] == 1
+        assert not any(listener["summary"]["operations"].values())
+        assert listener["distributions"]["pending"]["count"] == 0
+        assert listener["scaling"]["count"] == 0
+        assert all(bucket["submissions"] == 0 for bucket in combiner["series"])
+        no_listener = client.get("/api/stats", params={**params, "service": "listener"}).json()
+        assert no_listener["runs"] == []
+        assert no_listener["summary"]["submissions"] == 0
         response = client.get("/api/stats", params=params)
         assert response.status_code == 200
         assert response.json()["summary"]["fragments"] == 2
@@ -118,6 +141,7 @@ def test_stats_api(monkeypatch, tmp_path, combiner_records):
         assert client.get("/").status_code == 200
         for asset in ["/static/dashboard.js", "/static/dashboard.css", "/assets/plotly.min.js"]:
             assert client.get(asset).is_success
+    assert reads == [(START - cache.LOOKBACK, END)]
 
 
 def test_stats_interval_and_journal_failure(monkeypatch, tmp_path):
@@ -134,5 +158,6 @@ def test_stats_interval_and_journal_failure(monkeypatch, tmp_path):
             {"start": END.isoformat(), "end": START.isoformat()},
             {"start": START.isoformat(), "end": (START + timedelta(days=32)).isoformat()},
             {"run": "abc"},
+            {"service": "other"},
         ]:
             assert client.get("/api/stats", params=params).status_code == 422

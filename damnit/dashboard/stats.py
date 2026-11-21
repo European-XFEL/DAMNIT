@@ -185,7 +185,7 @@ def _bucket_seconds(span):
     return 86400
 
 
-def summarize_events(events, start, end, proposal=None, run=None):
+def summarize_events(events, start, end, proposal=None, run=None, *, service=None):
     """Aggregate [start, end). Earlier observations can provide correlation context."""
     first = (start - EPOCH) // MICROSECOND
     last = (end - EPOCH) // MICROSECOND
@@ -197,7 +197,10 @@ def summarize_events(events, start, end, proposal=None, run=None):
     deliveries = Counter()
     points = []
 
-    eligible = ((ts, event) for ts, event in events if ts < last)
+    eligible = (
+        (ts, event) for ts, event in events
+        if ts < last and (service is None or event["service"] == service)
+    )
     for measurement in _measurements(eligible):
         key = measurement.key
         if measurement.timestamp < first:
@@ -244,6 +247,6 @@ def summarize_events(events, start, end, proposal=None, run=None):
     }
 
 
-def summarize(records, start, end, proposal=None, run=None):
+def summarize(records, start, end, proposal=None, run=None, *, service=None):
     events = (event for record in records if (event := parse_record(record)) is not None)
-    return summarize_events(events, start, end, proposal, run)
+    return summarize_events(events, start, end, proposal, run, service=service)

@@ -1,8 +1,9 @@
 import json
 import logging
 import os
+import re
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from tempfile import TemporaryFile
 from threading import Timer
 
@@ -18,13 +19,39 @@ class JournalError(Exception):
 def read_journal(start: datetime, end: datetime):
     """Yield journal records for both services in the half-open interval [start, end)."""
     until = end - timedelta(microseconds=1)  # journalctl includes its upper bound.
-    command = [
-        "journalctl", "--user", "--no-pager", "--all", "--output=json",
+    return _journal_records([
         "--user-unit=damnit-combiner.service", "--user-unit=damnit-listener.service",
         "--output-fields=MESSAGE,_SYSTEMD_USER_UNIT,USER_UNIT,OBJECT_SYSTEMD_USER_UNIT,"
         "SYSLOG_IDENTIFIER,_PID,_SYSTEMD_INVOCATION_ID",
         f"--since=@{start.timestamp():.6f}", f"--until=@{until.timestamp():.6f}",
-    ]
+    ])
+
+
+def read_log_entries(service: str, query: str, limit: int):
+    options = [f"--user-unit=damnit-{service}.service", "--output-fields=MESSAGE",
+               "--reverse", f"--lines={limit}"]
+    if query:
+        # An argv string cannot contain NUL; PCRE accepts its hexadecimal escape.
+        literal = re.escape(query).replace("\0", r"\x00")
+        options.extend([f"--grep={literal}", "--case-sensitive=no"])
+    entries = []
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    for record in _journal_records(options, allow_no_matches=bool(query)):
+        message = record.get("MESSAGE")
+        try:
+            if isinstance(message, list):
+                # journalctl encodes a binary field as an array of unsigned bytes.
+                message = bytes(message).decode("utf-8", errors="replace")
+            timestamp = epoch + timedelta(microseconds=int(record["__REALTIME_TIMESTAMP"]))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if isinstance(message, str) and len(entries) < limit:
+            entries.append({"timestamp": timestamp.isoformat(), "message": message})
+    return entries
+
+
+def _journal_records(options, *, allow_no_matches=False):
+    command = ["journalctl", "--user", "--no-pager", "--all", "--output=json", *options]
     # A separate stderr file lets us stream stdout without a second pipe filling.
     with TemporaryFile() as errors:
         try:
@@ -38,6 +65,7 @@ def read_journal(start: datetime, end: datetime):
 
         timed_out = False
         read_error = None
+        emitted = False
 
         def stop_reader():
             nonlocal timed_out
@@ -49,7 +77,11 @@ def read_journal(start: datetime, end: datetime):
             timer.start()
             try:
                 for line in process.stdout:
-                    yield json.loads(line)
+                    emitted = True
+                    record = json.loads(line)
+                    if not isinstance(record, dict):
+                        raise ValueError("Expected a JSON object for a journal record")
+                    yield record
                 process.wait()
             except (ValueError, OSError) as exc:
                 read_error = exc
@@ -60,11 +92,13 @@ def read_journal(start: datetime, end: datetime):
                     process.kill()
 
         if timed_out:
-            raise JournalError("The journal query timed out. Try a shorter time range.")
+            raise JournalError("The journal query timed out.")
         if read_error:
             raise JournalError("Could not read journalctl JSON output.") from read_error
         errors.seek(0)
         diagnostic = errors.read(8192).decode(errors="replace").strip()
+        if allow_no_matches and process.returncode == 1 and not emitted and not diagnostic:
+            return  # journalctl --grep exits 1 when the journal contains no matches.
         if process.returncode or diagnostic:
             log.warning("journalctl exited %d: %s", process.returncode, diagnostic)
             raise JournalError(

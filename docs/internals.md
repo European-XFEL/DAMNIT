@@ -355,11 +355,31 @@ For a pip installation, install `damnit[dashboard]` and run the same
 ssh -N -L 8000:127.0.0.1:8000 xdamnprd@max-exfl458.desy.de
 ```
 
-The dashboard opens on the last 24 hours. Choose a window of up to 31 days
-and select a proposal or run to filter both services.
-The same aggregates are available at `GET /api/stats`. Optional query parameters
-are `start` (inclusive) and `end` (exclusive), both with time zones, and integer
-`proposal` and `run`.
+The dashboard opens on the **Combiner** tab for the last 24 hours. Switch to
+**Listener** for Slurm submissions and listener processing failures. Each tab
+shows the selected service's charts, totals, and run breakdown. The time,
+proposal, and run filters carry over when switching tabs. A statistics window
+can cover up to 31 days.
+
+The same aggregates are available at `GET /api/stats`. Optional parameters are
+`service` (`combiner` or `listener`), `start` (inclusive) and `end` (exclusive)
+with time zones, and integer `proposal` and `run`. Omit `service` for combined
+statistics.
+
+### Recent journal messages
+
+Each tab shows the service's latest 100 journal entries, newest first, with UTC
+timestamps and the original message text. Search for a literal, case-insensitive
+substring such as `database is locked` or `Launched Slurm` to see the latest
+matching entries anywhere in that service's retained journal. The statistics
+filters apply only to the charts and run breakdown. Refresh the messages to
+pick up new entries.
+
+For example, `GET /api/logs?service=listener&q=Launched%20Slurm&limit=20`
+returns up to 20 matching entries. The endpoint accepts limits from 1 to 500
+and returns an `entries` array with `timestamp` and `message` fields. It reads
+the service journal directly, so availability of raw messages follows journal
+retention even when older statistics remain cached.
 
 ### Reading the charts
 

@@ -30,10 +30,14 @@ const heatScale = [
 ];
 const yAxis = {rangemode: "tozero", gridcolor: "#e3eaf0", zerolinecolor: "#bccad5", automargin: true};
 const pageSize = 50;
+const serviceNames = {combiner: "Combiner", listener: "Listener"};
+const searches = {combiner: "", listener: ""};
+let service = "combiner";
 let currentData;
 let rows = [];
 let page = 0;
 let request;
+let logRequest;
 
 function duration(seconds) {
   if (seconds === null) return "—";
@@ -166,7 +170,7 @@ function drawThroughputChart(data) {
   }, variables ? "No reported variable counts in this selection." : "No fragment starts or committed writes in this selection.");
 }
 
-function drawCharts(data, filtered) {
+function drawListenerChart(data) {
   const {summary, series} = data;
   const x = series.map(bucket => bucket.time);
   const jobTraces = [
@@ -177,13 +181,10 @@ function drawCharts(data, filtered) {
     name, type: "bar", x, y: series.map(bucket => bucket[field]),
     marker: {color}, hovertemplate: "%{y:d} jobs<extra></extra>"
   }));
-  return Promise.all([
-    drawTimingChart(data), drawOperationalChart(data, filtered), drawScalingChart(data), drawThroughputChart(data),
-    plot("listener-chart", jobTraces, {barmode: "stack", yaxis: {
-      ...yAxis, title: {text: "Jobs"}, tickformat: ",d",
-      dtick: series.every(bucket => bucket.submissions <= 5) ? 1 : undefined
-    }}, "No Slurm submissions in this selection.")
-  ]);
+  return plot("listener-chart", jobTraces, {barmode: "stack", yaxis: {
+    ...yAxis, title: {text: "Jobs"}, tickformat: ",d",
+    dtick: series.every(bucket => bucket.submissions <= 5) ? 1 : undefined
+  }}, "No Slurm submissions in this selection.");
 }
 
 function drawDistributions(distributions) {
@@ -203,9 +204,18 @@ function drawDistributions(distributions) {
 }
 
 function drawSummary(s) {
-  el("workload").replaceChildren(
+  const population = [
     metric("Proposals", numbers.format(s.proposal_count)),
-    metric("Runs", numbers.format(s.run_count)),
+    metric("Runs", numbers.format(s.run_count))
+  ];
+  if (service === "listener") {
+    el("workload").replaceChildren(...population,
+      metric("Jobs submitted", numbers.format(s.submissions)),
+      metric("Processing failures", numbers.format(s.listener_failures))
+    );
+    return;
+  }
+  el("workload").replaceChildren(...population,
     metric("Fragments", numbers.format(s.fragments)),
     metric("Variables reported", numbers.format(s.variables), s.variable_samples
       ? numbers.format(s.variables / s.variable_samples) + " per fragment · " + samples(s.variable_samples)
@@ -213,10 +223,6 @@ function drawSummary(s) {
   );
   el("timings").replaceChildren(...timings.map(([label, field]) =>
     metric("Mean " + (field === "database" ? label : label.toLowerCase()), duration(s[field + "_seconds"]), samples(s[field + "_samples"]))));
-  el("listener-metrics").replaceChildren(
-    metric("Jobs submitted", numbers.format(s.submissions)),
-    metric("Processing failures", numbers.format(s.listener_failures))
-  );
   el("combiner-note").textContent = numbers.format(s.renames) + " first "
     + (s.renames === 1 ? "file" : "files") + " created (untimed) · "
     + numbers.format(s.skipped) + " missing " + (s.skipped === 1 ? "fragment" : "fragments") + " skipped · " + numbers.format(s.incomplete)
@@ -237,6 +243,18 @@ function filterButton(value, title, select) {
 
 function drawTable() {
   const body = el("run-rows");
+  const isCombiner = service === "combiner";
+  const counts = isCombiner ? [["Fragments", "fragments"], ["Variables", "variables"]] : [
+    ["Submissions", "submissions"], ["Raw", "raw_submissions"], ["Processed", "proc_submissions"],
+    ["Failures", "listener_failures"]
+  ];
+  const columns = ["Proposal", "Run", ...counts.map(([title]) => title)];
+  if (isCombiner) columns.push("Mean pending", "Mean file merge", "Mean DB write");
+  el("run-columns").replaceChildren(...columns.map(title => {
+    const column = element("th", title);
+    column.scope = "col";
+    return column;
+  }));
   body.replaceChildren();
   const first = page * pageSize;
   for (const item of rows.slice(first, first + pageSize)) {
@@ -249,9 +267,10 @@ function drawTable() {
       el("proposal").value = item.proposal;
       el("run").value = item.run;
     }));
-    for (const key of ["submissions", "fragments", "variables"]) {
+    for (const [, key] of counts) {
       tr.insertCell().textContent = numbers.format(item[key]);
     }
+    if (!isCombiner) continue;
     for (const [, key] of timings) {
       const cell = tr.insertCell();
       cell.textContent = duration(item[key + "_seconds"]);
@@ -264,7 +283,7 @@ function drawTable() {
   }
   if (!rows.length) {
     const cell = body.insertRow().insertCell();
-    cell.colSpan = 8;
+    cell.colSpan = columns.length;
     cell.textContent = "No proposal and run pairs in this selection.";
   }
   el("pagination").hidden = rows.length <= pageSize;
@@ -294,7 +313,7 @@ async function refresh() {
     setCustomRange(start, end);
   }
 
-  const params = new URLSearchParams({start: start.toISOString(), end: end.toISOString()});
+  const params = new URLSearchParams({service, start: start.toISOString(), end: end.toISOString()});
   for (const id of ["proposal", "run"]) {
     if (el(id).value !== "") params.set(id, el(id).value);
   }
@@ -320,7 +339,8 @@ async function refresh() {
     const hasData = s.run_count || s.submissions || s.listener_failures || s.fragments
       || Object.values(s.operations).some(count => count > 0)
       || s.skipped || s.renames || s.variable_samples || s.file_samples || s.database_samples || s.pending_samples;
-    el("status").textContent = (hasData ? "" : "No matching service activity. ") + interval + " · " + length + " intervals";
+    el("status").textContent = (hasData ? "" : "No " + serviceNames[service] + " statistics matched these filters. ")
+      + interval + " · " + length + " intervals";
     if (data.data_through && new Date(data.data_through) < new Date(data.end)) {
       el("status").textContent += " · Data through " + timeFormat.format(new Date(data.data_through)) + " UTC";
     }
@@ -328,10 +348,15 @@ async function refresh() {
     rows = data.runs;
     page = 0;
     drawSummary(s);
-    drawDistributions(data.distributions);
     drawTable();
     el("results").hidden = false;
-    await drawCharts(data, params.has("proposal") || params.has("run"));
+    if (service === "listener") {
+      await drawListenerChart(data);
+    } else {
+      drawDistributions(data.distributions);
+      await Promise.all([drawTimingChart(data), drawOperationalChart(data, params.has("proposal") || params.has("run")),
+        drawScalingChart(data), drawThroughputChart(data)]);
+    }
   } catch (error) {
     if (controller.signal.aborted) return;
     el("results").hidden = true;
@@ -339,6 +364,100 @@ async function refresh() {
     el("status").textContent = "Could not load service statistics. " + error.message;
   }
 }
+
+async function loadMessages() {
+  if (logRequest) logRequest.abort();
+  const controller = new AbortController();
+  logRequest = controller;
+  const query = searches[service];
+  const params = new URLSearchParams({service, limit: "100"});
+  if (query) params.set("q", query);
+  const status = el("log-status");
+  status.classList.remove("error");
+  status.textContent = "Loading messages…";
+  el("clear-search").hidden = !query && !el("log-query").value;
+  el("log-scroll").hidden = true;
+  el("log-entries").replaceChildren();
+  try {
+    const response = await fetch("/api/logs?" + params, {signal: controller.signal});
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(typeof data.detail === "string" ? data.detail : "Check the journal search.");
+    }
+    if (controller.signal.aborted) return;
+    const items = data.entries.map(entry => {
+      const item = document.createElement("li");
+      const time = element("time", entry.timestamp.replace("T", " ").replace(/(?:Z|\+00:00)$/, ""));
+      time.dateTime = entry.timestamp;
+      item.append(time, element("pre", entry.message));
+      return item;
+    });
+    el("log-entries").replaceChildren(...items);
+    el("log-scroll").hidden = items.length === 0;
+    el("log-scroll").scrollTop = 0;
+    const name = serviceNames[service];
+    const matching = query ? " containing “" + query + "”" : "";
+    status.textContent = items.length
+      ? name + " · " + items.length + (items.length === 1 ? " message" : " messages") + matching + " · Newest first · UTC"
+      : "No " + name + " messages" + matching + " in the retained journal.";
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    status.classList.add("error");
+    status.textContent = "Could not load journal messages. " + error.message;
+  }
+}
+
+function selectService(next) {
+  if (next === service) return;
+  if (request) request.abort();
+  currentData = null;
+  el("results").hidden = true;
+  service = next;
+  for (const name of Object.keys(serviceNames)) {
+    const active = name === service;
+    const tab = el(name + "-tab");
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    el(name + "-panel").hidden = !active;
+    el(name + "-charts").hidden = !active;
+  }
+  el(service + "-panel").append(el("service-view"));
+  el("log-query").value = searches[service];
+  loadMessages();
+  el("status").classList.remove("error");
+  el("status").textContent = "Apply valid statistics filters to load this service.";
+  if (el("filters").checkValidity()) refresh();
+}
+
+const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+tabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => selectService(tab.id.split("-")[0]));
+  tab.addEventListener("keydown", event => {
+    let next;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
+  });
+});
+el("log-search").addEventListener("submit", event => {
+  event.preventDefault();
+  searches[service] = el("log-query").value;
+  loadMessages();
+});
+el("log-query").addEventListener("input", () => {
+  el("clear-search").hidden = !el("log-query").value && !searches[service];
+});
+el("clear-search").addEventListener("click", () => {
+  el("log-query").value = "";
+  el("log-search").requestSubmit();
+  el("log-query").focus();
+});
+el("refresh-logs").addEventListener("click", () => el("log-search").requestSubmit());
 
 const heatLegend = el("ops-legend");
 heatLegend.append(element("span", "Events per interval"));
@@ -380,3 +499,4 @@ el("clear").addEventListener("click", () => {
 el("previous").addEventListener("click", () => { page--; drawTable(); });
 el("next").addEventListener("click", () => { page++; drawTable(); });
 refresh();
+loadMessages();

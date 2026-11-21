@@ -15,7 +15,16 @@
   </header>
   <main class="container">
     <h1>Service statistics</h1>
-    <form id="filters">
+    <div class="service-nav">
+      <div role="tablist" aria-label="Central services">
+        <button type="button" role="tab" id="combiner-tab" aria-controls="combiner-panel" aria-selected="true">Combiner</button>
+        <button type="button" role="tab" id="listener-tab" aria-controls="listener-panel" aria-selected="false" tabindex="-1">Listener</button>
+      </div>
+      <a href="#journal-heading">Recent journal messages</a>
+    </div>
+    <section id="combiner-panel" role="tabpanel" aria-labelledby="combiner-tab">
+    <div id="service-view">
+    <form id="filters" aria-label="Statistics filters">
       <label>Time range
         <select id="period">
           <option value="6">Last 6 hours</option>
@@ -36,7 +45,7 @@
     <noscript>This dashboard needs JavaScript to load service statistics.</noscript>
     <div id="results" hidden>
       <dl id="workload" class="overview" aria-label="Workload totals"></dl>
-      <div class="charts">
+      <div class="charts" id="combiner-charts">
         <section class="card" aria-labelledby="combiner-heading">
           <header class="chart-header">
             <h2 id="combiner-heading">Combiner timings</h2>
@@ -50,19 +59,6 @@
           <div id="combiner-chart" class="plot" role="img" aria-label="Pending, file merge and database write times by interval"></div>
           <p id="combiner-note" class="note"></p>
         </section>
-        <section class="card" aria-labelledby="listener-heading">
-          <header><h2 id="listener-heading">Listener submissions</h2></header>
-          <dl id="listener-metrics" class="chart-metrics"></dl>
-          <div id="listener-chart" class="plot" role="img" aria-label="Slurm submissions by interval and data type"></div>
-          <p class="note">Jobs are counted when Slurm acknowledges the submission.</p>
-        </section>
-        <section class="card full-width" aria-labelledby="ops-heading">
-          <header class="chart-header"><h2 id="ops-heading">Combiner operational events</h2></header>
-          <p class="note" id="ops-scope"></p>
-          <div id="ops-chart" class="plot heatmap" role="img" aria-label="Operational event counts by category and time interval"></div>
-          <div id="ops-legend" class="heatmap-legend" hidden aria-label="Heatmap scale"></div>
-          <p class="note">One incident can generate several log messages, including multiple Kafka warnings. Duplicate counts use source paths observed in the selected time range.</p>
-        </section>
         <section class="card" aria-labelledby="throughput-heading">
           <header class="chart-header"><h2 id="throughput-heading">Combiner throughput</h2>
             <label class="inline-control">Plot
@@ -72,29 +68,60 @@
           <p class="note" id="throughput-note"></p>
           <div id="throughput-chart" class="plot" role="img" aria-label="Combiner processing volume by interval"></div>
         </section>
+        <section class="card full-width" aria-labelledby="ops-heading">
+          <header class="chart-header"><h2 id="ops-heading">Combiner operational events</h2></header>
+          <p class="note" id="ops-scope"></p>
+          <div id="ops-chart" class="plot heatmap" role="img" aria-label="Operational event counts by category and time interval"></div>
+          <div id="ops-legend" class="heatmap-legend" hidden aria-label="Heatmap scale"></div>
+          <p class="note">One incident can generate several log messages, including multiple Kafka warnings. Duplicate counts use source paths observed in the selected time range.</p>
+        </section>
         <section class="card" aria-labelledby="scaling-heading">
           <header><h2 id="scaling-heading">Database time by update size</h2></header>
           <p class="note" id="scaling-note"></p>
           <div id="scaling-chart" class="plot" role="img" aria-label="Variable count versus database duration for matched updates"></div>
         </section>
-        <section class="card breakdown full-width" aria-labelledby="distribution-heading">
+        <section class="card breakdown" aria-labelledby="distribution-heading">
           <header><h2 id="distribution-heading">Timing distributions</h2></header>
           <div class="table-scroll" tabindex="0" role="region" aria-labelledby="distribution-heading">
             <table class="distribution"><thead><tr><th scope="col">Measurement</th><th scope="col">Samples</th><th scope="col">Mean</th><th scope="col">Median</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Maximum</th></tr></thead><tbody id="distribution-rows"></tbody></table>
           </div>
         </section>
       </div>
+      <div class="charts" id="listener-charts" hidden>
+        <section class="card full-width" aria-labelledby="listener-heading">
+          <header><h2 id="listener-heading">Listener submissions</h2></header>
+          <div id="listener-chart" class="plot" role="img" aria-label="Slurm submissions by interval and data type"></div>
+          <p class="note">Jobs are counted when Slurm acknowledges the submission.</p>
+        </section>
+      </div>
       <section class="card breakdown" aria-labelledby="runs-heading">
         <header><h2 id="runs-heading">Proposal and run breakdown</h2><span class="note">Select a proposal or run to filter the dashboard.</span></header>
         <div class="table-scroll" tabindex="0" role="region" aria-labelledby="runs-heading">
           <table>
-            <thead><tr><th scope="col">Proposal</th><th scope="col">Run</th><th scope="col">Submissions</th><th scope="col">Fragments</th><th scope="col">Variables</th><th scope="col">Mean pending</th><th scope="col">Mean file merge</th><th scope="col">Mean DB write</th></tr></thead>
+            <thead><tr id="run-columns"></tr></thead>
             <tbody id="run-rows"></tbody>
           </table>
         </div>
         <nav id="pagination" hidden aria-label="Breakdown pages"><button id="previous">Previous</button><span id="page-info"></span><button id="next">Next</button></nav>
       </section>
     </div>
+    <section class="card journal" aria-labelledby="journal-heading">
+      <header><h2 id="journal-heading" tabindex="-1">Recent journal messages</h2></header>
+      <p class="note">Search all retained messages for this service, ignoring case. The newest 100 matches are shown regardless of the statistics filters.</p>
+      <form id="log-search" role="search" aria-label="Search service journal">
+        <label>Message contains<input type="search" id="log-query" maxlength="256" placeholder="Search journal messages"></label>
+        <button type="submit" class="primary">Search</button>
+        <button type="button" id="clear-search" hidden>Clear search</button>
+        <button type="button" id="refresh-logs">Refresh messages</button>
+      </form>
+      <p class="query-status" role="status" id="log-status">Loading messages…</p>
+      <div id="log-scroll" class="log-scroll" role="region" tabindex="0" aria-label="Journal entries, newest first" hidden>
+        <ol id="log-entries"></ol>
+      </div>
+    </section>
+    </div>
+    </section>
+    <section id="listener-panel" role="tabpanel" aria-labelledby="listener-tab" hidden></section>
   </main>
 </body>
 </html>

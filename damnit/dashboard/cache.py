@@ -98,14 +98,14 @@ def _cover(db, first, last):
         ))
 
 
-def cached_stats(start, end, proposal=None, run=None, *, now=None):
+def cached_stats(start, end, proposal=None, run=None, *, service=None, now=None):
     """Summarize cached observations, fetching only missing journal intervals."""
     now = now if now is not None else datetime.now(timezone.utc)
     through = min(end, now - JOURNAL_LAG)
     first = max(0, (start - EPOCH - LOOKBACK) // MICROSECOND)
     last = (through - EPOCH) // MICROSECOND
     if start >= through:
-        result = summarize_events((), start, end, proposal, run)
+        result = summarize_events((), start, end, proposal, run, service=service)
     else:
         path = cache_path()
         try:
@@ -117,7 +117,7 @@ def cached_stats(start, end, proposal=None, run=None, *, now=None):
                     (first, last),
                 )
                 events = ((stamp, json.loads(payload)) for stamp, payload in rows)
-                result = summarize_events(events, start, end, proposal, run)
+                result = summarize_events(events, start, end, proposal, run, service=service)
         except (sqlite3.Error, OSError) as exc:
             log.exception("Could not use dashboard cache %s", path)
             raise CacheError("Could not access the dashboard statistics cache.") from exc
