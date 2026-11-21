@@ -340,8 +340,8 @@ notification.
 ## Central service statistics
 
 On the central service host, run the dashboard from a DAMNIT checkout under
-the account that runs the listener and combiner. It reads both systemd user
-units with `journalctl --user` for each requested interval.
+the account that runs the listener and combiner. The dashboard reads their
+systemd user units with `journalctl --user` and caches the measurements locally.
 
 ```bash
 pixi run -e dashboard uvicorn damnit.dashboard.app:app --host 127.0.0.1 --port 8000
@@ -355,17 +355,55 @@ For a pip installation, install `damnit[dashboard]` and run the same
 ssh -N -L 8000:127.0.0.1:8000 xdamnprd@max-exfl458.desy.de
 ```
 
-The dashboard opens on the last 24 hours. Choose a window of up to 31 days,
-subject to journal retention. Select a proposal or run to filter both services.
+The dashboard opens on the last 24 hours. Choose a window of up to 31 days
+and select a proposal or run to filter both services.
 The same aggregates are available at `GET /api/stats`. Optional query parameters
 are `start` (inclusive) and `end` (exclusive), both with time zones, and integer
 `proposal` and `run`.
 
-The listener chart counts successful Slurm submissions at acknowledgment time.
-If the query begins between a run notification and the submission, the job is
-shown as unclassified. The combiner counts each fragment, including repeated
-work for the same run. Pending time measures the delay from Kafka notification
-to processing. File duration measures timed HDF5 merges. First-file creation
-has its own count because this path logs no duration. Database duration includes
-the variable write transaction and its commit. Each mean uses the number of
-logged measurements for that metric.
+### Reading the charts
+
+- **Throughput and listener activity.** Each fragment start counts as a
+  processing attempt, including redeliveries. The listener counts successful
+  Slurm submissions at acknowledgment time. Submissions whose preceding run
+  notification is unavailable appear as unclassified.
+- **Timings.** Pending time measures the delay from the Kafka notification to
+  the start of processing. Older starts without a logged delay still count
+  toward throughput. File duration covers measured HDF5 merges. Initial file
+  creation has a separate count because it has no logged duration. Database
+  duration includes the outer `set_variables` transaction and commit.
+  Compare the median and upper percentiles to see how often slow updates occur.
+- **Database time by update size.** Each point pairs the reported variable
+  count with the duration of the same successful database update. Hover over
+  a point to inspect the update. The sample count and rank correlation use
+  all matched updates, including when the chart displays a sample.
+- **Operational events.** The timeline shows Kafka heartbeat and offset commit
+  warnings, repeated fragment deliveries, missing files, processing and
+  permission errors, database locks and rollbacks, and service starts and
+  crashes. Counts represent logged occurrences. One failure can produce several
+  kinds of message. Repeated deliveries are identified by the same source path
+  appearing more than once within the selection. A proposal or run filter
+  limits the timeline to events attributable to that selection.
+
+### Journal cache
+
+The first query for an interval parses the retained journal and stores
+timestamped observations in SQLite. Changing filters or reopening the
+dashboard reuses those observations. Overlapping queries read only the missing
+intervals, including when an earlier scan found no events. A failed read
+leaves its interval available for retry. Previously cached observations remain
+available after journal rotation.
+
+The default file is `$XDG_CACHE_HOME/damnit/<hostname>/dashboard.sqlite3`, or
+`~/.cache/damnit/<hostname>/dashboard.sqlite3` when `XDG_CACHE_HOME` is unset.
+Each host has its own cache when service accounts share a home directory. Set
+`DAMNIT_DASHBOARD_CACHE` to use another file. Use a writable location specific
+to the service host and account. The cache stores measurements, identifiers,
+and source-path hashes. No raw journal text is needed. To rebuild it, stop the
+dashboard and remove its cache file. Only entries still in the journal can be
+recovered.
+
+Queries include one minute of preceding context to associate multi-message
+operations with a run. Totals count events in the selected interval. Live
+queries allow two seconds for the journal to settle, and the API reports
+the exclusive upper bound of available data in `data_through`.

@@ -33,10 +33,12 @@ echo '{"_SYSTEMD_USER_UNIT":"damnit-listener.service","MESSAGE":"second"}'
     assert [row["MESSAGE"] for row in journal.read_journal(START, END)] == ["first", "second"]
     arguments = (tmp_path / "arguments").read_text().splitlines()
     assert {
-        "--user", "--no-pager", "--output=json",
+        "--user", "--no-pager", "--output=json", "--all",
         "--user-unit=damnit-combiner.service", "--user-unit=damnit-listener.service",
-        "--since=@1704067200.000000", "--until=@1704070800.123456",
+        "--since=@1704067200.000000", "--until=@1704070800.123455",
     } <= set(arguments)
+    fields, = [arg.removeprefix("--output-fields=") for arg in arguments if arg.startswith("--output-fields=")]
+    assert {"MESSAGE", "_SYSTEMD_USER_UNIT", "USER_UNIT", "OBJECT_SYSTEMD_USER_UNIT"} <= set(fields.split(","))
 
 
 def test_empty_journal(fake_journal):

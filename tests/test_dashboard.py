@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from damnit.dashboard import app as dashboard
+from damnit.dashboard import cache
 from damnit.dashboard.stats import summarize
 
 
@@ -98,12 +99,13 @@ def test_uncorrelated_merge_does_not_inherit_run():
     assert summarize(records, START, END, run=2)["summary"]["file_samples"] == 0
 
 
-def test_stats_api(monkeypatch, combiner_records):
+def test_stats_api(monkeypatch, tmp_path, combiner_records):
     def read_journal(start, end):
-        assert (start, end) == (START, END)
+        assert (start, end) == (START - cache.LOOKBACK, END)
         yield from combiner_records
 
-    monkeypatch.setattr(dashboard, "read_journal", read_journal)
+    monkeypatch.setenv("DAMNIT_DASHBOARD_CACHE", str(tmp_path / "stats.sqlite3"))
+    monkeypatch.setattr(cache, "read_journal", read_journal)
     params = {"start": START.isoformat(), "end": END.isoformat(), "proposal": 17, "run": 2}
     with TestClient(dashboard.app) as client:
         response = client.get("/api/stats", params=params)
@@ -118,14 +120,15 @@ def test_stats_api(monkeypatch, combiner_records):
             assert client.get(asset).is_success
 
 
-def test_stats_interval_and_journal_failure(monkeypatch):
+def test_stats_interval_and_journal_failure(monkeypatch, tmp_path):
     def broken_journal(start, end):
-        assert end - start == timedelta(days=1)
+        assert end - start == timedelta(days=1) + cache.LOOKBACK
         raise dashboard.JournalError("Unavailable")
 
-    monkeypatch.setattr(dashboard, "read_journal", broken_journal)
+    monkeypatch.setenv("DAMNIT_DASHBOARD_CACHE", str(tmp_path / "stats.sqlite3"))
+    monkeypatch.setattr(cache, "read_journal", broken_journal)
     with TestClient(dashboard.app) as client:
-        assert client.get("/api/stats").status_code == 503
+        assert client.get("/api/stats", params={"end": END.isoformat()}).status_code == 503
         for params in [
             {"start": "2026-10-01T00:00:00"},
             {"start": END.isoformat(), "end": START.isoformat()},

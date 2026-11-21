@@ -11,7 +11,26 @@ const timings = [
   ["File merge", "file", "#976019"],
   ["DB write", "database", "#13766b"],
 ];
+const operations = [
+  ["heartbeat_expired", "Kafka heartbeat expiry"],
+  ["offset_commit_failure", "Kafka offset failures"],
+  ["extra_deliveries", "Extra deliveries"],
+  ["duplicate_source_paths", "Duplicated paths"],
+  ["missing_notified_file", "Missing files"],
+  ["permission_error", "Permission errors"],
+  ["database_locked", "Database locks"],
+  ["database_rollback", "DB rollbacks"],
+  ["unexpected_processing_error", "Processing errors"],
+  ["service_start", "Service starts"],
+  ["service_crash", "Service crashes"]
+];
+const heatScale = [
+  [0, "0", "#f0f4f7"], [1, "1", "#aacee9"], [2, "2–4", "#6a9ecd"],
+  [5, "5–9", "#3575ae"], [10, "10+", "#174b75"]
+];
+const yAxis = {rangemode: "tozero", gridcolor: "#e3eaf0", zerolinecolor: "#bccad5", automargin: true};
 const pageSize = 50;
+let currentData;
 let rows = [];
 let page = 0;
 let request;
@@ -63,18 +82,93 @@ function plot(id, traces, layout, emptyText) {
   }, {responsive: true, displayModeBar: false});
 }
 
-function drawCharts(data) {
+function drawTimingChart(data) {
   const {summary, series} = data;
+  const stat = el("trend-stat").value;
+  const suffix = stat === "mean" ? "_seconds" : "_" + stat + "_seconds";
   const x = series.map(bucket => bucket.time);
-  const axes = {rangemode: "tozero", gridcolor: "#e3eaf0", zerolinecolor: "#bccad5", automargin: true};
-  const mergeTraces = timings.filter(([, field]) => summary[field + "_samples"] > 0)
+  const traces = timings.filter(([, field]) => summary[field + "_samples"] > 0)
     .map(([name, field, color]) => ({
       name, type: "scatter", mode: "lines+markers", x,
-      y: series.map(bucket => bucket[field + "_seconds"]),
+      y: series.map(bucket => bucket[field + suffix]),
       customdata: series.map(bucket => bucket[field + "_samples"]),
       line: {color, width: 2}, marker: {size: 5}, connectgaps: false,
       hovertemplate: "%{y:.4~g} s · %{customdata} samples<extra></extra>"
     }));
+  return plot("combiner-chart", traces, {yaxis: {...yAxis, title: {text: "Seconds"}}},
+    "No measured timings in this selection.");
+}
+
+function drawOperationalChart(data, filtered) {
+  const counts = data.summary.operations;
+  const categories = operations.filter(([key]) => counts[key] > 0);
+  const values = categories.map(([key]) => data.series.map(bucket => bucket.operations[key]));
+  el("ops-scope").textContent = filtered
+    ? "Only events attributable to the selected proposal or run are shown. Clear the filter to include service-wide events."
+    : "Includes service-wide journal records. Row totals cover the selected time range.";
+  const node = el("ops-chart");
+  node.style.height = categories.length ? (4 + categories.length * 1.5) + "rem" : "";
+  el("ops-legend").hidden = !categories.length;
+  const trace = {
+    type: "heatmap", x: data.series.map(bucket => bucket.time),
+    y: categories.map(([key, label]) => label + " · " + numbers.format(counts[key])),
+    z: values.map(row => row.map(value => heatScale.filter(([minimum]) => value >= minimum).length - 1)),
+    customdata: values, showscale: false, zmin: 0, zmax: heatScale.length - 1,
+    colorscale: heatScale.map(([, , color], i) => [i / (heatScale.length - 1), color]),
+    ygap: 3,
+    hovertemplate: "%{x|%d %b, %H:%M UTC}<br>%{y}<br>%{customdata} in this interval<extra></extra>"
+  };
+  return plot("ops-chart", categories.length ? [trace] : [], {
+    yaxis: {autorange: "reversed", automargin: true, fixedrange: true, type: "category"},
+    margin: {l: 10, r: 12, t: 4, b: 38}, hovermode: "closest", showlegend: false
+  }, "No operational events in this selection.");
+}
+
+function drawScalingChart(data) {
+  const {count, points, spearman} = data.scaling;
+  const positive = points.length > 0 && points.every(point => point.database_seconds > 0);
+  let note = numbers.format(count) + (count === 1 ? " matched update" : " matched updates");
+  if (points.length < count) note += " · " + numbers.format(points.length) + " points shown";
+  if (spearman !== null) note += " · Spearman ρ " + spearman.toFixed(3);
+  el("scaling-note").textContent = note;
+  return plot("scaling-chart", points.length ? [{
+    type: "scatter", mode: "markers",
+    x: points.map(point => point.variables),
+    y: points.map(point => point.database_seconds * 1000),
+    customdata: points.map(point => [point.proposal, point.run]),
+    marker: {size: 6, color: "#155aa4", opacity: 0.45},
+    hovertemplate: "p%{customdata[0]} r%{customdata[1]}<br>%{x} variables · %{y:.4~g} ms<extra></extra>"
+  }] : [], {
+    margin: {l: 60, r: 12, t: 12, b: 48},
+    showlegend: false, hovermode: "closest",
+    xaxis: {...yAxis, type: "linear", title: {text: "Variables updated"}},
+    yaxis: {...yAxis, type: positive ? "log" : "linear", title: {text: positive ? "DB time (ms, log scale)" : "DB time (ms)"}}
+  }, "No variable counts matched to successful database writes.");
+}
+
+function drawThroughputChart(data) {
+  const variables = el("throughput-unit").value === "variables";
+  el("throughput-note").textContent = variables ? "Variables reported for database updates in each interval."
+    : "Fragment starts include redeliveries. Database writes count successful commits.";
+  const fields = variables ? [["Variables", "variables", "#155aa4"]] : [
+    ["Fragment starts", "fragments", "#13766b"], ["DB writes", "database_samples", "#976019"]
+  ];
+  const traces = fields.filter(([, field]) => field === "variables" ? data.summary.variable_samples : data.summary[field])
+    .map(([name, field, color]) => ({
+      name, type: "scatter", mode: "lines+markers", x: data.series.map(bucket => bucket.time),
+      y: data.series.map(bucket => bucket[field]), line: {color, width: 2}, marker: {size: 4},
+      hovertemplate: name + " · %{y:d}<extra></extra>"
+    }));
+  const smallCounts = traces.every(trace => trace.y.every(value => value <= 5));
+  return plot("throughput-chart", traces, {
+    showlegend: !variables, yaxis: {...yAxis, title: {text: variables ? "Variables" : "Operations"},
+      tickformat: ",d", dtick: smallCounts ? 1 : undefined}
+  }, variables ? "No reported variable counts in this selection." : "No fragment starts or committed writes in this selection.");
+}
+
+function drawCharts(data, filtered) {
+  const {summary, series} = data;
+  const x = series.map(bucket => bucket.time);
   const jobTraces = [
     ["Raw", "raw_submissions", "#155aa4"],
     ["Processed", "proc_submissions", "#13877d"],
@@ -84,14 +178,28 @@ function drawCharts(data) {
     marker: {color}, hovertemplate: "%{y:d} jobs<extra></extra>"
   }));
   return Promise.all([
-    plot("combiner-chart", mergeTraces, {yaxis: {...axes, title: {text: "Seconds"}}},
-      "No measured timings in this selection."),
+    drawTimingChart(data), drawOperationalChart(data, filtered), drawScalingChart(data), drawThroughputChart(data),
     plot("listener-chart", jobTraces, {barmode: "stack", yaxis: {
-      ...axes, title: {text: "Jobs"}, tickformat: ",d",
+      ...yAxis, title: {text: "Jobs"}, tickformat: ",d",
       dtick: series.every(bucket => bucket.submissions <= 5) ? 1 : undefined
-    }},
-      "No Slurm submissions in this selection.")
+    }}, "No Slurm submissions in this selection.")
   ]);
+}
+
+function drawDistributions(distributions) {
+  const body = el("distribution-rows");
+  body.replaceChildren();
+  for (const [label, key] of timings) {
+    const values = distributions[key];
+    const row = body.insertRow();
+    const heading = element("th", label);
+    heading.scope = "row";
+    row.append(heading);
+    row.insertCell().textContent = numbers.format(values.count);
+    for (const field of ["mean", "p50", "p95", "p99", "max"]) {
+      row.insertCell().textContent = duration(values[field]);
+    }
+  }
 }
 
 function drawSummary(s) {
@@ -111,7 +219,8 @@ function drawSummary(s) {
   );
   el("combiner-note").textContent = numbers.format(s.renames) + " first "
     + (s.renames === 1 ? "file" : "files") + " created (untimed) · "
-    + numbers.format(s.skipped) + " missing " + (s.skipped === 1 ? "fragment" : "fragments") + " skipped";
+    + numbers.format(s.skipped) + " missing " + (s.skipped === 1 ? "fragment" : "fragments") + " skipped · " + numbers.format(s.incomplete)
+    + " starts without an observed file completion";
 }
 
 function filterButton(value, title, select) {
@@ -194,7 +303,7 @@ async function refresh() {
   request = controller;
   el("clear").hidden = !params.has("proposal") && !params.has("run");
   el("status").classList.remove("error");
-  el("status").textContent = "Reading service journal…";
+  el("status").textContent = "Loading statistics…";
   el("results").hidden = true;
   try {
     const response = await fetch("/api/stats?" + params, {signal: controller.signal});
@@ -209,14 +318,20 @@ async function refresh() {
       ? numbers.format(data.bucket_seconds / 3600) + " h" : numbers.format(data.bucket_seconds / 60) + " min";
     const s = data.summary;
     const hasData = s.run_count || s.submissions || s.listener_failures || s.fragments
+      || Object.values(s.operations).some(count => count > 0)
       || s.skipped || s.renames || s.variable_samples || s.file_samples || s.database_samples || s.pending_samples;
     el("status").textContent = (hasData ? "" : "No matching service activity. ") + interval + " · " + length + " intervals";
+    if (data.data_through && new Date(data.data_through) < new Date(data.end)) {
+      el("status").textContent += " · Data through " + timeFormat.format(new Date(data.data_through)) + " UTC";
+    }
+    currentData = data;
     rows = data.runs;
     page = 0;
     drawSummary(s);
+    drawDistributions(data.distributions);
     drawTable();
     el("results").hidden = false;
-    await drawCharts(data);
+    await drawCharts(data, params.has("proposal") || params.has("run"));
   } catch (error) {
     if (controller.signal.aborted) return;
     el("results").hidden = true;
@@ -225,6 +340,21 @@ async function refresh() {
   }
 }
 
+const heatLegend = el("ops-legend");
+heatLegend.append(element("span", "Events per interval"));
+for (const [, label, color] of heatScale) {
+  const group = element("span", label);
+  const swatch = document.createElement("i");
+  swatch.style.background = color;
+  group.prepend(swatch);
+  heatLegend.append(group);
+}
+el("trend-stat").addEventListener("change", () => {
+  if (currentData) drawTimingChart(currentData);
+});
+el("throughput-unit").addEventListener("change", () => {
+  if (currentData) drawThroughputChart(currentData);
+});
 el("filters").addEventListener("submit", event => {
   event.preventDefault();
   refresh();

@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from tempfile import TemporaryFile
 from threading import Timer
 
@@ -16,12 +16,14 @@ class JournalError(Exception):
 
 
 def read_journal(start: datetime, end: datetime):
-    """Yield journal records for both central services in chronological order."""
+    """Yield journal records for both services in the half-open interval [start, end)."""
+    until = end - timedelta(microseconds=1)  # journalctl includes its upper bound.
     command = [
-        "journalctl", "--user", "--no-pager", "--output=json",
+        "journalctl", "--user", "--no-pager", "--all", "--output=json",
         "--user-unit=damnit-combiner.service", "--user-unit=damnit-listener.service",
-        "--output-fields=MESSAGE,_SYSTEMD_USER_UNIT,SYSLOG_IDENTIFIER,_PID,_SYSTEMD_INVOCATION_ID",
-        f"--since=@{start.timestamp():.6f}", f"--until=@{end.timestamp():.6f}",
+        "--output-fields=MESSAGE,_SYSTEMD_USER_UNIT,USER_UNIT,OBJECT_SYSTEMD_USER_UNIT,"
+        "SYSLOG_IDENTIFIER,_PID,_SYSTEMD_INVOCATION_ID",
+        f"--since=@{start.timestamp():.6f}", f"--until=@{until.timestamp():.6f}",
     ]
     # A separate stderr file lets us stream stdout without a second pipe filling.
     with TemporaryFile() as errors:

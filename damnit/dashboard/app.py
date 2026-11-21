@@ -1,4 +1,3 @@
-from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -7,8 +6,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .journal import JournalError, read_journal
-from .stats import summarize
+from .cache import CacheError, cached_stats
+from .journal import JournalError
 
 
 STATIC = Path(__file__).parent / "static"
@@ -45,7 +44,6 @@ def stats(
     if start.year < 1970 or not timedelta(0) < end - start <= timedelta(days=31):
         raise HTTPException(422, "Choose a range after 1970-01-01 lasting up to 31 days.")
     try:
-        with closing(read_journal(start, end)) as records:
-            return summarize(records, start, end, proposal=proposal, run=run)
-    except JournalError as exc:
+        return cached_stats(start, end, proposal, run)
+    except (JournalError, CacheError) as exc:
         raise HTTPException(503, str(exc)) from exc
