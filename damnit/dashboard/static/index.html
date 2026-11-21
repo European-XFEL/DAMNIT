@@ -7,6 +7,7 @@
   <title>Central services · DAMNIT</title>
   <link rel="stylesheet" href="/static/dashboard.css">
   <script defer src="/assets/plotly.min.js"></script>
+  <script defer src="/static/health.js"></script>
   <script defer src="/static/dashboard.js"></script>
 </head>
 <body>
@@ -14,7 +15,18 @@
     <div class="container brand"><strong>DAMNIT</strong><span>Central services</span></div>
   </header>
   <main class="container">
-    <h1>Service statistics</h1>
+    <h1>Central services dashboard</h1>
+    <section class="card health" aria-labelledby="health-heading">
+      <header class="chart-header">
+        <h2 id="health-heading">Current health</h2>
+        <div class="actions"><span id="live-state" class="note">Updates every 30 s</span>
+          <button type="button" id="pause-live">Pause</button>
+          <button type="button" id="refresh-health">Check now</button>
+        </div>
+      </header>
+      <p id="health-status" class="query-status">Checking services…</p>
+      <div id="health-services"></div>
+    </section>
     <div class="service-nav">
       <div role="tablist" aria-label="Central services">
         <button type="button" role="tab" id="combiner-tab" aria-controls="combiner-panel" aria-selected="true">Combiner</button>
@@ -38,12 +50,18 @@
       <label class="custom-date" hidden>Until (UTC)<input type="datetime-local" id="end" required disabled></label>
       <label>Proposal<input type="number" min="0" step="1" id="proposal" placeholder="All proposals"></label>
       <label>Run<input type="number" min="0" step="1" id="run" placeholder="All runs"></label>
+      <label id="threshold-control">Slow pending above (s)<input type="number" id="pending-threshold" min="0" step="any" value="60" required></label>
       <button type="submit" class="primary">Refresh</button>
       <button type="button" class="link" id="clear" hidden>Clear proposal and run</button>
     </form>
     <p id="status" role="status" aria-live="polite">Loading statistics…</p>
     <noscript>This dashboard needs JavaScript to load service statistics.</noscript>
     <div id="results" hidden>
+      <section class="card attention" aria-labelledby="attention-heading">
+        <header><h2 id="attention-heading" tabindex="-1">Runs needing attention</h2></header>
+        <dl id="attention-metrics" class="chart-metrics"></dl>
+        <div id="incidents"></div>
+      </section>
       <dl id="workload" class="overview" aria-label="Workload totals"></dl>
       <div class="charts" id="combiner-charts">
         <section class="card" aria-labelledby="combiner-heading">
@@ -51,7 +69,7 @@
             <h2 id="combiner-heading">Combiner timings</h2>
             <label class="inline-control">Plot
               <select id="trend-stat">
-                <option value="mean">Mean</option><option value="p50">Median</option><option value="p95">95th percentile</option>
+                <option value="mean">Mean</option><option value="p50">Median</option><option value="p95" selected>95th percentile</option>
               </select>
             </label>
           </header>
@@ -68,32 +86,40 @@
           <p class="note" id="throughput-note"></p>
           <div id="throughput-chart" class="plot" role="img" aria-label="Combiner processing volume by interval"></div>
         </section>
+      </div>
+      <div class="charts" id="listener-charts" hidden>
+        <section class="card full-width" aria-labelledby="listener-heading">
+          <header><h2 id="listener-heading">Listener dispatch events</h2></header>
+          <div id="listener-chart" class="plot" role="img" aria-label="Observed dispatch events by interval"></div>
+          <p class="note">Slurm submissions count on acknowledgment. A fallback request can also produce a capacity skip or a local failure. The listener journal does not record successful local execution.</p>
+        </section>
+      </div>
+      <div class="charts">
         <section class="card full-width" aria-labelledby="ops-heading">
-          <header class="chart-header"><h2 id="ops-heading">Combiner operational events</h2></header>
+          <header class="chart-header"><h2 id="ops-heading">Operational events</h2></header>
           <p class="note" id="ops-scope"></p>
+          <label class="inline-control" hidden>Open interval in journal <select id="event-interval"></select></label>
           <div id="ops-chart" class="plot heatmap" role="img" aria-label="Operational event counts by category and time interval"></div>
           <div id="ops-legend" class="heatmap-legend" hidden aria-label="Heatmap scale"></div>
           <p class="note">One incident can generate several log messages, including multiple Kafka warnings. Duplicate counts use source paths observed in the selected time range.</p>
         </section>
-        <section class="card" aria-labelledby="scaling-heading">
+      </div>
+      <details id="performance" class="card">
+        <summary>Performance details</summary>
+        <div class="charts">
+        <section aria-labelledby="scaling-heading">
           <header><h2 id="scaling-heading">Database time by update size</h2></header>
           <p class="note" id="scaling-note"></p>
           <div id="scaling-chart" class="plot" role="img" aria-label="Variable count versus database duration for matched updates"></div>
         </section>
-        <section class="card breakdown" aria-labelledby="distribution-heading">
+        <section class="breakdown" aria-labelledby="distribution-heading">
           <header><h2 id="distribution-heading">Timing distributions</h2></header>
           <div class="table-scroll" tabindex="0" role="region" aria-labelledby="distribution-heading">
             <table class="distribution"><thead><tr><th scope="col">Measurement</th><th scope="col">Samples</th><th scope="col">Mean</th><th scope="col">Median</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Maximum</th></tr></thead><tbody id="distribution-rows"></tbody></table>
           </div>
         </section>
       </div>
-      <div class="charts" id="listener-charts" hidden>
-        <section class="card full-width" aria-labelledby="listener-heading">
-          <header><h2 id="listener-heading">Listener submissions</h2></header>
-          <div id="listener-chart" class="plot" role="img" aria-label="Slurm submissions by interval and data type"></div>
-          <p class="note">Jobs are counted when Slurm acknowledges the submission.</p>
-        </section>
-      </div>
+      </details>
       <section class="card breakdown" aria-labelledby="runs-heading">
         <header><h2 id="runs-heading">Proposal and run breakdown</h2><span class="note">Select a proposal or run to filter the dashboard.</span></header>
         <div class="table-scroll" tabindex="0" role="region" aria-labelledby="runs-heading">
@@ -107,7 +133,11 @@
     </div>
     <section class="card journal" aria-labelledby="journal-heading">
       <header><h2 id="journal-heading" tabindex="-1">Recent journal messages</h2></header>
-      <p class="note">Search all retained messages for this service, ignoring case. The newest 100 matches are shown regardless of the statistics filters.</p>
+      <p id="journal-scope" class="note">All retained messages for this service. Showing the newest 100 matches.</p>
+      <div class="actions" id="evidence-actions" hidden>
+        <button id="back-to-dashboard" type="button">Back to dashboard</button>
+        <button id="all-journal" type="button">Search all retained history</button>
+      </div>
       <form id="log-search" role="search" aria-label="Search service journal">
         <label>Message contains<input type="search" id="log-query" maxlength="256" placeholder="Search journal messages"></label>
         <button type="submit" class="primary">Search</button>

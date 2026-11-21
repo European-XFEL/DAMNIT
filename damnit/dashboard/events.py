@@ -13,6 +13,9 @@ COMBINING = re.compile(
     rf"""Combining (?P<source>.+) into .*?p(?P<p>\d+)_r(?P<r>\d+)\.h5['"]?\)?"""
     rf"(?:; event pending for (?P<pending>-?{NUMBER}) s before processing)?"
 )
+# Legacy starts log the source as a PosixPath repr. Preserve the generated
+# fragment basename for incident identification without retaining its directory.
+FRAGMENT_NAME = re.compile(r"""(?:/|['"]|^)(p\d+_r\d+\.[\w.-]+\.ready\.h5)(?:['"]\))?$""")
 FILE_TIME = re.compile(rf"Finished combining in ({NUMBER}) s")
 CREATED = re.compile(r"""Created .*?p(?P<p>\d+)_r(?P<r>\d+)\.h5['"]?\)? by renaming""")
 MISSING = re.compile(r"File .*?p(?P<p>\d+)_r(?P<r>\d+)\.[^/]* not present \d+ s after notification, skipping")
@@ -27,6 +30,7 @@ ADDED = re.compile(r"Added p(?P<p>\d+) r(?P<r>\d+) \((?P<data>raw|proc) data\) t
 LAUNCHED = re.compile(r"Launched Slurm \([^)]+\) job \S+ to run context file")
 PROCESS_FAILED = re.compile(r"Processing p(?P<p>\d+), r(?P<r>\d+) for .* failed:")
 LOCAL_FAILED = re.compile(r"Local extraction of p(?P<p>\d+), r(?P<r>\d+) failed:")
+CAPACITY = re.compile(r"Too many events processing \(\d+\), skip event \(p(?P<p>\d+), r(?P<r>\d+), (?P<data>raw|proc)\)")
 TRACEBACK_ISSUES = {
     "permission_error": re.compile(r"^\s*PermissionError:", re.M),
     "database_locked": re.compile(r"^\s*sqlite3\.OperationalError: database is locked\b", re.M),
@@ -44,7 +48,8 @@ def _combiner(line):
         if match := COMBINING.fullmatch(line):
             # A digest identifies repeated source files without persisting paths.
             digest = hashlib.sha256(match["source"].encode("utf-8", "surrogatepass")).hexdigest()
-            return dict(kind="fragment", key=_key(match), path_hash=digest,
+            basename = FRAGMENT_NAME.search(match["source"])
+            return dict(kind="fragment", key=_key(match), path_hash=digest, fragment=basename[1] if basename else None,
                         pending=float(match["pending"]) if match["pending"] else None)
         return dict(kind="reset")
     if match := FILE_TIME.fullmatch(line):
@@ -58,12 +63,8 @@ def _combiner(line):
     if match := DB_TIME.fullmatch(line):
         seconds = (float(match["transaction"]) + float(match["finish"])) / 1000
         return dict(kind=match["result"], key=_key(match), seconds=seconds)
-    if line.startswith("Unexpected error processing file submission message"):
+    if line == "Unexpected error processing file submission message":
         return dict(kind="processing_error")
-    if "Heartbeat session expired" in line:
-        return dict(kind="heartbeat_expired")
-    if line.startswith("Offset commit failed:"):
-        return dict(kind="offset_commit_failure")
     if line.startswith(("Waiting for file submission", "Stopping on ")):
         return dict(kind="reset")
 
@@ -73,13 +74,17 @@ def _listener(line):
         return dict(kind="added", key=_key(match), data=match["data"])
     if LAUNCHED.fullmatch(line):
         return dict(kind="launch")
+    if line == "Slurm job submission failed, starting process locally.":
+        return dict(kind="fallback")
+    if match := CAPACITY.fullmatch(line):
+        return dict(kind="capacity_skip", key=_key(match), data=match["data"])
     if match := PROCESS_FAILED.fullmatch(line):
         return dict(kind="failure", key=_key(match))
     if match := LOCAL_FAILED.fullmatch(line):
         return dict(kind="local_failure", key=_key(match))
     if line.startswith("Unexpected error handling Kafka event"):
         return dict(kind="failure")
-    if line.startswith(("Slurm job submission failed", "Started listener", "Stopping on ")):
+    if line.startswith(("Started listener", "Stopping on ")):
         return dict(kind="reset")
 
 
@@ -109,13 +114,16 @@ def parse_record(record):
         return
     text = LOG_PREFIX.sub("", text, count=1)
     line = text.partition("\n")[0]
-    if service == "combiner":
-        if line.startswith("Starting ") and "DAMNIT output file combiner service" in line:
-            event = dict(kind="service_start")
-        elif CRASH.search(line):
-            event = dict(kind="service_crash")
-        else:
-            event = _combiner(line)
+    if line.startswith("Starting ") and "DAMNIT" in line:
+        event = dict(kind="service_start")
+    elif CRASH.search(line):
+        event = dict(kind="service_crash")
+    elif "Heartbeat session expired" in line:
+        event = dict(kind="heartbeat_expired")
+    elif line.startswith("Offset commit failed:"):
+        event = dict(kind="offset_commit_failure")
+    elif service == "combiner":
+        event = _combiner(line)
         details = [name for name, pattern in TRACEBACK_ISSUES.items() if pattern.search(text)]
         if details:
             if event is None:

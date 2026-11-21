@@ -106,3 +106,41 @@ nav { display: flex; align-items: center; gap: .8rem; justify-content: flex-end;
   #log-entries li { grid-template-columns: minmax(0, 1fr); }
   #log-search button { align-self: stretch; }
 }
+.health, .attention, #performance { margin-bottom: 1rem; }
+.actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.actions button { min-height: 2rem; font-size: .875rem; }
+#health-services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+#health-services > section { min-width: 0; border-top: 2px solid var(--line); padding-top: .65rem; }
+#health-services h3, #incidents h3 { font-size: 1rem; margin: 0 0 .35rem; }
+#health-services h3 { display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
+.unit-state { font-weight: 500; font-size: .8rem; border-radius: .2rem; padding: .12rem .4rem; background: #e9edf1; }
+.unit-state.active { background: #e0f2ea; color: #1e5e47; }
+.unit-state.stopped { background: #fbe8e4; color: #893b29; }
+#health-services dl { display: grid; gap: .3rem; }
+#health-services dl > div { display: grid; grid-template-columns: minmax(9rem, .85fr) 1.35fr; gap: .65rem; align-items: baseline; }
+#health-services dd { font-size: .875rem; font-weight: 500; line-height: 1.45; letter-spacing: normal; }
+#health-services details, #incidents details, #incidents p { font-size: .875rem; color: var(--muted); margin-top: .45rem; }
+#health-services details p { overflow-wrap: anywhere; }
+summary { cursor: pointer; font-weight: 600; }
+#performance > summary { font-size: 1.15rem; }
+#performance section { min-width: 0; }
+#performance .charts { margin-bottom: 0; }
+#incidents section { margin-top: 1rem; }
+#incidents td, #incidents th { text-align: left; }
+#incidents :is(td, th):nth-child(4) { white-space: normal; min-width: 11rem; }
+#evidence-actions { margin-block: .5rem; }
+#ops-scope + label { margin-block: .4rem; font-weight: normal; }
+#threshold-control input { width: 7rem; }
+@media (max-width: 50rem) {
+  #health-services { grid-template-columns: minmax(0, 1fr); }
+  #health-services dl > div { grid-template-columns: minmax(8rem, .8fr) 1.2fr; }
+}
+@media (max-width: 36rem) {
+  .health .actions .note { flex-basis: 100%; }
+  #threshold-control input { width: 100%; }
+  #ops-scope + label { flex-wrap: wrap; }
+}
+
+.stale-source { color: #884b17; font-size: .875rem; margin-top: .35rem; }
+
+.fragment-name { white-space: normal; overflow-wrap: anywhere; max-width: 22rem; }

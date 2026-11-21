@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .journal import JOURNAL_TIMEOUT_SECONDS, read_journal
+from .journal import JOURNAL_TIMEOUT_SECONDS, preceding_combiner_records, read_journal
 from .stats import parse_record, summarize_events
 
 
@@ -18,7 +18,7 @@ MICROSECOND = timedelta(microseconds=1)
 LOOKBACK = timedelta(minutes=1)
 JOURNAL_LAG = timedelta(seconds=2)
 APPLICATION_ID = 0x44414D4E  # "DAMN"
-CACHE_VERSION = 1  # Bump when the schema or the parsed observations change.
+CACHE_VERSION = 2  # Bump when the schema or the parsed observations change.
 
 
 class CacheError(Exception):
@@ -28,10 +28,19 @@ class CacheError(Exception):
 def cache_path():
     override = os.environ.get("DAMNIT_DASHBOARD_CACHE")
     if override:
-        return Path(override).expanduser()
-    root = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
-    # Service accounts can have a shared home directory on multiple hosts.
-    return Path(root) / "damnit" / socket.gethostname() / "dashboard.sqlite3"
+        path = Path(override).expanduser()
+    else:
+        root = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
+        # Service accounts can have a shared home directory on multiple hosts.
+        path = Path(root) / "damnit" / socket.gethostname() / "dashboard.sqlite3"
+    # Fresh installations use the documented path. If it already holds an
+    # older dashboard cache, build alongside it so rollback retains history.
+    if path.is_file():
+        with closing(sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)) as db:
+            if (db.execute("PRAGMA application_id").fetchone()[0] == APPLICATION_ID
+                    and 0 < db.execute("PRAGMA user_version").fetchone()[0] < CACHE_VERSION):
+                return path.with_name(f"{path.stem}.v{CACHE_VERSION}{path.suffix}")
+    return path
 
 
 def _initialize(db):
@@ -46,25 +55,74 @@ def _initialize(db):
     elif version > CACHE_VERSION:
         raise CacheError("The cache was written by a newer dashboard version.")
     else:
-        db.execute("DROP TABLE IF EXISTS events")
-        db.execute("DROP TABLE IF EXISTS coverage")
+        raise CacheError("The configured versioned cache has an incompatible schema.")
     db.execute("CREATE TABLE events (ts INTEGER NOT NULL, payload TEXT NOT NULL)")
     db.execute("CREATE INDEX events_by_time ON events (ts)")
     db.execute("CREATE TABLE coverage (start INTEGER PRIMARY KEY, end INTEGER NOT NULL)")
     db.execute(f"PRAGMA user_version={CACHE_VERSION}")
 
 
-def _fill_gap(db, first, last):
-    with closing(read_journal(EPOCH + first * MICROSECOND, EPOCH + last * MICROSECOND)) as records:
-        def parsed():
-            for record in records:
-                event = parse_record(record)
-                if event is not None:
-                    stamp, payload = event
-                    if first <= stamp < last:
-                        yield stamp, json.dumps(payload, separators=(",", ":"))
+# Only a fragment start can own the following unkeyed legacy file completion.
+# Interleaved Kafka warnings and journal messages do not end the attempt.
+FILE_BOUNDARIES = {"fragment", "merge", "rename", "skip", "update", "commit", "rollback", "processing_error", "reset"}
 
-        db.executemany("INSERT INTO events (ts, payload) VALUES (?, ?)", parsed())
+
+def _resolve_predecessors(db, before, unresolved):
+    """Resolve only the first unkeyed completion per worker at a scan boundary."""
+    def resolve(event):
+        source = tuple(event["source"])
+        if source in unresolved and event["service"] == "combiner" and event["kind"] in FILE_BOUNDARIES:
+            rowid, completion = unresolved.pop(source)
+            if event["kind"] == "fragment":
+                completion["key"] = event["key"]
+                db.execute("UPDATE events SET payload = ? WHERE rowid = ?",
+                           (json.dumps(completion, separators=(",", ":")), rowid))
+
+    # Reuse only contiguous observations. Across a gap, an older start may
+    # belong to an unrelated attempt. One reverse pass serves all workers.
+    coverage = db.execute("SELECT start FROM coverage WHERE start < ? AND end >= ?", (before, before)).fetchone()
+    if coverage:
+        left, = coverage
+        rows = db.execute("SELECT payload FROM events WHERE ts >= ? AND ts < ? ORDER BY ts DESC, rowid DESC",
+                          (left, before))
+        for (payload,) in rows:
+            resolve(json.loads(payload))
+            if not unresolved:
+                return
+        before = left
+    with closing(preceding_combiner_records(EPOCH + before * MICROSECOND, unresolved)) as records:
+        for record in records:
+            if parsed := parse_record(record):
+                resolve(parsed[1])
+            if not unresolved:
+                return
+
+
+def _fill_gap(db, first, last):
+    active = {}
+    unresolved = {}
+    with closing(read_journal(EPOCH + first * MICROSECOND, EPOCH + last * MICROSECOND)) as records:
+        for record in records:
+            parsed = parse_record(record)
+            if parsed is None:
+                continue
+            stamp, event = parsed
+            if not first <= stamp < last:
+                continue
+            orphan = False
+            if event["service"] == "combiner" and event["kind"] in FILE_BOUNDARIES:
+                source = tuple(event["source"])
+                if event["kind"] == "merge" and event.get("key") is None:
+                    orphan = source not in active and any(source[1:])
+                    if any(source[1:]):
+                        event["key"] = active.get(source)
+                active[source] = event.get("key") if event["kind"] == "fragment" else None
+            row = db.execute("INSERT INTO events (ts, payload) VALUES (?, ?)",
+                             (stamp, json.dumps(event, separators=(",", ":"))))
+            if orphan:
+                unresolved[source] = (row.lastrowid, event)
+    if unresolved:
+        _resolve_predecessors(db, first, unresolved)
 
 
 def _cover(db, first, last):
@@ -98,17 +156,18 @@ def _cover(db, first, last):
         ))
 
 
-def cached_stats(start, end, proposal=None, run=None, *, service=None, now=None):
+def cached_stats(start, end, proposal=None, run=None, *, service=None, now=None, pending_threshold_seconds=60):
     """Summarize cached observations, fetching only missing journal intervals."""
     now = now if now is not None else datetime.now(timezone.utc)
     through = min(end, now - JOURNAL_LAG)
     first = max(0, (start - EPOCH - LOOKBACK) // MICROSECOND)
     last = (through - EPOCH) // MICROSECOND
     if start >= through:
-        result = summarize_events((), start, end, proposal, run, service=service)
+        result = summarize_events((), start, end, proposal, run, service=service,
+                                  pending_threshold_seconds=pending_threshold_seconds)
     else:
-        path = cache_path()
         try:
+            path = cache_path()
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with closing(sqlite3.connect(path, timeout=JOURNAL_TIMEOUT_SECONDS + 10)) as db:
                 _cover(db, first, last)
@@ -117,9 +176,10 @@ def cached_stats(start, end, proposal=None, run=None, *, service=None, now=None)
                     (first, last),
                 )
                 events = ((stamp, json.loads(payload)) for stamp, payload in rows)
-                result = summarize_events(events, start, end, proposal, run, service=service)
+                result = summarize_events(events, start, end, proposal, run, service=service,
+                                          pending_threshold_seconds=pending_threshold_seconds)
         except (sqlite3.Error, OSError) as exc:
-            log.exception("Could not use dashboard cache %s", path)
+            log.exception("Could not use dashboard cache")
             raise CacheError("Could not access the dashboard statistics cache.") from exc
     result["data_through"] = through.isoformat()
     return result

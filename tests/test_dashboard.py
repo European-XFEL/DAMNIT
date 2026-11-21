@@ -99,6 +99,19 @@ def test_uncorrelated_merge_does_not_inherit_run():
     assert summarize(records, START, END, run=2)["summary"]["file_samples"] == 0
 
 
+def test_current_health_endpoint(monkeypatch):
+    snapshot = {"sampled_at": START.isoformat(), "services": {
+        "combiner": {"kafka": {"status": "partial", "lag": None}},
+        "listener": {"kafka": {"status": "ok", "lag": 0}},
+    }}
+    monkeypatch.setattr(dashboard, "get_health", lambda: snapshot)
+    with TestClient(dashboard.app) as client:
+        response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == snapshot
+
+
 def test_stats_api(monkeypatch, tmp_path, combiner_records):
     reads = []
 
@@ -135,11 +148,14 @@ def test_stats_api(monkeypatch, tmp_path, combiner_records):
         assert response.status_code == 200
         assert response.json()["summary"]["fragments"] == 2
         assert len(response.json()["runs"]) == 1
+        threshold = client.get("/api/stats", params=params | {"pending_threshold_seconds": 0.2}).json()
+        assert threshold["pending_threshold_seconds"] == 0.2
+        assert threshold["summary"]["pending_exceedances"] == 1
         empty = client.get("/api/stats", params={**params, "run": 100}).json()
         assert empty["runs"] == []
         assert empty["summary"]["pending_seconds"] is None
         assert client.get("/").status_code == 200
-        for asset in ["/static/dashboard.js", "/static/dashboard.css", "/assets/plotly.min.js"]:
+        for asset in ["/static/dashboard.js", "/static/health.js", "/static/dashboard.css", "/assets/plotly.min.js"]:
             assert client.get(asset).is_success
     assert reads == [(START - cache.LOOKBACK, END)]
 
@@ -159,5 +175,7 @@ def test_stats_interval_and_journal_failure(monkeypatch, tmp_path):
             {"start": START.isoformat(), "end": (START + timedelta(days=32)).isoformat()},
             {"run": "abc"},
             {"service": "other"},
+            {"pending_threshold_seconds": "inf"},
+            {"pending_threshold_seconds": 0},
         ]:
             assert client.get("/api/stats", params=params).status_code == 422

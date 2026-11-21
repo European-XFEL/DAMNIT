@@ -165,12 +165,54 @@ def test_cache_version_and_path(journal, tmp_path, monkeypatch):
     monkeypatch.setattr(cache.socket, "gethostname", lambda: "services-host")
     cache.cached_stats(START, START + HOUR)
     assert cache.cache_path() == tmp_path / "damnit/services-host/dashboard.sqlite3"
-    # A parser upgrade invalidates both cached observations and known-empty intervals.
+    old_path = cache.cache_path()
+    old_bytes = old_path.read_bytes()
+    # Rebuild observations and scan coverage alongside the old file, preserving rollback.
     monkeypatch.setattr(cache, "CACHE_VERSION", cache.CACHE_VERSION + 1)
     cache.cached_stats(START, START + HOUR)
     assert reads == [(START - cache.LOOKBACK, START + HOUR)] * 2
+    assert cache.cache_path() == old_path.with_name(f"dashboard.v{cache.CACHE_VERSION}.sqlite3")
+    assert old_path.read_bytes() == old_bytes
     with sqlite3.connect(cache.cache_path()) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == cache.CACHE_VERSION
     monkeypatch.setattr(cache.socket, "gethostname", lambda: "another-host")
     cache.cached_stats(START, START + HOUR)
     assert len(reads) == 3
+
+
+@pytest.mark.parametrize("use_adjacent_history", [False, True])
+def test_long_merge_attribution_across_query_boundary(monkeypatch, tmp_path, use_adjacent_history):
+    before = START - 62 * SECOND  # Start sits just outside the query's one-minute lookback.
+    messages = [
+        (before, "567196", "INFO:__main__:Combining PosixPath('/db/p10756_r117.x.ready.h5') "
+                           "into PosixPath('/db/p10756_r117.h5'); event pending for 0.002 s before processing"),
+        (before + SECOND, "other", "INFO:__main__:Combining /db/other into /db/p10756_r999.h5"),
+        (START + 13 * SECOND, "567196", "DEBUG:__main__:Finished combining in 74.050 s"),
+    ]
+
+    def record(time, pid, message):
+        return {"_SYSTEMD_USER_UNIT": "damnit-combiner.service", "_PID": pid, "_BOOT_ID": "boot1",
+                "__REALTIME_TIMESTAMP": str((time - cache.EPOCH) // cache.MICROSECOND), "MESSAGE": message}
+
+    def read(start, end):
+        yield from (record(*row) for row in messages if start <= row[0] < end)
+
+    backward_reads = []
+
+    def preceding(end, sources):
+        backward_reads.append(end)
+        yield from (record(*row) for row in reversed(messages) if row[0] < end)
+
+    monkeypatch.setenv("DAMNIT_DASHBOARD_CACHE", str(tmp_path / "combiner.sqlite3"))
+    monkeypatch.setattr(cache, "read_journal", read)
+    monkeypatch.setattr(cache, "preceding_combiner_records", preceding)
+    if use_adjacent_history:
+        cache.cached_stats(before, START - cache.LOOKBACK)
+    end = START + 60 * SECOND
+    for _ in range(2):
+        summary = cache.cached_stats(START, end, 10756, 117)["summary"]
+        assert summary["file_samples"] == 1
+        assert summary["file_seconds"] == pytest.approx(74.05)
+        assert summary["fragments"] == 0  # Context stays outside the selected interval.
+    assert cache.cached_stats(START, end, 10756, 999)["summary"]["file_samples"] == 0
+    assert backward_reads == ([] if use_adjacent_history else [START - cache.LOOKBACK])

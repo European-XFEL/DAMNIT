@@ -112,3 +112,47 @@ def test_scatter_samples_preserve_outliers():
     assert len(result["points"]) <= MAX_SCATTER_POINTS < result["count"]
     assert max(p["database_seconds"] for p in result["points"]) == pytest.approx(10.002)
     assert max(p["variables"] for p in result["points"]) == MAX_SCATTER_POINTS + 9
+
+
+def test_listener_fallback_skip_and_worker_failure():
+    messages = [
+        "Added p12 r1 (raw data) to database", "Slurm job submission failed, starting process locally.",
+        "Too many events processing (10), skip event (p12, r1, raw)",
+        "Added p12 r2 (proc data) to database", "Slurm job submission failed, starting process locally.",
+        "Added p12 r2 (raw data) to database", "Local extraction of p12, r2 failed:",
+        "Launched Slurm (maxwell) job 123 to run context file",
+        "Added p12 r3 (proc data) to database", "Slurm job submission failed, starting process locally.",
+        "Processing p12, r4 for /db failed:", "Added p12 r5 (raw data) to database",
+    ]
+    records = [entry(i, msg, _SYSTEMD_USER_UNIT="damnit-listener.service") for i, msg in enumerate(messages)]
+    data = summarize(records, START, END, service="listener")
+    totals = data["summary"]
+    assert (totals["dispatch_attempts"], totals["local_fallbacks"], totals["capacity_skips"]) == (6, 3, 1)
+    assert (totals["raw_submissions"], totals["local_failures"], totals["listener_failures"]) == (1, 1, 2)
+    assert "local_starts" not in totals and "local_successes" not in totals
+    assert {(r["kind"], r["run"], r["data_type"]) for r in data["incidents"]["failures"]} == {
+        ("capacity_skip", 1, "raw"), ("local_failure", 2, None), ("listener_failure", 4, None)}
+    # The fallback for r3 has no terminal worker message. Only r5 lacks any dispatch decision.
+    assert [r["run"] for r in data["incidents"]["unobserved"]] == [5]
+
+
+def test_failed_attempt_deduplication_and_slow_incident_ranking():
+    records = [
+        fragment(0, "p12_r1.a.ready.h5", pending=180), entry(1, "Finished combining in 1 s"),
+        update(2, 8), entry(3, "DB change (set_variables p12 r1): 2 ms in transaction, 1 ms rollback"),
+        entry(4, "Unexpected error processing file submission message"), entry(5, "sqlite3.OperationalError: database is locked"),
+    ]
+    for sec, run, delay in [(10, 2, 70), (20, 3, 90), (30, 4, 60)]:
+        records.extend([fragment(sec, f"file-{run}", run, pending=delay), entry(sec + 1, "Finished combining in 1 s"),
+                        update(sec + 2, 1, run), commit(sec + 3, 2, run)])
+    data = summarize(records, START, END)
+    incidents = data["incidents"]
+    failure, = incidents["failures"]
+    assert (failure["run"], failure["fragment"], failure["reason"]) == (1, "p12_r1.a.ready.h5", "Database was locked")
+    assert "rolled back" in failure["stage"]
+    assert incidents["failure_count"] == data["summary"]["db_after_file_failures"] == 1
+    assert data["series"][0]["pending_exceedances"] == data["summary"]["pending_exceedances"] == 3
+    assert [(row["run"], row["seconds"]) for row in incidents["slow"]] == [(3, 90), (2, 70)]
+    stricter = summarize(records, START, END, pending_threshold_seconds=90)
+    assert stricter["summary"]["pending_exceedances"] == 1
+    assert stricter["incidents"]["slow_count"] == 0  # The single exceedance already appears as a failure.

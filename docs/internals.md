@@ -340,8 +340,9 @@ notification.
 ## Central service statistics
 
 On the central service host, run the dashboard from a DAMNIT checkout under
-the account that runs the listener and combiner. The dashboard reads their
-systemd user units with `journalctl --user` and caches the measurements locally.
+the account that runs the Listener and Combiner. It reads the installed
+services' existing journal messages with `journalctl --user` and caches
+observations locally. The services can keep running during dashboard setup.
 
 ```bash
 pixi run -e dashboard uvicorn damnit.dashboard.app:app --host 127.0.0.1 --port 8000
@@ -355,75 +356,134 @@ For a pip installation, install `damnit[dashboard]` and run the same
 ssh -N -L 8000:127.0.0.1:8000 xdamnprd@max-exfl458.desy.de
 ```
 
-The dashboard opens on the **Combiner** tab for the last 24 hours. Switch to
-**Listener** for Slurm submissions and listener processing failures. Each tab
-shows the selected service's charts, totals, and run breakdown. The time,
-proposal, and run filters carry over when switching tabs. A statistics window
-can cover up to 31 days.
+### Current health
 
-The same aggregates are available at `GET /api/stats`. Optional parameters are
-`service` (`combiner` or `listener`), `start` (inclusive) and `end` (exclusive)
-with time zones, and integer `proposal` and `run`. Omit `service` for combined
-statistics.
+**Current health** shows both services, including when you select historical
+statistics. It displays the systemd user unit state and restart count, the
+observation time, and the latest activity found in the past 24 hours. For the
+Listener, these timestamps are the last registered run and Slurm acknowledgment.
+For the Combiner, they are the last fragment start and committed database write.
+An idle service can have an active unit and no recent work.
+
+Kafka consumer lag is the number of messages between committed group offsets
+and partition end offsets. The dashboard reads topic metadata and offsets
+without joining either service group or consuming records. A total requires
+offsets for every partition. Open **Source details** for topic coverage and
+probe errors. When a probe fails, the dashboard labels any previous complete
+reading with its observation time.
+
+The lag probe uses a Python interpreter with `kafka-python`. The dashboard
+looks for the interpreter in the service unit's `ExecStart`, then falls back
+to its own interpreter. Set `DAMNIT_DASHBOARD_KAFKA_PYTHON` to an executable
+Python path if the client is installed elsewhere. The Listener group is
+derived from the unit's working directory. Use
+`DAMNIT_DASHBOARD_LISTENER_GROUP` to specify the group if necessary. For a
+custom Combiner broker, set `AMORE_BROKER` in the dashboard environment to
+the broker used by the service. The other health sources and historical
+statistics remain available if Kafka offsets cannot be read.
+
+`GET /api/health` returns the UTC observation time (`sampled_at`) and a
+`services` entry for each service with `unit`, `kafka`, and `activity`
+results. The server shares each sample for 30 seconds. Rolling ranges refresh
+every 30 seconds while the browser tab is visible. **Pause**, a custom range,
+or opening journal evidence suspends automatic updates. **Check now** requests
+the latest current-health sample.
+
+### Investigating a run
+
+The dashboard opens on the **Combiner** tab for the last 24 hours. The UTC
+time range, proposal, and run filters carry over to **Listener**. Select a
+proposal or run in the breakdown table to apply that filter. Statistics
+windows can cover up to 31 days.
+
+- **Runs needing attention** lists failures and skips newest first. The
+  stage distinguishes a completed file merge followed by a database rollback
+  from a failure before the write. **Completion unobserved** identifies work
+  whose expected next stage was absent at the cutoff. A later interval can
+  provide the missing evidence.
+- **Pending delay** measures time from the Kafka notification to the start of
+  fragment processing. The summary shows the median, P99, and count strictly
+  above **Slow pending above (s)** out of all measured starts. Change the
+  positive threshold (default 60 seconds) and select **Refresh**. Slow attempts
+  are ranked by delay, with failed attempts listed under failures. The dashboard
+  returns up to 50 entries per incident group and shows the full group counts.
+- **Combiner throughput and timings.** Each fragment start counts as an
+  attempt, including redeliveries and older records without a pending time.
+  Initial file creation by rename has a separate, untimed count. Measured
+  file durations cover HDF5 merges. Database timings cover the outer
+  `set_variables` transaction and commit. Expand **Performance details** for
+  timing distributions and the database time by update size. The scatterplot
+  can display a sample. Its rank correlation uses all matched updates.
+- **Listener dispatch events.** Observed attempts include run registrations
+  and identifiable processing failures before registration. Slurm submissions
+  count at acknowledgment and appear as unclassified when their preceding run
+  registration is unavailable. A failed Slurm submission can request local
+  fallback. The journal records capacity skips and explicit local extraction
+  failures, and has no reliable record of successful local execution. A
+  fallback request alone counts as a dispatch decision. Local extraction
+  failures are included in the processing failure total.
+- **Operational events** counts individual log occurrences. A single failure
+  can generate several messages. Duplicate deliveries use source paths
+  repeated within the selection. Under a run or proposal filter, rows marked
+  **service-wide** retain Kafka heartbeat and offset commit warnings and systemd
+  starts and crashes for the service. These rows provide context alongside
+  the selected run's own counts.
+
+`GET /api/stats` accepts optional `service` (`combiner` or `listener`),
+`start` (inclusive) and `end` (exclusive) with time zones, nonnegative integer
+`proposal` and `run`, and `pending_threshold_seconds`. Omit `service` for
+combined statistics. The response includes totals, time buckets, per-run
+counts, distributions, and ranked incidents. `data_through` is the exclusive
+journal scan cutoff. Live queries allow two seconds for journal records to settle.
 
 ### Recent journal messages
 
-Each tab shows the service's latest 100 journal entries, newest first, with UTC
-timestamps and the original message text. Search for a literal, case-insensitive
-substring such as `database is locked` or `Launched Slurm` to see the latest
-matching entries anywhere in that service's retained journal. The statistics
-filters apply only to the charts and run breakdown. Refresh the messages to
-pick up new entries.
+Select **View logs** on an incident to read the service journal from one minute
+before to one minute after that event. Select a heatmap cell or choose an
+interval under **Open interval in journal** to inspect its time bucket. Both
+show surrounding messages for the whole service, including messages without a
+run ID. The text search stays within that interval. **Back to dashboard**
+restores the statistics filters. **Search all retained history** removes the
+time bounds.
+
+The journal shows the newest 100 matches, with UTC timestamps and original
+message text. Searches such as `database is locked` or `Launched Slurm` are
+literal and case-insensitive. Outside a drill-down, searches cover the
+service's retained history independently of the statistics filters. Use
+**Refresh messages** to update a search.
 
 For example, `GET /api/logs?service=listener&q=Launched%20Slurm&limit=20`
-returns up to 20 matching entries. The endpoint accepts limits from 1 to 500
-and returns an `entries` array with `timestamp` and `message` fields. It reads
-the service journal directly, so availability of raw messages follows journal
-retention even when older statistics remain cached.
+returns up to 20 matching `entries` with `timestamp` and `message`. The
+endpoint accepts `limit` from 1 to 500 and optional time-zone-aware `start`
+(inclusive) and `end` (exclusive). Bounded searches also return
+`availability`. An empty result with `available` means no matching messages
+were found. `outside_retention` means the interval predates the earliest
+readable user journal entry. `unknown` means retention could not be established.
+Journal read failures return HTTP 503. Cached statistics can outlive the raw
+messages that produced them.
 
-### Reading the charts
+### Journal cache and upgrades
 
-- **Throughput and listener activity.** Each fragment start counts as a
-  processing attempt, including redeliveries. The listener counts successful
-  Slurm submissions at acknowledgment time. Submissions whose preceding run
-  notification is unavailable appear as unclassified.
-- **Timings.** Pending time measures the delay from the Kafka notification to
-  the start of processing. Older starts without a logged delay still count
-  toward throughput. File duration covers measured HDF5 merges. Initial file
-  creation has a separate count because it has no logged duration. Database
-  duration includes the outer `set_variables` transaction and commit.
-  Compare the median and upper percentiles to see how often slow updates occur.
-- **Database time by update size.** Each point pairs the reported variable
-  count with the duration of the same successful database update. Hover over
-  a point to inspect the update. The sample count and rank correlation use
-  all matched updates, including when the chart displays a sample.
-- **Operational events.** The timeline shows Kafka heartbeat and offset commit
-  warnings, repeated fragment deliveries, missing files, processing and
-  permission errors, database locks and rollbacks, and service starts and
-  crashes. Counts represent logged occurrences. One failure can produce several
-  kinds of message. Repeated deliveries are identified by the same source path
-  appearing more than once within the selection. A proposal or run filter
-  limits the timeline to events attributable to that selection.
+The first statistics query for an interval parses the retained journal and
+stores timestamped observations in SQLite. Overlapping queries scan only
+missing intervals, including when a previous scan found no events. Failed
+scans can be retried. The cache contains measurements, identifiers, fragment
+basenames where available, and source-path hashes. Text searches read the raw
+journal directly.
 
-### Journal cache
+The cache normally lives at `$XDG_CACHE_HOME/damnit/<hostname>/dashboard.sqlite3`
+or, when `XDG_CACHE_HOME` is unset, `~/.cache/damnit/<hostname>/dashboard.sqlite3`.
+Set `DAMNIT_DASHBOARD_CACHE` to use another file. Choose a writable location
+specific to the service host and account.
 
-The first query for an interval parses the retained journal and stores
-timestamped observations in SQLite. Changing filters or reopening the
-dashboard reuses those observations. Overlapping queries read only the missing
-intervals, including when an earlier scan found no events. A failed read
-leaves its interval available for retry. Previously cached observations remain
-available after journal rotation.
+On upgrade, an existing version 1 cache stays at its original path. The
+dashboard builds a version 2 sibling, for example `dashboard.v2.sqlite3`,
+as operators query intervals. The same naming rule applies to an explicitly
+configured cache path. Keep the version 1 file for rollback and for older
+observations whose source messages have rotated away. The version 2 cache can
+rebuild only from the retained journal.
 
-The default file is `$XDG_CACHE_HOME/damnit/<hostname>/dashboard.sqlite3`, or
-`~/.cache/damnit/<hostname>/dashboard.sqlite3` when `XDG_CACHE_HOME` is unset.
-Each host has its own cache when service accounts share a home directory. Set
-`DAMNIT_DASHBOARD_CACHE` to use another file. Use a writable location specific
-to the service host and account. The cache stores measurements, identifiers,
-and source-path hashes. No raw journal text is needed. To rebuild it, stop the
-dashboard and remove its cache file. Only entries still in the journal can be
-recovered.
-
-Queries include one minute of preceding context to associate multi-message
-operations with a run. Totals count events in the selected interval. Live
-queries allow two seconds for the journal to settle, and the API reports
-the exclusive upper bound of available data in `data_through`.
+Queries use one minute of preceding context to associate related messages.
+For a merge completion without a run ID at a scan boundary, the dashboard
+also checks preceding records from the same worker for the fragment start.
+Unattributed merges still contribute to service-wide timing samples.
