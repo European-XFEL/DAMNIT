@@ -24,14 +24,24 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-import extra_data
-import extra_proposal
 import h5py
 import numpy as np
 from damnit_ctx import (
     Cell, GroupBoundVariable, GroupError, Pipeline, RunData, Skip, Variable,
     _normalize_tags, is_group_instance, pipeline_scope
 )
+from desy_scan import DESYScan
+
+# EXtra-data & EXtra-proposal are only needed for European XFEL data, they
+# may not be installed in the context environment at other facilities.
+try:
+    import extra_data
+except ImportError:
+    extra_data = None
+try:
+    import extra_proposal
+except ImportError:
+    extra_proposal = None
 from damnit_exceptions import ContextFileErrors, DependencyError
 from damnit_writing import save_fragment
 
@@ -512,7 +522,8 @@ class ContextFile:
     def execute(self, run_data, run_number, proposal, param_values, *, label="") -> 'Results':
         label = f"[{label}] " if label and label != 'default' else ""
         dep_results = {'start_time': 
-            get_start_time(run_data) if isinstance(run_data, extra_data.DataCollection) else time.time()
+            get_start_time(run_data) if is_xfel_run(run_data) or isinstance(run_data, DESYScan)
+            else time.time()
         }
         res = {'start_time': Cell(dep_results['start_time'])}
         errors = {}
@@ -568,6 +579,14 @@ class ContextFile:
                         kwargs[arg_name] = proposal
                     elif annotation == "meta#proposal_path":
                         kwargs[arg_name] = get_proposal_path(run_data)
+
+                    # DESY beamtime-metadata-<id>.json fields
+                    elif annotation.startswith("beamtime#"):
+                        if not isinstance(run_data, DESYScan):
+                            raise RuntimeError(
+                                f"'{annotation}' for variable '{var.title}' is only available for DESY scans")
+                        field = annotation.removeprefix("beamtime#")
+                        kwargs[arg_name] = run_data.beamtime_metadata[field]
                     else:
                         raise RuntimeError(f"Unknown path '{annotation}' for variable '{var.title}'")
 
@@ -580,7 +599,9 @@ class ContextFile:
                     dep_errors = [(dep, errors[dep]) for dep in missing_deps if dep in errors]
                     if dep_errors:
                         errors[name] = DependencyError(dep_errors)
-                        if all(isinstance(e, (Skip, extra_data.exceptions.SourceNameError)) for _, e in dep_errors):
+                        skip_types = (Skip,) if extra_data is None else (
+                            Skip, extra_data.exceptions.SourceNameError)
+                        if all(isinstance(e, skip_types) for _, e in dep_errors):
                             errors[name] = Skip(str(errors[name]))
                     else:
                         deps = [f"{os.linesep}- '{d}'" for d in missing_deps]
@@ -621,7 +642,14 @@ class ContextFile:
         return Results(res, errors, self)
 
 
+def is_xfel_run(run_data):
+    return extra_data is not None and isinstance(run_data, extra_data.DataCollection)
+
+
 def get_start_time(xd_run):
+    if isinstance(xd_run, DESYScan):
+        return xd_run.start_time or time.time()
+
     ts = xd_run.select_trains(np.s_[:1]).train_timestamps()[0]
 
     if np.isnan(ts):
@@ -664,7 +692,9 @@ def extract_error_info(exc_type, e, tb):
 
 
 def get_proposal_path(xd_run) -> str:
-    if isinstance(xd_run, extra_data.DataCollection):
+    if isinstance(xd_run, DESYScan):
+        return xd_run.beamtime_path
+    if is_xfel_run(xd_run):
         files = [f.filename for f in xd_run.files]
         p = Path(files[0])
 
@@ -747,6 +777,13 @@ def main(argv=None):
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
     exec_ap.add_argument('--record-output', type=Path)
+    exec_ap.add_argument('--facility', choices=('xfel', 'desy'), default='xfel',
+                         help="How to open the data: an EXtra-data run (xfel) "
+                              "or a DESY scan, where proposal=beamtime ID and "
+                              "run=scan number (desy)")
+    exec_ap.add_argument('--scan-file', help="DESY: the scan's NeXus/HDF5 file")
+    exec_ap.add_argument('--scan-key', help="DESY: the scan's blissdata key")
+    exec_ap.add_argument('--blissdata-url', help="DESY: blissdata Redis URL")
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
     ctx_ap.add_argument("context_file", type=Path)
@@ -762,8 +799,8 @@ def main(argv=None):
     if args.subcmd == "exec":
         if args.mock:
             log.info("Using mock run for testing")
-        log.info("proposal=%d, run=%d, run_data=%s, cluster_job=%s%s%s",
-                 args.proposal, args.run, args.run_data, args.cluster_job,
+        log.info("facility=%s, proposal=%d, run=%d, run_data=%s, cluster_job=%s%s%s",
+                 args.facility, args.proposal, args.run, args.run_data, args.cluster_job,
                  f", match={args.match}" if args.match else "",
                  f", var={args.var}" if args.var else "")
 
@@ -792,6 +829,14 @@ def main(argv=None):
 
         if args.mock:
             res = sel.execute(data=mock_run())
+        elif args.facility == 'desy':
+            scan = DESYScan(args.proposal, args.run, filename=args.scan_file,
+                            scan_key=args.scan_key, redis_url=args.blissdata_url)
+            log.info("Opened %r", scan)
+            try:
+                res = sel.execute(data=scan)
+            finally:
+                scan.close()
         else:
             res = sel.execute()
 

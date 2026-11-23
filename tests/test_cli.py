@@ -82,6 +82,19 @@ def test_gui(monkeypatch):
             main(["gui", "/nope"])
         run_app.assert_not_called()
 
+def test_listen_event_provider(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    # --event-provider is saved in the listener config
+    with patch("damnit.backend.start_listener") as start_listener:
+        main(["listen", "--daemonize", "--event-provider", "blissdata"])
+        start_listener.assert_called_once()
+    with ListenerDB(tmp_path) as db:
+        assert db.settings["event_provider"] == "blissdata"
+
+    with pytest.raises(SystemExit):
+        main(["listen", "--event-provider", "nope"])
+
 def test_listen(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     pkg = "damnit.backend"

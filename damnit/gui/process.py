@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialogButtonBox
 from superqt import QSearchableListWidget
 
-from ..backend.extraction_control import ExtractionRequest
+from ..backend.extraction_control import ExtractionRequest, available_runs
 from ..context import RunData
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,14 @@ def fmt_run_ranges(run_nums: list[int]) -> str:
     return ", ".join(s_pieces)
 
 
-def find_runs(runs: list[int], propnum: str) -> list[int]:
+def find_runs(runs: list[int], propnum: str, db=None) -> list[int]:
+    if db is not None and db.metameta.get("facility", "xfel") == "desy":
+        try:
+            existing = available_runs(db, int(propnum))
+        except ValueError:  # propnum is not numeric
+            return []
+        return [run for run in runs if run in existing]
+
     try:
         prop_dir = Path(find_proposal(f"p{int(propnum):06}"))
         raw_runs = {p.name for p in (prop_dir / 'raw').iterdir()}
@@ -76,8 +83,9 @@ class ProcessingDialog(QtWidgets.QDialog):
     all_vars_selected = False
     no_vars_selected = False
 
-    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None):
+    def __init__(self, proposal: str, runs: list[int], var_ids_titles, parent=None, db=None):
         super().__init__(parent)
+        self.db = db
 
         self.setWindowTitle("Process runs")
 
@@ -141,7 +149,7 @@ class ProcessingDialog(QtWidgets.QDialog):
 
     def validate_runs(self):
         runs = parse_run_ranges(self.edit_runs.text())
-        self.selected_runs = find_runs(runs, self.edit_prop.text())
+        self.selected_runs = find_runs(runs, self.edit_prop.text(), self.db)
         if runs:
             msg = f"{len(self.selected_runs)} runs selected"
             if nmissing := len(runs) - len(self.selected_runs):

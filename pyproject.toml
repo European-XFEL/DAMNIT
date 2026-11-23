@@ -40,6 +40,9 @@ backend = [
     "supervisor",
     "termcolor"
 ]
+blissdata = [
+    "blissdata",  # DESY scan events (listener event-provider = blissdata)
+]
 gui = [
     "adeqt",
     "fonticon-fontawesome6",
