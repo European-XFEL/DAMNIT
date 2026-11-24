@@ -13,6 +13,10 @@ from damnit.gui.main_window import LogViewWindow
 
 from .helpers import amore_proto, mkcontext, extract_mock_run
 
+# Run Qt without a display server. This must be set before the QApplication is
+# created, but it doesn't matter if Qt has already been imported.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 
 @pytest.fixture
 def mock_ctx():
