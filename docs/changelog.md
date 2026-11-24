@@ -6,6 +6,10 @@
 
 Fixed:
 
+- Backend: Announce automatic Slurm jobs while queued.
+- Backend: Announce running jobs before loading the context.
+- Backend: Correctly identify Solaris jobs on the `damnit`, `solcpu`, `solgpu`,
+  and `soltest` partitions when Slurm does not provide a cluster name.
 - API: `VariableData` uses the variable name when submitted data has no title.
 
 ## [0.4.0]
