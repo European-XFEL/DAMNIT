@@ -143,7 +143,31 @@ def test_listen(tmp_path, monkeypatch):
         assert dirs == [official_dir]
         assert get_official(9999)
 
+    # Monitoring and sandboxing are on by default
+    info, = db.proposal_dbs(5678)
+    assert info.monitor
+    assert info.sandboxing
+
+    main(["listener", "monitor", str(custom_dir), "off"])
+    main(["listener", "sandboxing", str(custom_dir), "off"])
+    info, = db.proposal_dbs(5678)
+    assert not info.monitor
+    assert not info.sandboxing
+
+    main(["listener", "monitor", str(custom_dir), "on"])
+    main(["listener", "sandboxing", str(custom_dir), "on"])
+    info, = db.proposal_dbs(5678)
+    assert info.monitor
+    assert info.sandboxing
+
+    # Unregistered databases should be an error
+    with pytest.raises(SystemExit):
+        main(["listener", "monitor", "/does/not/exist", "off"])
+    with pytest.raises(SystemExit):
+        main(["listener", "sandboxing", "/does/not/exist", "off"])
+
     # Smoke test
+    main(["listener", "monitor", str(custom_dir), "off"])
     main(["listener", "databases"])
 
 def test_reprocess(mock_db_with_data, monkeypatch):

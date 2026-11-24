@@ -1222,6 +1222,19 @@ def test_listener(tmp_path, caplog, monkeypatch):
     processor.db.remove_proposal_db(fake_db_dir)
     assert processor.db.proposal_db_dirs(1234) == [db_dir]
 
+    # Sandbox args should not be passed if sandboxing is disabled
+    processor.db.settings["sandbox_args"] = "sandbox-cmd"
+    processor.db.set_sandboxing(db_dir, False)
+    with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit") as submit4:
+        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+    assert submit4.call_args.args[0].sandbox_args == ""
+
+    # Unmonitored databases should be skipped
+    processor.db.set_monitor(db_dir, False)
+    with patch("damnit.backend.extraction_control.ExtractionSubmitter.submit") as submit5:
+        processor.handle_event(event, {"proposal": 1234, "run": 1}, RunData.RAW)
+    assert submit5.call_count == 0
+
 
 def test_listener_local(tmp_path, caplog, monkeypatch):
     """When Slurm fails and local fallback is enabled, listener runs jobs locally

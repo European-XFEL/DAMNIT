@@ -99,6 +99,13 @@ $ damnit listener add 1234 /foo/bar
 
 # Remove a database
 $ damnit listener rm /foo/bar
+
+# Stop processing new runs for a database without removing it. Unlike `rm`,
+# this sticks for official databases in dynamic mode.
+$ damnit listener monitor /foo/bar off
+
+# Disable the sandbox for a database (only relevant if `sandbox_args` is set)
+$ damnit listener sandboxing /foo/bar off
 ```
 
 !!! danger

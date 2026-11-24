@@ -38,7 +38,11 @@ READONLY_WAIT_REOPEN = 2  # Wait N seconds to reopen after read-only error
 DEFAULT_NONCLUSTER_PARTITION = "damnit"
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS proposal_databases(proposal, db_dir UNIQUE, official);
+CREATE TABLE IF NOT EXISTS proposal_databases(
+    proposal, db_dir UNIQUE, official,
+    monitor BOOLEAN DEFAULT TRUE,
+    sandboxing BOOLEAN DEFAULT TRUE
+);
 CREATE INDEX IF NOT EXISTS proposals ON proposal_databases (proposal);
 
 -- Settings for the listener
@@ -57,6 +61,8 @@ local_extraction_threads = []
 class ProposalDBInfo:
     db_dir: Path
     official: bool
+    monitor: bool
+    sandboxing: bool
 
 
 def execute_direct(submitter, request):
@@ -84,6 +90,15 @@ class ListenerDB:
     def __init__(self, db_dir):
         self.conn = sqlite3.connect(db_dir.absolute() / "listener.sqlite")
         self.conn.executescript(SCHEMA)
+
+        # Add columns that are missing from older databases
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(proposal_databases)")}
+        with self.conn:
+            if "monitor" not in columns:
+                self.conn.execute("ALTER TABLE proposal_databases ADD COLUMN monitor BOOLEAN DEFAULT TRUE")
+            if "sandboxing" not in columns:
+                self.conn.execute("ALTER TABLE proposal_databases ADD COLUMN sandboxing BOOLEAN DEFAULT TRUE")
+
         self._settings = KeyValueMapping(self.conn, "settings")
 
         # To help prevent accidentally starting multiple listeners we default to
@@ -106,13 +121,23 @@ class ListenerDB:
         return self._settings
 
     def all_proposals(self):
-        rows = self.conn.execute("SELECT proposal, db_dir, official FROM proposal_databases").fetchall()
+        rows = self.conn.execute("""
+            SELECT proposal, db_dir, official, monitor, sandboxing FROM proposal_databases
+        """).fetchall()
         result = { }
-        for proposal, db_dir, official in rows:
+        for proposal, db_dir, official, monitor, sandboxing in rows:
             if proposal not in result:
                 result[proposal] = []
-            result[proposal].append(ProposalDBInfo(Path(db_dir), bool(official)))
+            result[proposal].append(ProposalDBInfo(Path(db_dir), bool(official),
+                                                   bool(monitor), bool(sandboxing)))
         return result
+
+    def proposal_dbs(self, proposal: int):
+        rows = self.conn.execute("""
+            SELECT db_dir, official, monitor, sandboxing FROM proposal_databases WHERE proposal=?
+        """, (proposal,)).fetchall()
+        return [ProposalDBInfo(Path(db_dir), bool(official), bool(monitor), bool(sandboxing))
+                for db_dir, official, monitor, sandboxing in rows]
 
     def proposal_db_dirs(self, proposal: int):
         rows = self.conn.execute("SELECT db_dir from proposal_databases WHERE proposal=?",
@@ -128,6 +153,20 @@ class ListenerDB:
     def remove_proposal_db(self, db_dir):
         with self.conn:
             self.conn.execute("DELETE FROM proposal_databases WHERE db_dir=?", (str(db_dir),))
+
+    def set_monitor(self, db_dir, monitor: bool):
+        """Returns False if the database isn't registered."""
+        with self.conn:
+            cur = self.conn.execute("UPDATE proposal_databases SET monitor=? WHERE db_dir=?",
+                                    (monitor, str(db_dir)))
+        return cur.rowcount > 0
+
+    def set_sandboxing(self, db_dir, sandboxing: bool):
+        """Returns False if the database isn't registered."""
+        with self.conn:
+            cur = self.conn.execute("UPDATE proposal_databases SET sandboxing=? WHERE db_dir=?",
+                                    (sandboxing, str(db_dir)))
+        return cur.rowcount > 0
 
 class EventProcessor:
     def __init__(self, listener_dir: Path):
@@ -215,7 +254,12 @@ class EventProcessor:
 
         sandbox_args = self.db.settings.get("sandbox_args", "")
         allow_local_processing = self.db.settings["allow_local_processing"]
-        for path in self.db.proposal_db_dirs(proposal):
+        for info in self.db.proposal_dbs(proposal):
+            path = info.db_dir
+            if not info.monitor:
+                log.info(f"Not monitoring {path}, skipping p{proposal} r{run}")
+                continue
+
             try:
                 with DamnitDB.from_dir(path) as db:
                     # Fail fast if read-only - https://stackoverflow.com/a/44707371/434217
@@ -230,7 +274,9 @@ class EventProcessor:
                         db.path.parent, db,
                         noncluster_partition=self.db.settings["noncluster_partition"],
                     )
-                    req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
+                    req = ExtractionRequest(run, proposal, run_data,
+                                            sandbox_args if info.sandboxing else "",
+                                            damnit_python)
 
                 try:
                     submitter.submit(req)
