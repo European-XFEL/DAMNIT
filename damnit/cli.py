@@ -368,9 +368,21 @@ class CombinerRunSubcmd(Subcommand):
     help = "Run the DAMNIT combiner"
 
     @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "--listener-dir", type=Path,
+            help="Path to the listener database directory. If given, databases "
+                 "that the listener isn't monitoring will be skipped."
+        )
+
+    @staticmethod
     def run(args: argparse.Namespace):
         from .backend.combine import main
-        return main()
+
+        if args.listener_dir is not None and not (args.listener_dir / "listener.sqlite").is_file():
+            sys.exit(f"No listener database found in {args.listener_dir}")
+
+        return main(args.listener_dir)
 
 
 class CombinerNowSubcmd(Subcommand):
