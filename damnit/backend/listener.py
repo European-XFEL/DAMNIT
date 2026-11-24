@@ -154,6 +154,16 @@ class ListenerDB:
         with self.conn:
             self.conn.execute("DELETE FROM proposal_databases WHERE db_dir=?", (str(db_dir),))
 
+    def is_monitored(self, proposal: int, db_dir):
+        """Databases that aren't registered only count as monitored in dynamic mode."""
+        # Extraction jobs report symlink-resolved paths (from os.getcwd())
+        db_dir = Path(db_dir).resolve()
+        for info in self.proposal_dbs(proposal):
+            if info.db_dir.resolve() == db_dir:
+                return info.monitor
+
+        return not self.settings["static_mode"]
+
     def set_monitor(self, db_dir, monitor: bool):
         """Returns False if the database isn't registered."""
         with self.conn:

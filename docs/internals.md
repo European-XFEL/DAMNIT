@@ -101,7 +101,8 @@ $ damnit listener add 1234 /foo/bar
 $ damnit listener rm /foo/bar
 
 # Stop processing new runs for a database without removing it. Unlike `rm`,
-# this sticks for official databases in dynamic mode.
+# this sticks for official databases in dynamic mode. If the combiner is started
+# with `--listener-dir`, it will also skip new fragment files for the database.
 $ damnit listener monitor /foo/bar off
 
 # Disable the sandbox for a database (only relevant if `sandbox_args` is set)
@@ -333,11 +334,14 @@ The combiner service runs as user `xdamnprd` on `max-exfl458`, and can be
 managed through systemd:
 
 ```shell
-systemctl --user status damnit-listener
-systemctl --user start damnit-listener
-systemctl --user stop damnit-listener
-systemctl --user restart damnit-listener
+systemctl --user status damnit-combiner
+systemctl --user start damnit-combiner
+systemctl --user stop damnit-combiner
+systemctl --user restart damnit-combiner
 ```
+
+If the combiner is started with `--listener-dir`, it skips databases that the
+listener isn't monitoring.
 
 Processes producing data notify the listener of new fragment files by sending
 a Kafka message on the topic `test.damnit.file_submissions`.
