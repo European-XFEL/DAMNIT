@@ -24,6 +24,7 @@ import xarray as xr
 from PIL import Image
 from testpath import MockCommand
 
+from damnit.api import has_data
 from damnit.backend import listener_is_running, initialize_proposal, start_listener
 from damnit.backend.combine import gather_all_fragments
 from damnit.backend.db import BlobTypes, DamnitDB, blob2numpy
@@ -39,7 +40,7 @@ from damnit.context import (ContextFileErrors, PNGData, Pipeline, RunData,
 from damnit.ctxsupport.ctxrunner import THUMBNAIL_SIZE, add_to_h5_file
 from damnit.gui.main_window import MainWindow
 
-from .helpers import mkcontext, reduced_data_from_dict
+from .helpers import mkcontext, reduced_data_from_dict, versions_for
 
 
 def path_filemode(p: Path):
@@ -614,7 +615,7 @@ def test_results_bad_obj(mock_run, tmp_path):
     results = bad_obj_ctx.execute(mock_run, 1000, 123, {})
     results_hdf5_path = results.save(tmp_path, 1000, 123)
     with h5py.File(results_hdf5_path) as f:
-        assert {n for n in f if not n.startswith(".")} == {"good", "start_time"}
+        assert {n for n in f if not n.startswith(".") and has_data(f[n])} == {"good", "start_time"}
         assert set(f[".reduced"]) == {"good", "start_time"}
 
 def test_results_cell(mock_run, tmp_path):
@@ -733,7 +734,8 @@ def test_results_preview(mock_run, tmp_path):
         assert f['.preview/var3'].dtype == bool
 
     with DamnitDB.from_dir(tmp_path, create=True) as db:
-        add_to_db(load_reduced_data(results_hdf5_path), db, 1000, 123, provenance="test")
+        reduced_data = load_reduced_data(results_hdf5_path)
+        add_to_db(reduced_data, db, 1000, 123, versions_for(reduced_data))
         row = db.conn.execute(
             "SELECT value, summary_type FROM run_variables WHERE name='var2'"
         ).fetchone()
@@ -802,7 +804,7 @@ def test_add_to_db(mock_db):
     reduced_objs = reduced_data_from_dict(reduced_data)
     reduced_objs["float"].attributes = {"background": [255, 0, 0]}
 
-    add_to_db(reduced_objs, db, 1234, 42, provenance="test")
+    add_to_db(reduced_objs, db, 1234, 42, versions_for(reduced_objs))
 
     cursor = db.conn.execute("SELECT * FROM runs")
     row = cursor.fetchone()
@@ -839,7 +841,7 @@ def test_trendline_summary_to_db(mock_run, mock_db, tmp_path):
         assert dset.attrs['summary_type'] == "trendline"
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123, provenance="test")
+    add_to_db(reduced_data, db, 1000, 123, versions_for(reduced_data))
     row = db.conn.execute(
         "SELECT value, summary_type FROM run_variables WHERE name='line'"
     ).fetchone()
@@ -1507,7 +1509,7 @@ def test_transient_variables(mock_run, mock_db, tmp_path):
         assert np.allclose(f['var3/data'][()], np.arange(7) * 7)
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123, provenance="test")
+    add_to_db(reduced_data, db, 1000, 123, versions_for(reduced_data))
     vars = db.conn.execute('SELECT value FROM run_variables WHERE name="var3"').fetchall()
     assert vars[0]['value'] == 42
     # also not saved in the db
@@ -1581,15 +1583,15 @@ def test_capture_errors(mock_run, mock_db, tmp_path):
         for i in [1, 2, 4, 7, 9]:
             assert f'.errors/var{i}' in f
             assert f'.reduced/var{i}' not in f
-            assert f'var{i}' not in f
+            assert not has_data(f[f'var{i}'])
 
         assert '.errors/dep_is_none' in f
         assert '.errors/res_is_none' not in f
         assert 'res_is_none' not in f
-        assert 'dep_is_none' not in f
+        assert not has_data(f['dep_is_none'])
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123, provenance="test")
+    add_to_db(reduced_data, db, 1000, 123, versions_for(reduced_data))
     attrs = db.conn.execute(
         "SELECT attributes FROM run_variables WHERE name='var1'"
     ).fetchone()[0]
@@ -1764,7 +1766,7 @@ def test_units_metadata(mock_run, mock_db, tmp_path):
         assert f[".reduced/summary_only"].attrs["units"] == "ms"
 
     reduced_data = load_reduced_data(results_hdf5_path)
-    add_to_db(reduced_data, db, 1000, 123, provenance="test")
+    add_to_db(reduced_data, db, 1000, 123, versions_for(reduced_data))
 
     for name, expected_units in {
         "scalar": "mJ",

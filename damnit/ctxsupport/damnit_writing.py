@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import time
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
@@ -12,6 +13,8 @@ from damnit_ctx import Cell, isinstance_no_import
 
 OBJTYPE_ATTR = '_damnit_objtype'
 MULTIIDX_ATTR = '_damnit_multiindex'
+PROVENANCE_ATTR = '_damnit_provenance'
+TIMESTAMP_ATTR = '_damnit_timestamp'
 THUMBNAIL_SIZE = 300 # px
 COMPRESSION_OPTS = {'compression': 'gzip', 'compression_opts': 1, 'shuffle': True}
 
@@ -341,8 +344,9 @@ def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cel
     if results_dir.stat().st_uid == os.getuid():
         os.chmod(results_dir, 0o777)
 
+    timestamp = time.time()
+
     with atomic_create_h5(dir=results_dir, prefix=f"p{proposal}_r{run}.") as f:
-        f.attrs["provenance"] = provenance
         writer = DamnitFileWriter(f)
         for name, cell in vars.items():
             if (summary := cell.get_summary(log_name=name)) is not None:
@@ -360,6 +364,16 @@ def save_fragment(damnit_dir: Path, proposal: int, run: int, vars: dict[str, Cel
 
         for name, exc in errors.items():
             writer.store_error(name, exc)
+
+        # Done last because store_data() and the NetCDF writers create the group.
+        # Variables that returned None have nothing stored, so they get no group.
+        for name in vars.keys() | errors.keys():
+            paths = [name, f".reduced/{name}", f".preview/{name}", f".errors/{name}"]
+            if not any(path in f for path in paths):
+                continue
+            grp = f.require_group(name)
+            grp.attrs[PROVENANCE_ATTR] = provenance
+            grp.attrs[TIMESTAMP_ATTR] = timestamp
 
     os.chmod(f.final_path, 0o666)
 

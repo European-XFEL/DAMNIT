@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 import xarray as xr
 
-from .backend.db import DB_NAME, DamnitDB
+from .backend.db import DB_NAME, DamnitDB, VersionInfo
 from .backend.extract_data import ReducedData, add_to_db
 from .context import DataType, add_to_h5_file, generate_thumbnail
 
@@ -54,7 +54,8 @@ def migrate_images(new_db, db_dir, dry_run):
 
     # And then update the summaries in the database
     for run, run_reduced_data in reduced_data.items():
-        add_to_db(run_reduced_data, new_db, proposal, run, provenance="context.py")
+        versions = {name: VersionInfo(1, "context.py") for name in run_reduced_data}
+        add_to_db(run_reduced_data, new_db, proposal, run, versions)
 
     info = f"updated {len(reduced_data)} variables in {len(files_modified)} files"
     if dry_run:

@@ -11,7 +11,10 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from .backend.db import BlobTypes, DamnitDB, blob2complex, blob2numpy
+from .backend.db import (
+    BlobTypes, DamnitDB, VersionInfo, blob2complex, blob2numpy, read_reduced_value,
+    read_version_info, PROVENANCE_ATTR, VERSION_ATTR,
+)
 from .util import isinstance_no_import
 
 
@@ -25,6 +28,15 @@ class DataType(Enum):
     PlotlyFigure = "PlotlyFigure"
     Series = "series"
     Timestamp = "timestamp"
+
+
+def has_data(group: h5py.Group) -> bool:
+    """Whether a variable's /{name} group holds any data
+
+    The group is always present, but only holds attributes for variables with
+    just a summary, preview or error.
+    """
+    return len(group) > 0
 
 
 # Also copied, this time from extra_data.read_machinery
@@ -91,18 +103,77 @@ class VariableData:
         """Physical units metadata for this variable, if available."""
         return self._summary_attributes().get("units")
 
-    def type_hint(self):
+    @property
+    def provenance(self) -> str | None:
+        """Where the latest version of this variable came from.
+
+        E.g. `"context.py"` for the context file, or the provenance given to
+        [submit()][damnit.api.submit].
+        """
+        return self._db_version().provenance
+
+    def versions(self) -> list[VersionInfo]:
+        """All stored versions of this variable, oldest first.
+
+        A new version only replaces older versions with the same provenance, so
+        data from other provenances can still be read by passing e.g.
+        `provenance="online"` to [read()][damnit.api.VariableData.read].
+        """
+        if self._db_only:
+            return [self._db_version()]
+
+        with h5py.File(self._h5_path) as f:
+            grp = f.get(self.name)
+            if grp is not None and VERSION_ATTR in grp.attrs:
+                latest = read_version_info(grp)
+            else:  # Written before versioning
+                latest = self._db_version()
+
+            older = [
+                read_version_info(version_grp[self.name])
+                for version_grp in f.get(f".versions/{self.name}", {}).values()
+            ]
+
+        return sorted(older + [latest], key=lambda v: v.version)
+
+    def _db_version(self) -> VersionInfo:
+        row = self._db.conn.execute("""
+            SELECT version, provenance, timestamp FROM run_variables
+            WHERE proposal=? AND run=? AND name=?
+        """, (self.proposal, self.run, self.name)).fetchone()
+        if row is None:
+            return VersionInfo(1, None)
+        return VersionInfo(*row)
+
+    def _resolve(self, f: h5py.File, provenance=None) -> str:
+        """Get the path that the requested version of this variable is under
+
+        The latest version is at the top level of the file (path ""), older
+        versions are under `/.versions/{name}/{version}` with the same layout.
+        """
+        if provenance is None or provenance == self.provenance:
+            return ""
+
+        for version_grp in f.get(f".versions/{self.name}", {}).values():
+            if version_grp[self.name].attrs.get(PROVENANCE_ATTR) == provenance:
+                return version_grp.name
+
+        raise KeyError(
+            f"No version of {self.name!r} from {provenance!r} in p{self.proposal}, r{self.run}"
+        )
+
+    def type_hint(self, provenance=None):
         """Type hint for this variable data.
 
         one of ``DataType`` or None.
         """
-        with self._open_h5_group() as group:
+        with self._open_h5_group(provenance) as group:
             return self._type_hint(group)
 
     @contextmanager
-    def _open_h5_group(self):
+    def _open_h5_group(self, provenance=None):
         with h5py.File(self._h5_path) as f:
-            yield f[self.name]
+            yield f[f"{self._resolve(f, provenance)}/{self.name}"]
 
     @staticmethod
     def _type_hint(group):
@@ -143,17 +214,26 @@ class VariableData:
         payload = dset[()].tobytes()
         return pd.read_parquet(BytesIO(payload), engine="pyarrow")
 
-    def read(self, deserialize_plotly=True):
+    def read(self, deserialize_plotly=True, provenance=None):
         """Read the data for the variable.
 
         Args:
             deserialize_plotly (bool): Whether to deserialize Plotly figures
                 into `Figure` objects. If this is `False` the JSON string will be returned.
+            provenance (str): Read the version of the data from this provenance
+                (see [versions()][damnit.api.VariableData.versions]) instead of
+                the latest version.
         """
         if self._db_only:
-            return self.summary()
+            return self.summary(provenance=provenance)
 
-        with self._open_h5_group() as group:
+        with self._open_h5_group(provenance) as group:
+            if not has_data(group):
+                raise KeyError(
+                    f"{self.name!r} in p{self.proposal}, r{self.run} has no data "
+                    "(only a summary, preview or error)"
+                )
+
             type_hint = self._type_hint(group)
             if type_hint is DataType.Dataset:
                 return self._read_netcdf(group)
@@ -185,12 +265,23 @@ class VariableData:
                 # Otherwise, return a Numpy array
                 return group["data"][()]
 
-    def summary(self):
+    def summary(self, provenance=None):
         """Read the summary data for a variable.
 
         For user-editable variables like comments, this will be the same as
         [VariableData.read()][damnit.api.VariableData.read].
+
+        Args:
+            provenance (str): Read the summary of the version from this
+                provenance instead of the latest version.
         """
+        if provenance is not None and provenance != self.provenance:
+            # Only the latest version is in the database
+            with h5py.File(self._h5_path) as f:
+                dset = f.get(f"{self._resolve(f, provenance)}/.reduced/{self.name}")
+                # Versions with only an error have no summary
+                return None if dset is None else read_reduced_value(dset)
+
         result = self._db.conn.execute("""
             SELECT value, summary_type, max(version) FROM run_variables
             WHERE proposal=? AND run=? AND name=?
@@ -212,7 +303,7 @@ class VariableData:
             return value
 
     def preview_data(self, *, data_fallback=True, deserialize_plotly=True,
-                     restore_multiindex=False):
+                     restore_multiindex=False, provenance=None):
         """Get the preview data for the variable
 
         May return a 1D or 2D data array, a 3D RGB(A) arrray, a Plotly figure
@@ -222,10 +313,14 @@ class VariableData:
         If no preview was specified in the context file, but the returned data
         meets the conditions for a preview, this can be returned instead.
         Pass `data_fallback=False` to prevent this.
+
+        Pass `provenance` to get the preview of the version from that
+        provenance instead of the latest version.
         """
         with h5py.File(self._h5_path) as f:
+            root = self._resolve(f, provenance)
             xarray_group = dset = None
-            if (obj := f.get(f".preview/{self.name}")) is not None:
+            if (obj := f.get(f"{root}/.preview/{self.name}")) is not None:
                 # Explicit preview
                 type_hint = self._type_hint(obj)
                 if isinstance(obj, h5py.Group):
@@ -234,7 +329,9 @@ class VariableData:
                     dset = obj
             elif data_fallback:
                 # Implicit: use data as preview if suitable
-                grp = f[self.name]
+                grp = f.get(f"{root}/{self.name}")
+                if grp is None or not has_data(grp):
+                    return None
                 type_hint = self._type_hint(grp)
                 if type_hint is DataType.DataArray:
                     xarray_group = grp
@@ -385,10 +482,14 @@ class RunVariables:
         # Read keys from the HDF5 file
         with h5py.File(self.file) as f:
             all_keys = { name: False for name in f.keys()
-                         if not name.startswith('.')}
+                         if not name.startswith('.') and has_data(f[name])}
 
             # Add keys with summary but not data in file
             all_keys.update({ name: False for name in f['.reduced'].keys()
+                              if name not in all_keys})
+
+            # And keys where only older versions have data
+            all_keys.update({ name: False for name in f.get('.versions', {}).keys()
                               if name not in all_keys})
 
         # And the keys from the database

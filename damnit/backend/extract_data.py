@@ -27,7 +27,7 @@ import numpy as np
 from ..context import ContextFile, Pipeline, RunData
 from ..definitions import FILE_SUBMIT_TOPIC
 from ..util import kafka_producer
-from .db import BlobTypes, DamnitDB, MsgKind, ReducedData, msg_dict
+from .db import DamnitDB, MsgKind, ReducedData, VersionInfo, msg_dict, read_reduced_value
 from .extraction_control import ExtractionRequest, ExtractionSubmitter
 
 log = logging.getLogger(__name__)
@@ -83,19 +83,6 @@ def get_context_file(ctx_path: Path, context_python=None, sandbox_args=None, san
 
 
 def load_reduced_data(h5_path):
-    def get_dset_value(ds):
-        # If it's a string, extract the string
-        if h5py.check_string_dtype(ds.dtype) is not None:
-            return ds.asstr()[()]
-        elif (ds.ndim == 1 and ds.dtype == np.uint8
-              and BlobTypes.identify(ds[:8].tobytes()) is BlobTypes.png):
-            # PNG: pass around as bytes
-            return ds[()].tobytes()
-        else:
-            value = ds[()]
-            # SQlite doesn't like np.float32; .item() converts to Python numbers
-            return value.item() if (value.ndim == 0) else value
-
     def get_attrs(ds):
         d = {}
         for name, value in ds.attrs.items():
@@ -112,7 +99,7 @@ def load_reduced_data(h5_path):
     with h5py.File(h5_path, 'r') as f:
         return {
             name: ReducedData(
-                get_dset_value(dset),
+                read_reduced_value(dset),
                 max_diff=dset.attrs.get("max_diff", np.array(None)).item(),
                 summary_method=dset.attrs.get("summary_method", ""),
                 summary_type=dset.attrs.get("summary_type"),
@@ -121,14 +108,14 @@ def load_reduced_data(h5_path):
             for name, dset in f['.reduced'].items()
         } | {
             name: ReducedData(None, attributes={
-                'error': get_dset_value(dset),
+                'error': read_reduced_value(dset),
                 'error_cls': dset.attrs.get("type", "")
             })
             for name, dset in f['.errors'].items()
         }
 
 
-def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
+def add_to_db(reduced_data, db: DamnitDB, proposal, run, versions: dict[str, VersionInfo]):
     log.info("Adding p%d r%d to database, with %d columns",
              proposal, run, len(reduced_data))
 
@@ -149,7 +136,7 @@ def add_to_db(reduced_data, db: DamnitDB, proposal, run, provenance):
         proposal,
         run,
         reduced_data,
-        provenance=provenance,
+        versions,
         start_time=None if start_time is None else start_time.value,
     )
 

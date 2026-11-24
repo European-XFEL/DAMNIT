@@ -15,6 +15,7 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any, Optional
 
+import h5py
 import numpy as np
 
 from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC
@@ -47,6 +48,34 @@ class ReducedData:
     attributes: Optional[dict] = None
 
 
+@dataclass
+class VersionInfo:
+    version: int
+    provenance: str | None
+    timestamp: float | None = None
+
+
+# Version metadata attrs on /{name} groups. The first two are copied from
+# damnit_writing, which can't be imported here without the context runner's
+# dependencies. The version is only written by the combiner.
+PROVENANCE_ATTR = '_damnit_provenance'
+TIMESTAMP_ATTR = '_damnit_timestamp'
+VERSION_ATTR = '_damnit_version'
+
+
+def read_version_info(grp: h5py.Group, version: int | None = None) -> VersionInfo:
+    """Read the version attrs of a variable's /{name} group
+
+    Fragment groups don't have a version yet, so it must be passed in.
+    """
+    return VersionInfo(
+        # sqlite can't bind np.int64
+        version=int(grp.attrs[VERSION_ATTR]) if version is None else version,
+        provenance=grp.attrs[PROVENANCE_ATTR],
+        timestamp=grp.attrs.get(TIMESTAMP_ATTR),
+    )
+
+
 class BlobTypes(Enum):
     png = 'png'
     numpy = 'numpy'
@@ -60,6 +89,21 @@ class BlobTypes(Enum):
             return cls.numpy
 
         return cls.unknown
+
+
+def read_reduced_value(ds: h5py.Dataset):
+    """Read a summary or error from HDF5 into what goes in the database"""
+    # If it's a string, extract the string
+    if h5py.check_string_dtype(ds.dtype) is not None:
+        return ds.asstr()[()]
+    elif (ds.ndim == 1 and ds.dtype == np.uint8
+          and BlobTypes.identify(ds[:8].tobytes()) is BlobTypes.png):
+        # PNG: pass around as bytes
+        return ds[()].tobytes()
+    else:
+        value = ds[()]
+        # SQlite doesn't like np.float32; .item() converts to Python numbers
+        return value.item() if (value.ndim == 0) else value
 
 
 def complex2blob(data: complex) -> bytes:
@@ -349,7 +393,7 @@ class DamnitDB:
             proposal,
             run,
             {name: reduced},
-            provenance,
+            {name: VersionInfo(1, provenance)},
         )
 
     def set_variables(
@@ -357,7 +401,7 @@ class DamnitDB:
             proposal: int,
             run: int,
             reduced_data: dict[str, ReducedData],
-            provenance: str,
+            versions: dict[str, VersionInfo],
             *,
             added_at: float=None,
             start_time: float=None,
@@ -365,7 +409,7 @@ class DamnitDB:
         timestamp = datetime.now(tz=timezone.utc).timestamp()
         rows = [
             self._prepare_variable_row(
-                proposal, run, name, reduced, provenance, timestamp
+                proposal, run, name, reduced, versions[name], timestamp
             )
             for name, reduced in reduced_data.items()
         ]
@@ -390,6 +434,12 @@ class DamnitDB:
                 col_values = ", ".join([f":{col}" for col in cols])
                 col_updates = ", ".join([f"{col} = :{col}" for col in cols])
 
+                # Only the latest version is kept in the database
+                self.conn.executemany("""
+                    DELETE FROM run_variables
+                    WHERE proposal = :proposal AND run = :run AND name = :name
+                      AND version != :version
+                """, rows)
                 self.conn.executemany(f"""
                     INSERT INTO run_variables ({col_list})
                     VALUES ({col_values})
@@ -405,7 +455,7 @@ class DamnitDB:
             run: int,
             name: str,
             reduced: ReducedData,
-            provenance: str,
+            version_info: VersionInfo,
             timestamp: float,
     ):
         if not isinstance(reduced.value, (int, float, str, bytes, complex, np.ndarray, type(None))):
@@ -436,17 +486,12 @@ class DamnitDB:
         variable["run"] = run
         variable["name"] = name
         variable["timestamp"] = timestamp
-        variable["provenance"] = provenance
+        variable["provenance"] = version_info.provenance
+        variable["version"] = version_info.version
         variable["attributes"] = None
         if reduced.attributes:
             variable["attributes"] = json.dumps(reduced.attributes)
 
-        # TODO: enable these code snippets when we add support for versioning
-        # latest_version = self.conn.execute("""
-        #     SELECT max(version) FROM run_variables
-        #     WHERE proposal=? AND run=? AND name=?
-        # """, (proposal, run, name)).fetchone()[0]
-        variable["version"] = 1  # if latest_version is None else latest_version + 1
         return variable
 
     def delete_variable(self, name: str):

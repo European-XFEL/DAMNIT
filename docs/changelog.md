@@ -4,6 +4,13 @@
 
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.4.0...HEAD)
 
+Added:
+
+- Core: New data for a variable only replaces older data with the same
+  provenance. Data from other provenances can be read with
+  `VariableData.read(provenance=...)`, and listed with
+  `VariableData.versions()`.
+
 Fixed:
 
 - API: `VariableData` uses the variable name when submitted data has no title.

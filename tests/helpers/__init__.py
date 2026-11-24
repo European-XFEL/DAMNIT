@@ -4,7 +4,7 @@ from pathlib import Path
 from PyQt6 import QtGui, QtWidgets
 
 from damnit.backend.combine import gather_all_fragments
-from damnit.backend.db import DamnitDB
+from damnit.backend.db import DamnitDB, VersionInfo
 from damnit.backend.extract_data import ReducedData, RunExtractor
 from damnit.cli import main
 from damnit.context import Pipeline
@@ -20,6 +20,10 @@ def reduced_data_from_dict(input_dict):
         name: ReducedData(data)
         for name, data in input_dict.items()
     }
+
+def versions_for(reduced_data, provenance="test"):
+    """Version info for add_to_db(), with every variable at version 1"""
+    return {name: VersionInfo(1, provenance) for name in reduced_data}
 
 def amore_proto(args):
     """

@@ -13,13 +13,17 @@ from kafka import KafkaConsumer, KafkaProducer
 
 from ..context import DataType
 from ..definitions import FILE_SUBMIT_TOPIC, update_brokers
-from .db import DamnitDB, MsgKind, msg_dict
+from .db import (
+    DamnitDB, MsgKind, VersionInfo, db_path, msg_dict, read_version_info,
+    PROVENANCE_ATTR, TIMESTAMP_ATTR, VERSION_ATTR,
+)
 from .extract_data import add_to_db, load_reduced_data
 from .listener import ListenerDB
 from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
 SPECIAL_GROUPS = (".reduced", ".preview", ".errors")
+VERSIONS_GROUP = ".versions"
 
 # If the file doesn't exist N seconds after the Kafka message was sent, move on
 NO_FILE_TIMEOUT = 30
@@ -181,10 +185,33 @@ def fragment_variables(fsrc: h5py.File) -> set[str]:
     return names
 
 
-def delete_variable(fdst: h5py.File, name):
-    fdst.pop(name, None)
-    for special_grp in SPECIAL_GROUPS:
-        fdst.pop(f"{special_grp}/{name}", None)
+def write_version_info(grp: h5py.Group, info: VersionInfo):
+    grp.attrs[VERSION_ATTR] = info.version
+    grp.attrs[PROVENANCE_ATTR] = info.provenance
+    if info.timestamp is not None:
+        grp.attrs[TIMESTAMP_ATTR] = info.timestamp
+
+
+def should_replace(old: VersionInfo, new: VersionInfo) -> bool:
+    """Whether a new version of a variable makes an older one obsolete"""
+    return old.provenance == new.provenance
+
+
+def version_root(name: str, version: int) -> str:
+    return f"{VERSIONS_GROUP}/{name}/{version}"
+
+
+def variable_paths(name: str, root=""):
+    """All paths a variable's entries can be stored at, under root"""
+    return [
+        posixpath.join(root, name),
+        *(posixpath.join(root, special_grp, name) for special_grp in SPECIAL_GROUPS)
+    ]
+
+
+def delete_variable(fdst: h5py.File, name, root=""):
+    for path in variable_paths(name, root):
+        fdst.pop(path, None)
 
 
 def copy_variable(fsrc: h5py.File, fdst: h5py.File, name: str):
@@ -193,11 +220,39 @@ def copy_variable(fsrc: h5py.File, fdst: h5py.File, name: str):
 
     for special_grp in SPECIAL_GROUPS:
         if name in fsrc.get(special_grp, ()):
-            copy_h5_obj(fsrc, fdst, f"{special_grp}/{name}") 
+            copy_h5_obj(fsrc, fdst, f"{special_grp}/{name}")
 
 
-def combine(src: Path, dst: Path):
-    """Combine the the contents of src (an HDF5 file) into dst"""
+def combine(
+        src: Path, dst: Path, db_file: Path, proposal: int, run: int
+) -> dict[str, VersionInfo]:
+    """Combine the the contents of src (an HDF5 file) into dst
+
+    Run files written before versioning have no version attrs. They're filled
+    in as version 1, with the provenance from the database at db_file.
+
+    Returns the version info assigned to each variable in src.
+    """
+    versions = {}
+    legacy_info = None
+
+    def legacy_version_info(name):
+        # Combining can be slow, so read everything we need from the database
+        # at once instead of holding it open.
+        nonlocal legacy_info
+        if legacy_info is None:
+            with DamnitDB(db_file) as db:
+                rows = db.conn.execute(
+                    "SELECT name, provenance, timestamp FROM run_variables "
+                    "WHERE proposal=? AND run=?",
+                    (proposal, run)
+                ).fetchall()
+            legacy_info = {
+                row_name: VersionInfo(1, provenance or "", timestamp)
+                for row_name, provenance, timestamp in rows
+            }
+        return legacy_info.get(name, VersionInfo(1, ""))
+
     # Shortcut: if the destination file doesn't exist, rename src
     try:
         dst.hardlink_to(src)
@@ -206,17 +261,55 @@ def combine(src: Path, dst: Path):
     else:
         src.unlink()
         log.debug("Created %r by renaming", dst)
-        return
+        with h5py.File(dst, 'r+') as f:
+            for name in fragment_variables(f):
+                versions[name] = read_version_info(f[name], version=1)
+                write_version_info(f[name], versions[name])
+        return versions
 
     t0 = time.perf_counter()
     with h5py.File(src) as fsrc, h5py.File(dst, 'r+') as fdst:
         for name in fragment_variables(fsrc):
-            delete_variable(fdst, name)
+            current = None
+            if any(path in fdst for path in variable_paths(name)):
+                grp = fdst.require_group(name)
+                if VERSION_ATTR not in grp.attrs:
+                    write_version_info(grp, legacy_version_info(name))
+                current = read_version_info(grp)
+
+            older = {
+                int(v): read_version_info(grp[name])
+                for v, grp in fdst.get(f"{VERSIONS_GROUP}/{name}", {}).items()
+            }
+            existing = list(older) + ([current.version] if current else [])
+            new = read_version_info(fsrc[name], version=max(existing, default=0) + 1)
+
+            if current is not None:
+                if should_replace(current, new):
+                    delete_variable(fdst, name)
+                else:
+                    # Moving relinks the objects without copying any data
+                    dst_root = version_root(name, current.version)
+                    for src_path, dst_path in zip(variable_paths(name), variable_paths(name, dst_root)):
+                        if src_path in fdst:
+                            fdst.move(src_path, dst_path)
+
+            for v, info in older.items():
+                if should_replace(info, new):
+                    del fdst[version_root(name, v)]
+
+            versions_grp = f"{VERSIONS_GROUP}/{name}"
+            if versions_grp in fdst and len(fdst[versions_grp]) == 0:
+                del fdst[versions_grp]
+
             copy_variable(fsrc, fdst, name)
+            write_version_info(fdst[name], new)
+            versions[name] = new
 
     src.unlink()
     t1 = time.perf_counter()
     log.debug("Finished combining in %.3f s", t1 - t0)
+    return versions
 
 
 class FileSubmissionProcessor:
@@ -305,15 +398,13 @@ class FileSubmissionProcessor:
             )
             return
 
-        with h5py.File(src) as f:
-            provenance = f.attrs.get("provenance", "")
         new_data = load_reduced_data(src)
-        combine(src, dst)
+        versions = combine(src, dst, db_path(damnit_dir), prop, run)
 
         with DamnitDB.from_dir(damnit_dir) as db:
-            log.info("Updating database in %s with %s variables for p%d r%d from %s",
-                     damnit_dir, len(new_data), prop, run, provenance)
-            add_to_db(new_data, db, prop, run, provenance=provenance)
+            log.info("Updating database in %s with %s variables for p%d r%d",
+                     damnit_dir, len(new_data), prop, run)
+            add_to_db(new_data, db, prop, run, versions)
             self.send_update(new_data, db.kafka_topic, prop, run)
 
     @staticmethod
@@ -346,7 +437,6 @@ class FileSubmissionProcessor:
 
 
 def gather_all_fragments(damnit_dir: Path):
-    db = DamnitDB.from_dir(damnit_dir)
     h5_dir = damnit_dir / "extracted_data"
 
     frag_files_matches = sorted(
@@ -360,10 +450,11 @@ def gather_all_fragments(damnit_dir: Path):
         run = int(m[2])
 
         new_data = load_reduced_data(p)
-        with h5py.File(p) as f:
-            provenance = f.attrs.get("provenance", "")
-        combine(p, h5_dir / f"p{proposal}_r{run}.h5")
-        add_to_db(new_data, db, proposal, run, provenance=provenance)
+        versions = combine(
+            p, h5_dir / f"p{proposal}_r{run}.h5", db_path(damnit_dir), proposal, run
+        )
+        with DamnitDB.from_dir(damnit_dir) as db:
+            add_to_db(new_data, db, proposal, run, versions)
 
 
 def interrupted(signum, frame):

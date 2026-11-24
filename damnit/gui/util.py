@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.neighbors import KernelDensity
 
+from ..backend.combine import VERSIONS_GROUP, variable_paths
 from ..context import add_to_h5_file
 
 
@@ -43,6 +44,5 @@ def delete_variable(db, name):
     # And the HDF5 files
     for h5_path in (db.path.parent / "extracted_data").glob("*.h5"):
         with add_to_h5_file(h5_path) as f:
-            if name in f:
-                del f[f".reduced/{name}"]
-                del f[name]
+            for path in variable_paths(name) + [f"{VERSIONS_GROUP}/{name}"]:
+                f.pop(path, None)

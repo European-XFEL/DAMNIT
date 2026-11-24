@@ -44,7 +44,7 @@ from damnit.gui.zulip_messenger import ZulipConfig
 
 from .helpers import (
     amore_proto, extract_mock_run, mkcontext, reduced_data_from_dict,
-    make_table_with_headers)
+    make_table_with_headers, versions_for)
 
 
 # Check if a PID exists by using `kill -0`
@@ -519,7 +519,7 @@ def test_user_vars(mock_ctx_user, mock_user_vars, mock_db, mock_kafka_broker, qt
     })
 
     with db.conn:
-        add_to_db(reduced_data, db, proposal, run_number, provenance="test")
+        add_to_db(reduced_data, db, proposal, run_number, versions_for(reduced_data))
 
     # Adds the variables to the db
     for vv in mock_user_vars.values():

@@ -212,6 +212,18 @@ a proposal by default:
 The DAMNIT data format details the exact structure of the data in the database
 and HDF5 files.
 
+### Versions
+
+Each variable has a `/{name}` group in the run's HDF5 file, even without data,
+with the attributes `_damnit_provenance`, `_damnit_timestamp` and
+`_damnit_version`. The latest version of a variable is stored at the top level
+(`/{name}`, `.reduced/{name}`, `.preview/{name}`, `.errors/{name}`), and the
+database only holds the latest version.
+
+When the combiner adds a new version, older versions with the same provenance
+are deleted, and the others are moved to `.versions/{name}/{version}/` with the
+same layout inside.
+
 ### Database schema updates
 
 The current schema version is stored in the `metameta` table under the key

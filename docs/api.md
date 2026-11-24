@@ -33,6 +33,14 @@ summary = myvar.summary()
 units = myvar.units
 ```
 
+New data only replaces older data with the same provenance (e.g. the context
+file or a `submit()` call), so data from other sources can still be read:
+```python
+myvar.provenance  # Where the latest data came from, e.g. "context.py"
+myvar.versions()  # All stored versions
+data = myvar.read(provenance="online")
+```
+
 ## API reference
 
 ::: damnit.Damnit
