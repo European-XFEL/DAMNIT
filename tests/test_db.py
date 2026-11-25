@@ -266,10 +266,17 @@ def test_new_db_schema_is_latest(tmp_path):
     ).fetchone()
     assert trig is not None
 
+    # v5 index should exist
+    index = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='variable_timestamp'"
+    ).fetchone()
+    assert index is not None
+
 
 # The drops that undo what each format version adds, newest first,
 # since the v4 trigger sits on a v3 table
 SCHEMA_ADDED_IN = {
+    5: ["DROP INDEX variable_timestamp"],
     4: ["DROP TRIGGER delete_orphan_tags_after_variable_tag_delete"],
     3: ["DROP TABLE variable_tags", "DROP TABLE tags"],
 }
@@ -294,13 +301,17 @@ def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
     # Upgraded to latest
     assert db2.metameta["data_format_version"] == latest_version()
 
-    # v3 tables and v4 trigger restored
+    # v3 tables, v4 trigger and v5 index restored
     tables = {row[0] for row in db2.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "tags" in tables and "variable_tags" in tables
     trig = db2.conn.execute(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND name='delete_orphan_tags_after_variable_tag_delete'"
     ).fetchone()
     assert trig is not None
+    index = db2.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='variable_timestamp'"
+    ).fetchone()
+    assert index is not None
 
 
 def test_min_openable_version_guard(tmp_path):

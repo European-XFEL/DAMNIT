@@ -192,6 +192,16 @@ END;
 )
 
 
+migration_step(
+    to_version=5,
+    description="Add an index on run_variables.timestamp for polling recent changes.",
+    schema="""\
+CREATE INDEX IF NOT EXISTS variable_timestamp ON run_variables (timestamp);
+""",
+    optional=True,
+)
+
+
 def pending_migrations(from_version: int, to_version: int) -> Iterable[Migration]:
     _assert_valid_migrations()
     for m in sorted(MIGRATIONS, key=lambda x: x.to_version):
