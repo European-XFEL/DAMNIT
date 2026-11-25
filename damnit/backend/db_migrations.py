@@ -1,7 +1,10 @@
+import logging
 import sqlite3
 from dataclasses import dataclass
 from textwrap import dedent
 from typing import Callable, Iterable
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -12,18 +15,25 @@ class Migration:
     - `to_version`: schema version after this migration completes
     - `description`: short human description for docs/logs
     - `apply`: a callable that takes a sqlite3.Connection and applies changes
+    - `optional`: readers work without it, such as an index, so opening a
+      read-only database skips it
     """
 
     to_version: int
     description: str
     apply: Callable[[sqlite3.Connection], None]
+    optional: bool = False
 
 
 MIGRATIONS: list[Migration] = []
 
 
 def migration_step(
-    to_version: int, *, schema: str | None = None, description: str = ""
+    to_version: int,
+    *,
+    schema: str | None = None,
+    description: str = "",
+    optional: bool = False,
 ):
     """Register a migration step.
 
@@ -61,6 +71,7 @@ def migration_step(
             to_version=to_version,
             description=description,
             apply=_apply,
+            optional=optional,
         )
         MIGRATIONS.append(migration)
         return migration
@@ -71,6 +82,7 @@ def migration_step(
             to_version=to_version,
             description=func.__doc__ or description or "",
             apply=func,
+            optional=optional,
         )
         MIGRATIONS.append(migration)
         return migration
@@ -196,14 +208,30 @@ def apply_migrations(
     """
     Apply all migration steps to go from `from_version` up to `to_version`.
     Sets the version after each successful step using `set_version`.
+    On a read-only database, it stops where only optional steps are left.
     Returns the list of applied migrations.
     """
+    steps = list(pending_migrations(from_version, to_version))
     applied: list[Migration] = []
-    for step in pending_migrations(from_version, to_version):
-        # Each step in its own transaction for clarity and resilience
-        with conn:
-            step.apply(conn)
-            set_version(step.to_version)
+    for i, step in enumerate(steps):
+        try:
+            # Each step in its own transaction for clarity and resilience
+            with conn:
+                step.apply(conn)
+                set_version(step.to_version)
+        except sqlite3.OperationalError as err:
+            # An extended code, such as SQLITE_READONLY_DIRECTORY,
+            # keeps the primary code in its low byte
+            readonly = err.sqlite_errorcode & 0xFF == sqlite3.SQLITE_READONLY
+            if not (readonly and all(m.optional for m in steps[i:])):
+                raise
+
+            log.warning(
+                "Cannot write to the database, so it stays at format v%d "
+                "without its optional upgrades",
+                step.to_version - 1,
+            )
+            break
         applied.append(step)
     return applied
 
