@@ -267,15 +267,26 @@ def test_new_db_schema_is_latest(tmp_path):
     assert trig is not None
 
 
+# The drops that undo what each format version adds, newest first,
+# since the v4 trigger sits on a v3 table
+SCHEMA_ADDED_IN = {
+    4: ["DROP TRIGGER delete_orphan_tags_after_variable_tag_delete"],
+    3: ["DROP TABLE variable_tags", "DROP TABLE tags"],
+}
+
+
+def make_db_at_version(tmp_path, version):
+    with DamnitDB.from_dir(tmp_path, create=True) as db:
+        with db.conn:
+            for added_in, drops in SCHEMA_ADDED_IN.items():
+                if added_in > version:
+                    for drop in drops:
+                        db.conn.execute(drop)
+        db.metameta["data_format_version"] = version
+
+
 def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
-    # Start with a fresh (latest) DB, then downgrade state to v2 (no tags tables, no trigger)
-    db = DamnitDB.from_dir(tmp_path, create=True)
-    with db.conn:
-        db.conn.execute("DROP TRIGGER IF EXISTS delete_orphan_tags_after_variable_tag_delete")
-        db.conn.execute("DROP TABLE IF EXISTS variable_tags")
-        db.conn.execute("DROP TABLE IF EXISTS tags")
-    db.metameta["data_format_version"] = 2
-    db.close()
+    make_db_at_version(tmp_path, 2)
 
     # Reopen to trigger upgrade
     db2 = DamnitDB.from_dir(tmp_path)
