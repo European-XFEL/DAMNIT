@@ -196,8 +196,10 @@ class ProcessingDialog(QtWidgets.QDialog):
 
         prop = self.proposal_num()
         param_value_sets = {n: set() for n in self.parameters}
+        defaults = {n: v.attributes[VariableAttributes.PARAM_DEFAULT]
+               for (n, v) in self.parameters.items()}
         for run in self.selected_runs:
-            run_params = self.db.get_parameter_values(prop, run, self.parameters)
+            run_params = defaults | self.db.get_parameter_values(prop, run, self.parameters)
             for k, v in run_params.items():
                 param_value_sets[k].add(v)
         # Use ... as a marker for varying values
@@ -289,7 +291,7 @@ class ProcessingDialog(QtWidgets.QDialog):
             prop,
             RunData.ALL,
             variables=var_ids,
-            params=self.db.get_parameter_values(prop, r, self.parameters) | set_params,
+            params=set_params,
             update_vars=False,
         ) for r in self.selected_runs]
         if requests:

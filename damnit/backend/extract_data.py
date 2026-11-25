@@ -218,6 +218,7 @@ class RunExtractor(Extractor):
         self.match = match
         self.variables = variables
         self.params = params
+        self.params_explicit = tuple([p.split('=')[0] for p in params])
         self.mock = mock
         self.uuid = uuid or str(uuid4())
         self.sandbox_args = sandbox_args
@@ -274,6 +275,14 @@ class RunExtractor(Extractor):
             args.append(str(self.proposal))
             args.append("--")
 
+        params_info = self.db.get_parameters()
+        # params_implicit are parameter values saved for this run, or specified
+        # for new runs. It doesn't contain every parameter; ctxrunner will fill
+        # in default values direct from the context file.
+        params_implicit = self.db.get_parameter_values(
+            self.proposal, self.run, params_info
+        )
+
         with tempfile.NamedTemporaryFile(prefix='damnit-file-list') as tf:
             args.extend([python_exe, '-m', 'ctxrunner', 'exec', str(self.proposal),
                          str(self.run), self.run_data.value,
@@ -290,6 +299,11 @@ class RunExtractor(Extractor):
                     args.extend(['--match', m])
             for param in self.params:
                 args.extend(["--param", param])
+            for k, v in params_implicit.items():
+                if k not in self.params_explicit:
+                    args.extend(["--param", f"{k}={v}"])
+            for pname in self.params_explicit:
+                args.extend(["--param-explicit", pname])
 
             log.debug("Running extraction subprocess with args:\n%s", args)
             p = subprocess.Popen(args, env=prepare_env(), stdin=subprocess.DEVNULL)
