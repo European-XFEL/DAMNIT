@@ -500,6 +500,18 @@ class ContextFile:
 
         return dependencies
 
+    def all_dependents(self, variable_names):
+        """
+        Return a set of names of all dependent vars (direct and indirect) of the
+        passed variable/parameter names.
+        """
+        found = set(variable_names)
+        for var_name in self.ordered_vars():
+            deps = self.direct_dependencies(self.vars[var_name], params=True)
+            if found.intersection(deps):
+                found.add(var_name)
+        return found - set(variable_names)
+
     @classmethod
     def from_py_file(cls, path: Path):
         code = path.read_text()
@@ -541,7 +553,9 @@ class ContextFile:
             for (name, p) in self.params.items()
         }
 
-    def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=()):
+    def filter(self, run_data=RunData.ALL, cluster=None, name_matches=(), variables=(), set_params=()):
+        affected_by_params  = self.all_dependents(set_params)
+
         new_vars = {}
         for name, var in self.vars.items():
 
@@ -563,7 +577,9 @@ class ContextFile:
             else:
                 name_match = True  # No --var or --match specification
 
-            if data_match and cluster_match and name_match:
+            param_affected = name in affected_by_params
+
+            if data_match and cluster_match and (name_match or param_affected):
                 new_vars[name] = var
 
         # Add back any dependencies of the selected variables
@@ -820,6 +836,8 @@ def main(argv=None):
     exec_ap.add_argument('--match', action="append", default=[])
     exec_ap.add_argument('--var', action="append", default=[])
     exec_ap.add_argument('--param', action="append", default=[])
+    # Names for explicitly given/modified parameters when reprocessing
+    exec_ap.add_argument('--param-explicit', action="append", default=[])
     exec_ap.add_argument('--record-output', type=Path)
 
     ctx_ap = subparsers.add_parser("ctx", help="Evaluate context file and pickle it to a file")
@@ -856,6 +874,7 @@ def main(argv=None):
             cluster=args.cluster_job,
             match=args.match,
             variables=args.var,
+            set_params=args.param_explicit,
         )
         log.info(
             "Using %d variables (of %d) from context file%s: %s",

@@ -841,7 +841,7 @@ class Pipeline:
         ctx = ContextFile.from_str(code, path)
         return cls(name=name, _context=ctx)
 
-    def select(self, *, variables=(), match=(), run_data=None, cluster=None):
+    def select(self, *, variables=(), match=(), set_params=(), run_data=None, cluster=None):
         """Return a new Pipeline filtered to a subset of variables."""
         run_data = self._normalize_run_data(run_data)
         filtered = self.context.filter(
@@ -849,6 +849,7 @@ class Pipeline:
             cluster=cluster,
             name_matches=match,
             variables=variables,
+            set_params=set_params,
         )
 
         new_pipe = self.copy()

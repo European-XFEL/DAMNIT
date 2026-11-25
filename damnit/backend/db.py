@@ -290,29 +290,30 @@ class DamnitDB:
                 if v.is_param}
 
     def get_parameter_values(self, proposal: int, run: int, params: dict[str, VariableInfo]):
-        res = {n: v.attributes[VariableAttributes.PARAM_DEFAULT]
-               for (n, v) in params.items()}
-        run_in_db = self.conn.execute(
-            "SELECT count(*) FROM run_info WHERE proposal=? AND RUN=?",
+        """Get parameter values for the specified run
+
+        If values are not stored for this run, fall back to set 'new run'
+        values. If those are also not set, variables are omitted from the
+        results so they can fall back to the default at execution time, to avoid
+        resurrecting old defaults that were recently changed.
+        """
+        res = {}
+        # Use any overridden defaults from the DB
+        for name, var in params.items():
+            vnr = var.get_type_class().coerce(
+                var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+            )
+            if vnr is not None:
+                res[name] = vnr
+
+        # Values already stored for this run override defaults
+        for name, dbval in self.conn.execute(
+            "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
             (proposal, run)
-        ).fetchone()[0]
-        if run_in_db:
-            rows = self.conn.execute(
-                "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
-                (proposal, run)
-            ).fetchall()
-            for name, dbval in rows:
-                if name in params:
-                    if (v := params[name].get_type_class().coerce(dbval)) is not None:
-                        res[name] = v
-        else:
-            # New run
-            for name, var in params.items():
-                vnr = var.get_type_class().coerce(
-                    var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
-                )
-                if vnr is not None:
-                    res[name] = vnr
+        ).fetchall():
+            if name in params:
+                if (v := params[name].get_type_class().coerce(dbval)) is not None:
+                    res[name] = v
 
         return res
 

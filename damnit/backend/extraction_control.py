@@ -209,6 +209,7 @@ class ExtractionRequest:
     cluster: bool = False
     match: tuple = ()
     variables: tuple = ()   # Overrides match if present
+    # params only needs explicitly specified/modified values
     params: dict = field(default_factory=dict)
     mock: bool = False
     update_vars: bool = True
@@ -518,7 +519,7 @@ def reprocess(runs, proposal=None, match=(), params=(), mock=False, watch=False,
     reqs = [ExtractionRequest(
         run, prop, RunData.ALL,
         match=match,
-        params=db.get_parameter_values(prop, run, param_info) | param_dict,
+        params=param_dict,
         mock=mock
     ) for prop, run in props_runs]
     # To reduce DB write contention, only update the computed variables in the
