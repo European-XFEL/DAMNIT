@@ -230,7 +230,12 @@ class EventProcessor:
                         db.path.parent, db,
                         noncluster_partition=self.db.settings["noncluster_partition"],
                     )
-                    req = ExtractionRequest(run, proposal, run_data, sandbox_args, damnit_python)
+                    req = ExtractionRequest(
+                        run, proposal,
+                        run_data=run_data,
+                        sandbox_args=sandbox_args,
+                        damnit_python=damnit_python,
+                    )
 
                 try:
                     submitter.submit(req)

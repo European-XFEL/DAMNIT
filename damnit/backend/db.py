@@ -8,18 +8,20 @@ import struct
 import sys
 import time
 from collections.abc import ItemsView, MutableMapping, ValuesView
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from functools import cached_property
+from graphlib import TopologicalSorter
 from pathlib import Path
 from secrets import token_hex
 from typing import Any, Optional
 
 import numpy as np
 
-from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC
+from ..definitions import DEFAULT_CONTEXT_PYTHON, UPDATE_TOPIC, VariableAttributes
 from .db_migrations import apply_migrations, latest_version
-from .user_variables import UserEditableVariable
+from . import user_variables
 
 DB_NAME = Path('runs.sqlite')
 
@@ -45,6 +47,40 @@ class ReducedData:
     summary_method: str = ''
     summary_type: Optional[str] = None
     attributes: Optional[dict] = None
+
+
+@dataclass
+class VariableInfo:
+    name: str  # Computer friendly ID: 'xgm_intensity'
+    title: str  # Human friendly title: 'XGM intensity (μJ)
+    variable_type: str | None  # e.g. 'integer', 'string' - see user_variables
+    description: str = ""
+    attributes: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_db_row(cls, r: sqlite3.Row):
+        return cls(
+            name=r['name'],
+            title=r['title'] or r['name'],
+            variable_type=r['type'],
+            description=r['description'] or "",
+            attributes=json.loads(r['attributes']) if r['attributes'] else {},
+        )
+
+    @property
+    def is_param(self):
+        return VariableAttributes.PARAM_DEFAULT in self.attributes
+
+    @property
+    def is_user_editable(self):
+        return (self.variable_type is not None) and not self.is_param
+
+    @property
+    def is_computed(self):
+        return self.variable_type is None
+
+    def get_type_class(self):
+        return user_variables.value_types_by_name[self.variable_type]
 
 
 class BlobTypes(Enum):
@@ -220,7 +256,7 @@ class DamnitDB:
     def change_run_comment(self, proposal: int, run: int, comment: str):
         self.set_variable(proposal, run, "comment", ReducedData(comment), provenance="")
 
-    def add_user_variable(self, variable: UserEditableVariable, exist_ok=False):
+    def add_user_variable(self, variable: VariableInfo, exist_ok=False):
         v = variable
         with self.conn:
             or_replace = ' OR REPLACE' if exist_ok else ''
@@ -231,24 +267,74 @@ class DamnitDB:
 
         self.update_views()
 
-    def get_user_variables(self):
+    def _get_user_variables(self) -> dict[str, VariableInfo]:
         user_variables = {}
         rows = self.conn.execute("""
             SELECT name, title, type, description, attributes FROM variables
             WHERE type IS NOT NULL
         """)
         for rr in rows:
-            var_name = rr["name"]
-            new_var = UserEditableVariable(
-                var_name,
-                title=rr["title"],
-                variable_type=rr["type"],
-                description=rr["description"],
-                attributes=rr["attributes"],
-            )
-            user_variables[var_name] = new_var
+            vinfo = VariableInfo.from_db_row(rr)
+            user_variables[vinfo.name] = vinfo
         log.debug("Loaded %d user variables", len(user_variables))
         return user_variables
+
+    def get_user_variables(self):
+        """Get a dict of user-editable variables"""
+        return {k: v for (k, v) in self._get_user_variables().items()
+                if v.is_user_editable}
+
+    def get_parameters(self):
+        """Get a dict of parameters"""
+        return {k: v for (k, v) in self._get_user_variables().items()
+                if v.is_param}
+
+    def get_parameter_values(self, proposal: int, run: int, params: dict[str, VariableInfo]):
+        """Get parameter values for the specified run
+
+        If values are not stored for this run, fall back to set 'new run'
+        values. If those are also not set, variables are omitted from the
+        results so they can fall back to the default at execution time, to avoid
+        resurrecting old defaults that were recently changed.
+        """
+        res = {}
+        # Use any overridden defaults from the DB
+        for name, var in params.items():
+            vnr = var.get_type_class().coerce(
+                var.attributes.get(VariableAttributes.PARAM_VALUE_NEW_RUN)
+            )
+            if vnr is not None:
+                res[name] = vnr
+
+        # Values already stored for this run override defaults
+        for name, dbval in self.conn.execute(
+            "SELECT name, value FROM run_variables WHERE proposal=? AND run=?",
+            (proposal, run)
+        ).fetchall():
+            if name in params:
+                if (v := params[name].get_type_class().coerce(dbval)) is not None:
+                    res[name] = v
+
+        return res
+
+    def get_computed_variables(self):
+        """Get a dict of computed variables (not parameters & editable variables)"""
+        res = {}
+        for row in self.conn.execute("""
+             SELECT name, title, type, description, attributes
+             FROM variables WHERE type IS NULL
+         """).fetchall():
+            vinfo = VariableInfo.from_db_row(row)
+            res[vinfo.name] = vinfo
+        return res
+
+    def get_variable_graph(self) -> 'VariableGraph':
+        graph = {}  # variable name: set(dependencies)
+        for vname, vinfo in self.get_computed_variables().items():
+            deps = vinfo.attributes.get("dependencies", [])
+            graph[vname] = set(deps)
+
+        return VariableGraph(graph)
 
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
@@ -259,27 +345,32 @@ class DamnitDB:
             self.conn.execute("BEGIN IMMEDIATE")
             for row in self.conn.execute("""
                 SELECT name, title, type, description, attributes FROM variables
-                WHERE type IS NULL
             """).fetchall():
                 var = dict(row)
+                if isinstance(var['attributes'], str):
+                    var['attributes'] = json.loads(var['attributes'])
                 vars_in_db[var.pop("name")] = var
 
             updates = {n: v for (n, v) in vars.items()
                        if v != vars_in_db.get(n, None)}
             log.debug("Updating stored metadata for %d computed variables",
                       len(updates))
+            for n, v in updates.items():
+                attrs = vars_in_db.get(n, {}).get('attributes') or {}
+                attrs |= (v['attributes'] or {})
+                v['attributes'] = (json.dumps(attrs) if attrs else None)
 
             # Write new & changed variables
             # TODO: what if a new computed variable name matches an existing user var?
             self.conn.executemany("""
-                INSERT INTO variables VALUES (?, NULL, ?, ?, ?)
+                INSERT INTO variables VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (name) DO UPDATE SET
                     type=excluded.type,
                     title=excluded.title,
                     description=excluded.description,
                     attributes=excluded.attributes
             """, [
-                (n, v['title'], v['description'], v['attributes'])
+                (n, v['type'], v['title'], v['description'], v['attributes'])
                 for (n, v) in updates.items()
             ])
 
@@ -448,6 +539,24 @@ class DamnitDB:
         # """, (proposal, run, name)).fetchone()[0]
         variable["version"] = 1  # if latest_version is None else latest_version + 1
         return variable
+
+    def update_variables_attrs(self, vars_attrs: dict):
+        attrs_in_db = dict(
+            self.conn.execute("SELECT name, attributes FROM variables").fetchall()
+        )
+        to_set = []
+        for name, new_attrs in vars_attrs.items():
+            old_attrs = json.loads(attrs_in_db[name]) if attrs_in_db[name] else {}
+            new_attrs = old_attrs | new_attrs
+            to_set.append({
+                'name': name, 'attributes': json.dumps(new_attrs) if new_attrs else None
+            })
+
+        with self.conn:
+            self.conn.executemany(
+                "UPDATE variables SET attributes=:attributes WHERE name=:name",
+                to_set,
+            )
 
     def delete_variable(self, name: str):
         with self.conn:
@@ -691,6 +800,25 @@ class time_db_transaction:
         logging.debug("DB change (%s): %.1f ms in transaction, %.1f ms %s",
                       self.label, t_open, t_finish, op)
         return False
+
+
+class VariableGraph:
+    def __init__(self, graph: dict[str, set[str]]):
+        # variable name: set(dependencies)
+        self.graph = graph
+
+    def all_dependents(self, var_names) -> set:
+        """Find all downstream variables of specified variables/parameters
+
+        This includes indirect dependencies.
+        """
+        affected = set(var_names)
+        for var_name in TopologicalSorter(self.graph).static_order():
+            deps = self.graph.get(var_name, set())
+            if affected.intersection(deps):
+                affected.add(var_name)
+        return affected - set(var_names)
+
 
 # Old schemas for reference and migration
 
