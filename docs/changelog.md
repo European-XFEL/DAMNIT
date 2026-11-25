@@ -4,6 +4,12 @@
 
 [Full Changelog](https://github.com/European-XFEL/DAMNIT/compare/0.4.0...HEAD)
 
+Changed:
+
+- Core: Databases gain an index on `run_variables.timestamp` (schema v5), so
+  DAMNIT-web's live updates find the newest variables without scanning the
+  whole table.
+
 Fixed:
 
 - API: `VariableData` uses the variable name when submitted data has no title.

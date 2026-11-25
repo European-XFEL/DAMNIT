@@ -266,16 +266,34 @@ def test_new_db_schema_is_latest(tmp_path):
     ).fetchone()
     assert trig is not None
 
+    # v5 index should exist
+    index = db.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='variable_timestamp'"
+    ).fetchone()
+    assert index is not None
+
+
+# The drops that undo what each format version adds, newest first,
+# since the v4 trigger sits on a v3 table
+SCHEMA_ADDED_IN = {
+    5: ["DROP INDEX variable_timestamp"],
+    4: ["DROP TRIGGER delete_orphan_tags_after_variable_tag_delete"],
+    3: ["DROP TABLE variable_tags", "DROP TABLE tags"],
+}
+
+
+def make_db_at_version(tmp_path, version):
+    with DamnitDB.from_dir(tmp_path, create=True) as db:
+        with db.conn:
+            for added_in, drops in SCHEMA_ADDED_IN.items():
+                if added_in > version:
+                    for drop in drops:
+                        db.conn.execute(drop)
+        db.metameta["data_format_version"] = version
+
 
 def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
-    # Start with a fresh (latest) DB, then downgrade state to v2 (no tags tables, no trigger)
-    db = DamnitDB.from_dir(tmp_path, create=True)
-    with db.conn:
-        db.conn.execute("DROP TRIGGER IF EXISTS delete_orphan_tags_after_variable_tag_delete")
-        db.conn.execute("DROP TABLE IF EXISTS variable_tags")
-        db.conn.execute("DROP TABLE IF EXISTS tags")
-    db.metameta["data_format_version"] = 2
-    db.close()
+    make_db_at_version(tmp_path, 2)
 
     # Reopen to trigger upgrade
     db2 = DamnitDB.from_dir(tmp_path)
@@ -283,13 +301,17 @@ def test_upgrade_from_v2_creates_backup_and_applies_missing(tmp_path):
     # Upgraded to latest
     assert db2.metameta["data_format_version"] == latest_version()
 
-    # v3 tables and v4 trigger restored
+    # v3 tables, v4 trigger and v5 index restored
     tables = {row[0] for row in db2.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "tags" in tables and "variable_tags" in tables
     trig = db2.conn.execute(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND name='delete_orphan_tags_after_variable_tag_delete'"
     ).fetchone()
     assert trig is not None
+    index = db2.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='variable_timestamp'"
+    ).fetchone()
+    assert index is not None
 
 
 def test_min_openable_version_guard(tmp_path):
@@ -319,3 +341,21 @@ def test_open_readonly(tmp_path):
     os.chmod(tmp_path, 0o500)
 
     assert "damnit_python" not in DamnitDB.from_dir(tmp_path).metameta
+
+
+def test_open_readonly_skips_optional_upgrade(tmp_path):
+    # v4 lacks only the v5 index, which readers work without
+    make_db_at_version(tmp_path, 4)
+    os.chmod(tmp_path, 0o500)
+
+    with DamnitDB.from_dir(tmp_path) as db:
+        assert db.metameta["data_format_version"] == 4
+
+
+def test_open_readonly_fails_on_required_upgrade(tmp_path):
+    # v3 also lacks the v4 trigger, which writers rely on
+    make_db_at_version(tmp_path, 3)
+    os.chmod(tmp_path, 0o500)
+
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        DamnitDB.from_dir(tmp_path)

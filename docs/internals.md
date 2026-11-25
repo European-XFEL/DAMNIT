@@ -217,7 +217,12 @@ To add database changes:
 
 2. Add a short note to `docs/internals.md` to keep a brief changelog.
 
-### v4 (current)
+### v5 (current)
+
+Adds the `variable_timestamp` index on `run_variables.timestamp`, so reading
+the variables changed since a given time does not scan the whole table.
+
+### v4
 
 Adds a trigger to remove orphaned tags after their last reference is deleted
 from `variable_tags`.
