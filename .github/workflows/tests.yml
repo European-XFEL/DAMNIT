@@ -7,7 +7,7 @@ on:
   pull_request:
 
 env:
-  SYSTEM_PACKAGES: gcc g++ xvfb libegl1
+  SYSTEM_PACKAGES: gcc g++ libegl1
 
 jobs:
   tests:

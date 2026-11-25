@@ -265,6 +265,58 @@ class ListenerRmSubcmd(Subcommand):
         print(f"Removed database at {args.db_dir}")
 
 
+class ListenerMonitorSubcmd(Subcommand):
+    name = "monitor"
+    help = "Enable or disable processing new runs for a database, without removing it"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "db_dir", type=Path,
+            help="Path to the database directory"
+        )
+        parser.add_argument(
+            "state", choices=["on", "off"],
+            help="Whether to process new runs for the database"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.listener import ListenerDB
+
+        db = ListenerDB(Path.cwd())
+        if not db.set_monitor(args.db_dir, args.state == "on"):
+            sys.exit(f"No database registered at {args.db_dir}")
+
+        print(f"Monitoring turned {args.state} for database at {args.db_dir}")
+
+
+class ListenerSandboxingSubcmd(Subcommand):
+    name = "sandboxing"
+    help = "Enable or disable sandboxing for a database (if the listener has sandboxing configured)"
+
+    @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "db_dir", type=Path,
+            help="Path to the database directory"
+        )
+        parser.add_argument(
+            "state", choices=["on", "off"],
+            help="Whether to run processing jobs in the sandbox"
+        )
+
+    @staticmethod
+    def run(args: argparse.Namespace):
+        from .backend.listener import ListenerDB
+
+        db = ListenerDB(Path.cwd())
+        if not db.set_sandboxing(args.db_dir, args.state == "on"):
+            sys.exit(f"No database registered at {args.db_dir}")
+
+        print(f"Sandboxing turned {args.state} for database at {args.db_dir}")
+
+
 class ListenerDatabasesSubcmd(Subcommand):
     name = "databases"
     help = "Display the DAMNIT databases currently being monitored"
@@ -276,14 +328,25 @@ class ListenerDatabasesSubcmd(Subcommand):
         db = ListenerDB(Path.cwd())
         all_proposals = db.all_proposals()
         sorted_proposals = sorted(all_proposals.keys())
+
+        def flags(x):
+            labels = []
+            if not x.official:
+                labels.append("unofficial")
+            if not x.monitor:
+                labels.append("not monitored")
+            if not x.sandboxing:
+                labels.append("no sandbox")
+            return f" ({', '.join(labels)})" if labels else ""
+
         for p in sorted_proposals:
             if len(all_proposals[p]) > 1:
                 print(f"p{p}:")
                 for x in all_proposals[p]:
-                    print("   ", x.db_dir, "" if x.official else " (unofficial)", sep="")
+                    print(f"    {x.db_dir}{flags(x)}")
             else:
                 x = all_proposals[p][0]
-                print(f"p{p}: {x.db_dir}", "" if x.official else "(unofficial)")
+                print(f"p{p}: {x.db_dir}{flags(x)}")
 
 
 class ListenerSubcmd(SubcommandGroup):
@@ -294,6 +357,8 @@ class ListenerSubcmd(SubcommandGroup):
         ListenerConfigSubcmd,
         ListenerAddSubcmd,
         ListenerRmSubcmd,
+        ListenerMonitorSubcmd,
+        ListenerSandboxingSubcmd,
         ListenerDatabasesSubcmd,
     ]
 
@@ -303,9 +368,21 @@ class CombinerRunSubcmd(Subcommand):
     help = "Run the DAMNIT combiner"
 
     @staticmethod
+    def arguments(parser: argparse.ArgumentParser):
+        parser.add_argument(
+            "--listener-dir", type=Path,
+            help="Path to the listener database directory. If given, databases "
+                 "that the listener isn't monitoring will be skipped."
+        )
+
+    @staticmethod
     def run(args: argparse.Namespace):
         from .backend.combine import main
-        return main()
+
+        if args.listener_dir is not None and not (args.listener_dir / "listener.sqlite").is_file():
+            sys.exit(f"No listener database found in {args.listener_dir}")
+
+        return main(args.listener_dir)
 
 
 class CombinerNowSubcmd(Subcommand):

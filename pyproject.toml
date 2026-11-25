@@ -60,7 +60,6 @@ test = [
     "pytest",
     "pytest-qt",
     "pytest-cov",
-    "pytest-xvfb",
     "pytest-timeout",
     "pytest-venv",
     "testpath",

@@ -10,6 +10,7 @@ from damnit.api import Damnit, submit
 from damnit.context import Cell
 from damnit.backend.combine import combine, FileSubmissionProcessor
 from damnit.backend.db import MsgKind
+from damnit.backend.listener import ListenerDB
 from damnit.ctxsupport.damnit_writing import DamnitFileWriter
 from damnit.definitions import FILE_SUBMIT_TOPIC
 
@@ -66,6 +67,34 @@ def test_combiner_service(mock_db, mock_kafka_broker):
         sh.submit_and_combine(1234, 56, {"array": np.arange(15)})
 
         np.testing.assert_array_equal(api_obj[56, "array"].read(), np.arange(15))
+
+
+def test_combiner_skips_unmonitored(mock_db, mock_kafka_broker, tmp_path):
+    db_dir, db = mock_db
+    listener_dir = tmp_path / "listener"
+    listener_dir.mkdir()
+    listener_db = ListenerDB(listener_dir)
+    listener_db.add_proposal_db(1234, db_dir, official=True)
+    listener_db.set_monitor(db_dir, False)
+
+    combiner = FileSubmissionProcessor(
+        consumer_config={'auto_offset_reset': 'earliest'}, listener_dir=listener_dir
+    )
+    with mock_kafka_broker.assert_produces(FILE_SUBMIT_TOPIC):
+        submit(1234, 56, {"array": np.arange(10)}, provenance="test", damnit_dir=db_dir)
+    combiner.handle_one_message()
+    combiner.shutdown()
+
+    # The fragment should be left alone
+    h5_dir = db_dir / "extracted_data"
+    assert not (h5_dir / "p1234_r56.h5").exists()
+    assert len(list(h5_dir.glob("*.ready.h5"))) == 1
+
+    # Unregistered databases are only monitored in dynamic mode
+    listener_db.settings["static_mode"] = True
+    assert not listener_db.is_monitored(1234, tmp_path / "other")
+    listener_db.settings["static_mode"] = False
+    assert listener_db.is_monitored(1234, tmp_path / "other")
 
 
 @pytest.mark.parametrize("proposal, run", [(1234.0, 56), (1234, 56.0)])

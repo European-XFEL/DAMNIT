@@ -15,6 +15,7 @@ from ..context import DataType
 from ..definitions import FILE_SUBMIT_TOPIC, update_brokers
 from .db import DamnitDB, MsgKind, msg_dict
 from .extract_data import add_to_db, load_reduced_data
+from .listener import ListenerDB
 from .service import notify_ready
 
 FRAGMENT_PATTERN = re.compile(r"p(\d+)_r(\d+).(.+).ready.h5$")
@@ -219,7 +220,16 @@ def combine(src: Path, dst: Path):
 
 
 class FileSubmissionProcessor:
-    def __init__(self, consumer_config=None):
+    def __init__(self, consumer_config=None, listener_dir=None):
+        if listener_dir is None:
+            self.listener_db = None
+            group_id = 'xfel-da-damnit-combiner'
+        else:
+            self.listener_db = ListenerDB(listener_dir)
+            # Separate groups so that every combiner sees every message
+            listener_dir = str(Path(listener_dir).resolve()).replace("/", "_")
+            group_id = f'xfel-da-damnit-combiner-{listener_dir}'
+
         consumer_config = {
             # Fragment file copies hold the GIL and can take several 10s of
             # seconds, starving kafka's heartbeat thread.
@@ -234,7 +244,7 @@ class FileSubmissionProcessor:
         self.consumer = KafkaConsumer(
             FILE_SUBMIT_TOPIC,
             bootstrap_servers=update_brokers(),
-            group_id='xfel-da-damnit-combiner',
+            group_id=group_id,
             consumer_timeout_ms=600_000,
             **consumer_config
         )
@@ -253,6 +263,8 @@ class FileSubmissionProcessor:
         self.consumer.close()
         self.producer.flush(timeout=10)
         self.producer.close(timeout=10)
+        if self.listener_db is not None:
+            self.listener_db.close()
 
     def run(self):
         while True:
@@ -288,6 +300,10 @@ class FileSubmissionProcessor:
         )
 
         prop, run = d['proposal'], d['run']
+
+        if self.listener_db is not None and not self.listener_db.is_monitored(prop, damnit_dir):
+            log.info(f"Not monitoring {damnit_dir}, leaving {src} uncombined")
+            return
 
         if not self.wait_file_exists(src, msg_timestamp):
             log.warning(
@@ -361,7 +377,7 @@ def interrupted(signum, frame):
     raise KeyboardInterrupt
 
 
-def main():
+def main(listener_dir=None):
     logging.basicConfig(level=logging.DEBUG)
     # Exclude debug level logging from kafka-python
     logging.getLogger('kafka').setLevel(logging.INFO)
@@ -369,7 +385,7 @@ def main():
     # Treat SIGTERM like SIGINT (Ctrl-C) & do a clean shutdown
     signal.signal(signal.SIGTERM, interrupted)
 
-    with FileSubmissionProcessor() as processor:
+    with FileSubmissionProcessor(listener_dir=listener_dir) as processor:
         notify_ready()
         try:
             log.info("Waiting for file submission messages")
