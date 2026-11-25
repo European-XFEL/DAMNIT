@@ -341,3 +341,21 @@ def test_open_readonly(tmp_path):
     os.chmod(tmp_path, 0o500)
 
     assert "damnit_python" not in DamnitDB.from_dir(tmp_path).metameta
+
+
+def test_open_readonly_skips_optional_upgrade(tmp_path):
+    # v4 lacks only the v5 index, which readers work without
+    make_db_at_version(tmp_path, 4)
+    os.chmod(tmp_path, 0o500)
+
+    with DamnitDB.from_dir(tmp_path) as db:
+        assert db.metameta["data_format_version"] == 4
+
+
+def test_open_readonly_fails_on_required_upgrade(tmp_path):
+    # v3 also lacks the v4 trigger, which writers rely on
+    make_db_at_version(tmp_path, 3)
+    os.chmod(tmp_path, 0o500)
+
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        DamnitDB.from_dir(tmp_path)
