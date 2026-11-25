@@ -11,6 +11,8 @@ from collections.abc import ItemsView, MutableMapping, ValuesView
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from functools import cached_property
+from graphlib import TopologicalSorter
 from pathlib import Path
 from secrets import token_hex
 from typing import Any, Optional
@@ -324,6 +326,14 @@ class DamnitDB:
             vinfo = VariableInfo.from_db_row(row)
             res[vinfo.name] = vinfo
         return res
+
+    def get_variable_graph(self) -> 'VariableGraph':
+        graph = {}  # variable name: set(dependencies)
+        for vname, vinfo in self.get_computed_variables().items():
+            deps = vinfo.attributes.get("dependencies", [])
+            graph[vname] = set(deps)
+
+        return VariableGraph(graph)
 
     def update_computed_variables(self, vars: dict):
         vars_in_db = {}
@@ -789,6 +799,25 @@ class time_db_transaction:
         logging.debug("DB change (%s): %.1f ms in transaction, %.1f ms %s",
                       self.label, t_open, t_finish, op)
         return False
+
+
+class VariableGraph:
+    def __init__(self, graph: dict[str, set[str]]):
+        # variable name: set(dependencies)
+        self.graph = graph
+
+    def all_dependents(self, var_names) -> set:
+        """Find all downstream variables of specified variables/parameters
+
+        This includes indirect dependencies.
+        """
+        affected = set(var_names)
+        for var_name in TopologicalSorter(self.graph).static_order():
+            deps = self.graph.get(var_name, set())
+            if affected.intersection(deps):
+                affected.add(var_name)
+        return affected - set(var_names)
+
 
 # Old schemas for reference and migration
 

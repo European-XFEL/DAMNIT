@@ -150,7 +150,6 @@ class ProcessingDialog(QtWidgets.QDialog):
 
         self.vars_list.itemChanged.connect(self.validate_vars)
 
-        self.vars_graph = {}  # variable name: set(dependencies)
         for vname, vinfo in db.get_computed_variables().items():
             itm = QtWidgets.QListWidgetItem(vinfo.title)
             itm.setData(Qt.ItemDataRole.UserRole, vname)
@@ -158,8 +157,7 @@ class ProcessingDialog(QtWidgets.QDialog):
             itm.setCheckState(Qt.CheckState.Checked if sel else Qt.CheckState.Unchecked)
             self.vars_list.addItem(itm)
 
-            deps = vinfo.attributes.get("dependencies", [])
-            self.vars_graph[vname] = set(deps)
+        self.vars_graph = db.get_variable_graph()
 
         self.validate_runs()
         self.validate_vars()
@@ -216,17 +214,9 @@ class ProcessingDialog(QtWidgets.QDialog):
         self.params_form = new_form
         self.params_form.changed.connect(self.select_required_vars)
 
-    def affected_variables(self, modified_params) -> set:
-        affected = set(modified_params)
-        for var_name in TopologicalSorter(self.vars_graph).static_order():
-            deps = self.vars_graph.get(var_name, set())
-            if affected.intersection(deps):
-                affected.add(var_name)
-        return affected
-
     def select_required_vars(self):
         modified_params = self.params_form.get_modified_values()
-        affected_vars = self.affected_variables(modified_params)
+        affected_vars = self.vars_graph.all_dependents(modified_params)
 
         for itm in self._var_list_items():
             var_id = itm.data(Qt.ItemDataRole.UserRole)
