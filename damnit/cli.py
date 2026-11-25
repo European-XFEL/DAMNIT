@@ -137,6 +137,9 @@ class GuiSubcmd(Subcommand):
 
     @staticmethod
     def run(args: argparse.Namespace):
+        # kafka-python logs a lot, so be one level more selective in what to show
+        logging.getLogger('kafka').setLevel(logging.INFO if args.debug else logging.WARNING)
+
         context_dir = get_existing_damnit_dir(args.proposal_or_dir)
 
         from .gui.main_window import run_app
